@@ -388,11 +388,11 @@ fn render_test_file(
         let _ = writeln!(out, "  }} on SocketException {{");
         let _ = writeln!(out, "    _httpClient.close(force: true);");
         let _ = writeln!(out, "    _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
-        let _ = writeln!(out, "    return fn();");
+        let _ = writeln!(out, "    return await fn();");
         let _ = writeln!(out, "  }} on HttpException {{");
         let _ = writeln!(out, "    _httpClient.close(force: true);");
         let _ = writeln!(out, "    _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
-        let _ = writeln!(out, "    return fn();");
+        let _ = writeln!(out, "    return await fn();");
         let _ = writeln!(out, "  }}");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
@@ -1997,8 +1997,9 @@ impl client::TestClientRenderer for DartTestClientRenderer {
     /// - `_httpClient.openUrl(method, uri)`.
     /// - `followRedirects = false` when `is_redirect` is pre-set on the renderer.
     /// - Content-Type header, request headers, cookies, optional body bytes.
+    /// - `ioReq.contentLength` when a body is present (avoids chunked encoding).
     /// - `ioReq.close()` → `ioResp`.
-    /// - Response-body drain into `bodyStr` (skipped for redirect responses).
+    /// - Response-body drain into `bodyStr` (always emitted, including for 3xx).
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         // dart:io restricted headers (handled automatically by the HTTP stack).
         const DART_RESTRICTED_HEADERS: &[&str] = &["content-length", "host", "transfer-encoding"];
@@ -2070,20 +2071,25 @@ impl client::TestClientRenderer for DartTestClientRenderer {
         }
 
         // Write body bytes if present (bypass charset-based encoding issues).
+        // Set contentLength explicitly so Dart sends Content-Length rather than
+        // chunked Transfer-Encoding — consistent with Python (urllib) and Go (http)
+        // which both set Content-Length automatically. Chunked encoding is valid
+        // HTTP/1.1 but some server configurations respond with a connection reset.
         if let Some(body) = ctx.body {
             let json_str = serde_json::to_string(body).unwrap_or_default();
             let escaped = escape_dart(&json_str);
             let _ = writeln!(out, "    final bodyBytes = utf8.encode('{escaped}');");
+            let _ = writeln!(out, "    ioReq.contentLength = bodyBytes.length;");
             let _ = writeln!(out, "    ioReq.add(bodyBytes);");
         }
 
         let _ = writeln!(out, "    final ioResp = await ioReq.close();");
-        // Drain the response body to bind `bodyStr` for assertion primitives and to
-        // allow the server to cleanly close the connection (prevents RST packets).
-        // Redirect responses have no body to drain — skip to avoid a potential hang.
-        if !self.is_redirect.get() {
-            let _ = writeln!(out, "    final bodyStr = await ioResp.transform(utf8.decoder).join();");
-        };
+        // Always drain the response body into `bodyStr` so assertion primitives
+        // (render_assert_json_body, render_assert_partial_body, etc.) can reference
+        // it unconditionally. For 3xx redirect responses with followRedirects=false,
+        // the mock server still sends a response body (e.g. `{}`) — draining it is
+        // safe and necessary when the fixture has a body assertion.
+        let _ = writeln!(out, "    final bodyStr = await ioResp.transform(utf8.decoder).join();");
     }
 
     fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {

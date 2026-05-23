@@ -2022,3 +2022,163 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
         "sanitized variant arm must not appear in From impl: {lib}"
     );
 }
+
+/// Tuple-variant error types (fields named `_0`, `_1`, … as set by the extractor for
+/// `syn::Fields::Unnamed`) must use positional constructor syntax in the `From<&Mirror>`
+/// impl. The mirror enum always uses struct syntax `{ field0: T }` (FRB requirement),
+/// but the core type expects `CoreError::Variant(value)` — not `CoreError::Variant { field0: value }`.
+///
+/// Regression test for: dart bridge crate failing to compile with
+/// E0559 "variant `X` has no field named `field0`" when the core variant is a tuple.
+#[test]
+fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
+    // Tuple-variant fields have positional names "_0", "_1" (as set by the extractor).
+    let make_positional_field = |idx: usize, ty: TypeRef| FieldDef {
+        name: format!("_{idx}"),
+        ty,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    };
+
+    // A named-field variant to verify struct syntax is still used for those.
+    let make_named_field = |name: &str, ty: TypeRef| FieldDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    };
+
+    let error = ErrorDef {
+        name: "GraphQLError".to_string(),
+        rust_path: "demo_crate::GraphQLError".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            // Tuple variant with one String field: GraphQLError::ExecutionError(String)
+            ErrorVariant {
+                name: "ExecutionError".to_string(),
+                message_template: None,
+                fields: vec![make_positional_field(0, TypeRef::String)],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            },
+            // Tuple variant with two fields: GraphQLError::NetworkError(String, i64)
+            ErrorVariant {
+                name: "NetworkError".to_string(),
+                message_template: None,
+                fields: vec![
+                    make_positional_field(0, TypeRef::String),
+                    make_positional_field(1, TypeRef::Primitive(PrimitiveType::U16)),
+                ],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            },
+            // Struct variant with named fields: must still use struct syntax.
+            ErrorVariant {
+                name: "SchemaError".to_string(),
+                message_template: None,
+                fields: vec![make_named_field("message", TypeRef::String)],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            },
+            // Unit variant: must stay simple.
+            ErrorVariant {
+                name: "Unknown".to_string(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            },
+        ],
+        doc: String::new(),
+        methods: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![error],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Tuple variants: mirror pattern uses struct syntax { field0: … } (FRB requirement),
+    // but the core constructor must use positional tuple syntax Self::Variant(expr).
+    assert!(
+        lib.contains("GraphQLError::ExecutionError { field0: f_field0 }"),
+        "tuple variant pattern must still use mirror struct syntax {{field0: …}}: {lib}"
+    );
+    assert!(
+        lib.contains("Self::ExecutionError(f_field0.clone())"),
+        "tuple variant constructor must use positional tuple syntax Self::ExecutionError(…): {lib}"
+    );
+    assert!(
+        !lib.contains("Self::ExecutionError { field0:"),
+        "tuple variant constructor must NOT use struct syntax Self::ExecutionError {{ field0: … }}: {lib}"
+    );
+
+    // Two-field tuple variant: both positional args must appear.
+    assert!(
+        lib.contains("GraphQLError::NetworkError { field0: f_field0, field1: f_field1 }"),
+        "two-field tuple variant pattern must use struct syntax: {lib}"
+    );
+    assert!(
+        lib.contains("Self::NetworkError(f_field0.clone(),"),
+        "two-field tuple variant constructor must use positional tuple syntax: {lib}"
+    );
+
+    // Named-field struct variant must still use struct syntax.
+    assert!(
+        lib.contains("Self::SchemaError { message:"),
+        "named-field struct variant constructor must still use struct syntax: {lib}"
+    );
+
+    // Unit variant must remain unchanged.
+    assert!(
+        lib.contains("GraphQLError::Unknown => Self::Unknown"),
+        "unit variant arm must be unchanged: {lib}"
+    );
+}

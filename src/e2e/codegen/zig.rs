@@ -462,15 +462,23 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
             let _ = writeln!(out, "    }};");
         }
 
+        let headers_arg = if ctx.headers.is_empty() { "&.{}" } else { "&headers" };
+        let has_body = ctx.body.is_some();
+        // zig 0.16's std.http.Client.fetch asserts in `sendBodilessUnflushed` when a
+        // body-requiring method (POST/PUT/PATCH) is sent without a `.payload`. The mock server
+        // replays by fixture id and ignores the request body, so emit an empty payload for such
+        // methods when the fixture itself carries no body, avoiding the `reached unreachable` panic.
+        let method_requires_body = matches!(method.as_str(), "POST" | "PUT" | "PATCH");
+        let emit_payload = has_body || method_requires_body;
+
         // Body
         if let Some(body) = ctx.body {
             let json_str = serde_json::to_string(body).unwrap_or_default();
             let escaped = escape_zig(&json_str);
             let _ = writeln!(out, "    const body_bytes: []const u8 = \"{escaped}\";");
+        } else if emit_payload {
+            let _ = writeln!(out, "    const body_bytes: []const u8 = \"\";");
         }
-
-        let headers_arg = if ctx.headers.is_empty() { "&.{}" } else { "&headers" };
-        let has_body = ctx.body.is_some();
 
         // zig 0.16: std.http.Client requires an `io: Io` (the new std.Io abstraction), and
         // the response body is captured through a std.Io.Writer rather than the removed
@@ -497,7 +505,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
             _ => ".GET",
         };
 
-        let payload_field = if has_body { ", .payload = body_bytes" } else { "" };
+        let payload_field = if emit_payload { ", .payload = body_bytes" } else { "" };
         let _ = writeln!(
             out,
             "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .response_writer = &response_body.writer }});",
@@ -616,6 +624,19 @@ fn render_test_file(
     let _ = writeln!(out, "const std = @import(\"std\");");
     let _ = writeln!(out, "const testing = std.testing;");
     let _ = writeln!(out, "const {module_name} = @import(\"{module_name}\");");
+    let _ = writeln!(out);
+
+    // Suppress C++ static destructors that may abort during exit (e.g., leptonica's ObjectCache cleanup).
+    // The Zig test runner's --listen=- IPC protocol expects a clean exit, but C++ cleanup can trigger
+    // SIGABRT, causing the runner to see BrokenPipe and fail. This extern function calls libc's atexit
+    // to register a handler that calls _exit(0) immediately, bypassing C++ destructors.
+    let _ = writeln!(out, "// Suppress C++ global destructor aborts that break zig's --listen=- IPC");
+    let _ = writeln!(out, "extern fn atexit(cb: fn () callconv(.c) void) c_int;");
+    let _ = writeln!(out, "extern fn _exit(code: i32) noreturn;");
+    let _ = writeln!(out, "fn suppress_cpp_destructors() callconv(.c) void {{");
+    let _ = writeln!(out, "    _exit(0);");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out, "comptime {{ _ = atexit(suppress_cpp_destructors); }}");
     let _ = writeln!(out);
 
     let _ = writeln!(out, "// E2e tests for category: {category}");

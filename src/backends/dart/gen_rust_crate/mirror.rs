@@ -278,7 +278,16 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
             // on the wildcard below for exhaustiveness.
             continue;
         } else {
-            // Collect field names (matching emit_mirror_error's tuple-rename logic).
+            // Detect tuple variants: all fields have positional names ("_0", "_1", …)
+            // as set by the extractor for `syn::Fields::Unnamed`. Named struct variants
+            // have real field names that don't start with `_`.
+            let is_tuple_variant = variant
+                .fields
+                .iter()
+                .all(|f| f.name.is_empty() || f.name.starts_with('_'));
+
+            // Collect display field names (matching emit_mirror_error's rename logic):
+            // positional "_N" names become "fieldN" because FRB strips leading underscores.
             let field_names: Vec<String> = variant
                 .fields
                 .iter()
@@ -292,9 +301,8 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 })
                 .collect();
 
-            // Pattern binding: `Name::Variant { field0: f_field0, ... }`
-            // The impl takes `&MirrorEnum` so the match arm implicitly borrows all
-            // fields — `ref` is redundant and rejected by rustc (Rust 2024 edition).
+            // Pattern: the mirror always uses struct syntax (FRB converts tuple variants
+            // to named struct variants), so the destructure is always `{ fieldN: f_fieldN }`.
             let pat_fields: String = field_names
                 .iter()
                 .map(|fname| format!("{fname}: f_{fname}"))
@@ -305,17 +313,34 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 name = error.name,
             ));
 
-            // Reconstruct real-type fields with correct casts.
-            let mut real_fields: Vec<String> = Vec::new();
-            for (i, f) in variant.fields.iter().enumerate() {
-                let fname = &field_names[i];
-                let expr = field_from_expr(f, &format!("f_{fname}"));
-                real_fields.push(format!("                    {fname}: {expr}"));
+            // Constructor: tuple variants need positional syntax `Self::Variant(f0, f1)`;
+            // struct variants need named syntax `Self::Variant { name: expr }`.
+            if is_tuple_variant {
+                let args: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        let fname = &field_names[i];
+                        field_from_expr(f, &format!("f_{fname}"))
+                    })
+                    .collect();
+                out.push_str(&format!(
+                    "                Self::{vname}({})\n",
+                    args.join(", "),
+                ));
+            } else {
+                let mut real_fields: Vec<String> = Vec::new();
+                for (i, f) in variant.fields.iter().enumerate() {
+                    let fname = &field_names[i];
+                    let expr = field_from_expr(f, &format!("f_{fname}"));
+                    real_fields.push(format!("                    {fname}: {expr}"));
+                }
+                out.push_str(&format!(
+                    "                Self::{vname} {{\n{},\n                }}\n",
+                    real_fields.join(",\n"),
+                ));
             }
-            out.push_str(&format!(
-                "                Self::{vname} {{\n{},\n                }}\n",
-                real_fields.join(",\n"),
-            ));
             out.push_str("            }\n");
         }
     }
