@@ -2219,7 +2219,7 @@ fn json_to_kotlin(value: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     fn make_resolver_for_finish_reason() -> FieldResolver {
         // Resolver for `choices[0].finish_reason` where:
@@ -2570,7 +2570,7 @@ mod tests {
                 status: 200,
                 body: None,
                 stream_chunks: Some(vec![serde_json::json!({"delta": "hi"})]),
-                headers: HashMap::new(),
+                headers: BTreeMap::new(),
             }),
             visitor: None,
             assertions: vec![],
@@ -2651,15 +2651,15 @@ mod tests {
                     route: "/v1/test".to_string(),
                     method: "POST".to_string(),
                     body_schema: None,
-                    parameters: HashMap::new(),
+                    parameters: BTreeMap::new(),
                     middleware: None,
                 },
                 request: HttpRequest {
                     method: "POST".to_string(),
                     path: "/v1/test".to_string(),
-                    headers: HashMap::new(),
-                    query_params: HashMap::new(),
-                    cookies: HashMap::new(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
                     body: None,
                     content_type: None,
                 },
@@ -2667,7 +2667,7 @@ mod tests {
                     status_code: 200,
                     body: None,
                     body_partial: None,
-                    headers: HashMap::new(),
+                    headers: BTreeMap::new(),
                     validation_errors: None,
                 },
             }),
