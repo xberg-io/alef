@@ -26,11 +26,14 @@ use std::path::PathBuf;
 fn render_core_dep(
     crate_name: &str,
     core_crate_dir: &str,
+    version: &str,
     default_features: &str,
     overrides: &[FfiTargetDepOverride],
 ) -> (String, String) {
     if overrides.is_empty() {
-        let line = format!("{crate_name} = {{ path = \"../{core_crate_dir}\"{default_features} }}");
+        let line = format!(
+            "{crate_name} = {{ path = \"../{core_crate_dir}\", version = \"{version}\"{default_features} }}"
+        );
         return (line, String::new());
     }
 
@@ -43,7 +46,7 @@ fn render_core_dep(
 
     let mut blocks = String::new();
     blocks.push_str(&format!(
-        "[target.'cfg(not({combined_cfg}))'.dependencies]\n{crate_name} = {{ path = \"../{core_crate_dir}\"{default_features} }}\n"
+        "[target.'cfg(not({combined_cfg}))'.dependencies]\n{crate_name} = {{ path = \"../{core_crate_dir}\", version = \"{version}\"{default_features} }}\n"
     ));
     for override_ in overrides {
         let features_str = if override_.features.is_empty() {
@@ -53,7 +56,7 @@ fn render_core_dep(
             format!(", features = [{}]", quoted.join(", "))
         };
         blocks.push_str(&format!(
-            "\n[target.'cfg({})'.dependencies]\n{crate_name} = {{ path = \"../{core_crate_dir}\"{features_str} }}\n",
+            "\n[target.'cfg({})'.dependencies]\n{crate_name} = {{ path = \"../{core_crate_dir}\", version = \"{version}\"{features_str} }}\n",
             override_.cfg
         ));
     }
@@ -142,6 +145,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let (core_dep_line, target_blocks) = render_core_dep(
         &config.name,
         &core_crate_dir,
+        version,
         &core_dep_features(config, Language::Ffi),
         target_overrides,
     );
@@ -314,4 +318,57 @@ unset(_FFI_PREFIX)
             generated_header: true,
         },
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_core_dep_includes_version_in_default_line() {
+        let (core_dep_line, target_blocks) =
+            render_core_dep("my-lib", "my-lib-core", "1.2.3", ", features = [\"foo\"]", &[]);
+
+        assert!(!core_dep_line.is_empty(), "Expected non-empty core_dep_line");
+        assert!(
+            core_dep_line.contains("version = \"1.2.3\""),
+            "Expected 'version = \"1.2.3\"' in core_dep_line: {}",
+            core_dep_line
+        );
+        assert!(
+            core_dep_line.contains("path = \"../my-lib-core\""),
+            "Expected path reference in core_dep_line: {}",
+            core_dep_line
+        );
+        assert!(target_blocks.is_empty(), "Expected empty target_blocks");
+    }
+
+    #[test]
+    fn test_render_core_dep_includes_version_in_target_blocks() {
+        let overrides = vec![FfiTargetDepOverride {
+            cfg: "target_os = \"windows\"".to_string(),
+            features: vec!["windows-feature".to_string()],
+        }];
+        let (core_dep_line, target_blocks) =
+            render_core_dep("my-lib", "my-lib-core", "2.0.0", "", &overrides);
+
+        assert!(
+            core_dep_line.is_empty(),
+            "Expected empty core_dep_line when overrides present"
+        );
+        assert!(
+            !target_blocks.is_empty(),
+            "Expected non-empty target_blocks"
+        );
+        assert!(
+            target_blocks.contains("version = \"2.0.0\""),
+            "Expected 'version = \"2.0.0\"' in target_blocks: {}",
+            target_blocks
+        );
+        assert!(
+            target_blocks.contains("path = \"../my-lib-core\""),
+            "Expected path reference in target_blocks: {}",
+            target_blocks
+        );
+    }
 }

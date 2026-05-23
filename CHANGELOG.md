@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-scaffold/ffi: emit `version =` alongside `path =` on intra-workspace path-dependencies so `cargo publish` accepts FFI crate manifests.** `cargo publish` rejected the FFI crate with `error: failed to verify manifest ... all dependencies must have a version requirement specified when publishing` because `render_core_dep` emitted `{crate_name} = { path = "..." }` with no `version =` field. Hand-written sibling crates (e.g. `liter-llm-proxy`, `liter-llm-cli`) carry `version = "X.Y.Z"` alongside `path = "..."` and publish cleanly; alef-scaffolded `liter-llm-ffi` did not, blocking the v1.4.0-rc.29 release run. The three emission sites in `render_core_dep` (default `[dependencies]` line, `cfg(not(...))` default branch, per-target override `cfg(...)` block) now all thread `api.version` and emit `version = "{version}"` alongside `path = "..."`. Added unit tests asserting the emitted dep line contains the version field. (`src/scaffold/languages/ffi.rs`)
+
 ## [0.18.0] - 2026-05-23
 
 ### Changed
