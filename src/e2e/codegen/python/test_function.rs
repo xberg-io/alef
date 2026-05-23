@@ -745,7 +745,12 @@ fn emit_handle_arg(
                 format!("{snake_key}={py_val}")
             })
             .collect();
-        let config_class = options_type.unwrap_or("CrawlConfig");
+        let config_class = options_type.unwrap_or_else(|| {
+            panic!(
+                "python e2e: handle arg `{}` requires `options_type` on the call config (set `[e2e.call] options_type = \"...\"` to the Python class name of the handle's config struct)",
+                arg.name
+            )
+        });
         let single_line = format!("    {var_name}_config = {config_class}({})", kwargs.join(", "));
         if single_line.len() <= 120 {
             arg_bindings.push(single_line);

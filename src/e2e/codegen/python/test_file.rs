@@ -376,7 +376,11 @@ fn build_thirdparty_imports(
             })
     });
     if needs_config_import {
-        let config_class = options_type.as_deref().unwrap_or("CrawlConfig");
+        let config_class = options_type.as_deref().unwrap_or_else(|| {
+            panic!(
+                "python e2e: handle arg present but no `options_type` configured on the call (set `[e2e.call] options_type = \"...\"` to the Python class name of the handle's config struct)"
+            )
+        });
         if !import_names.contains(&config_class.to_string()) {
             import_names.push(config_class.to_string());
         }

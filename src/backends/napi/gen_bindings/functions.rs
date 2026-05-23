@@ -862,7 +862,11 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
 
     let adapter_name = &adapter.name;
     let js_name = to_node_name(adapter_name);
-    let owner_type = adapter.owner_type.as_deref().unwrap_or("CrawlEngineHandle");
+    let owner_type = adapter.owner_type.as_deref().unwrap_or_else(|| {
+        panic!(
+            "napi adapter `{adapter_name}`: streaming adapter requires `owner_type` in `[[adapters]]` config (the Rust handle type that owns the streaming method)"
+        )
+    });
     let js_owner_type = format!("Js{owner_type}");
 
     // Build parameter list from adapter params (skip 'self' which is implicit on engine).

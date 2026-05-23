@@ -637,12 +637,24 @@ pub(super) fn gen_adapter_wrapper(
 ) -> String {
     let adapter_name = &adapter.name;
     let go_func_name = to_go_name(adapter_name);
-    let owner_type = adapter.owner_type.as_deref().unwrap_or("EngineHandle");
-    let item_type = adapter.item_type.as_deref().unwrap_or("Item");
+    let owner_type = adapter.owner_type.as_deref().unwrap_or_else(|| {
+        panic!(
+            "go adapter `{adapter_name}`: streaming adapter requires `owner_type` in `[[adapters]]` config (the Rust handle type that owns the streaming method)"
+        )
+    });
+    let item_type = adapter.item_type.as_deref().unwrap_or_else(|| {
+        panic!(
+            "go adapter `{adapter_name}`: streaming adapter requires `item_type` in `[[adapters]]` config (the Rust item type yielded by the stream)"
+        )
+    });
     let item_type_simple = item_type.rsplit("::").next().unwrap_or(item_type);
 
     // Extract request type and simplify (remove Rust path prefix)
-    let request_type = adapter.request_type.as_deref().unwrap_or("Request");
+    let request_type = adapter.request_type.as_deref().unwrap_or_else(|| {
+        panic!(
+            "go adapter `{adapter_name}`: streaming adapter requires `request_type` in `[[adapters]]` config (the Rust request payload type)"
+        )
+    });
     let request_type_simple = request_type.rsplit("::").next().unwrap_or(request_type);
 
     // Decompose request struct into primitives for ergonomic wrapper.

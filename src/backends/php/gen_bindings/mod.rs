@@ -1946,7 +1946,12 @@ fn gen_streaming_adapter_facade_method(
     use heck::ToLowerCamelCase;
 
     let method_name = adapter.name.to_lower_camel_case();
-    let owner_type = adapter.owner_type.as_deref().unwrap_or("EngineHandle");
+    let adapter_name = &adapter.name;
+    let owner_type = adapter.owner_type.as_deref().unwrap_or_else(|| {
+        panic!(
+            "php adapter `{adapter_name}`: streaming adapter requires `owner_type` in `[[adapters]]` config (the Rust handle type that owns the streaming method)"
+        )
+    });
 
     // Build Rust function signature
     let mut params: Vec<String> = vec![format!("engine: &{owner_type}")];
