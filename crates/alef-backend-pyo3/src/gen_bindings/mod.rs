@@ -128,10 +128,10 @@ fn replace_constructor_with_serde_rename(
                 && matches!(f.ty, alef_core::ir::TypeRef::Duration);
 
             let ty = if f.optional || force_optional {
-                match &f.ty {
-                    alef_core::ir::TypeRef::Optional(_) => mapper.map_type(&f.ty),
-                    _ => format!("Option<{}>", mapper.map_type(&f.ty)),
-                }
+                // All optional constructor parameters are emitted as Option<T>.
+                // The IR unwraps TypeRef::Optional to mark fields as optional,
+                // so we need to re-wrap the base type for the constructor signature.
+                format!("Option<{}>", mapper.map_type(&f.ty))
             } else {
                 mapper.map_type(&f.ty)
             };

@@ -489,6 +489,21 @@ pub struct CallConfig {
     /// skip_languages
     #[serde(default)]
     pub skip_languages: Vec<String>,
+    /// Per-backend exclusion: backends listed here will emit a skip comment instead of
+    /// a failing test, with the documented reason that the call is unsupported on that
+    /// backend (e.g., "brew: interact requires complex JSON serialization of PageAction enums").
+    ///
+    /// Use this when a backend structurally cannot support a call (e.g., CLI-based
+    /// backends that lack certain features). Unlike `skip_languages`, unsupported calls
+    /// are documented in the generated test files with rationale comments.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e.calls.interact]
+    /// unsupported_in = { brew = "interact requires serializing Vec<PageAction> enums to JSON CLI args" }
+    /// ```
+    #[serde(default)]
+    pub unsupported_in: HashMap<String, String>,
     /// When `true`, the function returns a primitive (e.g. `String`, `bool`,
     /// `i32`) rather than a struct.  Generators that would otherwise emit
     /// `result.<field>` will fall back to the bare result variable.

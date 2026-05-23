@@ -351,6 +351,14 @@ fn render_test_function(
         &fixture.tags,
         &fixture.input,
     );
+
+    // Check if this call is unsupported in brew. If so, skip the test with a documented reason.
+    if let Some(reason) = call_config.unsupported_in.get("brew") {
+        let _ = writeln!(out, "  # SKIP [brew unsupported]: {reason}");
+        let _ = writeln!(out, "  return 0");
+        let _ = writeln!(out, "}}");
+        return;
+    }
     let call_field_resolver = FieldResolver::new(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),

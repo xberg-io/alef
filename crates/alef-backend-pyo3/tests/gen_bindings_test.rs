@@ -4863,3 +4863,240 @@ fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
         lib_rs.content
     );
 }
+
+/// Regression test: struct fields with `Option<T>` must be emitted as `Option<T>` in constructor
+/// signatures, not as bare `T`. This applies to any `T`: `Option<u64>`, `Option<String>`, etc.
+#[test]
+fn test_option_fields_in_constructor_signature() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "OptionalFieldsType".to_string(),
+            rust_path: "test_lib::OptionalFieldsType".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("opt_u64", TypeRef::Primitive(PrimitiveType::U64), true),
+                make_field("opt_string", TypeRef::String, true),
+                make_field("opt_duration", TypeRef::Duration, true),
+                make_field("required_u32", TypeRef::Primitive(PrimitiveType::U32), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Type with optional fields".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+
+    // All optional fields must have Option<T> parameter types, not bare T
+    assert!(
+        lib_rs.content.contains("pub fn new("),
+        "Constructor should exist; content:\n{}",
+        lib_rs.content
+    );
+
+    // Check for Option<u64> — NOT bare u64
+    assert!(
+        lib_rs.content.contains("opt_u64: Option<u64>"),
+        "Parameter opt_u64 must be Option<u64>, not bare u64; content:\n{}",
+        lib_rs.content
+    );
+
+    // Check for Option<String> — NOT bare String
+    assert!(
+        lib_rs.content.contains("opt_string: Option<String>"),
+        "Parameter opt_string must be Option<String>, not bare String; content:\n{}",
+        lib_rs.content
+    );
+
+    // Check for Option<u64> (Duration maps to u64) — NOT bare u64
+    assert!(
+        lib_rs.content.contains("opt_duration: Option<u64>"),
+        "Parameter opt_duration must be Option<u64>, not bare u64; content:\n{}",
+        lib_rs.content
+    );
+
+    // Required field must be bare type, not optional
+    assert!(
+        lib_rs.content.contains("required_u32: u32"),
+        "Parameter required_u32 must be u32 (not optional); content:\n{}",
+        lib_rs.content
+    );
+
+    // Defaults should be None for optional fields
+    assert!(
+        lib_rs.content.contains("opt_u64=None") || lib_rs.content.contains("opt_u64 = None"),
+        "Optional field opt_u64 should default to None; content:\n{}",
+        lib_rs.content
+    );
+}
+
+/// Test for Option fields on has_default types (the actual bug case in kreuzcrawl).
+#[test]
+fn test_option_fields_on_has_default_type() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConfigWithDefaults".to_string(),
+            rust_path: "test_lib::ConfigWithDefaults".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U64), true),
+                make_field("request_timeout", TypeRef::Primitive(PrimitiveType::U64), true),
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,  // This is the key difference — has_default
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Config with defaults".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+
+    println!("Generated lib.rs for has_default type:\n{}\n", lib_rs.content);
+
+    // The constructor must have Option<u64> parameters, NOT bare u64
+    assert!(
+        lib_rs.content.contains("timeout: Option<u64>"),
+        "Parameter timeout must be Option<u64> for has_default type; content:\n{}",
+        lib_rs.content
+    );
+
+    assert!(
+        lib_rs.content.contains("request_timeout: Option<u64>"),
+        "Parameter request_timeout must be Option<u64> for has_default type; content:\n{}",
+        lib_rs.content
+    );
+
+    // Defaults should be None for optional fields
+    assert!(
+        lib_rs.content.contains("timeout=None") || lib_rs.content.contains("timeout = None"),
+        "Optional field timeout should default to None; content:\n{}",
+        lib_rs.content
+    );
+}
+
+/// Test for Option fields on has_default types WITH serde_rename.
+#[test]
+fn test_option_fields_with_serde_rename_on_has_default() {
+    let backend = Pyo3Backend;
+
+    let mut timeout_field = make_field("timeout", TypeRef::Primitive(PrimitiveType::U64), true);
+    timeout_field.serde_rename = Some("timeout_ms".to_string());
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "RequestOptions".to_string(),
+            rust_path: "test_lib::RequestOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                timeout_field,
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Request options".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+
+    println!("Generated lib.rs for has_default type with serde_rename:\n{}\n", lib_rs.content);
+
+    // The constructor parameter for serde-renamed optional field must still be Option<u64>
+    assert!(
+        lib_rs.content.contains("timeout_ms: Option<u64>"),
+        "Parameter timeout_ms must be Option<u64> even with serde_rename; content:\n{}",
+        lib_rs.content
+    );
+
+    // Verify it defaults to None
+    assert!(
+        lib_rs.content.contains("timeout_ms=None") || lib_rs.content.contains("timeout_ms = None"),
+        "Optional field timeout_ms should default to None; content:\n{}",
+        lib_rs.content
+    );
+}
