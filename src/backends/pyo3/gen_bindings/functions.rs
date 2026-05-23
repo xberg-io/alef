@@ -556,6 +556,23 @@ pub(super) fn gen_api_py(
         // of constructing the dataclass). Coerce enum fields in the dict before constructing.
         out.push_str("    if isinstance(value, dict):\n");
 
+        // Alias serde-renamed dict keys back to Rust field names.
+        // Fixtures and config files use serde-renamed wire names (e.g., "max_chars"),
+        // but the Python dataclass constructor expects Rust field names (e.g., "max_characters").
+        // When a field has #[serde(rename = "...")], map the serde name back.
+        let serde_renamed_fields: Vec<_> = typ
+            .fields
+            .iter()
+            .filter_map(|f| f.serde_rename.as_ref().map(|sr| (f.name.as_str(), sr.as_str())))
+            .collect();
+        if !serde_renamed_fields.is_empty() {
+            out.push_str("        # Alias serde-renamed keys back to Rust field names\n");
+            for (field_name, serde_name) in &serde_renamed_fields {
+                out.push_str(&format!("        if \"{serde_name}\" in value and \"{field_name}\" not in value:\n"));
+                out.push_str(&format!("            value[\"{field_name}\"] = value.pop(\"{serde_name}\")\n"));
+            }
+        }
+
         if use_dict_helper {
             // Delegate all dict coercion to the extracted helper.
             out.push_str(&crate::backends::pyo3::template_env::render(
@@ -763,10 +780,13 @@ pub(super) fn gen_api_py(
                 }
             }
             let accessor = field_access(&field.name);
+            // When a field has serde_rename, use it for pyo3 binding compatibility.
+            // The pyo3 constructor parameter names match serde-renamed field names.
+            let pyo3_param_name = field.serde_rename.as_deref().unwrap_or(&field.name);
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "field_kwarg.jinja",
                 minijinja::context! {
-                    name => &field.name,
+                    name => pyo3_param_name,
                     accessor => &accessor,
                 },
             ));
