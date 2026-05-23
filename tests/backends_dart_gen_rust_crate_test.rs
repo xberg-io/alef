@@ -2126,7 +2126,27 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
             },
         ],
         doc: String::new(),
-        methods: vec![],
+        // The From<&Mirror> for Core impl is only emitted alongside introspection
+        // methods (it's the conversion used by `let real: Core = self.into();`).
+        // Include a stub method so the From impl is exercised.
+        methods: vec![MethodDef {
+            name: "kind".to_string(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: true,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
         binding_excluded: false,
         binding_exclusion_reason: None,
     };
@@ -2171,9 +2191,15 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
     );
 
     // Named-field struct variant must still use struct syntax.
+    // The emitter writes struct variants over multiple lines, so match the opener
+    // and the field-init line independently.
     assert!(
-        lib.contains("Self::SchemaError { message:"),
+        lib.contains("Self::SchemaError {"),
         "named-field struct variant constructor must still use struct syntax: {lib}"
+    );
+    assert!(
+        lib.contains("message: f_message.clone()"),
+        "named-field struct variant must initialize `message` from the bound pattern: {lib}"
     );
 
     // Unit variant must remain unchanged.
