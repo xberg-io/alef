@@ -56,14 +56,19 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // fields are stored as Option<u64> in the binding struct.  We use the builder pattern
     // so that None falls back to the core type's Default (giving the real field default,
     // e.g. Duration::from_millis(30000)) rather than Duration::ZERO.
-    let has_optionalized_duration = config.option_duration_on_defaults
+    // However, WASM bindings may also have genuinely-optional primitive fields (created during
+    // type mapping) alongside the optionalized Duration fields. We must use builder pattern
+    // whenever any field is optional in the binding struct AND the core config has optionalize_defaults,
+    // so omitted fields preserve their core defaults rather than being overwritten with
+    // primitive zeros (0, false, empty) from serde deserialization.
+    let has_optionalized_fields = config.option_duration_on_defaults
         && typ.has_default
         && typ
             .fields
             .iter()
-            .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration));
+            .any(|f| f.optional || (!f.optional && matches!(f.ty, TypeRef::Duration)));
 
-    if has_optionalized_duration {
+    if has_optionalized_fields {
         // Builder pattern: start from core default, override explicitly-set fields.
         let optionalized = config.optionalize_defaults && typ.has_default;
         let mut statements = Vec::new();
@@ -93,19 +98,30 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             }
             // A field is considered optionalized if:
             // 1. optionalize_defaults=true and the field is non-optional (all fields case), OR
-            // 2. option_duration_on_defaults=true and it's a non-optional Duration field (WASM case)
+            // 2. option_duration_on_defaults=true and the field is optional in the binding struct
+            //    (either explicitly Optional in IR, or forced-Optional for Duration fields)
             let field_is_optionalized_by_duration = config.option_duration_on_defaults
                 && typ.has_default
                 && !field.optional
                 && matches!(field.ty, TypeRef::Duration);
-            let field_was_optionalized = (optionalized && !field.optional) || field_is_optionalized_by_duration;
+            let field_is_truly_optional_in_binding = config.option_duration_on_defaults
+                && typ.has_default
+                && field.optional;
+            let field_was_optionalized = (optionalized && !field.optional)
+                || field_is_optionalized_by_duration
+                || field_is_truly_optional_in_binding;
             let conversion = if field_was_optionalized {
                 // Field was Option-wrapped in the binding for ergonomics; core expects T.
+                // For optionalize_defaults, the IR field is non-optional, so pass optional=false.
+                // For option_duration_on_defaults:
+                //   - Non-optional Duration fields: pass optional=false (they're wrapped to Option<u64>)
+                //   - Truly-optional IR fields: pass optional=true (they're already Option<T> in IR and binding)
+                let should_pass_optional = field_is_truly_optional_in_binding && field.optional;
                 // Compute the conversion as if the binding field were the unwrapped T value —
                 // the if-let wrapping below extracts `__v` from the Option and substitutes it
                 // into the expression, so we keep core's Default for omitted fields rather
                 // than overwriting with the primitive zero of `unwrap_or_default()`.
-                field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
+                field_conversion_to_core_cfg(&field.name, &field.ty, should_pass_optional, config)
             } else {
                 // Genuinely-optional IR field (binding: Option<T>, core: Option<T>) or required
                 // field (`!field.optional` with optionalize_defaults=false). Both cases are

@@ -243,6 +243,11 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     lines.push(format!("#[napi(object, js_name = \"{js_name}\")]"));
     lines.push(format!("pub struct {prefix}{} {{", enum_def.name));
     lines.push(format!("    #[napi(js_name = \"{ts_discriminant}\")]"));
+    // When the tag field name differs from the discriminant, add #[serde(rename)] for serialization
+    if has_serde && tag_field != &format!("{}_tag", tag_field) && ts_discriminant != tag_field {
+        // The Rust field is `{tag_field}_tag`, but JS expects `{ts_discriminant}` → rename in serde
+        lines.push(format!("    #[serde(rename = \"{ts_discriminant}\")]"));
+    }
     lines.push(format!("    pub {tag_field}_tag: String,"));
 
     // Fields that appear in multiple variants with different Named types cannot be represented

@@ -1797,6 +1797,9 @@ fn gen_builder_nested_class(
 
         // Duration maps to primitive `long` in the public record, but in builder
         // classes we use boxed `Long` so that `null` can represent "not set".
+        // Similarly, non-optional fields with #[serde(default)] use boxed types so that
+        // `null` can represent "not set" in the builder, allowing Rust's serde defaults to apply.
+        let has_serde_default = field.default == Some("/* serde(default) */".to_string());
         let field_type = if is_visitor_field {
             "Optional<Visitor>".to_string()
         } else if is_flattened_json {
@@ -1804,6 +1807,9 @@ fn gen_builder_nested_class(
         } else if field.optional {
             format!("Optional<{}>", java_boxed_type(&field.ty))
         } else if matches!(field.ty, TypeRef::Duration) {
+            java_boxed_type(&field.ty).to_string()
+        } else if has_serde_default {
+            // Non-optional fields with #[serde(default)] use boxed types so null can represent "not set"
             java_boxed_type(&field.ty).to_string()
         } else {
             java_type(&field.ty).to_string()
@@ -1841,36 +1847,46 @@ fn gen_builder_nested_class(
             {
                 default.clone()
             } else if field.default == Some("/* serde(default) */".to_string())
-                && matches!(&field.ty, TypeRef::Named(_))
             {
-                // Special case: non-optional enum field with #[serde(default)].
-                // The Rust side will deserialize a missing field using Rust's Default trait,
-                // which means Jackson must also initialize the Builder field to a valid enum.
-                // Consult the enum_defaults map to find the correct default variant.
-                // For sealed interfaces (TypeDef-based enums), emit `new EnumName.Variant()`.
-                // For traditional enums (EnumDef), emit `EnumName.Variant` (static reference).
-                match &field.ty {
-                    TypeRef::Named(name) => {
-                        enum_defaults
-                            .get(name.as_str())
-                            .map(|variant_meta| {
-                                let variant_name = &variant_meta.variant_name;
-                                // Check if this is a sealed interface (TypeDef-based enum in Java)
-                                if sealed_interface_names.contains(name.as_str()) {
-                                    // Sealed interface: instantiate with `new` (applies to all variants)
-                                    format!("new {name}.{variant_name}()")
-                                } else {
-                                    // Traditional enum: static reference
-                                    format!("{name}.{variant_name}")
-                                }
-                            })
-                            .unwrap_or_else(|| {
-                                // For unknown enums or enums with no variants, default to null
-                                // and hope Jackson sets it (shouldn't happen with valid input).
-                                "null".to_string()
-                            })
+                // Field has #[serde(default)]: special handling per type.
+                if matches!(&field.ty, TypeRef::Named(_)) {
+                    // Non-optional enum field with #[serde(default)].
+                    // The Rust side will deserialize a missing field using Rust's Default trait,
+                    // which means Jackson must also initialize the Builder field to a valid enum.
+                    // Consult the enum_defaults map to find the correct default variant.
+                    // For sealed interfaces (TypeDef-based enums), emit `new EnumName.Variant()`.
+                    // For traditional enums (EnumDef), emit `EnumName.Variant` (static reference).
+                    match &field.ty {
+                        TypeRef::Named(name) => {
+                            enum_defaults
+                                .get(name.as_str())
+                                .map(|variant_meta| {
+                                    let variant_name = &variant_meta.variant_name;
+                                    // Check if this is a sealed interface (TypeDef-based enum in Java)
+                                    if sealed_interface_names.contains(name.as_str()) {
+                                        // Sealed interface: instantiate with `new` (applies to all variants)
+                                        format!("new {name}.{variant_name}()")
+                                    } else {
+                                        // Traditional enum: static reference
+                                        format!("{name}.{variant_name}")
+                                    }
+                                })
+                                .unwrap_or_else(|| {
+                                    // For unknown enums or enums with no variants, default to null
+                                    // and hope Jackson sets it (shouldn't happen with valid input).
+                                    "null".to_string()
+                                })
+                        }
+                        _ => "null".to_string(),
                     }
-                    _ => "null".to_string(),
+                } else {
+                    // Non-optional, non-enum field with #[serde(default)].
+                    // Use null as the builder default. With @JsonInclude(NON_ABSENT) at the class
+                    // level, null fields are omitted from the JSON sent to Rust's serde, which then
+                    // applies the Rust default (e.g., (1, 3) for a tuple, empty vec for Vec, etc.).
+                    // This prevents round-trip mismatches where Jackson initializes the field to
+                    // List.of() for a Vec, but Rust expects a tuple or other collection type.
+                    "null".to_string()
                 }
             } else {
                 match &field.ty {

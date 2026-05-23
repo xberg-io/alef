@@ -144,6 +144,14 @@ pub(super) fn gen_struct(
             vec![]
         };
 
+        // When js_name differs from field.name, add #[serde(rename = "js_name")] so serde
+        // serialization uses the JavaScript name instead of the Rust field name. This is critical
+        // for async iterators that yield objects: NAPI-RS serializes objects via serde before
+        // sending them to JavaScript, so the serde field names must match the JS schema.
+        if has_serde && js_name != field.name {
+            attrs.push(format!("serde(rename = \"{}\")", js_name));
+        }
+
         // For HashMap<_, Vec<u8>>, keep serde_with's Bytes helper for map values.
         // Bare/optional byte fields use JsBytes and do not need serde_bytes attributes.
         fn contains_vec_u8(ty: &TypeRef) -> bool {
