@@ -847,7 +847,7 @@ pub(super) fn gen_magnus_default_impl(typ: &TypeDef, core_import: &str) -> Strin
 /// as the kwargs constructor. Filters out thread-unsafe fields like the struct definition does.
 pub(super) fn gen_struct_default_impl_explicit(
     typ: &TypeDef,
-    _type_mapper: &dyn Fn(&TypeRef) -> String,
+    type_mapper: &dyn Fn(&TypeRef) -> String,
 ) -> Option<String> {
     // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used with Magnus wrap,
     // matching the filtering done in gen_struct
@@ -881,8 +881,35 @@ pub(super) fn gen_struct_default_impl_explicit(
             if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
                 format!("{}: None", field.name)
             } else {
-                // Use the same default logic as the kwargs constructor
-                let default_val = crate::codegen::config_gen::default_value_for_field(field, "rust");
+                // Get the BINDING field type (already mapped from core type)
+                let binding_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+                    format!("Option<{}>", type_mapper(&field.ty))
+                } else {
+                    type_mapper(&field.ty)
+                };
+
+                // Parse the binding type to create a synthetic field for default expression generation
+                // If the binding type is String but the original is Json, we need String::new()
+                let binding_ty = if binding_type == "String" && matches!(&field.ty, TypeRef::Json) {
+                    TypeRef::String
+                } else if binding_type == "String" {
+                    // Check if it was already a String in the original type
+                    match &field.ty {
+                        TypeRef::String => TypeRef::String,
+                        _ => field.ty.clone(),
+                    }
+                } else {
+                    field.ty.clone()
+                };
+
+                // Use the binding type for default expression generation
+                let default_val = crate::codegen::config_gen::default_value_for_field(
+                    &FieldDef {
+                        ty: binding_ty,
+                        ..field.clone()
+                    },
+                    "rust",
+                );
                 format!("{}: {}", field.name, default_val)
             }
         })
