@@ -1596,8 +1596,21 @@ fn build_args_and_setup(
             };
             let paths_literal = paths.join(", ");
             let name = &arg.name;
+            // Per-fixture mock-server URL resolution order:
+            //   1. System.getProperty("mockServer.<fixture_id>") — populated by
+            //      MockServerListener from the mock-server's MOCK_SERVERS=
+            //      announcement (preferred for host-root-route fixtures).
+            //   2. System.getenv("MOCK_SERVER_<FIXTURE_ID>") — explicit env override
+            //      for CI / external harnesses.
+            //   3. System.getenv("MOCK_SERVER_URL") + "/fixtures/<fixture_id>" —
+            //      fallback to the shared-route URL for fixtures without host-root
+            //      routes.
+            // Previous code skipped (1), so any fixture with per-fixture host-root
+            // routes (e.g. batch_crawl_basic) hit /fixtures/<id>/<path> on the shared
+            // host — which mock-server doesn't serve — and returned 404 for every
+            // batch URL. Surfaced as 7 BatchTest failures on kreuzcrawl's Java e2e.
             setup_lines.push(format!(
-                "String {name}Base = System.getenv().getOrDefault(\"{env_key}\", System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\");"
+                "String {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"));"
             ));
             setup_lines.push(format!(
                 "java.util.List<String> {name} = java.util.Arrays.stream(new String[]{{{paths_literal}}}).map(p -> p.startsWith(\"http\") ? p : {name}Base + p).collect(java.util.stream.Collectors.toList());"
