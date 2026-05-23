@@ -23,7 +23,8 @@ pub(crate) fn gen_record_type(
     has_visitor_pattern: bool,
     _main_class: &str,
     builder_mode: JavaBuilderMode,
-    enum_defaults: &ahash::AHashMap<String, String>,
+    enum_defaults: &ahash::AHashMap<String, crate::extract::default_value_for_enum::DefaultEnumVariant>,
+    sealed_interface_names: &AHashSet<String>,
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
@@ -330,7 +331,7 @@ pub(crate) fn gen_record_type(
         // CPD-OFF: generated builder pattern produces identical token sequences across
         // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
         record_block.push_str("    // CPD-OFF\n");
-        let nested = gen_builder_nested_class(typ, has_visitor_pattern, enum_defaults);
+        let nested = gen_builder_nested_class(typ, has_visitor_pattern, enum_defaults, sealed_interface_names);
         record_block.push_str(&nested);
         record_block.push_str("    // CPD-ON\n");
     }
@@ -1761,7 +1762,8 @@ fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
 fn gen_builder_nested_class(
     typ: &TypeDef,
     has_visitor_pattern: bool,
-    enum_defaults: &ahash::AHashMap<String, String>,
+    enum_defaults: &ahash::AHashMap<String, crate::extract::default_value_for_enum::DefaultEnumVariant>,
+    sealed_interface_names: &AHashSet<String>,
 ) -> String {
     let mut body = String::with_capacity(2048);
 
@@ -1845,11 +1847,23 @@ fn gen_builder_nested_class(
                 // The Rust side will deserialize a missing field using Rust's Default trait,
                 // which means Jackson must also initialize the Builder field to a valid enum.
                 // Consult the enum_defaults map to find the correct default variant.
+                // For sealed interfaces (TypeDef-based enums), emit `new EnumName.Variant()`.
+                // For traditional enums (EnumDef), emit `EnumName.Variant` (static reference).
                 match &field.ty {
                     TypeRef::Named(name) => {
                         enum_defaults
                             .get(name.as_str())
-                            .map(|variant| format!("{name}.{variant}"))
+                            .map(|variant_meta| {
+                                let variant_name = &variant_meta.variant_name;
+                                // Check if this is a sealed interface (TypeDef-based enum in Java)
+                                if sealed_interface_names.contains(name.as_str()) {
+                                    // Sealed interface: instantiate with `new` (applies to all variants)
+                                    format!("new {name}.{variant_name}()")
+                                } else {
+                                    // Traditional enum: static reference
+                                    format!("{name}.{variant_name}")
+                                }
+                            })
                             .unwrap_or_else(|| {
                                 // For unknown enums or enums with no variants, default to null
                                 // and hope Jackson sets it (shouldn't happen with valid input).
@@ -2440,6 +2454,7 @@ mod tests {
             "LiterLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
+            &AHashSet::default(),
         );
         // `model` is single-word: camelCase == snake_case, so no annotation needed.
         assert!(
@@ -2464,6 +2479,7 @@ mod tests {
             "LiterLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
+            &AHashSet::default(),
         );
         assert!(
             out.contains("@JsonProperty(\"max_tokens\")"),
@@ -2493,6 +2509,7 @@ mod tests {
             "Kreuzcrawl",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
+            &AHashSet::default(),
         );
         assert!(
             out.contains("requestTimeout == null"),
@@ -2584,6 +2601,7 @@ mod tests {
             "LiterLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
+            &AHashSet::default(),
         );
         // Builder must be emitted so @JsonAnySetter can absorb unknown sibling fields.
         assert!(
