@@ -260,11 +260,18 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     minijinja::context! { pascal },
                 ));
                 for (i, field) in variant.fields.iter().enumerate() {
-                    let cs_type = csharp_type(&field.ty);
+                    // If the field is sanitized (e.g., external type like ProcessResult
+                    // mapped to String), use `object` as the fallback C# type to allow
+                    // JSON deserialization of complex objects.
+                    let cs_type = if field.sanitized && field.type_rust_path.is_some() {
+                        "object".to_string()
+                    } else {
+                        csharp_type(&field.ty).to_string()
+                    };
                     let cs_type = if field.optional && !cs_type.ends_with('?') {
                         format!("{cs_type}?")
                     } else {
-                        cs_type.to_string()
+                        cs_type
                     };
                     // Qualify collection types that would be shadowed by a same-named variant
                     // (e.g. NodeContent.List nested record shadows System.Collections.Generic.List<T>).
@@ -319,7 +326,14 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             continue;
         }
         let pascal = to_csharp_name(&variant.name);
-        let return_type = csharp_type(&variant.fields[0].ty);
+        let field = &variant.fields[0];
+        // If the field is sanitized (e.g., external type like ProcessResult
+        // mapped to String), use `object` as the fallback C# type.
+        let return_type = if field.sanitized && field.type_rust_path.is_some() {
+            "object".to_string()
+        } else {
+            csharp_type(&field.ty).to_string()
+        };
         let return_type_nullable = format!("{return_type}?");
         out.push_str(&render(
             "variant_accessor_summary.jinja",

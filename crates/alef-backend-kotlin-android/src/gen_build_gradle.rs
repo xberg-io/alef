@@ -72,7 +72,7 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
 
     // Build developers block from authors (if any)
     let developers_block = if meta.authors.is_empty() {
-        "\n".to_string()  // Just newline if no developers
+        "\n".to_string() // Just newline if no developers
     } else {
         let devs: Vec<String> = meta
             .authors

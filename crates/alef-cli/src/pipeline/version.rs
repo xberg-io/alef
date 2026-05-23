@@ -372,10 +372,7 @@ pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<Strin
     // Zig build.zig.zon — `.version = "X.Y.Z"`. The `(?m)^\s*\.version\b`
     // anchor is required so the `.minimum_zig_version = "..."` line on the
     // same file is not picked up by the looser `.version` substring match.
-    if let Some(found) = extract_version(
-        "packages/zig/build.zig.zon",
-        r#"(?m)^\s*\.version\s*=\s*"([^"]*)""#,
-    ) {
+    if let Some(found) = extract_version("packages/zig/build.zig.zon", r#"(?m)^\s*\.version\s*=\s*"([^"]*)""#) {
         if found != expected {
             mismatches.push(format!(
                 "packages/zig/build.zig.zon: found {found}, expected {expected}"
@@ -1483,7 +1480,11 @@ mod tests {
 }
 "#;
         let captures: Vec<_> = re.captures_iter(zon).collect();
-        assert_eq!(captures.len(), 1, "regex must match exactly one line, not .minimum_zig_version");
+        assert_eq!(
+            captures.len(),
+            1,
+            "regex must match exactly one line, not .minimum_zig_version"
+        );
         assert_eq!(&captures[0][1], "1.9.0-rc.1");
     }
 

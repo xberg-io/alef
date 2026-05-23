@@ -871,6 +871,10 @@ pub(super) fn gen_record_type(
                 }
                 Some(DefaultValue::None) => "null".to_string(),
                 Some(DefaultValue::Empty) | None => match &field.ty {
+                    // Sanitized Vec fields (e.g., tuples converted to Vec) should default to null
+                    // so that Rust applies the Serde default. This prevents issues where a tuple
+                    // like (1, 3) was converted to Vec<Usize> and needs the correct default on the Rust side.
+                    TypeRef::Vec(_) if field.sanitized => "null".to_string(),
                     TypeRef::Vec(_) => "[]".to_string(),
                     TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
                     TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),

@@ -5,8 +5,8 @@
 //! it as `required`, causing JSON deserialization to fail when the field was absent.
 
 use alef_core::config::NewAlefConfig;
-use alef_e2e::codegen::csharp::CSharpCodegen;
 use alef_e2e::codegen::E2eCodegen;
+use alef_e2e::codegen::csharp::CSharpCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
 fn make_fixture(id: &str) -> Fixture {
@@ -30,7 +30,9 @@ fn make_fixture(id: &str) -> Fixture {
             Assertion {
                 assertion_type: "equals".to_string(),
                 field: Some("mime_type".to_string()),
-                value: Some(serde_json::json!("application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+                value: Some(serde_json::json!(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )),
                 values: None,
                 method: None,
                 check: None,

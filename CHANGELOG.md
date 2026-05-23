@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **chore: bump workspace version to 0.17.36 and re-pin all internal `alef-*` workspace dependencies to the new version.** Routine post-release sync; `template_versions::ALEF_REV` advanced to `v0.17.36` so the generated package manifests reference the upcoming tag.
+
+### Fixed
+
+- **alef-backend-csharp: map sanitized Vec fields and sanitized enum-variant payloads to `null` / `object` so external Rust types can round-trip through System.Text.Json.** Two related bugs surfaced in kreuzberg C# e2e: (1) `KeywordConfig.ngram_range: (usize, usize)` with `#[serde(default = "default_ngram_range")]` was emitted as `List<ulong> NgramRange { get; init; } = [];` — the empty-list default reached Rust and serde rejected it with `invalid length 0, expected a tuple of size 2`; (2) `FormatMetadata::Code(tree_sitter_language_pack::ProcessResult)` was generated as `Code(string Value)` because ProcessResult is sanitized to `String` in the IR, then System.Text.Json blew up trying to read a `StartObject` token as a string. Both fixes: when a field is sanitized (the IR's `sanitized` flag with `type_rust_path`), the C# backend now emits a `null` default for Vec types so `JsonIgnoreCondition.WhenWritingNull` drops the field and Rust applies its serde default; and emits `object` (not the sanitized scalar) for enum-variant struct payloads so JSON objects round-trip cleanly. Added `crates/alef-e2e/tests/csharp_tuple_default.rs` and `crates/alef-e2e/tests/csharp_enum_variant_struct.rs`. Fixes `Test_ConfigKeywords`, `Test_ConfigTreeSitter`, and `Test_CodeShebangDetection` in kreuzberg C# e2e. (`crates/alef-backend-csharp/src/gen_bindings/enums.rs`, `crates/alef-backend-csharp/src/gen_bindings/types.rs`)
+
 ## [0.17.35] - 2026-05-23
 
 ### Fixed

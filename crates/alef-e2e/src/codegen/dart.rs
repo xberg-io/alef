@@ -282,8 +282,7 @@ fn render_test_file(
         let call_config =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         call_config.args.iter().any(|a| {
-            a.element_type.as_deref() == Some("PageAction")
-                && super::resolve_field(&f.input, &a.field).is_array()
+            a.element_type.as_deref() == Some("PageAction") && super::resolve_field(&f.input, &a.field).is_array()
         })
     });
 

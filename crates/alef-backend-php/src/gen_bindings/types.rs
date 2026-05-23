@@ -804,7 +804,9 @@ fn gen_struct_methods_impl(
         // 2. Named with optional flag set — field.optional=true, field.ty=Named, already_optional=false
         // In case (2), the getter returns Option<T> due to the condition on line 790.
         let is_optional_named = match &field.ty {
-            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())),
+            TypeRef::Optional(inner) => {
+                matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
+            }
             TypeRef::Named(n) if field.optional && !already_optional => !opaque_types.contains(n.as_str()),
             _ => false,
         };
