@@ -1,5 +1,32 @@
 //! Emits `Cargo.toml` and `build.rs` for the swift-bridge crate.
 
+/// Formats a features array for TOML output.
+/// Uses multi-line format when `features.len() >= 3` or the rendered line exceeds 100 chars.
+fn format_features_array(features: &[String]) -> String {
+    if features.is_empty() {
+        return String::new();
+    }
+
+    // Try single-line format first.
+    let quoted = features.iter().map(|f| format!("\"{f}\"")).collect::<Vec<_>>();
+    let single_line = quoted.join(", ");
+    let single_line_full = format!(", features = [{single_line}]");
+
+    // Use multi-line if we have 3+ features or the line would exceed 100 chars.
+    if features.len() >= 3 || single_line_full.len() > 100 {
+        let mut multi_line = String::from(", features = [\n");
+        for feature in &quoted {
+            multi_line.push_str("    ");
+            multi_line.push_str(feature);
+            multi_line.push_str(",\n");
+        }
+        multi_line.push(']');
+        multi_line
+    } else {
+        single_line_full
+    }
+}
+
 /// Emit the `Cargo.toml` content for the generated swift crate.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cargo_toml(
@@ -19,12 +46,7 @@ pub(crate) fn emit_cargo_toml(
     let features_block = if features.is_empty() {
         String::new()
     } else {
-        let list = features
-            .iter()
-            .map(|f| format!("\"{f}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!(", features = [{list}]")
+        format_features_array(features)
     };
     // When the Rust ident form of the umbrella crate name (`core_dep_key`,
     // e.g. `liter_llm`) differs from the actual cargo package name in the

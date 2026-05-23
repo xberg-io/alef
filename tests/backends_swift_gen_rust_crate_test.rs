@@ -1832,3 +1832,143 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
         lib.content
     );
 }
+
+// ── features array formatting tests ──────────────────────────────────────
+
+/// Test 1: Two features should stay on a single line.
+#[test]
+fn cargo_toml_two_features_stay_single_line() {
+    let api = ApiSurface {
+        crate_name: "my-lib".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.swift]
+features = ["serde", "config"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    // Two features should remain on a single line: `features = ["serde", "config"]`
+    assert!(
+        cargo.content.contains("features = [\"serde\", \"config\"]"),
+        "Two features should stay on single line; got:\n{}",
+        cargo.content
+    );
+    // Must NOT be multi-line.
+    assert!(
+        !cargo.content.contains("features = [\n    \"serde\","),
+        "Two features should not be multi-line; got:\n{}",
+        cargo.content
+    );
+}
+
+/// Test 2: Three features should switch to multi-line format.
+#[test]
+fn cargo_toml_three_features_use_multi_line() {
+    let api = ApiSurface {
+        crate_name: "my-lib".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.swift]
+features = ["serde", "config", "download"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    // Three features should be multi-line.
+    assert!(
+        cargo.content.contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
+        "Three features should be multi-line; got:\n{}",
+        cargo.content
+    );
+    // Must NOT be single-line.
+    assert!(
+        !cargo.content.contains("features = [\"serde\", \"config\", \"download\"]"),
+        "Three features should not be single-line; got:\n{}",
+        cargo.content
+    );
+    // The TOML must be parseable.
+    let parsed: toml::Value = toml::from_str(&cargo.content)
+        .expect("Generated Cargo.toml must be valid TOML");
+    assert!(
+        parsed.get("dependencies").is_some(),
+        "Generated Cargo.toml must have [dependencies]; got:\n{}",
+        cargo.content
+    );
+}
+
+/// Test 3: Multi-line features format must produce valid, parseable TOML.
+#[test]
+fn cargo_toml_multi_line_features_is_valid_toml() {
+    let api = ApiSurface {
+        crate_name: "tree-sitter-language-pack".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "tree-sitter-language-pack"
+sources = ["src/lib.rs"]
+
+[crates.swift]
+features = ["serde", "config", "download"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+
+    // Parse the generated Cargo.toml to ensure it's valid TOML.
+    let _parsed: toml::Value = toml::from_str(&cargo.content)
+        .expect("Generated Cargo.toml must be valid TOML after multi-line features");
+
+    // Verify the multi-line format is present.
+    assert!(
+        cargo.content.contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
+        "Multi-line features must be formatted correctly; got:\n{}",
+        cargo.content
+    );
+}
