@@ -544,8 +544,13 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
     }
 
     fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
-        let json_str = serde_json::to_string(expected).unwrap_or_default();
-        let escaped = escape_zig(&json_str);
+        // A string-valued expected body is a plain-text response (e.g. `text/plain` "foo bar 10"),
+        // so compare the raw string contents — JSON-serializing it would wrap it in quotes and
+        // never match the unquoted response bytes. Structured bodies keep their serialized form.
+        let escaped = match expected {
+            serde_json::Value::String(s) => escape_zig(s),
+            other => escape_zig(&serde_json::to_string(other).unwrap_or_default()),
+        };
         let _ = writeln!(
             out,
             "    try testing.expectEqualStrings(\"{escaped}\", response_body.written());"
