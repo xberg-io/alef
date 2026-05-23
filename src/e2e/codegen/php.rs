@@ -720,7 +720,9 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
             opts.push(format!("'query' => [{}]", pairs.join(", ")));
         }
 
-        let path_lit = format!("\"{}\"", escape_php(ctx.path));
+        // The template wraps `path` in double quotes itself, so emit only the escaped
+        // contents here — wrapping again produces an invalid `""…""` string literal.
+        let path_lit = escape_php(ctx.path);
 
         let rendered = crate::e2e::template_env::render(
             "php/http_request.jinja",
@@ -1284,9 +1286,17 @@ fn emit_php_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String
                             Some(format!("new {}(path: \"{}\")", elem_type, path))
                         }
                         _ => {
-                            // Generic handling: emit assoc array literal for tagged enums (PageAction, etc.)
-                            // The bindings expect ["type" => "click", "selector" => "#id"], not new PageAction(...)
-                            Some(json_to_php(&serde_json::Value::Object(obj.clone())))
+                            // Generic handling for tagged-enum DTOs (PageAction, etc.): wrap each
+                            // element in `{Type}::from_json('{...}')`. The PHP binding's #[php_class]
+                            // FromZval only accepts class instances; raw PHP arrays are rejected with
+                            // "Failed to convert array element to {Type}". Every alef-emitted class
+                            // with a tagged-enum shape (or any has_default struct) has a `from_json`
+                            // static method generated from `serde::Deserialize`, so this is the
+                            // portable path that works without a per-class FromZval impl.
+                            let json_str = serde_json::to_string(&serde_json::Value::Object(obj.clone()))
+                                .unwrap_or_else(|_| "{}".to_string());
+                            let php_literal = json_str.replace('\\', "\\\\").replace('\'', "\\'");
+                            Some(format!("{}::from_json('{}')", elem_type, php_literal))
                         }
                     }
                 } else {
@@ -1578,13 +1588,22 @@ fn build_args_and_setup(
                                 parts.push(json_to_php(v));
                                 continue;
                             }
-                            // Tagged-enum array (e.g., [["type" => "click", "selector" => "#id"], ...]): emit as array of assoc arrays
+                            // Tagged-enum / has_default array (e.g., Vec<PageAction>): wrap each element
+                            // in `{ElemType}::from_json('{...}')`. PHP's #[php_class] FromZval only
+                            // accepts class instances; raw assoc arrays produce "Failed to convert
+                            // array element to {Type}". Every alef-emitted has_default/has_serde
+                            // struct gets a `from_json` static method, so this is the portable path.
                             if let Some(arr) = v.as_array() {
                                 let items: Vec<String> = arr
                                     .iter()
                                     .filter_map(|item| {
-                                        item.as_object()
-                                            .map(|obj| json_to_php(&serde_json::Value::Object(obj.clone())))
+                                        item.as_object().map(|obj| {
+                                            let json_str =
+                                                serde_json::to_string(&serde_json::Value::Object(obj.clone()))
+                                                    .unwrap_or_else(|_| "{}".to_string());
+                                            let php_literal = json_str.replace('\\', "\\\\").replace('\'', "\\'");
+                                            format!("{}::from_json('{}')", elem_type, php_literal)
+                                        })
                                     })
                                     .collect();
                                 parts.push(format!("[{}]", items.join(", ")));
