@@ -543,14 +543,17 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         } else {
             let json_str = serde_json::to_string(expected).unwrap_or_default();
             let escaped = escape_swift(&json_str);
-            let _ = writeln!(out, "        let _bodyData = try XCTUnwrap(_responseData)");
             let _ = writeln!(
                 out,
                 "        let _expected = try JSONSerialization.jsonObject(with: \"{escaped}\".data(using: .utf8)!)"
             );
+            // Unwrap the response data inline rather than via a shared `_bodyData` local: a
+            // fixture may trigger several body assertions in one test, and a repeated
+            // `let _bodyData` would be an invalid redeclaration. The leading `try` covers the
+            // nested XCTUnwrap call.
             let _ = writeln!(
                 out,
-                "        let _actual = try JSONSerialization.jsonObject(with: _bodyData)"
+                "        let _actual = try JSONSerialization.jsonObject(with: XCTUnwrap(_responseData))"
             );
             let _ = writeln!(
                 out,
@@ -561,10 +564,9 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
 
     fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
         if let Some(obj) = expected.as_object() {
-            let _ = writeln!(out, "        let _bodyData = try XCTUnwrap(_responseData)");
             let _ = writeln!(
                 out,
-                "        let _bodyObj = try XCTUnwrap(try JSONSerialization.jsonObject(with: _bodyData) as? [String: Any])"
+                "        let _bodyObj = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(_responseData)) as? [String: Any])"
             );
             for (key, val) in obj {
                 let escaped_key = escape_swift(key);
@@ -583,14 +585,13 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         _response_var: &str,
         errors: &[ValidationErrorExpectation],
     ) {
-        let _ = writeln!(out, "        let _bodyData = try XCTUnwrap(_responseData)");
         let _ = writeln!(
             out,
-            "        let _bodyObj = try XCTUnwrap(try JSONSerialization.jsonObject(with: _bodyData) as? [String: Any])"
+            "        let _errorsBodyObj = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(_responseData)) as? [String: Any])"
         );
         let _ = writeln!(
             out,
-            "        let _errors = _bodyObj[\"errors\"] as? [[String: Any]] ?? []"
+            "        let _errors = _errorsBodyObj[\"errors\"] as? [[String: Any]] ?? []"
         );
         for ve in errors {
             let escaped_msg = escape_swift(&ve.msg);

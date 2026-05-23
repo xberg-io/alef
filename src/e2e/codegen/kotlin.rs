@@ -907,7 +907,7 @@ impl client::TestClientRenderer for KotlinTestClientRenderer {
             "<<uuid>>" => {
                 let _ = writeln!(
                     out,
-                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").matches(\"[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}\"), \"header {escaped_name} should be a UUID\")"
+                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").matches(Regex(\"[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}\")), \"header {escaped_name} should be a UUID\")"
                 );
             }
             exact => {

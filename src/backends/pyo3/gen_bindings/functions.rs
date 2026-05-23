@@ -1122,11 +1122,22 @@ pub(super) fn gen_api_py(
         out.push_str("\n\n");
     }
 
+    // Collect names already emitted in the main api.functions loop so we don't duplicate
+    // a function that is both an api.function AND named in a trait-bridge config.
+    // Trait bridges declare `clear_fn = "clear_ocr_backends"` etc.; that same function
+    // is usually also configured as a regular call in [crates.e2e.calls.*] and ends up
+    // in api.functions with a richer doc-comment from the Rust source. Without this guard,
+    // api.py declares both — the second wins at import time but ruff flags F811.
+    let emitted_function_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
+
     // Emit pass-through wrappers for trait-bridge registration functions.
     // These functions are emitted as #[pyfunction] in the native Rust module but are not in
     // api.functions — they must be re-exported via api.py so callers can use the public package
     // path (e.g. `kreuzberg.register_ocr_backend`) rather than `kreuzberg._kreuzberg.register_ocr_backend`.
     for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(trait_bridges) {
+        if emitted_function_names.contains(&register_fn) {
+            continue;
+        }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_register_fn.jinja",
             minijinja::context! { register_fn => &register_fn },
@@ -1136,6 +1147,9 @@ pub(super) fn gen_api_py(
     // Emit pass-through wrappers for trait-bridge unregistration functions.
     // These allow callers to unregister a named backend via the public package path.
     for unregister_fn in crate::backends::pyo3::trait_bridge::collect_bridge_unregister_fns(trait_bridges) {
+        if emitted_function_names.contains(&unregister_fn) {
+            continue;
+        }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_unregister_fn.jinja",
             minijinja::context! { unregister_fn => &unregister_fn },
@@ -1145,6 +1159,9 @@ pub(super) fn gen_api_py(
     // Emit pass-through wrappers for trait-bridge clear functions.
     // These allow callers to clear all registered backends for a plugin type.
     for clear_fn in crate::backends::pyo3::trait_bridge::collect_bridge_clear_fns(trait_bridges) {
+        if emitted_function_names.contains(&clear_fn) {
+            continue;
+        }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_clear_fn.jinja",
             minijinja::context! { clear_fn => &clear_fn },

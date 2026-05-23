@@ -14,11 +14,11 @@
       _http = Net::HTTP.new(_uri.host, _uri.port)
       _http.use_ssl = _uri.scheme == 'https'
       _req = Net::HTTP::{{ method_class }}.new(_uri.request_uri)
-{%- if has_body %}
+{% if has_body %}
       _req.body = {{ ruby_body }}.to_json
       _req['Content-Type'] = 'application/json'
-{%- endif %}
-{%- for header in headers %}
+{% endif %}
+{% for header in headers %}
       _req[{{ header.key_literal }}] = {{ header.value_literal }}
-{%- endfor %}
+{% endfor %}
       {{ response_var }} = _http.request(_req)

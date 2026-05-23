@@ -317,6 +317,15 @@ impl E2eCodegen for WasmCodegen {
                 &wasm_type_prefix,
             );
 
+            // A category can survive the `active.is_empty()` guard above yet still render
+            // to a bare `describe(...)` with no cases when every fixture in it is dropped by
+            // the typescript renderer (e.g. websocket fixtures, which the wasm binding cannot
+            // exercise). vitest fails such a file with "No test found in suite", so skip
+            // emitting it when no `it`/`test` case was produced.
+            if !content.contains("it(") && !content.contains("it.skip(") && !content.contains("test(") {
+                continue;
+            }
+
             // The local `pkg/` directory produced by `wasm-pack build --target nodejs`
             // is already a Node-friendly self-initializing CJS module — `pkg/package.json`
             // sets `"main"` to the JS entry, so test files can import the package by name
