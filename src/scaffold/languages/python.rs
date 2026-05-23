@@ -182,6 +182,7 @@ name = "{pip_name}"
 version = "{version}"
 description = "{description}"
 {keywords}license = "{license}"
+license-files = ["LICENSE"]
 {authors}requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",

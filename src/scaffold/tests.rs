@@ -272,6 +272,60 @@ keywords = ["zebra", "apple", "banana"]
 }
 
 #[test]
+fn test_scaffold_python_license_files_field() {
+    // Verify that pyproject.toml includes license-files = ["LICENSE"] to ensure
+    // maturin bundles the LICENSE file in the wheel. This fixes BLK-10 where PyPI
+    // rejected wheels with License-File: LICENSE in METADATA but no actual LICENSE
+    // in the wheel root.
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let pyproject_content = &files[0].content;
+
+    // Verify license-files field is present and correctly formatted
+    assert!(
+        pyproject_content.contains("license-files = [\"LICENSE\"]"),
+        "pyproject.toml should declare license-files = [\"LICENSE\"]"
+    );
+
+    // Verify it appears in the [project] section after the license field
+    let project_section = pyproject_content
+        .split("[tool.maturin]")
+        .next()
+        .expect("should have [project] section before [tool.maturin]");
+    assert!(
+        project_section.contains("license = \"MIT\""),
+        "should have license field"
+    );
+    let license_idx = project_section
+        .find("license = \"MIT\"")
+        .expect("should find license field");
+    let license_files_idx = project_section
+        .find("license-files = [\"LICENSE\"]")
+        .expect("should find license-files field");
+    assert!(
+        license_idx < license_files_idx,
+        "license-files should come after license in [project]"
+    );
+}
+
+#[test]
 fn test_scaffold_node_production_features() {
     let config = test_config();
     let api = test_api();
