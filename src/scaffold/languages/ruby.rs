@@ -127,30 +127,43 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let metadata_ruby = if meta.keywords.is_empty() {
         String::new()
     } else {
-        let entries: Vec<String> = meta.keywords.iter().map(|k| format!("'{}'", k)).collect();
-        format!("  spec.metadata['keywords'] = [{}].join(',')\n", entries.join(", "))
+        // Rubocop's `Style/WordArray` autocorrects bare-identifier string arrays to `%w[...]`.
+        // Emit the canonical form directly when every keyword is a single word with no
+        // shell-special chars; otherwise fall back to a double-quoted array literal to
+        // match `Style/StringLiterals: double_quotes`.
+        let word_array_safe = meta
+            .keywords
+            .iter()
+            .all(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        let array_literal = if word_array_safe {
+            format!("%w[{}]", meta.keywords.join(" "))
+        } else {
+            let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
+            format!("[{}]", entries.join(", "))
+        };
+        format!("  spec.metadata[\"keywords\"] = {}.join(\",\")\n", array_literal)
     };
 
     let content = format!(
         r#"# frozen_string_literal: true
 
 Gem::Specification.new do |spec|
-  spec.name = '{gem_name}'
-  spec.version = '{version}'
+  spec.name = "{gem_name}"
+  spec.version = "{version}"
   spec.authors       = {authors}
-  spec.summary       = '{description}'
-  spec.description   = '{description}'
-  spec.homepage      = '{repository}'
-  spec.license       = '{license}'
-  spec.required_ruby_version = '>= 3.2.0'
-{metadata}  spec.metadata['rubygems_mfa_required'] = 'true'
+  spec.summary       = "{description}"
+  spec.description   = "{description}"
+  spec.homepage      = "{repository}"
+  spec.license       = "{license}"
+  spec.required_ruby_version = ">= 3.2.0"
+{metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files         = Dir.glob(%w[lib/**/* ext/**/* sig/**/* Steepfile])
-  spec.require_paths = ['lib']
-  spec.extensions    = ['ext/{ext_name}/extconf.rb']
+  spec.require_paths = ["lib"]
+  spec.extensions    = ["ext/{ext_name}/extconf.rb"]
 
-  spec.add_dependency 'rb_sys', '{rb_sys}'
-  spec.add_dependency 'sorbet-runtime', '{sorbet_runtime}'
+  spec.add_dependency "rb_sys", "{rb_sys}"
+  spec.add_dependency "sorbet-runtime", "{sorbet_runtime}"
 end
 "#,
         gem_name = gem_name,
@@ -174,11 +187,11 @@ AllCops:
   NewCops: enable
   SuggestExtensions: false
   Exclude:
-    - 'vendor/**/*'
-    - 'tmp/**/*'
-    - 'lib/**/*.bundle'
-    - 'lib/**/*.rb'
-    - 'ext/**/*'
+    - "vendor/**/*"
+    - "tmp/**/*"
+    - "lib/**/*.bundle"
+    - "lib/**/*.rb"
+    - "ext/**/*"
 
 Style/FrozenStringLiteralComment:
   Enabled: true
@@ -186,11 +199,11 @@ Style/FrozenStringLiteralComment:
 
 Style/StringLiterals:
   Enabled: true
-  EnforcedStyle: single_quotes
+  EnforcedStyle: double_quotes
 
 Style/StringLiteralsInInterpolation:
   Enabled: true
-  EnforcedStyle: single_quotes
+  EnforcedStyle: double_quotes
 
 Style/Documentation:
   Enabled: false
@@ -200,12 +213,12 @@ Layout/LineLength:
   AllowedPatterns:
     - '\A\s*#'
   Exclude:
-    - 'spec/**/*'
+    - "spec/**/*"
 
 Metrics/MethodLength:
   Max: 20
   Exclude:
-    - 'spec/**/*'
+    - "spec/**/*"
 
 Metrics/BlockLength:
   Enabled: true
@@ -215,7 +228,7 @@ Metrics/BlockLength:
 Metrics/AbcSize:
   Max: 20
   Exclude:
-    - 'spec/**/*'
+    - "spec/**/*"
 
 RSpec/ExampleLength:
   Max: 50
@@ -231,16 +244,16 @@ RSpec/NestedGroups:
     let rakefile_content = format!(
         r#"# frozen_string_literal: true
 
-require 'bundler'
-Bundler::GemHelper.install_tasks name: '{gem_name_snake}'
-require 'rake/extensiontask'
-require 'rspec/core/rake_task'
+require "bundler"
+Bundler::GemHelper.install_tasks name: "{gem_name_snake}"
+require "rake/extensiontask"
+require "rspec/core/rake_task"
 
-GEMSPEC = Gem::Specification.load(File.expand_path('{gem_name_snake}.gemspec', __dir__))
+GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", __dir__))
 
-Rake::ExtensionTask.new('{ext_name}', GEMSPEC) do |ext|
-  ext.lib_dir = 'lib'
-  ext.ext_dir = 'ext/{ext_name}'
+Rake::ExtensionTask.new("{ext_name}", GEMSPEC) do |ext|
+  ext.lib_dir = "lib"
+  ext.ext_dir = "ext/{ext_name}"
   ext.cross_compile = true
   ext.cross_platform = %w[
     x86_64-linux
@@ -264,14 +277,14 @@ task default: :spec
     let extconf_content = format!(
         r#"# frozen_string_literal: true
 
-require 'mkmf'
-require 'rb_sys/mkmf'
+require "mkmf"
+require "rb_sys/mkmf"
 
-default_profile = ENV.fetch('CARGO_PROFILE', 'release')
+default_profile = ENV.fetch("CARGO_PROFILE", "release")
 
-create_rust_makefile('{ext_name}') do |config|
+create_rust_makefile("{ext_name}") do |config|
   config.profile = default_profile.to_sym
-  config.ext_dir = 'native'
+  config.ext_dir = "native"
 end
 "#,
         ext_name = ext_name,
@@ -303,18 +316,18 @@ end
             content: format!(
                 r#"# frozen_string_literal: true
 
-source 'https://rubygems.org'
+source "https://rubygems.org"
 
 gemspec
 
 group :development do
-  gem 'rake-compiler', '{rake_compiler}'
-  gem 'rb_sys', '{rb_sys}'
-  gem 'rspec', '{rspec}'
-  gem 'rubocop', '{rubocop}'
-  gem 'rubocop-performance', '{rubocop_performance}'
-  gem 'rubocop-rspec', '{rubocop_rspec}'
-  gem 'steep', '{steep}'
+  gem "rake-compiler", "{rake_compiler}"
+  gem "rb_sys", "{rb_sys}"
+  gem "rspec", "{rspec}"
+  gem "rubocop", "{rubocop}"
+  gem "rubocop-performance", "{rubocop_performance}"
+  gem "rubocop-rspec", "{rubocop_rspec}"
+  gem "steep", "{steep}"
 end
 "#,
                 rake_compiler = tv::gem::RAKE_COMPILER,
@@ -329,14 +342,24 @@ end
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/Steepfile")),
-            content: r#"# frozen_string_literal: true
+            content: format!(
+                r#"# frozen_string_literal: true
 
 target :lib do
   signature "sig"
   check "lib"
+  # The generated `lib/{gem_name_snake}/native.rb` carries inline Sorbet
+  # `sig {{ ... }}` blocks on tagged-enum variant Data classes. Sorbet's runtime
+  # provides those via `extend T::Sig`, but Steep does not understand the
+  # extension (it relies on RBS, not Sorbet sigs) and reports
+  # `Type `self` does not have method `sig`` on every block. RBS coverage
+  # for the same surface lives in `sig/types.rbs`, so we steer Steep to the
+  # RBS file by ignoring the .rb.
+  ignore "lib/{gem_name_snake}/native.rb"
 end
-"#
-            .to_string(),
+"#,
+                gem_name_snake = gem_name_snake,
+            ),
             generated_header: false,
         },
     ])

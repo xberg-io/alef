@@ -90,7 +90,15 @@ pub(crate) fn run_command_streamed_with_env(
     command.args(["-c", &cmd_with_env]);
 
     // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
+    // Skip PATH: on Windows std::process::Command treats env keys case-insensitively,
+    // so command.env("PATH", lib_dir) REPLACES the parent's `Path` (clobbering pnpm/uv/
+    // node etc. installed by GitHub Actions). The shell-level `export PATH='lib_dir'
+    // "${PATH:+:$PATH}"` from `inline_env_in_shell_cmd` already prepends correctly
+    // while preserving inherited PATH.
     for (key, value) in env_vars {
+        if *key == "PATH" {
+            continue;
+        }
         command.env(key, value);
     }
 
@@ -191,7 +199,11 @@ fn run_command_streamed_full(
     }
 
     // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
+    // See PATH-skip note in `run_command_streamed_with_env` above.
     for (key, value) in env_vars {
+        if *key == "PATH" {
+            continue;
+        }
         command.env(key, value);
     }
 

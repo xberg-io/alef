@@ -290,19 +290,46 @@ pub fn normalize_content(path: &Path, content: &str) -> String {
     } else {
         content.to_string()
     };
-    normalize_whitespace(&pre)
+    let is_markdown = path.extension().is_some_and(|ext| ext == "md");
+    normalize_whitespace_with_policy(&pre, is_markdown)
 }
 
 /// Normalize whitespace for comparison: strip trailing whitespace per line,
-/// collapse runs of 3+ blank lines to 2, and ensure a single trailing newline.
+/// collapse runs of 3+ blank lines to 2 (1 for markdown), and ensure a single
+/// trailing newline.
+///
+/// Markdown files get an aggressive 1-blank-line cap because the canonical
+/// h2m/kreuzberg-dev pre-commit pipeline runs `rumdl-fmt` after every commit,
+/// and rumdl's MD012 rule collapses any multi-blank run to a single blank.
+/// Without the matching cap inside alef, `alef all` output (which goes
+/// through pre-commit `rumdl-fmt` before being committed) diverges from the
+/// cold `alef readme` output (which does not invoke any markdown formatter),
+/// and CI's `Validate READMEs` step — which runs `alef readme` cold and
+/// diffs against the committed file — fails on every regen with the
+/// noisy "extra blank line between `##` headings" diff. Capping at 1
+/// inside alef itself produces rumdl-clean output natively, so cold and
+/// hot paths converge and CI is stable.
+///
+/// Empty input stays empty — the canonical pre-commit `end-of-file-fixer`
+/// hook truncates whitespace-only files (including a lone `"\n"`) to zero
+/// bytes, so re-inflating empty content to `"\n"` here would create an
+/// infinite emit/format ping-pong (e.g. for `.gitkeep` placeholders).
 fn normalize_whitespace(content: &str) -> String {
+    normalize_whitespace_with_policy(content, false)
+}
+
+fn normalize_whitespace_with_policy(content: &str, is_markdown: bool) -> String {
+    if content.is_empty() {
+        return String::new();
+    }
+    let max_blanks: usize = if is_markdown { 1 } else { 2 };
     let mut result = String::with_capacity(content.len());
-    let mut blank_count = 0;
+    let mut blank_count = 0usize;
     for line in content.lines() {
         let trimmed = line.trim_end();
         if trimmed.is_empty() {
             blank_count += 1;
-            if blank_count <= 2 {
+            if blank_count <= max_blanks {
                 result.push('\n');
             }
         } else {
