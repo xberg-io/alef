@@ -508,6 +508,12 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
     fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
         let lower_name = name.to_lowercase();
         let header_expr = format!("_resp.value(forHTTPHeaderField: \"{}\")", escape_swift(&lower_name));
+        // Header names contain characters illegal in Swift identifiers (e.g. the `-` in
+        // `x-request-id`), so derive a safe local-variable suffix for any binding we emit.
+        let var_suffix: String = lower_name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
         match expected {
             "<<present>>" => {
                 let _ = writeln!(out, "        XCTAssertNotNil({header_expr})");
@@ -516,10 +522,10 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
                 let _ = writeln!(out, "        XCTAssertNil({header_expr})");
             }
             "<<uuid>>" => {
-                let _ = writeln!(out, "        let _hdrVal_{lower_name} = try XCTUnwrap({header_expr})");
+                let _ = writeln!(out, "        let _hdrVal_{var_suffix} = try XCTUnwrap({header_expr})");
                 let _ = writeln!(
                     out,
-                    "        XCTAssertNotNil(_hdrVal_{lower_name}.range(of: #\"^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$\"#, options: .regularExpression))"
+                    "        XCTAssertNotNil(_hdrVal_{var_suffix}.range(of: #\"^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$\"#, options: .regularExpression))"
                 );
             }
             exact => {

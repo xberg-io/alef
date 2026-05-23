@@ -829,7 +829,7 @@ impl client::TestClientRenderer for KotlinTestClientRenderer {
 
         let _ = writeln!(
             out,
-            "        val baseUrl = System.getenv(\"MOCK_SERVER_URL\") ?: \"http://localhost:8080\""
+            "        val baseUrl = System.getProperty(\"mockServerUrl\") ?: System.getenv(\"MOCK_SERVER_URL\") ?: \"http://localhost:8080\""
         );
         let _ = writeln!(out, "        val uri = java.net.URI.create(\"$baseUrl{fixture_path}\")");
 
