@@ -23,6 +23,7 @@ pub(crate) fn gen_record_type(
     has_visitor_pattern: bool,
     _main_class: &str,
     builder_mode: JavaBuilderMode,
+    enum_defaults: &ahash::AHashMap<String, String>,
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
@@ -329,7 +330,7 @@ pub(crate) fn gen_record_type(
         // CPD-OFF: generated builder pattern produces identical token sequences across
         // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
         record_block.push_str("    // CPD-OFF\n");
-        let nested = gen_builder_nested_class(typ, has_visitor_pattern);
+        let nested = gen_builder_nested_class(typ, has_visitor_pattern, enum_defaults);
         record_block.push_str(&nested);
         record_block.push_str("    // CPD-ON\n");
     }
@@ -1757,7 +1758,11 @@ fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
 /// include a file header or import block.  All imports required by the builder body (e.g.
 /// `@JsonPOJOBuilder`, `@JsonProperty`, `Optional`) must be added by the caller
 /// (`gen_record_type`) to the combined file's import block.
-fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String {
+fn gen_builder_nested_class(
+    typ: &TypeDef,
+    has_visitor_pattern: bool,
+    enum_defaults: &ahash::AHashMap<String, String>,
+) -> String {
     let mut body = String::with_capacity(2048);
 
     // Annotation tells Jackson to use this builder when deserializing the record.
@@ -1839,26 +1844,17 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
                 // Special case: non-optional enum field with #[serde(default)].
                 // The Rust side will deserialize a missing field using Rust's Default trait,
                 // which means Jackson must also initialize the Builder field to a valid enum.
-                // Extract the enum class name and use its first variant as default.
-                // For KeywordAlgorithm, use KeywordAlgorithm.Yake (or Rake if yake not available).
-                //
-                // Note: The first variant name would ideally be extracted from the type definitions,
-                // but that's not available in this context. As a workaround, we use a constructor
-                // pattern: init the field to a validated sentinel that will be replaced by Jackson.
-                // For now, fallback to first alphabetically to match Rust's enum order in most cases.
-                // TODO: enhance IR extraction to capture the default variant name from Rust impl Default.
+                // Consult the enum_defaults map to find the correct default variant.
                 match &field.ty {
                     TypeRef::Named(name) => {
-                        // Common enums with known default first variants:
-                        match name.as_str() {
-                            "KeywordAlgorithm" => "KeywordAlgorithm.Yake".to_string(),
-                            _ => {
-                                // For unknown enums, default to null and hope Jackson sets it
-                                // (this is a limitation: we can't determine the default variant without
-                                // access to the type definitions).
+                        enum_defaults
+                            .get(name.as_str())
+                            .map(|variant| format!("{name}.{variant}"))
+                            .unwrap_or_else(|| {
+                                // For unknown enums or enums with no variants, default to null
+                                // and hope Jackson sets it (shouldn't happen with valid input).
                                 "null".to_string()
-                            }
-                        }
+                            })
                     }
                     _ => "null".to_string(),
                 }
@@ -2443,6 +2439,7 @@ mod tests {
             false,
             "LiterLlmRs",
             JavaBuilderMode::Auto,
+            &ahash::AHashMap::default(),
         );
         // `model` is single-word: camelCase == snake_case, so no annotation needed.
         assert!(
@@ -2466,6 +2463,7 @@ mod tests {
             false,
             "LiterLlmRs",
             JavaBuilderMode::Auto,
+            &ahash::AHashMap::default(),
         );
         assert!(
             out.contains("@JsonProperty(\"max_tokens\")"),
@@ -2494,6 +2492,7 @@ mod tests {
             false,
             "Kreuzcrawl",
             JavaBuilderMode::Auto,
+            &ahash::AHashMap::default(),
         );
         assert!(
             out.contains("requestTimeout == null"),
@@ -2584,6 +2583,7 @@ mod tests {
             false,
             "LiterLlmRs",
             JavaBuilderMode::Auto,
+            &ahash::AHashMap::default(),
         );
         // Builder must be emitted so @JsonAnySetter can absorb unknown sibling fields.
         assert!(
