@@ -1036,8 +1036,21 @@ fn render_test_case(
                                 args.push(var_name);
                             }
                         }
+                    } else if arg_def.optional {
+                        // Fixture has no config block (null/absent) but the Dart facade
+                        // declares the arg as a required-positional non-nullable type
+                        // (e.g. `embed_texts_async(texts, config)` with `EmbeddingConfig`).
+                        // Construct a default instance via FRB's
+                        // `create<Type>FromJson(json: '{}')` helper. Skip when no
+                        // `options_type` is configured — those calls go through the
+                        // `ExtractionConfig?` nullable facade path where omission is allowed.
+                        if let Some(opts_type) = options_type {
+                            let var_name = format!("_{}", arg_def.name);
+                            let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                            setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
+                            args.push(var_name);
+                        }
                     }
-                    // If config is null/absent, the wrapper supplies the default ExtractionConfig.
                 } else if arg_value.is_array() {
                     // Generic JSON array (e.g. batch_urls: ["/page1", "/page2"]).
                     // Decode via jsonDecode and cast to List<String> at test-run time.
