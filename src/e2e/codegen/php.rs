@@ -1195,7 +1195,12 @@ fn render_test_method(
         std::collections::BTreeMap::new();
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
-            if !f.is_empty() && field_resolver.is_array(f) {
+            if !f.is_empty()
+                // Skip enum variant accessor paths (metadata.format.excel etc.)
+                && !(f.contains("metadata.format.") && f.matches('.').count() >= 2)
+                && field_resolver.is_array(f)
+                // Only collect bindings for fields that are valid on the result type
+                && field_resolver.is_valid_for_result(f) {
                 // Only emit binding if not already added
                 if !fields_array_bindings.contains_key(f.as_str()) {
                     let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
@@ -1861,6 +1866,21 @@ fn render_assertion(
                 return;
             }
             _ => {}
+        }
+    }
+
+    // Skip enum variant accessors (metadata.format.excel etc.) — PHP bindings
+    // serialize FormatMetadata to JSON, so variants are unavailable in PHP.
+    if let Some(f) = &assertion.field {
+        if f.contains("metadata.format.") && f.matches('.').count() >= 2 {
+            out.push_str(&crate::e2e::template_env::render(
+                "php/synthetic_assertion.jinja",
+                minijinja::context! {
+                    assertion_kind => "skipped",
+                    field_name => f,
+                },
+            ));
+            return;
         }
     }
 
