@@ -359,3 +359,66 @@ fn build_gradle_uses_vanniktech_maven_publish_plugin() {
         "build.gradle.kts android block should NOT have publishing configuration (handled by vanniktech plugin)"
     );
 }
+
+/// Regression: BLK-4 + STY-7 — buildscript must appear AFTER imports,
+/// and imports must be lexicographically sorted.
+/// Kotlin's grammar forbids any top-level element before imports except
+/// package declaration. Gradle Kotlin DSL inherits this grammar rule.
+#[test]
+fn buildscript_comes_after_imports_in_correct_order() {
+    let api = make_basic_api();
+    let config = make_basic_config();
+
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let gradle_file = files
+        .iter()
+        .find(|f| f.path.ends_with("build.gradle.kts"))
+        .expect("build.gradle.kts not found");
+
+    let content = &gradle_file.content;
+
+    // Find positions of the three imports in the entire file
+    let pos_android_variant = content.find("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary")
+        .expect("AndroidSingleVariantLibrary import not found");
+    let pos_sonatype = content.find("import com.vanniktech.maven.publish.SonatypeHost")
+        .expect("SonatypeHost import not found");
+    let pos_jvm_target = content.find("import org.jetbrains.kotlin.gradle.dsl.JvmTarget")
+        .expect("JvmTarget import not found");
+    let pos_buildscript = content.find("buildscript {")
+        .expect("buildscript block not found");
+
+    // All imports must come before buildscript
+    assert!(
+        pos_android_variant < pos_buildscript,
+        "AndroidSingleVariantLibrary import must come before buildscript; found at {}, buildscript at {}",
+        pos_android_variant,
+        pos_buildscript
+    );
+    assert!(
+        pos_sonatype < pos_buildscript,
+        "SonatypeHost import must come before buildscript; found at {}, buildscript at {}",
+        pos_sonatype,
+        pos_buildscript
+    );
+    assert!(
+        pos_jvm_target < pos_buildscript,
+        "JvmTarget import must come before buildscript; found at {}, buildscript at {}",
+        pos_jvm_target,
+        pos_buildscript
+    );
+
+    // Verify the three imports are in lexicographic order
+    assert!(
+        pos_android_variant < pos_sonatype,
+        "imports must be in lexicographic order; AndroidSingleVariantLibrary ({}) before SonatypeHost ({})",
+        pos_android_variant,
+        pos_sonatype
+    );
+    assert!(
+        pos_sonatype < pos_jvm_target,
+        "imports must be in lexicographic order; SonatypeHost ({}) before JvmTarget ({})",
+        pos_sonatype,
+        pos_jvm_target
+    );
+}
