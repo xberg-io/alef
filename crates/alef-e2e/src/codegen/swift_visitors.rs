@@ -251,10 +251,10 @@ fn escape_swift_str(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::fixture::TemplateReturnForm;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     fn spec(method: &str, action: CallbackAction) -> VisitorSpec {
-        let mut callbacks = HashMap::new();
+        let mut callbacks = BTreeMap::new();
         callbacks.insert(method.to_string(), action);
         VisitorSpec { callbacks }
     }

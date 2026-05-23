@@ -10,7 +10,7 @@ use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::java::JavaCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 fn make_smoke_fixture(id: &str) -> Fixture {
     Fixture {
@@ -31,7 +31,7 @@ fn make_smoke_fixture(id: &str) -> Fixture {
             status: 200,
             body: Some(serde_json::json!({"id": "chatcmpl-1", "object": "chat.completion", "choices": []})),
             stream_chunks: None,
-            headers: HashMap::new(),
+            headers: BTreeMap::new(),
         }),
         visitor: None,
         assertions: vec![Assertion {

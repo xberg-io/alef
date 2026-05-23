@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 /// Mock HTTP response for testing HTTP clients.
@@ -20,14 +20,14 @@ pub struct MockResponse {
     /// Response headers to apply to the mock response.
     /// Bridged from `http.expected_response.headers` for consumer-style fixtures.
     #[serde(default)]
-    pub headers: HashMap<String, String>,
+    pub headers: BTreeMap<String, String>,
 }
 
 /// Visitor specification for visitor pattern tests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VisitorSpec {
     /// Map of callback method name to action.
-    pub callbacks: HashMap<String, CallbackAction>,
+    pub callbacks: BTreeMap<String, CallbackAction>,
 }
 
 /// Action a visitor callback should take.
@@ -151,7 +151,7 @@ pub struct HttpHandler {
     pub body_schema: Option<serde_json::Value>,
     /// Parameter schemas by source (path, query, header, cookie).
     #[serde(default)]
-    pub parameters: HashMap<String, HashMap<String, serde_json::Value>>,
+    pub parameters: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
     /// Middleware configuration.
     #[serde(default)]
     pub middleware: Option<HttpMiddleware>,
@@ -163,11 +163,11 @@ pub struct HttpRequest {
     pub method: String,
     pub path: String,
     #[serde(default)]
-    pub headers: HashMap<String, String>,
+    pub headers: BTreeMap<String, String>,
     #[serde(default)]
-    pub query_params: HashMap<String, serde_json::Value>,
+    pub query_params: BTreeMap<String, serde_json::Value>,
     #[serde(default)]
-    pub cookies: HashMap<String, String>,
+    pub cookies: BTreeMap<String, String>,
     #[serde(default)]
     pub body: Option<serde_json::Value>,
     #[serde(default)]
@@ -186,7 +186,7 @@ pub struct HttpExpectedResponse {
     pub body_partial: Option<serde_json::Value>,
     /// Header expectations. Special tokens: `<<uuid>>`, `<<present>>`, `<<absent>>`.
     #[serde(default)]
-    pub headers: HashMap<String, String>,
+    pub headers: BTreeMap<String, String>,
     /// Expected validation errors (for 422 responses).
     #[serde(default)]
     pub validation_errors: Option<Vec<ValidationErrorExpectation>>,

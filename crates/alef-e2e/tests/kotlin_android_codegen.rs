@@ -10,7 +10,7 @@ use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::kotlin_android::KotlinAndroidE2eCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 fn make_chat_fixture(id: &str) -> Fixture {
     Fixture {
@@ -29,7 +29,7 @@ fn make_chat_fixture(id: &str) -> Fixture {
             status: 200,
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
-            headers: HashMap::new(),
+            headers: BTreeMap::new(),
         }),
         visitor: None,
         assertions: vec![Assertion {
@@ -64,7 +64,7 @@ fn make_chat_fixture_with_field_assertion(id: &str, field: &str, expected: &str)
             status: 200,
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
-            headers: HashMap::new(),
+            headers: BTreeMap::new(),
         }),
         visitor: None,
         assertions: vec![Assertion {
@@ -255,7 +255,7 @@ fn make_streaming_fixture(id: &str) -> Fixture {
                 serde_json::json!({"choices": [{"delta": {"content": "hello"}, "finish_reason": null}]}),
                 serde_json::json!({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
             ]),
-            headers: HashMap::new(),
+            headers: BTreeMap::new(),
         }),
         visitor: None,
         assertions: vec![

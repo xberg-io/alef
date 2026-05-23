@@ -174,7 +174,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use crate::fixture::{HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
 
@@ -188,15 +188,15 @@ mod tests {
                     route: "/basic".to_string(),
                     method: "GET".to_string(),
                     body_schema: None,
-                    parameters: HashMap::new(),
+                    parameters: BTreeMap::new(),
                     middleware: None,
                 },
                 request: HttpRequest {
                     method: "GET".to_string(),
                     path: "/basic".to_string(),
-                    headers: HashMap::new(),
-                    query_params: HashMap::new(),
-                    cookies: HashMap::new(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
                     body,
                     content_type: None,
                 },
@@ -204,7 +204,7 @@ mod tests {
                     status_code: 200,
                     body: None,
                     body_partial: None,
-                    headers: HashMap::new(),
+                    headers: BTreeMap::new(),
                     validation_errors: None,
                 },
             }),

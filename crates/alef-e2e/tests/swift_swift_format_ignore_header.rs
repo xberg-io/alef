@@ -28,7 +28,7 @@ fn make_fixture(id: &str) -> Fixture {
             status: 200,
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
-            headers: std::collections::HashMap::new(),
+            headers: std::collections::BTreeMap::new(),
         }),
         visitor: None,
         assertions: vec![Assertion {

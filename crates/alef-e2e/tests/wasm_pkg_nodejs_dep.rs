@@ -51,7 +51,7 @@ fn group() -> FixtureGroup {
                 status: 200,
                 body: Some(serde_json::Value::String("<html></html>".to_string())),
                 stream_chunks: None,
-                headers: std::collections::HashMap::new(),
+                headers: std::collections::BTreeMap::new(),
             }),
             visitor: None,
             assertions: vec![Assertion {

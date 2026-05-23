@@ -15,7 +15,7 @@
 //! drives it with their stdlib HTTP client.
 
 use crate::fixture::{Fixture, HttpExpectedResponse, HttpRequest, ValidationErrorExpectation};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 pub mod http_call;
 pub mod ws_script;
@@ -28,9 +28,9 @@ pub mod ws_script;
 pub struct CallCtx<'a> {
     pub method: &'a str,
     pub path: &'a str,
-    pub headers: &'a HashMap<String, String>,
-    pub query_params: &'a HashMap<String, serde_json::Value>,
-    pub cookies: &'a HashMap<String, String>,
+    pub headers: &'a BTreeMap<String, String>,
+    pub query_params: &'a BTreeMap<String, serde_json::Value>,
+    pub cookies: &'a BTreeMap<String, String>,
     pub body: Option<&'a serde_json::Value>,
     pub content_type: Option<&'a str>,
     pub response_var: &'a str,

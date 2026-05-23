@@ -42,7 +42,7 @@ fn error_fixture_with_mock() -> FixtureGroup {
                 status: 500,
                 body: Some(serde_json::json!({"error": "boom"})),
                 stream_chunks: None,
-                headers: std::collections::HashMap::new(),
+                headers: std::collections::BTreeMap::new(),
             }),
             visitor: None,
             assertions: vec![Assertion {
