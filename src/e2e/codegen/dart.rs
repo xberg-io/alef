@@ -380,20 +380,26 @@ fn render_test_file(
         let _ = writeln!(out, "  }}");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
-        // The `fn` here should be the full request closure — on socket failure we
-        // recreate the HttpClient (drops old pooled connections) and retry once.
+        // The `fn` here is the full request closure. Transient connection errors
+        // (`SocketException` / `HttpException: Connection reset by peer`) happen rarely
+        // but non-deterministically when the local mock server drops a connection mid-flight;
+        // a single retry is not always enough, so retry several times with a short backoff,
+        // recreating the HttpClient each time to drop any poisoned pooled connection. The
+        // final attempt is outside the catch so a genuine, persistent failure still surfaces.
         let _ = writeln!(out, "Future<T> _withRetry<T>(Future<T> Function() fn) async {{");
-        let _ = writeln!(out, "  try {{");
-        let _ = writeln!(out, "    return await fn();");
-        let _ = writeln!(out, "  }} on SocketException {{");
-        let _ = writeln!(out, "    _httpClient.close(force: true);");
-        let _ = writeln!(out, "    _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
-        let _ = writeln!(out, "    return await fn();");
-        let _ = writeln!(out, "  }} on HttpException {{");
-        let _ = writeln!(out, "    _httpClient.close(force: true);");
-        let _ = writeln!(out, "    _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
-        let _ = writeln!(out, "    return await fn();");
+        let _ = writeln!(out, "  for (var attempt = 0; attempt < 5; attempt++) {{");
+        let _ = writeln!(out, "    try {{");
+        let _ = writeln!(out, "      return await fn();");
+        let _ = writeln!(out, "    }} on SocketException {{");
+        let _ = writeln!(out, "      _httpClient.close(force: true);");
+        let _ = writeln!(out, "      _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
+        let _ = writeln!(out, "    }} on HttpException {{");
+        let _ = writeln!(out, "      _httpClient.close(force: true);");
+        let _ = writeln!(out, "      _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    await Future<void>.delayed(Duration(milliseconds: 25 * (attempt + 1)));");
         let _ = writeln!(out, "  }}");
+        let _ = writeln!(out, "  return await fn();");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
     }
