@@ -1853,7 +1853,9 @@ fn gen_builder_nested_class(
                     // The Rust side will deserialize a missing field using Rust's Default trait,
                     // which means Jackson must also initialize the Builder field to a valid enum.
                     // Consult the enum_defaults map to find the correct default variant.
-                    // For sealed interfaces (TypeDef-based enums), emit `new EnumName.Variant()`.
+                    // For sealed interfaces (TypeDef-based enums), emit `new EnumName.Variant()` only
+                    // if the variant has zero fields (is_zero_field=true). Variants with fields
+                    // cannot be instantiated without arguments, so default to null.
                     // For traditional enums (EnumDef), emit `EnumName.Variant` (static reference).
                     match &field.ty {
                         TypeRef::Named(name) => {
@@ -1863,8 +1865,17 @@ fn gen_builder_nested_class(
                                     let variant_name = &variant_meta.variant_name;
                                     // Check if this is a sealed interface (TypeDef-based enum in Java)
                                     if sealed_interface_names.contains(name.as_str()) {
-                                        // Sealed interface: instantiate with `new` (applies to all variants)
-                                        format!("new {name}.{variant_name}()")
+                                        // Sealed interface: instantiate with `new` only if variant has zero fields.
+                                        // Sealed interface record variants with fields cannot be instantiated
+                                        // without arguments, so default to null and rely on Jackson's
+                                        // @JsonInclude(NON_ABSENT) to omit the field, letting Rust's serde
+                                        // apply its default_* function.
+                                        if variant_meta.is_zero_field {
+                                            format!("new {name}.{variant_name}()")
+                                        } else {
+                                            // Variant has fields: cannot instantiate without args
+                                            "null".to_string()
+                                        }
                                     } else {
                                         // Traditional enum: static reference
                                         format!("{name}.{variant_name}")
@@ -1960,7 +1971,18 @@ fn gen_builder_nested_class(
             body.push_str(&wire);
             body.push_str("\")\n");
         }
-        body.push_str("        private ");
+
+        // Add @Nullable for fields that are boxed for serde(default) or Duration
+        // When a non-optional field uses a boxed type to represent "not set" via null,
+        // it needs the @Nullable annotation for proper static analysis.
+        let needs_nullable_annotation = has_serde_default && matches!(&field.ty, TypeRef::Named(_))
+            || matches!(field.ty, TypeRef::Duration);
+
+        if needs_nullable_annotation {
+            body.push_str("        @Nullable ");
+        }
+
+        body.push_str("private ");
         body.push_str(&field_type);
         body.push(' ');
         body.push_str(&field_name);
