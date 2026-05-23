@@ -1812,7 +1812,13 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
             "new java.util.HashMap<>()".to_string()
         } else if field.optional {
             // For Optional fields, always use Optional.empty() or Optional.of(value)
-            if let Some(default) = &field.default {
+            // The "/* serde(default) */" placeholder is a signal value set by the
+            // extractor when a field carries #[serde(default)] but no other explicit
+            // default — it must NOT be emitted as a Java expression. Treat it as
+            // "no real default, use Optional.empty()".
+            if let Some(default) = &field.default
+                && default != "/* serde(default) */"
+            {
                 // If there's an explicit default, wrap it in Optional.of()
                 format_optional_value(&field.ty, default)
             } else {
@@ -1820,8 +1826,12 @@ fn gen_builder_nested_class(typ: &TypeDef, has_visitor_pattern: bool) -> String 
                 "Optional.empty()".to_string()
             }
         } else {
-            // For non-Optional fields, use regular defaults
-            if let Some(default) = &field.default {
+            // For non-Optional fields, use regular defaults.
+            // Same placeholder filter as above — fall through to the type-driven
+            // default match arm so Vec emits `List.of()`, Map emits `Map.of()`, etc.
+            if let Some(default) = &field.default
+                && default != "/* serde(default) */"
+            {
                 default.clone()
             } else {
                 match &field.ty {

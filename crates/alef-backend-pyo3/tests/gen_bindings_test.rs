@@ -4981,7 +4981,7 @@ fn test_option_fields_on_has_default_type() {
             is_clone: true,
             is_copy: false,
             is_trait: false,
-            has_default: true,  // This is the key difference — has_default
+            has_default: true, // This is the key difference — has_default
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
@@ -5047,10 +5047,7 @@ fn test_option_fields_with_serde_rename_on_has_default() {
             name: "RequestOptions".to_string(),
             rust_path: "test_lib::RequestOptions".to_string(),
             original_rust_path: String::new(),
-            fields: vec![
-                timeout_field,
-                make_field("name", TypeRef::String, false),
-            ],
+            fields: vec![timeout_field, make_field("name", TypeRef::String, false)],
             methods: vec![],
             is_opaque: false,
             is_clone: true,
@@ -5084,7 +5081,10 @@ fn test_option_fields_with_serde_rename_on_has_default() {
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs not generated");
 
-    println!("Generated lib.rs for has_default type with serde_rename:\n{}\n", lib_rs.content);
+    println!(
+        "Generated lib.rs for has_default type with serde_rename:\n{}\n",
+        lib_rs.content
+    );
 
     // The constructor parameter for serde-renamed optional field must still be Option<u64>
     assert!(
