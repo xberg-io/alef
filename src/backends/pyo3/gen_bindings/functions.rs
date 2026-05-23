@@ -568,8 +568,12 @@ pub(super) fn gen_api_py(
         if !serde_renamed_fields.is_empty() {
             out.push_str("        # Alias serde-renamed keys back to Rust field names\n");
             for (field_name, serde_name) in &serde_renamed_fields {
-                out.push_str(&format!("        if \"{serde_name}\" in value and \"{field_name}\" not in value:\n"));
-                out.push_str(&format!("            value[\"{field_name}\"] = value.pop(\"{serde_name}\")\n"));
+                out.push_str(&format!(
+                    "        if \"{serde_name}\" in value and \"{field_name}\" not in value:\n"
+                ));
+                out.push_str(&format!(
+                    "            value[\"{field_name}\"] = value.pop(\"{serde_name}\")\n"
+                ));
             }
         }
 
@@ -780,6 +784,37 @@ pub(super) fn gen_api_py(
                 }
             }
             let accessor = field_access(&field.name);
+
+            // For optional data enum fields, guard against None before instantiation.
+            // If the field is Optional and is a data enum (tagged union), we need to check
+            // for None because the PyO3 constructor will fail if passed None directly.
+            let final_accessor = if let Some(inner_named) = match &field.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            } {
+                if (matches!(&field.ty, TypeRef::Optional(_)) || field.optional)
+                    && data_enum_names.contains(inner_named)
+                {
+                    // Optional data enum: guard with None check
+                    format!(
+                        "None if {accessor} is None else ({accessor} if isinstance({accessor}, _rust.{inner_named}) else _rust.{inner_named}({accessor}))",
+                        accessor = accessor,
+                        inner_named = inner_named
+                    )
+                } else {
+                    accessor.clone()
+                }
+            } else {
+                accessor.clone()
+            };
+
             // When a field has serde_rename, use it for pyo3 binding compatibility.
             // The pyo3 constructor parameter names match serde-renamed field names.
             let pyo3_param_name = field.serde_rename.as_deref().unwrap_or(&field.name);
@@ -787,7 +822,7 @@ pub(super) fn gen_api_py(
                 "field_kwarg.jinja",
                 minijinja::context! {
                     name => pyo3_param_name,
-                    accessor => &accessor,
+                    accessor => &final_accessor,
                 },
             ));
         }
