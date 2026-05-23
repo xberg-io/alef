@@ -1523,22 +1523,26 @@ fn build_args_and_setup(
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: emit positional default so the
-                // call has the right arity for the Java facade. For json_object
-                // optional args with a configured options_type, construct an empty
-                // default builder instead of passing raw null — unless we're
-                // emitting against the kotlin_android facade, which exposes
-                // optional args as `T? = null` data classes with no companion
-                // builder.
+                // call has the right arity for the facade.
+                //
+                // For json_object optional args:
+                // - If options_type is set, use `OptionsType()` for kotlin_android (data class
+                //   constructor with defaults) or `OptionsType.builder().build()` for Java facade.
+                // - If no options_type, infer the type from arg.name and emit default constructor
+                //   (e.g., "ExtractionConfig()" for config arg). This handles both Java facade
+                //   (which requires non-null) and kotlin_android (which also declares non-null).
                 if arg.arg_type == "json_object" {
-                    if let Some(opts_type) = options_type {
+                    let default_constructor = if let Some(opts_type) = options_type {
                         if kotlin_android_style {
-                            parts.push("null".to_string());
+                            format!("{}()", opts_type)
                         } else {
-                            parts.push(format!("{opts_type}.builder().build()"));
+                            format!("{}.builder().build()", opts_type)
                         }
                     } else {
-                        parts.push("null".to_string());
-                    }
+                        // Infer type from arg name: "config" → "ExtractionConfig", "options" → "Options"
+                        format!("{}()", arg.name.to_upper_camel_case())
+                    };
+                    parts.push(default_constructor);
                 } else {
                     parts.push("null".to_string());
                 }

@@ -615,12 +615,22 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
 
     let serde_rename = extract_serde_rename(&field.attrs);
     let serde_flatten = extract_serde_flatten(&field.attrs);
+    let has_serde_default_attr = has_serde_default(&field.attrs);
+
+    // If the field has #[serde(default)], mark it as having a default value.
+    // This prevents C# backends from emitting `required` modifier, since the field
+    // can be omitted from JSON and will use the type's Default implementation.
+    let default = if has_serde_default_attr {
+        Some("/* serde(default) */".to_string())
+    } else {
+        None
+    };
 
     FieldDef {
         name,
         ty,
         optional,
-        default: None,
+        default,
         doc,
         sanitized: false,
         is_boxed,
@@ -723,6 +733,25 @@ pub(crate) fn extract_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
             }
         }
         None
+    })
+}
+
+/// Check if a field has `#[serde(default)]` attribute (also matching
+/// `#[cfg_attr(..., serde(default))]`). Fields with this attribute can
+/// be omitted from JSON and use the type's Default implementation.
+pub(crate) fn has_serde_default(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        let attr_str = quote::quote!(#attr).to_string();
+        if !attr_str.contains("serde") {
+            return false;
+        }
+        // Look for standalone `default` (not `default = "..."`).
+        // We want `default` as a boundary word, not part of `default_` or `use_default`.
+        attr_str.contains("default ,")
+            || attr_str.contains("default,")
+            || attr_str.contains("default )")
+            || attr_str.contains("default)")
+            || attr_str.ends_with("default")
     })
 }
 

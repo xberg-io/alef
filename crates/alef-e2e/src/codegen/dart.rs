@@ -273,6 +273,20 @@ fn render_test_file(
             .any(|a| a.arg_type == "json_object" && super::resolve_field(&f.input, &a.field).is_array())
     });
 
+    // Detect whether any fixture uses a PageAction array argument (for interact calls).
+    // PageAction and ScrollDirection types must be emitted in the test helper code only if used.
+    let has_page_action = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let call_config =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        call_config.args.iter().any(|a| {
+            a.element_type.as_deref() == Some("PageAction")
+                && super::resolve_field(&f.input, &a.field).is_array()
+        })
+    });
+
     // Non-HTTP fixtures that build a mock-server URL still reference `Platform.environment`
     // (from `dart:io`). This applies to `mock_url` and `mock_url_list` args and to fixtures
     // routed through a `client_factory` (per-call override or per-language override) that
@@ -334,8 +348,9 @@ fn render_test_file(
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
     }
-    // dart:convert provides jsonDecode for handle-arg engine construction and HTTP response parsing.
-    if has_http_fixtures || has_handle_args {
+    // dart:convert provides jsonDecode for handle-arg engine construction, HTTP response parsing,
+    // and PageAction array deserialization.
+    if has_http_fixtures || has_handle_args || has_page_action {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     let _ = writeln!(out);
@@ -435,54 +450,57 @@ fn render_test_file(
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
-    let _ = writeln!(out, "PageAction _parsePageAction(Map<String, dynamic> json) {{");
-    let _ = writeln!(out, "  final actionType = json['type'] as String?;");
-    let _ = writeln!(out, "  switch (actionType) {{");
-    let _ = writeln!(out, "    case 'click':");
-    let _ = writeln!(
-        out,
-        "      return PageAction.click(selector: json['selector'] as String);"
-    );
-    let _ = writeln!(out, "    case 'type_text':");
-    let _ = writeln!(out, "      return PageAction.typeText(");
-    let _ = writeln!(out, "        selector: json['selector'] as String,");
-    let _ = writeln!(out, "        text: json['text'] as String,");
-    let _ = writeln!(out, "      );");
-    let _ = writeln!(out, "    case 'press_key':");
-    let _ = writeln!(out, "      return PageAction.press(");
-    let _ = writeln!(out, "        key: json['key'] as String,");
-    let _ = writeln!(out, "      );");
-    let _ = writeln!(out, "    case 'scroll_down':");
-    let _ = writeln!(out, "      return PageAction.scroll(");
-    let _ = writeln!(out, "        direction: ScrollDirection.down,");
-    let _ = writeln!(out, "        selector: json['selector'] as String? ?? '',");
-    let _ = writeln!(out, "        amount: json['amount'] as int? ?? 0,");
-    let _ = writeln!(out, "      );");
-    let _ = writeln!(out, "    case 'wait_selector':");
-    let _ = writeln!(out, "      return PageAction.wait(");
-    let _ = writeln!(out, "        milliseconds: json['timeout_ms'] as int? ?? 0,");
-    let _ = writeln!(out, "        selector: json['selector'] as String,");
-    let _ = writeln!(out, "      );");
-    let _ = writeln!(out, "    case 'screenshot':");
-    let _ = writeln!(
-        out,
-        "      return PageAction.screenshot(fullPage: json['full_page'] as bool? ?? false);"
-    );
-    let _ = writeln!(out, "    case 'execute_js':");
-    let _ = writeln!(
-        out,
-        "      return PageAction.executeJs(script: json['script'] as String);"
-    );
-    let _ = writeln!(out, "    case 'scrape':");
-    let _ = writeln!(out, "      return const PageAction.scrape();");
-    let _ = writeln!(out, "    default:");
-    let _ = writeln!(
-        out,
-        "      throw UnsupportedError('Unknown PageAction type: $actionType');"
-    );
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
+    // Only emit _parsePageAction if any fixture uses PageAction arrays.
+    if has_page_action {
+        let _ = writeln!(out, "PageAction _parsePageAction(Map<String, dynamic> json) {{");
+        let _ = writeln!(out, "  final actionType = json['type'] as String?;");
+        let _ = writeln!(out, "  switch (actionType) {{");
+        let _ = writeln!(out, "    case 'click':");
+        let _ = writeln!(
+            out,
+            "      return PageAction.click(selector: json['selector'] as String);"
+        );
+        let _ = writeln!(out, "    case 'type_text':");
+        let _ = writeln!(out, "      return PageAction.typeText(");
+        let _ = writeln!(out, "        selector: json['selector'] as String,");
+        let _ = writeln!(out, "        text: json['text'] as String,");
+        let _ = writeln!(out, "      );");
+        let _ = writeln!(out, "    case 'press_key':");
+        let _ = writeln!(out, "      return PageAction.press(");
+        let _ = writeln!(out, "        key: json['key'] as String,");
+        let _ = writeln!(out, "      );");
+        let _ = writeln!(out, "    case 'scroll_down':");
+        let _ = writeln!(out, "      return PageAction.scroll(");
+        let _ = writeln!(out, "        direction: ScrollDirection.down,");
+        let _ = writeln!(out, "        selector: json['selector'] as String? ?? '',");
+        let _ = writeln!(out, "        amount: json['amount'] as int? ?? 0,");
+        let _ = writeln!(out, "      );");
+        let _ = writeln!(out, "    case 'wait_selector':");
+        let _ = writeln!(out, "      return PageAction.wait(");
+        let _ = writeln!(out, "        milliseconds: json['timeout_ms'] as int? ?? 0,");
+        let _ = writeln!(out, "        selector: json['selector'] as String,");
+        let _ = writeln!(out, "      );");
+        let _ = writeln!(out, "    case 'screenshot':");
+        let _ = writeln!(
+            out,
+            "      return PageAction.screenshot(fullPage: json['full_page'] as bool? ?? false);"
+        );
+        let _ = writeln!(out, "    case 'execute_js':");
+        let _ = writeln!(
+            out,
+            "      return PageAction.executeJs(script: json['script'] as String);"
+        );
+        let _ = writeln!(out, "    case 'scrape':");
+        let _ = writeln!(out, "      return const PageAction.scrape();");
+        let _ = writeln!(out, "    default:");
+        let _ = writeln!(
+            out,
+            "      throw UnsupportedError('Unknown PageAction type: $actionType');"
+        );
+        let _ = writeln!(out, "  }}");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+    }
 
     let _ = writeln!(out, "void main() {{");
 
