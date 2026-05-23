@@ -286,7 +286,7 @@ fn render_standard_assertion(
                         "any(any(v in text for text in _alef_e2e_item_texts(item)) for item in {field_access} for v in [{list_str}])"
                     )
                 } else if field_is_enum {
-                    format!("any(v in str({field_access}).lower() for v in [{list_str}])")
+                    format!("any(v.lower() in str({field_access}).lower() for v in [{list_str}])")
                 } else {
                     format!("any(v in {field_access} for v in [{list_str}])")
                 };
@@ -471,7 +471,7 @@ fn python_contains_expr(
         return format!("any({expected} in text for item in {field_access} for text in _alef_e2e_item_texts(item))");
     }
     if field_is_enum && expected_is_string {
-        return format!("{expected} in str({field_access}).lower()");
+        return format!("{expected}.lower() in str({field_access}).lower()");
     }
     format!("{expected} in {field_access}")
 }
