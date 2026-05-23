@@ -438,17 +438,17 @@ pub(super) fn gen_api_py(
         let struct_coercible: Vec<_> = typ
             .fields
             .iter()
-            .filter(|f| f.cfg.is_none() && get_inner_name(&f.ty).is_some_and(|n| default_types.contains_key(n)))
+            .filter(|f| get_inner_name(&f.ty).is_some_and(|n| default_types.contains_key(n)))
             .collect();
         let simple_enum_coercible: Vec<_> = typ
             .fields
             .iter()
-            .filter(|f| f.cfg.is_none() && get_inner_name(&f.ty).is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n)))
+            .filter(|f| get_inner_name(&f.ty).is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n)))
             .collect();
         let data_enum_coercible: Vec<_> = typ
             .fields
             .iter()
-            .filter(|f| f.cfg.is_none() && get_inner_name(&f.ty).is_some_and(|n| data_enum_names.contains(n)))
+            .filter(|f| get_inner_name(&f.ty).is_some_and(|n| data_enum_names.contains(n)))
             .collect();
         let total_coercible = struct_coercible.len() + simple_enum_coercible.len() + data_enum_coercible.len();
 

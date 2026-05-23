@@ -152,8 +152,22 @@ impl E2eCodegen for JavaCodegen {
             }
         }
 
-        // Resolve options_type from override.
-        let options_type = overrides.and_then(|o| o.options_type.clone());
+        // Resolve options_type: prefer Java override, fall back to other languages' options_type.
+        // This ensures that when a call declares options_type in C#/Go/Python/PHP but not Java,
+        // Java e2e tests still properly deserialize json_object args via JsonUtil.fromJson().
+        let options_type = overrides
+            .and_then(|o| o.options_type.clone())
+            .or_else(|| {
+                // Inherit from non-Java language overrides (C# first, then C, Go, PHP, Python).
+                for cand in ["csharp", "c", "go", "php", "python"] {
+                    if let Some(o) = e2e_config.call.overrides.get(cand) {
+                        if let Some(t) = &o.options_type {
+                            return Some(t.clone());
+                        }
+                    }
+                }
+                None
+            });
 
         // Resolve enum_fields and nested_types from Java override config.
         static EMPTY_ENUM_FIELDS: std::sync::LazyLock<std::collections::HashMap<String, String>> =
