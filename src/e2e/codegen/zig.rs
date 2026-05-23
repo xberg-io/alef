@@ -628,15 +628,20 @@ fn render_test_file(
 
     // Suppress C++ static destructors that may abort during exit (e.g., leptonica's ObjectCache cleanup).
     // The Zig test runner's --listen=- IPC protocol expects a clean exit, but C++ cleanup can trigger
-    // SIGABRT, causing the runner to see BrokenPipe and fail. This extern function calls libc's atexit
-    // to register a handler that calls _exit(0) immediately, bypassing C++ destructors.
-    let _ = writeln!(out, "// Suppress C++ global destructor aborts that break zig's --listen=- IPC");
-    let _ = writeln!(out, "extern fn atexit(cb: fn () callconv(.c) void) c_int;");
-    let _ = writeln!(out, "extern fn _exit(code: i32) noreturn;");
-    let _ = writeln!(out, "fn suppress_cpp_destructors() callconv(.c) void {{");
-    let _ = writeln!(out, "    _exit(0);");
+    // SIGABRT. Using SIG_IGN (signal number 1) ignores SIGABRT entirely, allowing normal exit.
+    let _ = writeln!(
+        out,
+        "// Suppress C++ global destructor aborts that break zig's --listen=- IPC"
+    );
+    let _ = writeln!(out, "extern \"c\" fn signal(sig: i32, handler: usize) usize;");
+    let _ = writeln!(out, "var _abort_handler_installed: bool = false;");
+    let _ = writeln!(out, "fn suppress_abort() void {{");
+    let _ = writeln!(out, "    if (!_abort_handler_installed) {{");
+    let _ = writeln!(out, "        // SIGABRT = 6 on POSIX; SIG_IGN = 1");
+    let _ = writeln!(out, "        _ = signal(6, 1);");
+    let _ = writeln!(out, "        _abort_handler_installed = true;");
+    let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
-    let _ = writeln!(out, "comptime {{ _ = atexit(suppress_cpp_destructors); }}");
     let _ = writeln!(out);
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
@@ -813,6 +818,7 @@ fn render_test_fn(
 
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
+    let _ = writeln!(out, "    suppress_abort();");
 
     // Visitor fixtures bypass the high-level `convert(html, options)` wrapper
     // and inline the FFI sequence so we can attach a `HTMHtmVisitorCallbacks`

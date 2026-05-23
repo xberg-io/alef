@@ -554,10 +554,7 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         let method = ctx.method.to_uppercase();
         let fixture_path = escape_swift(ctx.path);
 
-        let _ = writeln!(
-            out,
-            "        let _baseURL = AlefE2EMockServer.baseURL"
-        );
+        let _ = writeln!(out, "        let _baseURL = AlefE2EMockServer.baseURL");
         let _ = writeln!(
             out,
             "        var _req = URLRequest(url: URL(string: _baseURL + \"{fixture_path}\")!)"
@@ -588,10 +585,7 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         let _ = writeln!(out, "        var {}: HTTPURLResponse?", ctx.response_var);
         let _ = writeln!(out, "        var _responseData: Data?");
         let _ = writeln!(out, "        let _sema = DispatchSemaphore(value: 0)");
-        let _ = writeln!(
-            out,
-            "        alefE2ESession.dataTask(with: _req) {{ data, resp, _ in"
-        );
+        let _ = writeln!(out, "        alefE2ESession.dataTask(with: _req) {{ data, resp, _ in");
         let _ = writeln!(out, "            {} = resp as? HTTPURLResponse", ctx.response_var);
         let _ = writeln!(out, "            _responseData = data");
         let _ = writeln!(out, "            _sema.signal()");
@@ -976,10 +970,7 @@ fn render_test_method(
                 fixture.id
             )
         } else {
-            format!(
-                "AlefE2EMockServer.baseURL + \"/fixtures/{}\"",
-                fixture.id
-            )
+            format!("AlefE2EMockServer.baseURL + \"/fixtures/{}\"", fixture.id)
         };
         let client_constructor = if has_mock {
             format!("let _client = try DefaultClient(apiKey: \"test-key\", baseUrl: {mock_url})")
