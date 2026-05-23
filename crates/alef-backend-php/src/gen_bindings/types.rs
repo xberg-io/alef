@@ -792,9 +792,26 @@ fn gen_struct_methods_impl(
         } else {
             map_fn(&field.ty)
         };
+
+        // For Option<NonOpaqueNamed>, ext-php-rs's IntoZval impl may not handle
+        // the conversion to PHP null correctly. Explicitly unwrap and map through
+        // .into() conversion, which is what php_wrap_return does for returns.
+        if field.name == "document" {
+            eprintln!("DEBUG: Processing document field: ty={:?}, optional={}, already_optional={}", field.ty, field.optional, matches!(field.ty, TypeRef::Optional(_)));
+        }
+        let is_optional_named_non_opaque = matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+        if is_optional_named_non_opaque && field.name == "document" {
+            eprintln!("DEBUG: Found document field - applying Option<T> mapping");
+        }
+        let body = if is_optional_named_non_opaque {
+            format!("self.{name}.clone().map(Into::into)", name = field.name)
+        } else {
+            format!("self.{name}.clone()", name = field.name)
+        };
+
         let getter_method = format!(
-            "pub fn {getter_ident}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
-            field_name = field.name,
+            "pub fn {getter_ident}(&self) -> {ret} {{\n    {body}\n}}",
+            body = body,
             ret = rust_return_type,
         );
         impl_builder.add_method(&getter_method);

@@ -11,6 +11,7 @@ homepage.workspace = true
 [dependencies]
 alef-backend-kotlin = { workspace = true }
 alef-core = { workspace = true }
+alef-scaffold = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]

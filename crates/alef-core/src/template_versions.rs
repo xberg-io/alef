@@ -289,6 +289,9 @@ pub mod maven {
 
     // renovate: datasource=maven depName=androidx.test.espresso:espresso-core
     pub const ANDROIDX_TEST_ESPRESSO_CORE: &str = "3.7.0";
+
+    // renovate: datasource=gradle-plugin depName=com.vanniktech.maven.publish
+    pub const VANNIKTECH_MAVEN_PUBLISH: &str = "0.36.0";
 }
 
 pub mod nuget {

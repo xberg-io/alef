@@ -20,6 +20,22 @@ use super::helpers::{
 use super::json::{json_to_python_literal, value_to_python_string};
 use super::visitors::emit_python_visitor_method;
 
+/// Check if a field is cfg-gated (excluded from the constructor) in the given type.
+/// Returns true if the field should be skipped when emitting constructor kwargs.
+fn is_cfg_gated_field(type_name: &str, field_name: &str, type_defs: &[alef_core::ir::TypeDef]) -> bool {
+    type_defs
+        .iter()
+        .find(|t| t.name == type_name)
+        .map(|t| {
+            t.fields
+                .iter()
+                .find(|f| f.name == field_name)
+                .map(|f| f.cfg.is_some())
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
 /// Render a pytest test function for a non-HTTP fixture.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_test_function(
@@ -31,6 +47,7 @@ pub(super) fn render_test_function(
     enum_fields: &HashMap<String, String>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
+    type_defs: &[alef_core::ir::TypeDef],
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -133,6 +150,7 @@ pub(super) fn render_test_function(
         enum_fields,
         handle_nested_types,
         handle_dict_types,
+        type_defs,
     );
 
     // Build visitor class if present
@@ -592,6 +610,7 @@ fn build_args_and_setup(
     enum_fields: &HashMap<String, String>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
+    type_defs: &[alef_core::ir::TypeDef],
 ) -> (Vec<String>, Vec<String>) {
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
@@ -681,6 +700,7 @@ fn build_args_and_setup(
                 options_via,
                 enum_fields,
                 &arg.element_type,
+                type_defs,
             )
         {
             continue;
@@ -808,6 +828,7 @@ fn emit_json_object_arg(
     options_via: &str,
     enum_fields: &HashMap<String, String>,
     element_type: &Option<String>,
+    type_defs: &[alef_core::ir::TypeDef],
 ) -> bool {
     match options_via {
         "dict" => {
@@ -887,6 +908,10 @@ fn emit_json_object_arg(
             if let (Some(opts_type), Some(obj)) = (options_type, value.as_object()) {
                 let kwargs: Vec<String> = obj
                     .iter()
+                    .filter(|(k, _)| {
+                        // Skip cfg-gated fields that are excluded from the constructor
+                        !is_cfg_gated_field(opts_type, k, type_defs)
+                    })
                     .map(|(k, v)| {
                         let snake_key = k.to_snake_case();
                         let py_val = if let Some(enum_type) = enum_fields.get(k) {
@@ -1082,6 +1107,7 @@ mod tests {
             "dict",
             &HashMap::new(),
             &None,
+            &[],
         );
         assert!(done);
         assert!(bindings[0].contains("\"key\""), "got: {:?}", bindings[0]);
@@ -1119,6 +1145,7 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &[],
         );
         assert!(out.contains("pytest.mark.skip"), "got: {out}");
         assert!(out.contains("not supported"), "got: {out}");

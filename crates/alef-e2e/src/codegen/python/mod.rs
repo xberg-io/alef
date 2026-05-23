@@ -34,7 +34,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
+        type_defs: &[alef_core::ir::TypeDef],
         _enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
@@ -99,7 +99,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
             }
 
             let filename = format!("test_{}.py", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &fixtures, e2e_config);
+            let content = render_test_file(&group.category, &fixtures, e2e_config, type_defs);
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
                 content,

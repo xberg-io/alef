@@ -294,3 +294,64 @@ kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/and
     expect_none_at_prefix(kotlin_src, "proguard-rules.pro");
     expect_none_at_prefix(kotlin_src, "src/main/AndroidManifest.xml");
 }
+
+#[test]
+fn build_gradle_uses_vanniktech_maven_publish_plugin() {
+    let api = make_basic_api();
+    let config = make_basic_config();
+
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let gradle_file = files
+        .iter()
+        .find(|f| f.path.ends_with("build.gradle.kts"))
+        .expect("build.gradle.kts not found");
+
+    let content = &gradle_file.content;
+
+    // Verify vanniktech plugin is applied
+    assert!(
+        content.contains(r#"id("com.vanniktech.maven.publish")"#),
+        "build.gradle.kts should include vanniktech maven.publish plugin"
+    );
+
+    // Verify vanniktech DSL imports are present
+    assert!(
+        content.contains("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary"),
+        "build.gradle.kts should import AndroidSingleVariantLibrary"
+    );
+    assert!(
+        content.contains("import com.vanniktech.maven.publish.SonatypeHost"),
+        "build.gradle.kts should import SonatypeHost"
+    );
+
+    // Verify the new mavenPublishing block exists
+    assert!(
+        content.contains("mavenPublishing {"),
+        "build.gradle.kts should have mavenPublishing block"
+    );
+    assert!(
+        content.contains("publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)"),
+        "build.gradle.kts should call publishToMavenCentral"
+    );
+    assert!(
+        content.contains("signAllPublications()"),
+        "build.gradle.kts should call signAllPublications"
+    );
+
+    // Verify the old manual publishing block is NOT present
+    assert!(
+        !content.contains("register<MavenPublication>"),
+        "build.gradle.kts should NOT use old manual MavenPublication registration"
+    );
+    assert!(
+        !content.contains("publishing { publications {"),
+        "build.gradle.kts should NOT have old vanilla publishing block"
+    );
+
+    // Verify android.publishing singleVariant is removed (now handled by plugin)
+    assert!(
+        !content.contains("android { publishing {"),
+        "build.gradle.kts android block should NOT have publishing configuration (handled by vanniktech plugin)"
+    );
+}

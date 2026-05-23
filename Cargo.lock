@@ -179,6 +179,7 @@ version = "0.17.35"
 dependencies = [
  "alef-backend-kotlin",
  "alef-core",
+ "alef-scaffold",
  "anyhow",
  "insta",
  "toml",

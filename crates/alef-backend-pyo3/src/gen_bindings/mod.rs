@@ -173,13 +173,15 @@ fn replace_constructor_with_serde_rename(
 
             if f.optional || force_optional {
                 format!("{}=None", param_ident)
-            } else {
-                // Non-optional fields still need a signature default so the
-                // generated `__new__` is callable with keyword args omitted.
-                // These constructors are only generated for `has_default`
-                // types, whose pyclass struct derives `Default`, so the
-                // field's default is `Self::default().<field>`.
+            } else if typ.has_default {
+                // For has_default types, non-optional fields get a default value in the signature
+                // so the generated `__new__` is callable with keyword args omitted.
+                // The field's default is `Self::default().<field>`.
                 format!("{}=Self::default().{}", param_ident, f.name)
+            } else {
+                // For non-has_default types, required fields have no default in the signature
+                // (they are required keyword arguments).
+                param_ident
             }
         })
         .collect();
@@ -880,17 +882,17 @@ mod alef_json_str_opt {
                     renames_ref,
                 );
 
-                // For has_default types, replace the constructor with one that honors serde_rename
-                if typ.has_default {
-                    impl_block = replace_constructor_with_serde_rename(
-                        &impl_block,
-                        typ,
-                        &mapper,
-                        type_cfg,
-                        renames_ref,
-                        &config.trait_bridges,
-                    );
-                }
+                // For all types, replace the constructor with one that honors serde_rename
+                // For has_default types, fields get default values in the signature.
+                // For non-has_default types, required fields stay required.
+                impl_block = replace_constructor_with_serde_rename(
+                    &impl_block,
+                    typ,
+                    &mapper,
+                    type_cfg,
+                    renames_ref,
+                    &config.trait_bridges,
+                );
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block
                 // avoids requiring the `multiple-pymethods` pyo3 feature.

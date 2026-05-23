@@ -329,16 +329,16 @@ fn escape_toml_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-pub(crate) struct ScaffoldMeta {
-    description: String,
-    license: String,
-    repository: String,
-    homepage: String,
-    authors: Vec<String>,
-    keywords: Vec<String>,
+pub struct ScaffoldMeta {
+    pub description: String,
+    pub license: String,
+    pub repository: String,
+    pub homepage: String,
+    pub authors: Vec<String>,
+    pub keywords: Vec<String>,
 }
 
-pub(crate) fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
+pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
     let scaffold = config.scaffold.as_ref();
     ScaffoldMeta {
         description: scaffold
@@ -357,7 +357,7 @@ pub(crate) fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
 }
 
 /// Escape special characters for XML text content.
-pub(crate) fn xml_escape(s: &str) -> String {
+pub fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -367,7 +367,7 @@ pub(crate) fn xml_escape(s: &str) -> String {
 
 /// Parse an author string like `"Name <email>"` into `(name, email)`.
 /// If no angle brackets are found, returns `(input, "")`.
-pub(crate) fn parse_author(s: &str) -> (&str, &str) {
+pub fn parse_author(s: &str) -> (&str, &str) {
     if let Some(start) = s.find('<') {
         if let Some(end) = s.find('>') {
             let name = s[..start].trim();
