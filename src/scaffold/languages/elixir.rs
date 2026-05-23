@@ -198,7 +198,45 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         files_entries.insert(0, "lib".into());
     }
     if let Some(relative) = external_elixir_src.as_deref() {
-        files_entries.push(format!("{relative}/*.ex"));
+        // Probe the directory to see if it actually contains .ex or .exs files.
+        // - If the directory exists and contains Elixir sources: emit the glob
+        // - If the directory exists but contains no .ex/.exs files (e.g., Rust NIF source dir):
+        //   omit the glob to avoid "Missing files" errors from `mix hex.publish`
+        // - If the directory does not exist (e.g., generated bindings target): emit the glob
+        //   (consumer expectations remain; the files will be generated later)
+        let should_emit_glob = config
+            .explicit_output
+            .elixir
+            .as_ref()
+            .map(|elixir_out| {
+                // If the directory doesn't exist, assume it will be generated and emit the glob.
+                if !elixir_out.exists() {
+                    return true;
+                }
+                // Directory exists: check if it contains .ex or .exs files.
+                std::fs::read_dir(elixir_out)
+                    .ok()
+                    .map(|entries| {
+                        entries
+                            .filter_map(|e| e.ok())
+                            .any(|entry| {
+                                if let Ok(meta) = entry.metadata() {
+                                    if meta.is_file() {
+                                        if let Some(name) = entry.file_name().to_str() {
+                                            return name.ends_with(".ex") || name.ends_with(".exs");
+                                        }
+                                    }
+                                }
+                                false
+                            })
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
+        if should_emit_glob {
+            files_entries.push(format!("{relative}/*.ex"));
+        }
     }
     let files_line = files_entries.join(" ");
 
