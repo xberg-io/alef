@@ -27,7 +27,7 @@ impl E2eCodegen for ElixirCodegen {
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
         _type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -179,6 +179,7 @@ impl E2eCodegen for ElixirCodegen {
                 handle_struct_type.as_deref(),
                 handle_atom_list_fields,
                 &config.adapters,
+                enums,
             );
             files.push(GeneratedFile {
                 path: output_base.join("test").join(filename),
@@ -334,6 +335,7 @@ fn render_test_file(
     handle_struct_type: Option<&str>,
     handle_atom_list_fields: &std::collections::HashSet<String>,
     adapters: &[alef_core::config::extras::AdapterConfig],
+    enums: &[alef_core::ir::EnumDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -452,6 +454,7 @@ fn render_test_file(
                 handle_struct_type,
                 handle_atom_list_fields,
                 adapters,
+                enums,
             );
         }
         if i + 1 < fixtures.len() {
@@ -724,6 +727,7 @@ fn render_test_case(
     handle_struct_type: Option<&str>,
     _handle_atom_list_fields: &std::collections::HashSet<String>,
     adapters: &[alef_core::config::extras::AdapterConfig],
+    enums: &[alef_core::ir::EnumDef],
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let test_label = fixture.id.replace('"', "\\\"");
@@ -862,6 +866,7 @@ fn render_test_case(
         resolved_handle_atom_list_fields_ref,
         &test_documents_path,
         adapter_request_type.as_deref(),
+        enums,
     );
 
     // Build visitor if present — it will be injected into the options map.
@@ -1207,6 +1212,7 @@ fn build_args_and_setup(
     _handle_atom_list_fields: &std::collections::HashSet<String>,
     test_documents_path: &str,
     adapter_request_type: Option<&str>,
+    enums: &[alef_core::ir::EnumDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1493,6 +1499,22 @@ fn build_args_and_setup(
                     if let Some(elem_type) = &arg.element_type {
                         if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
                             let formatted = emit_elixir_batch_item_array(v, elem_type);
+                            if arg.optional {
+                                parts.push(format!("{}: {formatted}", arg.name));
+                            } else {
+                                parts.push(formatted);
+                            }
+                            continue;
+                        }
+                        // Internally-tagged enums (#[serde(tag = "type")]) — emit a list of
+                        // Rustler NifTaggedEnum tuples. `:variant_atom` for unit variants,
+                        // `{:variant_atom, %{field: value}}` for struct variants. Variant
+                        // and field atoms are derived from Rust names via snake_case;
+                        // Rustler's NifTaggedEnum decoder ignores serde renames.
+                        if v.is_array()
+                            && let Some(enum_def) = enums.iter().find(|e| &e.name == elem_type && e.serde_tag.is_some())
+                        {
+                            let formatted = emit_tagged_enum_array(v, enum_def, enums);
                             if arg.optional {
                                 parts.push(format!("{}: {formatted}", arg.name));
                             } else {
@@ -2356,4 +2378,110 @@ fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
 
     // If there's an override function, use it. Otherwise, Elixir can use the base function.
     function_from_override.is_some() || !call_config.function.is_empty()
+}
+
+// ---------------------------------------------------------------------------
+// Tagged-enum array emission for Rustler NifTaggedEnum
+// ---------------------------------------------------------------------------
+
+/// Apply a serde `rename_all` strategy to a PascalCase variant name to derive
+/// the wire-format tag value used in fixture inputs.
+fn apply_rename_all(name: &str, strategy: Option<&str>) -> String {
+    use heck::{ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToUpperCamelCase};
+    match strategy {
+        Some("snake_case") | None => name.to_snake_case(),
+        Some("camelCase") => name.to_lower_camel_case(),
+        Some("PascalCase") => name.to_upper_camel_case(),
+        Some("SCREAMING_SNAKE_CASE") | Some("UPPERCASE") => name.to_shouty_snake_case(),
+        Some("kebab-case") => name.to_kebab_case(),
+        Some("SCREAMING-KEBAB-CASE") => name.to_shouty_kebab_case(),
+        Some("lowercase") => name.to_lowercase(),
+        Some(_) => name.to_snake_case(),
+    }
+}
+
+/// Match an input JSON value (string) against a unit-only enum and return the
+/// corresponding Rustler atom literal (e.g. `:down`). Returns None if the enum
+/// is not unit-only or the value does not match any variant.
+fn match_unit_enum_atom(value: &serde_json::Value, enum_def: &alef_core::ir::EnumDef) -> Option<String> {
+    let s = value.as_str()?;
+    if enum_def.variants.iter().any(|v| !v.fields.is_empty()) {
+        return None;
+    }
+    for variant in &enum_def.variants {
+        let wire_tag = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+        if wire_tag == s {
+            return Some(format!(":{}", variant.name.to_snake_case()));
+        }
+    }
+    None
+}
+
+/// Emit an Elixir list literal of Rustler NifTaggedEnum tuples for an internally-tagged
+/// enum array. Each element renders as `:variant_atom` (unit) or
+/// `{:variant_atom, %{field_atom: value}}` (struct), with variant/field atoms derived
+/// from the Rust names via snake_case (NifTaggedEnum ignores serde rename for atoms).
+fn emit_tagged_enum_array(
+    value: &serde_json::Value,
+    enum_def: &alef_core::ir::EnumDef,
+    all_enums: &[alef_core::ir::EnumDef],
+) -> String {
+    let arr = match value.as_array() {
+        Some(a) => a,
+        None => return json_to_elixir(value),
+    };
+    let tag_key = enum_def.serde_tag.as_deref().unwrap_or("type");
+    let mut elements: Vec<String> = Vec::with_capacity(arr.len());
+    for item in arr {
+        let obj = match item.as_object() {
+            Some(o) => o,
+            None => {
+                elements.push(json_to_elixir(item));
+                continue;
+            }
+        };
+        let tag_value = obj.get(tag_key).and_then(|v| v.as_str()).unwrap_or("");
+        let matched = enum_def.variants.iter().find(|variant| {
+            let wire_tag = variant
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+            wire_tag == tag_value
+        });
+        let Some(variant) = matched else {
+            elements.push(json_to_elixir(item));
+            continue;
+        };
+        let variant_atom = format!(":{}", variant.name.to_snake_case());
+        if variant.fields.is_empty() {
+            elements.push(variant_atom);
+            continue;
+        }
+        let mut field_strs: Vec<String> = Vec::with_capacity(variant.fields.len());
+        for field in &variant.fields {
+            let wire_field = field.serde_rename.as_deref().unwrap_or(&field.name);
+            let Some(field_val) = obj.get(wire_field) else {
+                continue;
+            };
+            let rust_field_atom = field.name.clone();
+            // If the field's type is a Named reference to a unit-only enum, convert
+            // the input string value to an atom via that enum's rename_all.
+            let emitted_val = if let alef_core::ir::TypeRef::Named(type_name) = &field.ty {
+                all_enums
+                    .iter()
+                    .find(|e| &e.name == type_name && e.serde_tag.is_none())
+                    .and_then(|nested| match_unit_enum_atom(field_val, nested))
+                    .unwrap_or_else(|| json_to_elixir(field_val))
+            } else {
+                json_to_elixir(field_val)
+            };
+            field_strs.push(format!("{rust_field_atom}: {emitted_val}"));
+        }
+        let map_body = field_strs.join(", ");
+        elements.push(format!("{{{variant_atom}, %{{{map_body}}}}}"));
+    }
+    format!("[{}]", elements.join(", "))
 }
