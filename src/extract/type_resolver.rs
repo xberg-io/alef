@@ -179,8 +179,17 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         "usize" => TypeRef::Primitive(PrimitiveType::Usize),
         "isize" => TypeRef::Primitive(PrimitiveType::Isize),
 
-        // String types
-        "String" => TypeRef::String,
+        // String types. `str` (no leading `&`) shows up inside wrapper
+        // generics like `Box<str>` / `Cow<'_, str>` / `Arc<str>` — those resolve
+        // their inner via this `resolve_path_type` path (not the `&str`
+        // reference path), so without a `str` arm the inner ends up as
+        // `Named("str")` and gets caught by `sanitize_type_ref` later, which
+        // marks the surrounding field as `sanitized = true` and triggers
+        // every backend's "skip this field" branch — even though the
+        // resulting `TypeRef::String` is perfectly representable. Mapping
+        // `str` directly to `TypeRef::String` here yields the same IR shape
+        // without the spurious sanitized flag.
+        "String" | "str" => TypeRef::String,
         "char" => TypeRef::Char,
 
         // Path types
