@@ -6,7 +6,7 @@ use functions::{gen_adapter_wrapper, gen_convert_with_visitor_wrapper, gen_funct
 use methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
-    gen_struct_type, gen_unmarshal_bytes_helper, has_non_zero_default, is_passthrough_raw_message_enum, is_tuple_field,
+    gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper, is_passthrough_raw_message_enum, is_tuple_field,
 };
 
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -465,6 +465,12 @@ fn gen_go_file(
     out.push_str(&gen_unmarshal_bytes_helper());
     out.push_str("\n\n");
 
+    // Pointer helper: emitted once per package, used by data DTOs to construct
+    // pointers for optional fields without functional-options boilerplate.
+    // Usage: &MyStruct{Field: Ptr("value")}
+    out.push_str(&gen_ptr_helper());
+    out.push_str("\n\n");
+
     // Generate trait bridge exports (//export trampolines called by C)
     let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
     if has_plugin_bridges {
@@ -626,13 +632,18 @@ fn gen_go_file(
                 &struct_names,
             ));
             out.push_str("\n\n");
-            // Generate functional options pattern only if type has defaults AND at least one
-            // non-zero-value default. Types with all-zero-default fields use idiomatic struct
-            // literals instead: &Span{StartByte: 1} rather than NewSpan(WithSpanStartByte(1)).
+            // Generate functional options pattern only if type is in the functional_options allowlist.
+            // By default, pure data DTOs use idiomatic struct literals instead of functional options.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
-            if typ.has_default && !typ.name.ends_with("Update") && has_non_zero_default(typ) {
+            let empty_functional_options = vec![];
+            let functional_options = config
+                .go
+                .as_ref()
+                .map(|g| &g.functional_options)
+                .unwrap_or(&empty_functional_options);
+            if !typ.name.ends_with("Update") && functional_options.contains(&typ.name) {
                 out.push_str(&gen_config_options(
                     typ,
                     &unit_enum_names,

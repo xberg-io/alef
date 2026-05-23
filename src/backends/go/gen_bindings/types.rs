@@ -94,6 +94,15 @@ pub(super) fn gen_unmarshal_bytes_helper() -> String {
     crate::backends::go::template_env::render("unmarshal_bytes_helper.jinja", minijinja::Value::default())
 }
 
+/// Generate the package-level `Ptr` generic helper.
+///
+/// Emitted exactly once per generated `binding.go`. Used by data DTOs to construct
+/// pointers for optional fields without the functional-options pattern boilerplate.
+/// Typical usage: `&MyStruct{Field: Ptr("value"), OtherField: Ptr(42)}`
+pub(super) fn gen_ptr_helper() -> String {
+    crate::backends::go::template_env::render("ptr_helper.jinja", minijinja::Value::default())
+}
+
 /// Generate the lastError() helper function.
 pub(super) fn gen_last_error_helper(ffi_prefix: &str) -> String {
     // Note: ctx is a borrowed pointer into thread-local storage, NOT a heap allocation.
@@ -2169,5 +2178,108 @@ mod tests {
             out.contains("Sizing:") && out.contains("nil"),
             "expected `Sizing: ... nil` default in:\n{out}"
         );
+    }
+
+    /// Regression test for STY-9: By default, data DTOs should NOT emit functional-options
+    /// helpers. The plain struct type should be emitted without With* or New* helpers.
+    #[test]
+    fn test_gen_struct_type_emits_no_config_options_by_default() {
+        let typ = TypeDef {
+            name: "ContentConfig".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            doc: String::new(),
+            cfg: None,
+            fields: vec![
+                simple_field("output_format", TypeRef::String),
+                simple_field("timeout", TypeRef::Primitive(PrimitiveType::U64)),
+            ],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let out = gen_struct_type(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+        // The struct type should be emitted
+        assert!(out.contains("type ContentConfig struct"), "expected struct definition");
+        assert!(out.contains("OutputFormat"), "expected OutputFormat field");
+        // But no functional-options should be emitted
+        assert!(
+            !out.contains("WithContentConfig"),
+            "expected no WithContentConfig helpers"
+        );
+        assert!(
+            !out.contains("ContentConfigOption"),
+            "expected no ContentConfigOption type"
+        );
+        assert!(
+            !out.contains("NewContentConfig"),
+            "expected no NewContentConfig constructor"
+        );
+    }
+
+    /// Regression test for STY-9: When a struct is listed in the functional_options allowlist,
+    /// the struct type PLUS functional-options helpers should be emitted.
+    #[test]
+    fn test_gen_config_options_emitted_when_in_allowlist() {
+        let typ = TypeDef {
+            name: "DialOptions".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            doc: String::new(),
+            cfg: None,
+            fields: vec![
+                simple_field("timeout", TypeRef::Primitive(PrimitiveType::U64)),
+                simple_field("verify_ssl", TypeRef::Primitive(PrimitiveType::Bool)),
+            ],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        // Simulate the config allowing DialOptions for functional-options
+        let out = gen_config_options(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+        // Should emit the WithTimeout and WithVerifySSL helpers
+        assert!(out.contains("WithDialOptionsTimeout"), "expected WithDialOptionsTimeout");
+        assert!(
+            out.contains("WithDialOptionsVerifySSL"),
+            "expected WithDialOptionsVerifySSL"
+        );
+        // Should emit the DialOptionsOption type
+        assert!(
+            out.contains("type DialOptionsOption func"),
+            "expected DialOptionsOption type"
+        );
+        // Should emit the NewDialOptions constructor
+        assert!(out.contains("func NewDialOptions"), "expected NewDialOptions constructor");
     }
 }

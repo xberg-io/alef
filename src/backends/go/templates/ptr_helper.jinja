@@ -1,0 +1,8 @@
+// Ptr returns a pointer to the given value.
+//
+// Used by data DTOs to construct pointers for optional fields without the
+// functional-options pattern boilerplate. For example:
+//   &MyStruct{Field: Ptr("value"), OtherField: Ptr(42)}
+func Ptr[T any](v T) *T {
+	return &v
+}
