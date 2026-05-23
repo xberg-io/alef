@@ -3,6 +3,45 @@ use crate::core::config::Language;
 /// Rust doc section headers that should be stripped for all non-Rust output.
 const RUST_ONLY_SECTIONS: &[&str] = &["example", "examples", "arguments", "fields"];
 
+/// Check if a markdown document has monotonic heading increments (no skips of >1 level).
+///
+/// Returns `Ok(())` if all headings increment by at most 1 level, or an error message
+/// describing the first violation found.
+pub(crate) fn check_monotonic_headings(doc: &str) -> Result<(), String> {
+    let mut previous_level: Option<usize> = None;
+    let mut in_code_block = false;
+
+    for line in doc.lines() {
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block || !line.starts_with('#') {
+            continue;
+        }
+
+        let heading_level = line.chars().take_while(|&c| c == '#').count();
+        if heading_level == 0 || heading_level > 6 {
+            continue;
+        }
+
+        if let Some(prev) = previous_level {
+            let increment = heading_level.saturating_sub(prev);
+            if increment > 1 {
+                let heading_text = line.trim_start_matches('#').trim();
+                return Err(format!(
+                    "Heading increment violation: H{} → H{} (skip of {})\nHeading: {}",
+                    prev, heading_level, increment, heading_text
+                ));
+            }
+        }
+
+        previous_level = Some(heading_level);
+    }
+
+    Ok(())
+}
+
 /// Demote all markdown headings by a given number of levels.
 ///
 /// For example, with `levels=2`, all `#` become `###`, `##` become `####`, etc.
@@ -820,6 +859,64 @@ mod tests {
         assert!(demoted.contains("Paragraph text."));
         assert!(demoted.contains("### Section"));
         assert!(demoted.contains("More text."));
+    }
+
+    #[test]
+    fn test_check_monotonic_headings_valid_increments() {
+        let doc = "## Page\n\n### Section\n\n#### Item\n\n##### Subitem";
+        assert!(check_monotonic_headings(doc).is_ok());
+    }
+
+    #[test]
+    fn test_check_monotonic_headings_valid_skips_down() {
+        let doc = "## Page\n\n### Section\n\n## Another Section\n\nText.";
+        assert!(check_monotonic_headings(doc).is_ok());
+    }
+
+    #[test]
+    fn test_check_monotonic_headings_detects_skip_up() {
+        let doc = "## Page\n\n#### Item (skip H3)";
+        let result = check_monotonic_headings(doc);
+        assert!(result.is_err(), "should detect skip from H2 to H4");
+        assert!(result.unwrap_err().contains("skip of 2"));
+    }
+
+    #[test]
+    fn test_check_monotonic_headings_ignores_code_blocks() {
+        let doc = "## Page\n\n```markdown\n#### This is not a real heading\n```";
+        assert!(
+            check_monotonic_headings(doc).is_ok(),
+            "headings in code blocks should be ignored"
+        );
+    }
+
+    #[test]
+    fn test_demote_headings_maintains_monotonic_increments() {
+        let doc = "## Sub-page\n\n### Section\n\n#### Item";
+        let demoted = demote_headings(doc, 2);
+        // After demotion: #### Page, ##### Section, ###### Item
+        assert!(
+            check_monotonic_headings(&demoted).is_ok(),
+            "demoted headings should maintain monotonic increments"
+        );
+    }
+
+    #[test]
+    fn test_doc_comment_with_internal_headings_demoted() {
+        let doc_comment = "Main description.\n\n## Stream Limits\n\nDetailed info about limits.";
+        let cleaned = clean_doc(doc_comment, Language::Python);
+        let demoted = demote_headings(&cleaned, 2);
+        // After demotion, ## becomes ####
+        // Structure should be: (parent at ####) → (doc content at ####) → (internal heading at ####)
+        assert!(
+            demoted.contains("#### Stream Limits"),
+            "internal heading should be demoted to #### (was ##)"
+        );
+        // Verify monotonic increments
+        assert!(
+            check_monotonic_headings(&demoted).is_ok(),
+            "demoted doc comment should have monotonic heading increments"
+        );
     }
 }
 

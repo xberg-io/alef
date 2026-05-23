@@ -315,7 +315,11 @@ fn render_function(
     let param_docs = extract_param_docs(&func.doc);
 
     if !func.doc.is_empty() {
-        out.push_str(&clean_doc(&func.doc, lang));
+        let doc = clean_doc(&func.doc, lang);
+        // Demote any embedded headings in the function documentation by 2 levels
+        // to ensure they stay nested under the function heading (####).
+        let doc = demote_headings(&doc, 2);
+        out.push_str(&doc);
         out.push('\n');
         out.push('\n');
     }
@@ -499,6 +503,9 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     ));
 
     let doc = clean_doc(&en.doc, lang);
+    // Demote any embedded headings in the enum documentation by 2 levels
+    // to ensure they stay nested under the enum heading (####).
+    let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -555,6 +562,9 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
     ));
 
     let doc = clean_doc(&err.doc, lang);
+    // Demote any embedded headings in the error documentation by 2 levels
+    // to ensure they stay nested under the error heading (####).
+    let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -653,6 +663,9 @@ fn generate_configuration_doc(
             minijinja::context! { marker => "###", title => &ty.name },
         ));
         let doc = clean_doc(&ty.doc, Language::Python);
+        // Demote any embedded headings in the type documentation by 1 level
+        // to ensure they stay nested under the type heading (###).
+        let doc = demote_headings(&doc, 1);
         if !doc.is_empty() {
             out.push_str(&doc);
             out.push('\n');
@@ -812,6 +825,9 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
             ));
 
             let doc = clean_doc(&ty.doc, Language::Python);
+            // Demote any embedded headings in the type documentation by 2 levels
+            // to ensure they stay nested under the type heading (####).
+            let doc = demote_headings(&doc, 2);
             if !doc.is_empty() {
                 out.push_str(&doc);
                 out.push('\n');
@@ -1049,6 +1065,9 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
         ));
 
         let doc = clean_doc(&err.doc, Language::Python);
+        // Demote any embedded headings in the error documentation by 1 level
+        // to ensure they stay nested under the error heading (###).
+        let doc = demote_headings(&doc, 1);
         if !doc.is_empty() {
             out.push_str(&doc);
             out.push('\n');
@@ -1971,5 +1990,100 @@ exclude_types = ["FfiHidden"]
                 "methods should all be at H4 level"
             );
         }
+    }
+
+    #[test]
+    fn test_generated_docs_have_monotonic_heading_increments() {
+        use crate::docs::doc_cleaning::check_monotonic_headings;
+
+        let api = ApiSurface {
+            crate_name: "mylib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "ConfigType".to_string(),
+                rust_path: "mylib::ConfigType".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                // Doc comment with internal headings to test demotion
+                doc: "Configuration options.\n\n## Default Behavior\n\nBy default, uses standard settings.\n\n## Advanced Options\n\nFor power users.".to_string(),
+                is_opaque: false,
+                cfg: None,
+                is_copy: false,
+                is_clone: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+
+        // Check all generated files for monotonic heading increments
+        for file in &files {
+            assert!(
+                check_monotonic_headings(&file.content).is_ok(),
+                "File {} has invalid heading increments: {}",
+                file.path.display(),
+                check_monotonic_headings(&file.content).unwrap_err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_function_doc_with_internal_headings_are_demoted() {
+        use crate::docs::doc_cleaning::check_monotonic_headings;
+        use crate::docs::test_helpers::make_function;
+
+        let mut func = make_function(
+            "my_function",
+            vec![],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            None,
+        );
+        func.doc = "Main description.\n\n## Processing Steps\n\n1. First step\n2. Second step\n\n## Error Handling\n\nMay fail.".to_string();
+
+        let api = ApiSurface {
+            crate_name: "mylib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![func],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+
+        let config = make_test_config();
+        let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
+
+        // Verify the internal headings were demoted
+        assert!(
+            lang_file.content.contains("#### Processing Steps") || lang_file.content.contains("##### Processing Steps"),
+            "internal heading from doc comment should be demoted"
+        );
+
+        // Verify monotonic heading increments
+        assert!(
+            check_monotonic_headings(&lang_file.content).is_ok(),
+            "File must have monotonic heading increments"
+        );
     }
 }
