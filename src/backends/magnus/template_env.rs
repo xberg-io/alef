@@ -1,0 +1,167 @@
+use minijinja::Environment;
+
+static TEMPLATES: &[(&str, &str)] = &[
+    (
+        "opaque_struct.rs.jinja",
+        include_str!("templates/opaque_struct.rs.jinja"),
+    ),
+    ("struct_def.rs.jinja", include_str!("templates/struct_def.rs.jinja")),
+    ("enum_def.rs.jinja", include_str!("templates/enum_def.rs.jinja")),
+    ("enum_magnus.rs.jinja", include_str!("templates/enum_magnus.rs.jinja")),
+    (
+        "visitor_bridge_struct.rs.jinja",
+        include_str!("templates/visitor_bridge_struct.rs.jinja"),
+    ),
+    (
+        "visitor_method.rs.jinja",
+        include_str!("templates/visitor_method.rs.jinja"),
+    ),
+    (
+        "bridge_struct_impl.rs.jinja",
+        include_str!("templates/bridge_struct_impl.rs.jinja"),
+    ),
+    (
+        "visitor_bridge_wrapper.rs.jinja",
+        include_str!("templates/visitor_bridge_wrapper.rs.jinja"),
+    ),
+    (
+        "visitor_bridge.rs.jinja",
+        include_str!("templates/visitor_bridge.rs.jinja"),
+    ),
+    (
+        "visitor_method.rs.jinja",
+        include_str!("templates/visitor_method.rs.jinja"),
+    ),
+    (
+        "main_rb_wrapper.rb.jinja",
+        include_str!("templates/main_rb_wrapper.rb.jinja"),
+    ),
+    (
+        "native_rb_wrapper.rb.jinja",
+        include_str!("templates/native_rb_wrapper.rb.jinja"),
+    ),
+    (
+        "version_rb_wrapper.rb.jinja",
+        include_str!("templates/version_rb_wrapper.rb.jinja"),
+    ),
+    (
+        "sync_method_body.rs.jinja",
+        include_str!("templates/sync_method_body.rs.jinja"),
+    ),
+    (
+        "trait_bridge_async_method_body.rs.jinja",
+        include_str!("templates/trait_bridge_async_method_body.rs.jinja"),
+    ),
+    (
+        "trait_bridge_constructor.rs.jinja",
+        include_str!("templates/trait_bridge_constructor.rs.jinja"),
+    ),
+    (
+        "trait_bridge_registration_fn.rs.jinja",
+        include_str!("templates/trait_bridge_registration_fn.rs.jinja"),
+    ),
+    (
+        "trait_bridge_return_conversion.rs.jinja",
+        include_str!("templates/trait_bridge_return_conversion.rs.jinja"),
+    ),
+    (
+        "function_scan_args_call.rs.jinja",
+        include_str!("templates/function_scan_args_call.rs.jinja"),
+    ),
+    (
+        "function_scan_args_destructure.rs.jinja",
+        include_str!("templates/function_scan_args_destructure.rs.jinja"),
+    ),
+    (
+        "function_optional_string_scan_arg.rs.jinja",
+        include_str!("templates/function_optional_string_scan_arg.rs.jinja"),
+    ),
+    (
+        "function_named_binding.rs.jinja",
+        include_str!("templates/function_named_binding.rs.jinja"),
+    ),
+    (
+        "function_async_body.rs.jinja",
+        include_str!("templates/function_async_body.rs.jinja"),
+    ),
+    (
+        "function_result_body.rs.jinja",
+        include_str!("templates/function_result_body.rs.jinja"),
+    ),
+    (
+        "function_variadic_ok_body.rs.jinja",
+        include_str!("templates/function_variadic_ok_body.rs.jinja"),
+    ),
+    (
+        "function_wrapper.rs.jinja",
+        include_str!("templates/function_wrapper.rs.jinja"),
+    ),
+    (
+        "function_serde_named_binding.rs.jinja",
+        include_str!("templates/function_serde_named_binding.rs.jinja"),
+    ),
+    (
+        "function_vec_refs_binding.rs.jinja",
+        include_str!("templates/function_vec_refs_binding.rs.jinja"),
+    ),
+    ("rbs_doc_block.jinja", include_str!("templates/rbs_doc_block.jinja")),
+    (
+        "function_sanitized_vec_binding.rs.jinja",
+        include_str!("templates/function_sanitized_vec_binding.rs.jinja"),
+    ),
+    (
+        "function_named_vec_binding.rs.jinja",
+        include_str!("templates/function_named_vec_binding.rs.jinja"),
+    ),
+    (
+        "function_unimplemented_error.rs.jinja",
+        include_str!("templates/function_unimplemented_error.rs.jinja"),
+    ),
+    (
+        "function_unimplemented_string.rs.jinja",
+        include_str!("templates/function_unimplemented_string.rs.jinja"),
+    ),
+    (
+        "function_unimplemented_panic.rs.jinja",
+        include_str!("templates/function_unimplemented_panic.rs.jinja"),
+    ),
+    (
+        "module_define.rs.jinja",
+        include_str!("templates/module_define.rs.jinja"),
+    ),
+    (
+        "module_class_define.rs.jinja",
+        include_str!("templates/module_class_define.rs.jinja"),
+    ),
+    (
+        "module_function_register.rs.jinja",
+        include_str!("templates/module_function_register.rs.jinja"),
+    ),
+    (
+        "module_class_singleton_method_register.rs.jinja",
+        include_str!("templates/module_class_singleton_method_register.rs.jinja"),
+    ),
+    (
+        "module_class_method_register.rs.jinja",
+        include_str!("templates/module_class_method_register.rs.jinja"),
+    ),
+];
+
+pub(crate) fn make_env() -> Environment<'static> {
+    let mut env = Environment::new();
+    env.set_trim_blocks(true);
+    env.set_lstrip_blocks(true);
+    env.set_keep_trailing_newline(true);
+    for (name, src) in TEMPLATES {
+        env.add_template(name, src).expect("built-in template is valid");
+    }
+    env
+}
+
+pub(crate) fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    make_env()
+        .get_template(template_name)
+        .unwrap_or_else(|_| panic!("template {template_name} not found"))
+        .render(ctx)
+        .unwrap_or_else(|e| panic!("template {template_name} failed to render: {e}"))
+}

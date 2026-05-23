@@ -7,13 +7,13 @@ When downstream consumer repos (tslp, kreuzcrawl, liter-llm, h2m, kreuzberg, kre
 **Canonical install path:**
 
 ```bash
-cargo install --path crates/alef-cli --force
+cargo install --path . --force
 ```
 
-Run this from the alef repo root. The resulting `~/.cargo/bin/alef` shadows any crates.io install on `$PATH`.
+Run this from the alef repo root. Alef is a single root-flat crate, so `--path .` installs the `alef` binary from the workspace root. The resulting `~/.cargo/bin/alef` shadows any crates.io install on `$PATH`.
 
 **Reinstall rules:**
 
-- After every change to `alef-codegen`, any `alef-backend-*`, or `alef-cli` itself, re-run the install command above so the binary picks up the change.
-- Do not reinstall from crates.io (`cargo install alef-cli`) until after a published release.
+- After every change under `src/` (codegen, any backend, or CLI), re-run the install command above so the binary picks up the change.
+- Do not reinstall from crates.io (`cargo install alef`) until after a published release.
 - Confirm the new binary is in use: `which alef` should point to `~/.cargo/bin/alef`, and `alef --version` should reflect your local changes.

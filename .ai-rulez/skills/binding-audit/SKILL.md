@@ -70,17 +70,17 @@ Record the annotated items — these are intentional and do **not** flag as gaps
 
 ### 2. Enumerate public items
 
-From the **source Rust crate**, list all public items:
+From the **source Rust crate**, list all public items. Adjust the path glob to the source repo's layout (`src/`, `crates/*/src/`, or a workspace path):
 
 ```bash
 # Functions:
-grep -r "^pub fn " crates/*/src --include="*.rs" | wc -l
+grep -rE "^pub fn " src --include="*.rs" | wc -l
 
 # Types (structs, enums):
-grep -r "^pub struct\|^pub enum\|^pub trait" crates/*/src --include="*.rs"
+grep -rE "^pub struct|^pub enum|^pub trait" src --include="*.rs"
 
 # Methods (on pub types):
-grep -r "impl.*pub fn" crates/*/src --include="*.rs"
+grep -rE "impl.*pub fn" src --include="*.rs"
 ```
 
 Build a reference set: `{module::ItemName}` for each public item, excluding those from step 1.
@@ -171,7 +171,7 @@ for each item in reference_set:
 
 For each non-intentional gap:
 
-- **Codegen issue:** Does the item appear in the source Rust but fail to generate in all backends? Root cause likely in `alef-codegen` or a specific `alef-backend-*`. Fix in `../alef` repo.
+- **Codegen issue:** Does the item appear in the source Rust but fail to generate in all backends? Root cause likely in `src/codegen/` or a specific `src/backends/<lang>/`. Fix in `../alef` repo.
 - **Action script issue:** Does the scaffold or publish workflow have a bug that skips a language? Root cause in `../actions`. Fix there, then retag `v1.0.0` and `v1`.
 - **Consumer config issue:** Is the gap listed in the **consuming repo's** `alef.toml` under `[crates.exclude]` or `[crates.<lang>.exclude]`? That's intentional — no action needed upstream.
 - **Package layout issue:** Does generated code exist but not in the expected package path? Fix the backend output path or package manifest wiring, not the Rust source item.
@@ -192,7 +192,7 @@ For each upstream fix:
 - Reporting a gap without checking `alef.toml` and `#[alef::*]` attributes first.
 - Assuming a missing binding is a codegen bug without checking the consuming repo's config.
 - Closing an audit issue without confirming every gap is triaged and documented.
-- Fixing a codegen bug without adding a test to `alef-e2e/` to prevent regression.
+- Fixing a codegen bug without adding a test under `tests/` or a fixture under `src/e2e/` to prevent regression.
 
 ## Quick reference
 
@@ -200,7 +200,7 @@ For each upstream fix:
 |------|---------|--------|
 | Config | `grep -E '^\[' alef.toml` | Intentional exclusions |
 | Attributes | `find . -name "*.rs" -exec grep -l "#\[alef::" {} \;` | Annotated items |
-| Public items | `grep -r "^pub fn\|^pub struct" crates/*/src` | Reference set |
+| Public items | `grep -rE "^pub fn\|^pub struct" src` | Reference set |
 | Bindings | `grep -R -E "export\|def\|func\|public\|fun " packages crates` | Per-language sets |
 | Gaps | Diff reference set vs per-language sets | Gap report |
 | Triage | Root-cause analysis (config vs codegen vs action) | Fix location |

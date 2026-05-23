@@ -1,0 +1,794 @@
+//! R (extendr) specific trait bridge code generation.
+//!
+//! Generates Rust wrapper structs that implement Rust traits by delegating
+//! to R objects (named lists of functions) via extendr.
+
+pub use crate::codegen::generators::trait_bridge::find_bridge_param;
+use crate::codegen::generators::trait_bridge::{
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, format_type_ref,
+    gen_bridge_all, visitor_param_type,
+};
+use crate::core::config::TraitBridgeConfig;
+use crate::core::ir::{MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
+
+/// Extendr-specific trait bridge generator.
+/// Implements code generation for bridging R objects to Rust traits.
+pub struct ExtendrBridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+    pub error_type: String,
+}
+
+impl TraitBridgeGenerator for ExtendrBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "extendr_api::Robj"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        // Return bare import paths (no `use` keyword, no trailing `;`).
+        // RustFileBuilder::add_import() wraps them as `use {path};`.
+        vec!["extendr_api::prelude::*".to_string(), "std::sync::Arc".to_string()]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+        let has_error = method.error_type.is_some();
+
+        // Build argument list for the R function call
+        let (empty_args, args_pairs) = if method.params.is_empty() {
+            (true, String::new())
+        } else {
+            let args: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| build_extendr_arg(p, spec.bridge_config.context_type.as_deref()))
+                .collect();
+            let pairs: Vec<String> = method
+                .params
+                .iter()
+                .zip(args.iter())
+                .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
+                .collect();
+            (false, pairs.join(", "))
+        };
+
+        // Determine which template to use based on return type
+        let template_name = match &method.return_type {
+            TypeRef::Unit => "sync_method_unit_return.jinja",
+            TypeRef::String | TypeRef::Char => "sync_method_string_return.jinja",
+            _ => "sync_method_complex_return.jinja",
+        };
+
+        let ret_ty = match &method.return_type {
+            TypeRef::Named(n) => self
+                .type_paths
+                .get(n.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| n.clone()),
+            other => format_type_ref(other, &self.type_paths),
+        };
+
+        crate::backends::extendr::template_env::render(
+            template_name,
+            minijinja::context! {
+                method_name => name,
+                has_error => has_error,
+                has_error_check => if has_error { "true" } else { "false" },
+                empty_args => empty_args,
+                args_pairs => args_pairs,
+                return_type => ret_ty,
+                missing_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "missing method",
+                ),
+                failed_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "failed",
+                ),
+                invalid_type_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "returned invalid type",
+                ),
+                deserialization_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "self.cached_name",
+                    "deserialization failed",
+                ),
+                parse_error => make_error_expr(
+                    &spec.error_constructor,
+                    r#"format!("Failed to parse return value: {}", e)"#,
+                ),
+            },
+        )
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+
+        // Generate param cloning statements
+        let mut params_to_clone = Vec::new();
+        for p in &method.params {
+            let template_name = match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => "async_param_clone_bytes_ref.jinja",
+                (TypeRef::Path, true) => "async_param_clone_path_ref.jinja",
+                (TypeRef::Named(_), true) => "async_param_clone_named_ref.jinja",
+                (_, true) => "async_param_clone_ref.jinja",
+                _ => "async_param_clone_value.jinja",
+            };
+            let clone_stmt = crate::backends::extendr::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => &p.name,
+                },
+            );
+            params_to_clone.push(clone_stmt);
+        }
+
+        // Build argument list for the R function call
+        let (empty_args, args_pairs) = if method.params.is_empty() {
+            (true, String::new())
+        } else {
+            let args: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| match (&p.ty, p.is_ref) {
+                    (TypeRef::Bytes, true) => format!("extendr_api::Robj::from(&{0}[..])", p.name),
+                    (TypeRef::Path, true) => format!("extendr_api::Robj::from({0}_str.as_str())", p.name),
+                    (TypeRef::Named(_), true) => format!("extendr_api::Robj::from({0}_json.as_str())", p.name),
+                    _ => format!("extendr_api::Robj::from({})", p.name),
+                })
+                .collect();
+            let pairs: Vec<String> = method
+                .params
+                .iter()
+                .zip(args.iter())
+                .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
+                .collect();
+            (false, pairs.join(", "))
+        };
+
+        // Choose template based on return type
+        let template_name = match &method.return_type {
+            TypeRef::Unit => "async_method_unit_return.jinja",
+            TypeRef::String | TypeRef::Char => "async_method_string_return.jinja",
+            _ => "async_method_complex_return.jinja",
+        };
+
+        let ret_ty = match &method.return_type {
+            TypeRef::Named(n) => self
+                .type_paths
+                .get(n.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| n.clone()),
+            other => format_type_ref(other, &self.type_paths),
+        };
+
+        crate::backends::extendr::template_env::render(
+            template_name,
+            minijinja::context! {
+                method_name => name,
+                params_to_clone => params_to_clone,
+                empty_args => empty_args,
+                args_pairs => args_pairs,
+                return_type => ret_ty,
+                missing_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "missing method",
+                ),
+                failed_method_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "failed",
+                ),
+                invalid_type_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "returned invalid type",
+                ),
+                deserialization_error => method_error_expr(
+                    &spec.error_constructor,
+                    name,
+                    "cached_name_inner",
+                    "deserialization failed",
+                ),
+                spawn_blocking_error => make_error_expr(
+                    &spec.error_constructor,
+                    r#"format!("spawn_blocking failed: {}", e)"#,
+                ),
+            },
+        )
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+        let required_methods: Vec<String> = spec.required_methods().iter().map(|m| m.name.clone()).collect();
+
+        crate::backends::extendr::template_env::render(
+            "bridge_constructor.jinja",
+            minijinja::context! {
+                wrapper => wrapper,
+                required_methods => required_methods,
+            },
+        )
+    }
+
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
+        crate::backends::extendr::template_env::render(
+            "unregistration_fn.jinja",
+            minijinja::context! {
+                unregister_fn => unregister_fn,
+                host_path => host_path,
+            },
+        )
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
+        crate::backends::extendr::template_env::render(
+            "clear_fn.jinja",
+            minijinja::context! {
+                clear_fn => clear_fn,
+                host_path => host_path,
+            },
+        )
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let req_methods = spec.required_methods();
+        let has_methods = !req_methods.is_empty();
+        let required_methods_list = req_methods
+            .iter()
+            .map(|m| format!("\"{}\"", m.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        crate::backends::extendr::template_env::render(
+            "registration_fn.jinja",
+            minijinja::context! {
+                register_fn => register_fn,
+                wrapper => wrapper,
+                trait_path => trait_path,
+                registry_getter => registry_getter,
+                required_methods => has_methods,
+                required_methods_list => required_methods_list,
+            },
+        )
+    }
+}
+
+fn make_error_expr(error_constructor: &str, message_expr: &str) -> String {
+    error_constructor.replace("{msg}", message_expr)
+}
+
+fn method_error_expr(error_constructor: &str, method_name: &str, plugin_name_expr: &str, reason: &str) -> String {
+    let message_expr = if reason == "missing method" {
+        format!(r#"format!("Plugin '{{}}' missing method '{method_name}'", {plugin_name_expr})"#)
+    } else {
+        format!(r#"format!("Plugin '{{}}' method '{method_name}' {reason}", {plugin_name_expr})"#)
+    };
+    make_error_expr(error_constructor, &message_expr)
+}
+
+/// Generate all trait bridge code for a given trait type and bridge config.
+pub fn gen_trait_bridge(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+    api: &crate::core::ir::ApiSurface,
+) -> BridgeOutput {
+    let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
+    let trait_path = trait_type.rust_path.replace('-', "_");
+
+    // Build type name → rust_path lookup (owned HashMap for use with new generator)
+    let type_paths: HashMap<String, String> = api
+        .types
+        .iter()
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
+        )
+        .collect();
+
+    // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
+    let is_visitor_bridge = bridge_cfg.type_alias.is_some()
+        && bridge_cfg.register_fn.is_none()
+        && bridge_cfg.super_trait.is_none()
+        && trait_type.methods.iter().all(|m| m.has_default_impl);
+
+    if is_visitor_bridge {
+        let mut out = String::with_capacity(8192);
+        gen_visitor_bridge(
+            &mut out,
+            trait_type,
+            bridge_cfg,
+            &struct_name,
+            &trait_path,
+            core_import,
+            &type_paths,
+        );
+        BridgeOutput {
+            imports: vec![],
+            code: out,
+        }
+    } else {
+        // Use the IR-driven TraitBridgeGenerator infrastructure
+        let generator = ExtendrBridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+            error_type: error_type.to_string(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
+            core_import,
+            wrapper_prefix: "R",
+            type_paths,
+            error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
+        };
+        let mut output = gen_bridge_all(&spec, &generator);
+        // SAFETY: `extendr_api::Robj` wraps a `*mut SEXPREC` and is therefore neither `Send`
+        // nor `Sync` by default. The Rust `Plugin` super-trait requires `Send + Sync + 'static`,
+        // and `async_trait`-generated futures must be `Send`. R itself is single-threaded — the
+        // user must guarantee that the bridge is only invoked from the R main thread. We assert
+        // `Send + Sync` so the trait bounds are satisfied; callers misusing this from background
+        // threads will encounter R-runtime undefined behaviour. This contract is consistent with
+        // how PyO3 handles `Py<PyAny>` under the GIL.
+        let send_sync_impl = format!(
+            "\n#[allow(clippy::non_send_fields_in_send_ty)]\n\
+             // SAFETY: R is single-threaded; the user must invoke plugins from the R main thread.\n\
+             unsafe impl Send for {struct_name} {{}}\n\
+             // SAFETY: see Send impl.\n\
+             unsafe impl Sync for {struct_name} {{}}\n"
+        );
+        output.code.push_str(&send_sync_impl);
+        output
+    }
+}
+
+/// Generate the shared `SendRobj` wrapper module that allows `Robj` to cross thread boundaries
+/// in `spawn_blocking` closures. Emitted once per generated file when any trait bridge is
+/// produced, before any bridge struct. The wrapper is required because `extendr_api::Robj`
+/// contains a raw pointer and is therefore `!Send`/`!Sync`.
+pub fn gen_send_robj_helper() -> &'static str {
+    "/// Newtype wrapper around `extendr_api::Robj` that asserts `Send + Sync`.\n\
+     ///\n\
+     /// # Safety\n\
+     ///\n\
+     /// R is single-threaded; user-supplied R callbacks must only be invoked from the R main\n\
+     /// thread. This wrapper exists to satisfy the `Send`/`Sync` bounds required by the Rust\n\
+     /// plugin trait system and by `tokio::spawn_blocking`. Misuse from a background thread\n\
+     /// triggers R-runtime undefined behaviour.\n\
+     #[repr(transparent)]\n\
+     #[derive(Clone)]\n\
+     pub(crate) struct SendRobj(pub extendr_api::Robj);\n\
+     // SAFETY: see SendRobj docs.\n\
+     unsafe impl Send for SendRobj {}\n\
+     // SAFETY: see SendRobj docs.\n\
+     unsafe impl Sync for SendRobj {}\n\
+     impl SendRobj {\n\
+         /// Consume the wrapper and yield the inner `Robj`. Used inside `spawn_blocking`\n\
+         /// closures so that the closure captures the whole `SendRobj` (which is `Send`)\n\
+         /// rather than the inner `Robj` field (which is `!Send`) under 2021+ disjoint\n\
+         /// capture rules.\n\
+         #[inline]\n\
+         pub(crate) fn into_inner(self) -> extendr_api::Robj { self.0 }\n\
+     }\n"
+}
+
+/// Generate a visitor-style bridge wrapping an `extendr_api::Robj` (a named list of functions).
+///
+/// Every trait method checks if the list has a function with the snake_case method name,
+/// calls it via extendr's `.call()`, and maps the return value to `VisitResult`.
+fn gen_visitor_bridge(
+    out: &mut String,
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    struct_name: &str,
+    trait_path: &str,
+    core_crate: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) {
+    let context_type = bridge_cfg.context_type.as_deref();
+    let mut method_impls = String::with_capacity(4096);
+    for method in &trait_type.methods {
+        if method.trait_source.is_some() {
+            continue;
+        }
+        gen_visitor_method_extendr(&mut method_impls, method, context_type, type_paths);
+    }
+
+    out.push_str(&crate::backends::extendr::template_env::render(
+        "visitor_bridge.jinja",
+        minijinja::context! {
+            core_crate => core_crate,
+            struct_name => struct_name,
+            trait_path => trait_path,
+            method_impls => method_impls,
+        },
+    ));
+}
+
+/// Generate a single visitor method that checks if the R list has an element with this name
+/// and calls it as a function.
+fn gen_visitor_method_extendr(
+    out: &mut String,
+    method: &MethodDef,
+    context_type: Option<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
+) {
+    let name = &method.name;
+
+    let mut sig_parts = vec!["&mut self".to_string()];
+    for p in &method.params {
+        let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
+        sig_parts.push(format!("{}: {}", p.name, ty_str));
+    }
+    let signature = sig_parts.join(", ");
+
+    let return_type = match &method.return_type {
+        TypeRef::Named(n) => type_paths
+            .get(n.as_str())
+            .map(|p| p.replace('-', "_"))
+            .unwrap_or_else(|| n.clone()),
+        other => param_type(other, "", false, type_paths),
+    };
+
+    let empty_args = method.params.is_empty();
+    let args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| build_extendr_arg(p, context_type))
+        .collect();
+    let args_pairs: Vec<String> = method
+        .params
+        .iter()
+        .zip(args.iter())
+        .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
+        .collect();
+    let args_pairs = args_pairs.join(", ");
+
+    out.push_str(&crate::backends::extendr::template_env::render(
+        "visitor_method.jinja",
+        minijinja::context! {
+            method_name => name,
+            signature => signature,
+            return_type => return_type,
+            empty_args => empty_args,
+            args_pairs => args_pairs,
+        },
+    ));
+}
+
+/// Build a single extendr `Pairlist` arg expression for a visitor method parameter.
+fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) -> String {
+    use crate::core::ir::TypeRef;
+
+    // context_type param: convert to an R list via nodecontext_to_robj
+    if let TypeRef::Named(n) = &p.ty {
+        if Some(n.as_str()) == context_type {
+            let ref_prefix = if p.is_ref { "" } else { "&" };
+            return format!("extendr_api::Robj::from(nodecontext_to_robj({}{}))", ref_prefix, p.name);
+        }
+    }
+
+    // Option<&str>: IR collapses to String + optional + is_ref
+    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!(
+            "match {name} {{ Some(s) => extendr_api::Robj::from(s), None => extendr_api::Robj::from(extendr_api::NULL) }}",
+            name = p.name
+        );
+    }
+
+    // &[u8] / Vec<u8>: pass as a raw vector reference
+    if matches!(&p.ty, TypeRef::Bytes) {
+        if p.is_ref {
+            return format!("extendr_api::Robj::from(&{}[..])", p.name);
+        }
+        return format!("extendr_api::Robj::from(&{}[..])", p.name);
+    }
+
+    // &str: wrap in Robj
+    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+        return format!("extendr_api::Robj::from({})", p.name);
+    }
+
+    // Owned String
+    if matches!(&p.ty, TypeRef::String) {
+        return format!("extendr_api::Robj::from({}.as_str())", p.name);
+    }
+
+    // Named types (structs/enums): serialize to JSON. `extendr_api::Robj` does not
+    // implement `From` for arbitrary user types, so we pass them across the R boundary
+    // as JSON strings. The R callback is responsible for deserializing on its side.
+    if let TypeRef::Named(_) = &p.ty {
+        let serde_target = if p.is_ref {
+            p.name.clone()
+        } else {
+            format!("&{}", p.name)
+        };
+        return format!(
+            "extendr_api::Robj::from(serde_json::to_string({}).unwrap_or_default().as_str())",
+            serde_target
+        );
+    }
+
+    // bool
+    if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
+        return format!("extendr_api::Robj::from({})", p.name);
+    }
+
+    // Integer-like primitives: cast to i32 (R INTEGER)
+    if let TypeRef::Primitive(prim) = &p.ty {
+        use crate::core::ir::PrimitiveType;
+        match prim {
+            PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32 => {
+                return format!("extendr_api::Robj::from({} as i32)", p.name);
+            }
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                return format!("extendr_api::Robj::from({} as f64)", p.name);
+            }
+            PrimitiveType::F32 | PrimitiveType::F64 => {
+                return format!("extendr_api::Robj::from({} as f64)", p.name);
+            }
+            PrimitiveType::Bool => {
+                return format!("extendr_api::Robj::from({})", p.name);
+            }
+        }
+    }
+
+    // Fallback
+    format!("extendr_api::Robj::from({})", p.name)
+}
+
+/// Generate an extendr free function that has one parameter replaced by `Option<extendr_api::Robj>`
+/// (a trait bridge). The bridge is constructed before calling the core function.
+#[allow(clippy::too_many_arguments)]
+pub fn gen_bridge_function(
+    func: &crate::core::ir::FunctionDef,
+    bridge_param_idx: usize,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &dyn crate::codegen::type_mapper::TypeMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use crate::core::ir::TypeRef;
+
+    let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let param_name = &func.params[bridge_param_idx].name;
+    let bridge_param = &func.params[bridge_param_idx];
+    let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
+
+    // Build parameter list — replace the bridge param with Option<extendr_api::Robj>
+    let mut sig_parts = Vec::new();
+    for (idx, p) in func.params.iter().enumerate() {
+        if idx == bridge_param_idx {
+            // The visitor is always optional from R's perspective (NULL means "no visitor")
+            sig_parts.push(format!("{}: Option<extendr_api::Robj>", p.name));
+        } else {
+            let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
+            let ty = if p.optional || promoted {
+                format!("Option<{}>", mapper.map_type(&p.ty))
+            } else {
+                mapper.map_type(&p.ty)
+            };
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        }
+    }
+
+    let params_str = sig_parts.join(", ");
+    let return_type = mapper.map_type(&func.return_type);
+    let has_error = func.error_type.is_some();
+    let ret = mapper.wrap_return(&return_type, has_error);
+
+    let err_conv = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
+
+    // Bridge wrapping: Option<Robj> → Option<VisitorHandle>
+    // We always treat it as optional since R passes NULL for missing visitors.
+    let bridge_wrap = if is_optional {
+        format!(
+            "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
+             Some(v) if !v.is_null() => {{\n            \
+             let bridge = {struct_name}::new(v);\n            \
+             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
+             }},\n        \
+             _ => None,\n    \
+             }};"
+        )
+    } else {
+        // Non-optional in IR, but we expose it as Option<Robj> regardless and
+        // unwrap or construct a bridge from a non-null Robj.
+        format!(
+            "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
+             Some(v) if !v.is_null() => {{\n            \
+             let bridge = {struct_name}::new(v);\n            \
+             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
+             }},\n        \
+             _ => None,\n    \
+             }};"
+        )
+    };
+
+    // Serde let-bindings for non-bridge Named params
+    let serde_bindings: String = func
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(idx, p)| {
+            if *idx == bridge_param_idx {
+                return false;
+            }
+            let named = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            named.is_some_and(|n| !opaque_types.contains(n))
+        })
+        .map(|(_, p)| {
+            let name = &p.name;
+            let core_path = format!(
+                "{core_import}::{}",
+                match &p.ty {
+                    TypeRef::Named(n) => n.clone(),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            n.clone()
+                        } else {
+                            String::new()
+                        }
+                    }
+                    _ => String::new(),
+                }
+            );
+            let template_name = if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                "serde_named_optional_binding.jinja"
+            } else {
+                "serde_named_required_binding.jinja"
+            };
+            crate::backends::extendr::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => name,
+                    core_path => core_path,
+                    err_conv => err_conv,
+                },
+            )
+        })
+        .collect();
+
+    // Build call args for the core function
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == bridge_param_idx {
+                return p.name.clone();
+            }
+            match &p.ty {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::Named(_) => format!("{}_core", p.name),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if opaque_types.contains(n.as_str()) {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{err_conv}")
+        } else {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
+        }
+    } else {
+        format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
+    };
+
+    let func_name = &func.name;
+    crate::backends::extendr::template_env::render(
+        "bridge_function.jinja",
+        minijinja::context! {
+            has_error => func.error_type.is_some(),
+            func_name => func_name,
+            params_str => params_str,
+            ret => ret,
+            body => body,
+        },
+    )
+}

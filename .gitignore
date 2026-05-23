@@ -1,5 +1,6 @@
 target/
 .alef/
+crates/
 *.swp
 *.swo
 *~

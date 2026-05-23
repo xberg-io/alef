@@ -1,0 +1,241 @@
+//! Config file generators for TypeScript e2e tests (package.json, tsconfig.json, vitest.config.ts).
+
+use crate::core::config::manifest_extras::ManifestExtras;
+use crate::core::hash::{self, CommentStyle};
+use crate::core::template_versions as tv;
+use minijinja::context;
+
+pub(crate) fn render_package_json(
+    pkg_name: &str,
+    _pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: crate::e2e::config::DependencyMode,
+    has_http_fixtures: bool,
+    extras: Option<&ManifestExtras>,
+) -> String {
+    let dep_value = match dep_mode {
+        crate::e2e::config::DependencyMode::Registry => pkg_version.to_string(),
+        crate::e2e::config::DependencyMode::Local => "workspace:*".to_string(),
+    };
+    let _ = has_http_fixtures; // TODO: add HTTP test deps when http fixtures are present
+
+    let rendered = crate::e2e::template_env::render(
+        "typescript/package.json.jinja",
+        context! {
+            pkg_name => pkg_name,
+            dep_value => dep_value,
+            vitest => tv::npm::VITEST,
+        },
+    );
+
+    match extras {
+        Some(e) if !e.is_empty() => inject_package_json_extras(&rendered, e),
+        _ => rendered,
+    }
+}
+
+/// Splice `dependencies` / `dev_dependencies` from a [`ManifestExtras`] into the
+/// `dependencies` / `devDependencies` JSON maps of a rendered `package.json`.
+///
+/// Idempotent: re-running with the same extras yields the same output. Existing
+/// entries with the same key are overwritten by the extras (last-write-wins) so
+/// downstream config can pin a version away from the default emitter.
+pub(crate) fn inject_package_json_extras(manifest_json: &str, extras: &ManifestExtras) -> String {
+    let mut root: serde_json::Value = match serde_json::from_str(manifest_json) {
+        Ok(v) => v,
+        Err(_) => return manifest_json.to_string(), // malformed input — leave untouched
+    };
+    let Some(obj) = root.as_object_mut() else {
+        return manifest_json.to_string();
+    };
+
+    merge_into(obj, "dependencies", &extras.dependencies);
+    merge_into(obj, "devDependencies", &extras.dev_dependencies);
+
+    // Pretty-print with 2-space indent to match the template's style; append
+    // trailing newline (template ends with one).
+    let mut out = serde_json::to_string_pretty(&root).unwrap_or_else(|_| manifest_json.to_string());
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+fn merge_into(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    bucket: &str,
+    deps: &std::collections::BTreeMap<String, crate::core::config::manifest_extras::ExtraDepSpec>,
+) {
+    if deps.is_empty() {
+        return;
+    }
+    let bucket_obj = obj
+        .entry(bucket.to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if let Some(map) = bucket_obj.as_object_mut() {
+        for (name, spec) in deps {
+            if let Some(v) = spec.version() {
+                map.insert(name.clone(), serde_json::Value::String(v.to_string()));
+            }
+        }
+        // Keep keys in sorted order so re-renders are byte-stable.
+        let sorted: serde_json::Map<String, serde_json::Value> = {
+            let mut pairs: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            pairs.sort_by(|a, b| a.0.cmp(&b.0));
+            pairs.into_iter().collect()
+        };
+        *map = sorted;
+    }
+}
+
+pub(super) fn render_tsconfig() -> String {
+    crate::e2e::template_env::render("typescript/tsconfig.jinja", context! {})
+}
+
+pub(super) fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    crate::e2e::template_env::render(
+        "typescript/vitest.config.ts.jinja",
+        context! {
+            header => header,
+            with_global_setup => with_global_setup,
+            with_file_setup => with_file_setup,
+        },
+    )
+}
+
+pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    crate::e2e::template_env::render(
+        "typescript/setup.ts.jinja",
+        context! {
+            header => header,
+            test_documents_dir => test_documents_dir,
+        },
+    )
+}
+
+pub(super) fn render_global_setup() -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    crate::e2e::template_env::render(
+        "typescript/globalSetup.ts.jinja",
+        context! {
+            header => header,
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::e2e::config::DependencyMode;
+
+    #[test]
+    fn render_package_json_local_uses_workspace_star() {
+        let out = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, None);
+        assert!(out.contains("workspace:*"), "got: {out}");
+    }
+
+    #[test]
+    fn render_package_json_registry_uses_version() {
+        let out = render_package_json("my-pkg", "", "1.2.3", DependencyMode::Registry, false, None);
+        assert!(out.contains("\"1.2.3\""), "got: {out}");
+    }
+
+    #[test]
+    fn render_vitest_config_with_global_setup_includes_global_setup_key() {
+        let out = render_vitest_config(true, false);
+        assert!(out.contains("globalSetup"), "got: {out}");
+    }
+
+    #[test]
+    fn render_vitest_config_without_global_setup_omits_global_setup_key() {
+        let out = render_vitest_config(false, false);
+        assert!(!out.contains("globalSetup"), "got: {out}");
+    }
+
+    #[test]
+    fn render_package_json_includes_harness_extras_dev_dependencies() {
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "tree-sitter".to_string(),
+            crate::core::config::manifest_extras::ExtraDepSpec::Simple("^0.25.0".to_string()),
+        );
+        let out = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
+        assert!(
+            out.contains("\"tree-sitter\": \"^0.25.0\""),
+            "tree-sitter dep missing from devDependencies. Got:\n{out}"
+        );
+        assert!(out.contains("\"vitest\""), "vitest baseline missing. Got:\n{out}");
+    }
+
+    #[test]
+    fn render_package_json_with_extras_is_idempotent() {
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "tree-sitter".to_string(),
+            crate::core::config::manifest_extras::ExtraDepSpec::Simple("^0.25.0".to_string()),
+        );
+        let first = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
+        let second = inject_package_json_extras(&first, &extras);
+        assert_eq!(first, second, "re-injection should be byte-stable");
+    }
+
+    #[test]
+    fn render_package_json_extras_runtime_deps_land_in_dependencies() {
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "lodash".to_string(),
+            crate::core::config::manifest_extras::ExtraDepSpec::Simple("^4.0.0".to_string()),
+        );
+        let out = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
+        // Top-level "dependencies" block should now exist and contain lodash.
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let lodash = v
+            .get("dependencies")
+            .and_then(|d| d.get("lodash"))
+            .and_then(|s| s.as_str());
+        assert_eq!(lodash, Some("^4.0.0"));
+    }
+
+    #[test]
+    fn render_package_json_extras_overwrite_baseline_on_collision() {
+        // If a user pins the same baseline key (e.g. "vitest") to a different version,
+        // the harness_extras value wins (last-write-wins).
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "vitest".to_string(),
+            crate::core::config::manifest_extras::ExtraDepSpec::Simple("^2.0.0".to_string()),
+        );
+        let out = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
+        assert!(
+            out.contains("\"vitest\": \"^2.0.0\""),
+            "vitest pin not overridden. Got:\n{out}"
+        );
+        assert!(
+            !out.contains(&format!("\"vitest\": \"{}\"", tv::npm::VITEST)),
+            "default vitest leaked. Got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_package_json_empty_extras_matches_no_extras() {
+        let extras = ManifestExtras::default();
+        let with_empty = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, Some(&extras));
+        let without = render_package_json("my-pkg", "", "1.0.0", DependencyMode::Local, false, None);
+        assert_eq!(with_empty, without);
+    }
+
+    #[test]
+    fn render_global_setup_waits_for_mock_server_shutdown() {
+        let out = render_global_setup();
+        assert!(out.contains("clearTimeout(startupTimeout)"), "got: {out}");
+        assert!(out.contains("serverProcess.stdout.off('data', onData)"), "got: {out}");
+        assert!(out.contains("await new Promise<void>"), "got: {out}");
+        assert!(out.contains("child.once('close'"), "got: {out}");
+        assert!(out.contains("child.kill('SIGKILL')"), "got: {out}");
+    }
+}

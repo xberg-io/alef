@@ -1,0 +1,1023 @@
+//! Struct and enum code generators for the Magnus (Ruby) backend.
+
+use crate::codegen::builder::ImplBuilder;
+use crate::codegen::generators;
+use crate::codegen::shared::{binding_fields, function_params};
+use crate::codegen::type_mapper::TypeMapper;
+use crate::core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use ahash::AHashSet;
+
+use crate::backends::magnus::type_map::MagnusMapper;
+
+use super::functions::gen_magnus_unimplemented_body;
+
+/// Check whether a struct has a `content` field of type `String` or `Option<String>`.
+/// When true, a `to_s` method should be generated so Ruby callers can use `result.to_s`
+/// to retrieve the primary markdown output without explicitly calling `.content`.
+pub(super) fn has_content_string_field(typ: &TypeDef) -> bool {
+    binding_fields(&typ.fields).any(|f| {
+        if f.name != "content" {
+            return false;
+        }
+        matches!(&f.ty, TypeRef::String)
+            || matches!(&f.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String))
+    })
+}
+
+/// Check if a field contains a type that cannot be safely passed across thread boundaries.
+/// Magnus's #[magnus::wrap] requires Send + Sync bounds. Fields containing types like
+/// VisitorHandle (Rc<RefCell<dyn HtmlVisitor>>) are !Send + !Sync and must be excluded.
+fn is_thread_unsafe_field(field: &FieldDef) -> bool {
+    matches!(&field.ty, TypeRef::Named(name) if name == "VisitorHandle")
+        || matches!(field.ty, TypeRef::Optional(ref inner) if matches!(inner.as_ref(), TypeRef::Named(name) if name == "VisitorHandle"))
+}
+
+/// Generate an opaque Magnus-wrapped struct with inner Arc or Arc<Mutex<>>.
+pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> String {
+    let class_path = format!("{}::{}", module_name, typ.name);
+    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    let needs_mutex = crate::codegen::generators::type_needs_mutex(typ);
+
+    crate::backends::magnus::template_env::render(
+        "opaque_struct.rs.jinja",
+        minijinja::context! {
+            struct_name => &typ.name,
+            class_path => &class_path,
+            core_path => &core_path,
+            needs_mutex => needs_mutex,
+        },
+    )
+}
+
+/// Generate Magnus methods for an opaque struct (delegates to self.inner).
+///
+/// `streaming_method_names` lists method names whose default async-stub emission
+/// should be skipped — the streaming module emits a dedicated, hand-rolled
+/// implementation for those methods (yielding to a Ruby block / returning an
+/// Enumerator) and registers it separately.
+pub(super) fn gen_opaque_struct_methods(
+    typ: &TypeDef,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    core_import: &str,
+    streaming_method_names: &AHashSet<String>,
+) -> String {
+    let mut impl_builder = ImplBuilder::new(&typ.name);
+
+    // Check if this opaque type needs Mutex wrapping (has any RefMut methods).
+    let needs_mutex = crate::codegen::generators::type_needs_mutex(typ);
+
+    for method in &typ.methods {
+        if !method.is_static {
+            if streaming_method_names.contains(&method.name) {
+                // Skip — emitted via streaming module.
+                continue;
+            }
+            if method.is_async {
+                impl_builder.add_method(&gen_opaque_async_instance_method(
+                    typ,
+                    method,
+                    mapper,
+                    &typ.name,
+                    opaque_types,
+                    mutex_types,
+                    core_import,
+                    needs_mutex,
+                ));
+            } else {
+                impl_builder.add_method(&gen_opaque_instance_method(
+                    typ,
+                    method,
+                    mapper,
+                    &typ.name,
+                    opaque_types,
+                    mutex_types,
+                    core_import,
+                    needs_mutex,
+                ));
+            }
+        }
+    }
+
+    impl_builder.build()
+}
+
+/// Build let-binding preamble for non-opaque Named ref params and Vec<String> ref params.
+/// Emits `let {name}_core: core::Type = {name}.into();` for Named non-opaque is_ref params,
+/// and `let {name}_refs: Vec<&str> = ...;` for Vec<String>/Vec<Char> is_ref params.
+fn build_method_preamble(
+    params: &[crate::core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let mut out = String::new();
+    for p in params {
+        if p.sanitized {
+            continue;
+        }
+        match &p.ty {
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && p.is_ref => {
+                let core_path = format!("{}::{}", core_import, n);
+                if p.optional {
+                    out.push_str(&format!(
+                        "let {}_core: Option<{core_path}> = {}.map(Into::into);\n        ",
+                        p.name, p.name
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "let {}_core: {core_path} = {}.into();\n        ",
+                        p.name, p.name
+                    ));
+                }
+            }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
+                if p.optional {
+                    out.push_str(&format!(
+                        "let {}_refs: Vec<&str> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n        ",
+                        p.name, p.name
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n        ",
+                        p.name, p.name
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Generate an opaque sync instance method for Magnus (delegates to self.inner).
+#[allow(clippy::too_many_arguments)]
+fn gen_opaque_instance_method(
+    typ: &TypeDef,
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    core_import: &str,
+    needs_mutex: bool,
+) -> String {
+    use crate::codegen::shared;
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let return_type = mapper.map_type(&method.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+
+    let is_ref_mut_receiver = matches!(method.receiver, Some(crate::core::ir::ReceiverKind::RefMut));
+    // RefMut methods can be delegated if the type is Mutex-wrapped (needs_mutex).
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    let can_delegate = !method.sanitized
+        && (!is_ref_mut_receiver || needs_mutex)
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && shared::is_delegatable_param(&p.ty, opaque_types))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let body = if can_delegate {
+        let preamble = build_method_preamble(&method.params, opaque_types, core_import);
+        let needs_let_bindings = !preamble.is_empty();
+        let call_args = if needs_let_bindings {
+            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+        } else {
+            generators::gen_call_args(&method.params, opaque_types)
+        };
+        let refs_preamble = preamble;
+        // For owned-receiver (consuming) methods, clone the Arc's inner value before calling,
+        // since we cannot move out of an Arc from a &self method.
+        // For Mutex-wrapped types (has_mut_methods), all methods need .lock().unwrap().
+        let is_owned_receiver = matches!(method.receiver, Some(ReceiverKind::Owned));
+        let has_mut_methods = typ
+            .methods
+            .iter()
+            .any(|m| matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut)));
+        let inner_access = if is_owned_receiver {
+            "self.inner.as_ref().clone()".to_string()
+        } else if has_mut_methods {
+            "self.inner.lock().unwrap()".to_string()
+        } else {
+            "self.inner".to_string()
+        };
+        let core_call = format!("{inner_access}.{}({})", method.name, call_args);
+        if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!(
+                    "{refs_preamble}{core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(())"
+                )
+            } else {
+                let wrap = generators::wrap_return_with_mutex(
+                    "result",
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    mutex_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow,
+                );
+                format!(
+                    "{refs_preamble}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok({wrap})"
+                )
+            }
+        } else {
+            let wrapped = generators::wrap_return_with_mutex(
+                &core_call,
+                &method.return_type,
+                type_name,
+                opaque_types,
+                mutex_types,
+                true,
+                method.returns_ref,
+                method.returns_cow,
+            );
+            format!("{refs_preamble}{wrapped}")
+        }
+    } else {
+        gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n    "
+    } else {
+        ""
+    };
+    format!(
+        "{trait_allow}fn {}(&self, {params}) -> {return_annotation} {{\n        \
+         {body}\n    }}",
+        method.name
+    )
+}
+
+/// Generate an opaque async instance method for Magnus (block on runtime, delegates to self.inner).
+#[allow(clippy::too_many_arguments)]
+fn gen_opaque_async_instance_method(
+    typ: &TypeDef,
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    core_import: &str,
+    needs_mutex: bool,
+) -> String {
+    use crate::codegen::shared;
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let return_type = mapper.map_type(&method.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+
+    let is_ref_mut_receiver = matches!(method.receiver, Some(crate::core::ir::ReceiverKind::RefMut));
+    // RefMut methods can be delegated if the type is Mutex-wrapped (needs_mutex).
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    let can_delegate = !method.sanitized
+        && (!is_ref_mut_receiver || needs_mutex)
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && shared::is_delegatable_param(&p.ty, opaque_types))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let body = if can_delegate {
+        let preamble = build_method_preamble(&method.params, opaque_types, core_import);
+        let needs_let_bindings = !preamble.is_empty();
+        let call_args = if needs_let_bindings {
+            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+        } else {
+            generators::gen_call_args(&method.params, opaque_types)
+        };
+        let refs_preamble = preamble;
+        let has_mut_methods = typ
+            .methods
+            .iter()
+            .any(|m| matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut)));
+        let inner_setup = if has_mut_methods {
+            "let inner = self.inner.lock().unwrap();\n        ".to_string()
+        } else {
+            "let inner = self.inner.clone();\n        ".to_string()
+        };
+        let core_call = format!("inner.{}({})", method.name, call_args);
+        let result_wrap = generators::wrap_return_with_mutex(
+            "result",
+            &method.return_type,
+            type_name,
+            opaque_types,
+            mutex_types,
+            true,
+            method.returns_ref,
+            method.returns_cow,
+        );
+        if method.error_type.is_some() {
+            format!(
+                "{refs_preamble}{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 Ok({result_wrap})"
+            )
+        } else {
+            format!(
+                "{refs_preamble}{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ {core_call}.await }});\n        \
+                 {result_wrap}"
+            )
+        }
+    } else {
+        gen_magnus_unimplemented_body(
+            &method.return_type,
+            &format!("{}_async", method.name),
+            method.error_type.is_some(),
+        )
+    };
+    format!(
+        "fn {}_async(&self, {params}) -> {return_annotation} {{\n        \
+         {body}\n    \
+         }}",
+        method.name
+    )
+}
+
+/// Generate a Magnus-wrapped struct definition using the shared TypeMapper.
+pub(super) fn gen_struct(
+    typ: &TypeDef,
+    mapper: &MagnusMapper,
+    module_name: &str,
+    _api: &crate::core::ir::ApiSurface,
+    generates_default: bool,
+) -> String {
+    let class_path = format!("{}::{}", module_name, typ.name);
+
+    // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used with Magnus wrap.
+    let filtered_fields: Vec<FieldDef> = typ
+        .fields
+        .iter()
+        .filter(|f| !f.binding_excluded)
+        .filter(|f| !is_thread_unsafe_field(f))
+        .cloned()
+        .collect();
+
+    // Build field list with mapped types
+    let fields: Vec<minijinja::Value> = filtered_fields
+        .iter()
+        .map(|field| {
+            let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+                mapper.optional(&mapper.map_type(&field.ty))
+            } else {
+                mapper.map_type(&field.ty)
+            };
+            minijinja::context! {
+                name => &field.name,
+                field_type => &field_type,
+            }
+        })
+        .collect();
+
+    crate::backends::magnus::template_env::render(
+        "struct_def.rs.jinja",
+        minijinja::context! {
+            struct_name => &typ.name,
+            class_path => &class_path,
+            fields => &fields,
+            has_default => typ.has_default,
+            generates_default => generates_default,
+        },
+    )
+}
+
+/// Generate Magnus methods for a struct.
+pub(super) fn gen_struct_methods(
+    typ: &TypeDef,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+    _generates_default: bool,
+) -> String {
+    let mut impl_builder = ImplBuilder::new(&typ.name);
+
+    if !typ.fields.is_empty() {
+        let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
+
+        // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used in Magnus constructors.
+        let filtered_fields: Vec<FieldDef> = typ
+            .fields
+            .iter()
+            .filter(|f| !f.binding_excluded)
+            .filter(|f| !is_thread_unsafe_field(f))
+            .cloned()
+            .collect();
+
+        if !filtered_fields.is_empty() {
+            // Always emit a kwargs-based constructor (variadic arity -1) so Ruby callers can
+            // pass `Type.new(field1: ..., field2: ...)` for any has_default type, regardless
+            // of field count. Previously only types with >15 fields used kwargs because the
+            // Magnus `function!` macro caps positional arity at 15 — the small-type branch
+            // produced positional constructors that don't match how e2e tests invoke them
+            // (and how Python/Node JS-side construct equivalents).
+            let mut filtered_typ = typ.clone();
+            filtered_typ.fields = filtered_fields.clone();
+            let config_method = crate::codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
+            impl_builder.add_method(&config_method);
+        }
+    }
+
+    for field in binding_fields(&typ.fields) {
+        // Skip thread-unsafe fields (e.g., VisitorHandle)
+        if is_thread_unsafe_field(field) {
+            continue;
+        }
+        impl_builder.add_method(&gen_field_accessor(field, mapper));
+    }
+
+    for method in &typ.methods {
+        if !method.is_static {
+            if method.is_async {
+                impl_builder.add_method(&gen_async_instance_method(
+                    method,
+                    mapper,
+                    typ,
+                    opaque_types,
+                    core_import,
+                ));
+            } else {
+                impl_builder.add_method(&gen_instance_method(method, mapper, typ, opaque_types, core_import));
+            }
+        }
+    }
+
+    // Generate to_s for structs that have a `content` field of type String or Option<String>.
+    // This lets Ruby callers use `result.to_s` to get the primary markdown output directly.
+    if has_content_string_field(typ) {
+        let content_field = binding_fields(&typ.fields).find(|f| f.name == "content").unwrap();
+        let is_optional = matches!(&content_field.ty, TypeRef::Optional(_)) || content_field.optional;
+        let body = if is_optional {
+            "self.content.clone().unwrap_or_default()".to_string()
+        } else {
+            "self.content.clone()".to_string()
+        };
+        impl_builder.add_method(&format!(
+            "#[allow(clippy::should_implement_trait)]\n    fn to_s(&self) -> String {{\n        {body}\n    }}"
+        ));
+    }
+
+    impl_builder.build()
+}
+
+/// Generate a field accessor method.
+fn gen_field_accessor(field: &FieldDef, mapper: &MagnusMapper) -> String {
+    let return_type = if field.optional {
+        // Strip one Optional wrapper: when field.ty is already Optional(T) and field.optional is
+        // also true (e.g. Option<Option<T>> in core), the struct field is declared as
+        // Option<T> (struct codegen strips the outer Optional). The accessor must match.
+        let inner_ty = match &field.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            ty => ty,
+        };
+        mapper.optional(&mapper.map_type(inner_ty))
+    } else {
+        mapper.map_type(&field.ty)
+    };
+
+    let body = if is_primitive_copy(&field.ty) {
+        format!("self.{}", field.name)
+    } else {
+        format!("self.{}.clone()", field.name)
+    };
+
+    format!(
+        "fn {}(&self) -> {} {{\n        {}\n    }}",
+        field.name, return_type, body
+    )
+}
+
+/// Check if a type is a Copy type (primitives and unit).
+fn is_primitive_copy(ty: &crate::core::ir::TypeRef) -> bool {
+    matches!(
+        ty,
+        crate::core::ir::TypeRef::Primitive(_) | crate::core::ir::TypeRef::Unit
+    )
+}
+
+/// Generate an instance method binding for a non-opaque struct.
+fn gen_instance_method(
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    typ: &TypeDef,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use crate::codegen::shared;
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let return_type = mapper.map_type(&method.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+
+    let can_delegate = !method.sanitized
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let needs_mut_receiver = method.receiver == Some(ReceiverKind::RefMut);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let field_conversions = if needs_mut_receiver {
+            generators::gen_lossy_binding_to_core_fields_mut(typ, core_import, false, opaque_types, false, false, &[])
+        } else {
+            generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false, &[])
+        };
+        let core_call = format!("core_self.{}({})", method.name, call_args);
+        let result_wrap = non_opaque_method_result_wrap(method);
+        if method.error_type.is_some() {
+            format!(
+                "{field_conversions}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(result{result_wrap})"
+            )
+        } else {
+            format!("{field_conversions}{core_call}{result_wrap}")
+        }
+    } else {
+        gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
+    let allow_attr = if !can_delegate {
+        "#[allow(unused_variables)]\n    "
+    } else {
+        ""
+    };
+    let self_recv = if needs_mut_receiver { "&mut self" } else { "&self" };
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n    "
+    } else {
+        ""
+    };
+    format!(
+        "{trait_allow}{allow_attr}fn {}({self_recv}, {params}) -> {return_annotation} {{\n        \
+         {body}\n    }}",
+        method.name
+    )
+}
+
+/// Generate an async instance method binding for Magnus (block on runtime).
+fn gen_async_instance_method(
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    typ: &TypeDef,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use crate::codegen::shared;
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let return_type = mapper.map_type(&method.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+
+    let can_delegate = !method.sanitized
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let field_conversions =
+            generators::gen_lossy_binding_to_core_fields(typ, core_import, false, opaque_types, false, false, &[]);
+        let result_wrap = non_opaque_method_result_wrap(method);
+        if method.error_type.is_some() {
+            format!(
+                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 Ok(result{result_wrap})",
+                name = method.name
+            )
+        } else {
+            format!(
+                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }});\n        \
+                 result{result_wrap}",
+                name = method.name
+            )
+        }
+    } else {
+        gen_magnus_unimplemented_body(
+            &method.return_type,
+            &format!("{}_async", method.name),
+            method.error_type.is_some(),
+        )
+    };
+    format!(
+        "fn {}_async(&self, {params}) -> {return_annotation} {{\n        \
+         {body}\n    \
+         }}",
+        method.name
+    )
+}
+
+/// Convert a PascalCase name to snake_case for Ruby symbol mapping.
+pub(super) fn pascal_to_snake(name: &str) -> String {
+    let mut result = String::with_capacity(name.len() + 4);
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_lowercase().next().unwrap_or(ch));
+    }
+    result
+}
+
+fn non_opaque_method_result_wrap(method: &MethodDef) -> String {
+    match &method.return_type {
+        TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
+        // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
+        // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
+        TypeRef::Bytes => {
+            if method.returns_ref {
+                ".to_vec()".to_string()
+            } else {
+                ".into()".to_string()
+            }
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
+            if method.returns_ref || method.returns_cow {
+                ".map(|v| v.to_owned())".to_string()
+            } else {
+                String::new()
+            }
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+            ".map(|v| v.to_string_lossy().to_string())".to_string()
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
+            if method.returns_ref {
+                ".map(|v| v.to_vec())".to_string()
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// Generate a Magnus enum definition with IntoValue and TryConvert impls.
+/// Unit-variant enums are represented as Ruby Symbols for ergonomic Ruby usage.
+pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
+    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    let first_variant = enum_def.variants.first().map(|v| v.name.as_str()).unwrap_or("Default");
+
+    // Find the variant marked with #[default], or fall back to first_variant
+    let default_variant = enum_def
+        .variants
+        .iter()
+        .find(|v| v.is_default)
+        .map(|v| v.name.as_str())
+        .unwrap_or(first_variant);
+
+    // Compute the field-defaults suffix for the *default* variant (not the first
+    // variant). When `#[default]` selects a unit variant (e.g. `PageAction::Scrape`)
+    // while the first variant carries fields (e.g. `Click { selector }`), using
+    // the first variant's field shape on the default variant emits
+    // `Self::Scrape { selector: Default::default() }` and fails with E0559.
+    let first_variant_default = if has_data {
+        let default = enum_def
+            .variants
+            .iter()
+            .find(|v| v.is_default)
+            .unwrap_or_else(|| enum_def.variants.first().unwrap());
+        if default.fields.is_empty() {
+            String::new()
+        } else if enum_def.serde_untagged && default.is_tuple {
+            let field_defaults: Vec<&str> = default.fields.iter().map(|_| "Default::default()").collect();
+            format!("({})", field_defaults.join(", "))
+        } else {
+            let field_defaults: Vec<String> = default
+                .fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            format!(" {{ {} }}", field_defaults.join(", "))
+        }
+    } else {
+        String::new()
+    };
+
+    // Build variant list with snake_case names for unit enums
+    let variants: Vec<minijinja::Value> = enum_def
+        .variants
+        .iter()
+        .map(|variant| {
+            let fields: Vec<minijinja::Value> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    minijinja::context! {
+                        name => &f.name,
+                        field_type => field_type_for_serde(f),
+                    }
+                })
+                .collect();
+
+            minijinja::context! {
+                name => &variant.name,
+                serde_rename => &variant.serde_rename,
+                fields => &fields,
+                is_tuple => variant.is_tuple,
+                snake_name => pascal_to_snake(&variant.name),
+            }
+        })
+        .collect();
+
+    crate::backends::magnus::template_env::render(
+        "enum_magnus.rs.jinja",
+        minijinja::context! {
+            enum_name => &enum_def.name,
+            has_data => has_data,
+            serde_tag => &enum_def.serde_tag,
+            serde_untagged => enum_def.serde_untagged,
+            serde_rename_all => &enum_def.serde_rename_all,
+            variants => &variants,
+            first_variant => first_variant,
+            default_variant => default_variant,
+            first_variant_default => &first_variant_default,
+        },
+    )
+}
+
+/// Map a field type to a Rust type suitable for serde deserialization in data enums.
+/// Helper to recursively map inner TypeRef to serde type strings.
+/// For types that need JSON marshalling (Vec<Named>, Map, etc.), returns "String"
+/// to indicate they should be JSON-serialized. Otherwise returns the proper type.
+fn field_type_for_serde_inner(ty: &TypeRef) -> String {
+    use crate::core::ir::PrimitiveType;
+    match ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "String".to_string(),
+        TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
+        TypeRef::Primitive(PrimitiveType::U8) => "u8".to_string(),
+        TypeRef::Primitive(PrimitiveType::U16) => "u16".to_string(),
+        TypeRef::Primitive(PrimitiveType::U32) => "u32".to_string(),
+        TypeRef::Primitive(PrimitiveType::U64) => "u64".to_string(),
+        TypeRef::Primitive(PrimitiveType::Usize) => "usize".to_string(),
+        TypeRef::Primitive(PrimitiveType::I8) => "i8".to_string(),
+        TypeRef::Primitive(PrimitiveType::I16) => "i16".to_string(),
+        TypeRef::Primitive(PrimitiveType::I32) => "i32".to_string(),
+        TypeRef::Primitive(PrimitiveType::I64) => "i64".to_string(),
+        TypeRef::Primitive(PrimitiveType::Isize) => "isize".to_string(),
+        TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
+        TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
+        TypeRef::Duration => "u64".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        // Named types serde-derive in the generated module — emit by name so JSON
+        // arrays/objects deserialize directly via serde.
+        TypeRef::Named(n) => n.clone(),
+        // Recurse for Vec so Vec<Item> / Vec<String> round-trip as actual JSON arrays.
+        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
+        // Map keys/values may be opaque or non-serde; collapse to String and round-trip via serde_json.
+        TypeRef::Map(_, _) => "String".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
+        _ => "String".to_string(),
+    }
+}
+
+fn field_type_for_serde(field: &FieldDef) -> String {
+    let base = field_type_for_serde_inner(&field.ty);
+    if field.optional {
+        format!("Option<{base}>")
+    } else {
+        base
+    }
+}
+
+/// Bridge handle types that cannot cross the Send + Sync boundary required by Magnus.
+/// Their fields are excluded from binding structs and From impls.
+const THREAD_UNSAFE_BRIDGE_TYPES: &[&str] = &["VisitorHandle"];
+
+/// Generate a From impl for binding → core conversion that excludes thread-unsafe fields.
+///
+/// Fields whose type references a bridge handle (e.g. `VisitorHandle`) are dropped via
+/// `ConversionConfig::exclude_types`, which filters at codegen time. The previous
+/// post-processing line filter broke when the IR's `cfg` was stripped for active
+/// features, leaving the field present and emitted into the From body.
+pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
+    if !binding_fields(&typ.fields).any(is_thread_unsafe_field) {
+        return crate::codegen::conversions::gen_from_binding_to_core(typ, core_import);
+    }
+
+    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let cfg = crate::codegen::conversions::ConversionConfig {
+        exclude_types: exclude_owned.as_slice(),
+        ..Default::default()
+    };
+    crate::codegen::conversions::gen_from_binding_to_core_cfg(typ, core_import, &cfg)
+}
+
+/// Generate a From impl for core → binding conversion that excludes thread-unsafe fields.
+/// Mirrors `gen_from_binding_to_core_filtered` for the opposite direction.
+pub(super) fn gen_from_core_to_binding_filtered(
+    typ: &TypeDef,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    if !binding_fields(&typ.fields).any(is_thread_unsafe_field) {
+        return crate::codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
+    }
+
+    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let cfg = crate::codegen::conversions::ConversionConfig {
+        exclude_types: exclude_owned.as_slice(),
+        opaque_types: Some(opaque_types),
+        ..Default::default()
+    };
+    crate::codegen::conversions::gen_from_core_to_binding_cfg(typ, core_import, opaque_types, &cfg)
+}
+
+/// Generate a Magnus-specific Default impl that delegates to the core type's Default.
+/// This is used for structs with has_default=true to ensure proper defaults are used
+/// instead of field-level Default::default() which may not match the core's semantics
+/// (e.g., SecurityLimits uses 0 for usize fields but core defaults them to 500MB/100/10K).
+pub(super) fn gen_magnus_default_impl(typ: &TypeDef, core_import: &str) -> String {
+    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    format!(
+        "impl Default for {} {{\n    \
+         fn default() -> Self {{\n        \
+         {core_path}::default().into()\n    \
+         }}\n}}\n",
+        typ.name
+    )
+}
+
+/// Generate an explicit Default impl for a binding struct using field-level defaults.
+/// This is used when the struct has field-level defaults (e.g., from typed_default)
+/// that don't match what the derived Default would produce. Uses the same defaults
+/// as the kwargs constructor. Filters out thread-unsafe fields like the struct definition does.
+pub(super) fn gen_struct_default_impl_explicit(
+    typ: &TypeDef,
+    _type_mapper: &dyn Fn(&TypeRef) -> String,
+) -> Option<String> {
+    // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used with Magnus wrap,
+    // matching the filtering done in gen_struct
+    let filtered_fields: Vec<FieldDef> = typ
+        .fields
+        .iter()
+        .filter(|f| !f.binding_excluded && !is_thread_unsafe_field(f))
+        .cloned()
+        .collect();
+
+    // For Update/partial structs, all fields are Option<T> and should default to None
+    let is_update_struct = typ.name.ends_with("Update");
+
+    // Check if any field has a non-trivial default that wouldn't match the derived Default
+    let has_non_trivial_default = filtered_fields.iter().any(|field| {
+        // A field needs explicit handling if:
+        // 1. It's NOT an Option field (those always default to None)
+        // 2. It has a typed_default (e.g., enum variant or specific value)
+        // 3. It has an explicit default string set (e.g., "true" for bool fields)
+        !matches!(&field.ty, TypeRef::Optional(_)) && (field.typed_default.is_some() || field.default.is_some())
+    });
+
+    if !has_non_trivial_default && !is_update_struct {
+        return None;
+    }
+
+    let field_assignments: Vec<String> = filtered_fields
+        .iter()
+        .map(|field| {
+            // For Option fields, always default to None
+            if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
+                format!("{}: None", field.name)
+            } else {
+                // Use the same default logic as the kwargs constructor
+                let default_val = crate::codegen::config_gen::default_value_for_field(field, "rust");
+                format!("{}: {}", field.name, default_val)
+            }
+        })
+        .collect();
+
+    Some(format!(
+        "impl Default for {} {{\n    fn default() -> Self {{\n        Self {{\n            {},\n        }}\n    }}\n}}\n",
+        typ.name,
+        field_assignments.join(",\n            ")
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+
+    fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: crate::core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }
+    }
+
+    fn make_typedef(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("test_lib::{name}"),
+            original_rust_path: String::new(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    #[test]
+    fn pascal_to_snake_converts_camel_case() {
+        assert_eq!(pascal_to_snake("FooBar"), "foo_bar");
+        assert_eq!(pascal_to_snake("PaddleOcr"), "paddle_ocr");
+        assert_eq!(pascal_to_snake("Tesseract"), "tesseract");
+    }
+
+    #[test]
+    fn gen_enum_unit_variants_emit_ruby_symbols() {
+        let enum_def = EnumDef {
+            name: "Status".to_string(),
+            rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Pending".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Done".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let code = gen_enum(&enum_def);
+        assert!(code.contains("enum Status"), "must emit enum definition");
+        assert!(code.contains("to_symbol"), "unit enums use Ruby symbols");
+        assert!(code.contains("\"pending\""), "variant snake_case symbol key");
+    }
+
+    #[test]
+    fn gen_struct_emits_magnus_wrap_attribute() {
+        let typ = make_typedef("Config", vec![make_field("value", TypeRef::String, false)]);
+        let mapper = crate::backends::magnus::type_map::MagnusMapper;
+        let api = crate::core::ir::ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+        let code = gen_struct(&typ, &mapper, "TestLib", &api, false);
+        assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");
+        assert!(code.contains("struct Config"), "must emit struct Config");
+    }
+
+    #[test]
+    fn gen_opaque_struct_emits_arc_inner() {
+        let typ = make_typedef("Handle", vec![]);
+        let code = gen_opaque_struct(&typ, "test_lib", "TestLib");
+        assert!(code.contains("inner: Arc<"), "opaque struct must have Arc inner");
+        assert!(code.contains("struct Handle"), "must emit struct Handle");
+    }
+}

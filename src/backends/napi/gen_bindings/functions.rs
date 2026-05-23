@@ -1,0 +1,994 @@
+//! NAPI-RS function and method code generation.
+
+use crate::codegen::generators::{self, RustBindingConfig};
+use crate::codegen::naming::to_node_name;
+use crate::codegen::shared::function_params;
+use crate::codegen::type_mapper::TypeMapper;
+use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+use ahash::AHashSet;
+use heck::ToPascalCase;
+
+use crate::backends::napi::type_map::NapiMapper;
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn gen_function(
+    func: &FunctionDef,
+    mapper: &NapiMapper,
+    cfg: &RustBindingConfig,
+    opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
+    prefix: &str,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
+    mutex_types: &AHashSet<String>,
+) -> String {
+    // Treat any Named param whose type derives Default as binding-optional so
+    // JS callers can omit it (or pass undefined) — we materialise the default
+    // in the body via `unwrap_or_default()`. Clone the params with that flag
+    // applied so downstream helpers see the augmented optionality.
+    let augmented_params: Vec<crate::core::ir::ParamDef> = func
+        .params
+        .iter()
+        .map(|p| {
+            let mut p2 = p.clone();
+            if !p2.optional {
+                if let TypeRef::Named(n) = &p2.ty {
+                    if default_types.contains(n.as_str()) && !opaque_types.contains(n.as_str()) {
+                        p2.optional = true;
+                    }
+                }
+            }
+            p2
+        })
+        .collect();
+    let params = function_params(&augmented_params, &|ty| {
+        // Capsule types reference external ecosystem types (not wrapped with Js prefix).
+        // Opaque Named params must be received by reference since NAPI opaque
+        // structs don't implement FromNapiValue (they use Arc<T> internally).
+        if let TypeRef::Named(n) = ty {
+            if capsule_types.contains_key(n.as_str()) {
+                // Capsule types use the external type name from config
+                if let Some(capsule_cfg) = capsule_types.get(n.as_str()) {
+                    return capsule_cfg.from_module.clone();
+                }
+            }
+            if opaque_types.contains(n.as_str()) {
+                return format!("&{prefix}{n}");
+            }
+        }
+        mapper.map_type(ty)
+    });
+    // Prefix the body with `unwrap_or_default()` coercions for params we promoted
+    // to Option<> in the binding signature. After these statements, the param
+    // identifiers refer to non-optional values so the rest of the body emission
+    // (which uses func.params, not augmented) remains correct.
+    //
+    // Skip the prefix when the original param is already considered
+    // "promoted-optional" by `is_promoted_optional` — the let-binding helper
+    // emits its own `unwrap_or_default()` for that case and prefixing here
+    // would yield `T.unwrap_or_default()` (no such method).
+    let default_coerce_prefix: String = augmented_params
+        .iter()
+        .zip(func.params.iter())
+        .enumerate()
+        .filter_map(|(idx, (aug, orig))| {
+            if aug.optional && !orig.optional && !crate::codegen::shared::is_promoted_optional(&func.params, idx) {
+                Some(format!("    let {} = {}.unwrap_or_default();\n", orig.name, orig.name))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let return_type = mapper.map_type(&func.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+
+    let js_name = to_node_name(&func.name);
+    let js_name_attr = if js_name != func.name {
+        format!("(js_name = \"{}\")", js_name)
+    } else {
+        String::new()
+    };
+
+    let core_import = cfg.core_import;
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
+    // Use let-binding pattern for non-opaque Named params, or for Vec<f32> params that need conversion,
+    // or for Vec<u8> params that come as napi::Buffer
+    let use_let_bindings = generators::has_named_params(&func.params, opaque_types)
+        || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty))
+        || func.params.iter().any(|p| is_bytes_param(&p.ty));
+    let call_args = if use_let_bindings {
+        let base_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
+        napi_apply_primitive_casts_to_call_args(&base_args, &func.params)
+    } else {
+        napi_gen_call_args(&func.params, opaque_types)
+    };
+
+    let can_delegate_fn = crate::codegen::shared::can_auto_delegate_function(func, opaque_types)
+        || can_delegate_with_named_let_bindings(func, opaque_types);
+
+    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+
+    let async_kw = if func.is_async { "async " } else { "" };
+
+    let body = if !can_delegate_fn {
+        // Try serde-based conversion for non-delegatable functions with Named params
+        // Only use serde conversion if cfg.has_serde is true (binding crate has serde deps)
+        if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
+            let serde_bindings =
+                generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
+            // Also generate Vec<String>+is_ref bindings (names_refs) since serde doesn't handle them
+            let vec_str_bindings: String = func.params.iter().filter(|p| {
+                p.is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
+            }).map(|p| {
+                format!("let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ", p.name, p.name)
+            }).collect();
+            let core_call = format!("{core_fn_path}({call_args})");
+            let await_kw = if func.is_async { ".await" } else { "" };
+
+            if matches!(func.return_type, TypeRef::Unit) {
+                format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}{err_conv}?;\n    Ok(())")
+            } else {
+                let wrapped = napi_wrap_return_fn(
+                    "val",
+                    &func.return_type,
+                    opaque_types,
+                    func.returns_ref,
+                    prefix,
+                    Some(capsule_types),
+                    mutex_types,
+                );
+                if wrapped == "val" {
+                    format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}{err_conv}")
+                } else {
+                    format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}.map(|val| {wrapped}){err_conv}")
+                }
+            }
+        } else {
+            generators::gen_unimplemented_body(
+                &func.return_type,
+                &func.name,
+                func.error_type.is_some(),
+                cfg,
+                &func.params,
+                opaque_types,
+            )
+        }
+    } else if func.is_async {
+        // For async delegatable functions, generate let bindings if needed before the async call
+        let mut let_bindings = if use_let_bindings {
+            generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+        } else {
+            String::new()
+        };
+        // Add Vec<f32> conversion bindings for parameters not already handled
+        let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
+        // Add napi::Buffer to Vec<u8> conversion bindings
+        let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
+        let core_call = format!("{core_fn_path}({call_args})");
+        let return_wrap = napi_wrap_return_fn(
+            "result",
+            &func.return_type,
+            opaque_types,
+            func.returns_ref,
+            prefix,
+            Some(capsule_types),
+            mutex_types,
+        );
+        let return_type = mapper.map_type(&func.return_type);
+        generators::gen_async_body(
+            &core_call,
+            cfg,
+            func.error_type.is_some(),
+            &return_wrap,
+            false,
+            &let_bindings,
+            matches!(func.return_type, TypeRef::Unit),
+            Some(&return_type),
+        )
+    } else {
+        let core_call = format!("{core_fn_path}({call_args})");
+        // Generate let bindings for Named params if needed
+        let mut let_bindings = if use_let_bindings {
+            generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+        } else {
+            String::new()
+        };
+        // Add Vec<f32> conversion bindings for parameters not already handled
+        let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
+        // Add napi::Buffer to Vec<u8> conversion bindings
+        let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
+
+        if func.error_type.is_some() {
+            let wrapped = napi_wrap_return_fn(
+                "val",
+                &func.return_type,
+                opaque_types,
+                func.returns_ref,
+                prefix,
+                Some(capsule_types),
+                mutex_types,
+            );
+            if wrapped == "val" {
+                format!("{let_bindings}{core_call}{err_conv}")
+            } else {
+                format!("{let_bindings}{core_call}.map(|val| {wrapped}){err_conv}")
+            }
+        } else {
+            format!(
+                "{let_bindings}{}",
+                napi_wrap_return_fn(
+                    &core_call,
+                    &func.return_type,
+                    opaque_types,
+                    func.returns_ref,
+                    prefix,
+                    Some(capsule_types),
+                    mutex_types
+                )
+            )
+        }
+    };
+
+    let mut attrs = String::new();
+    // Doc comments on the function become JSDoc on the corresponding `export
+    // declare function` in the generated .d.ts via napi-derive's typegen.
+    // Sanitize Rust-specific code examples (e.g. ```rust blocks) since they
+    // won't make sense in TypeScript and will break the .d.ts file.
+    let sanitized_doc =
+        crate::codegen::doc_emission::sanitize_rust_idioms(&func.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
+    crate::codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_doc, "");
+    // Per-item clippy suppression: too_many_arguments when >7 params
+    if func.params.len() > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
+    if func.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    let body = if default_coerce_prefix.is_empty() {
+        body
+    } else {
+        format!("{}{}", default_coerce_prefix, body)
+    };
+    crate::backends::napi::template_env::render(
+        "function_wrapper.jinja",
+        minijinja::context! {
+            attrs => attrs,
+            js_name_attr => js_name_attr,
+            async_kw => async_kw,
+            func_name => &func.name,
+            params => params,
+            return_annotation => return_annotation,
+            body => body,
+        },
+    )
+}
+
+fn can_delegate_with_named_let_bindings(func: &FunctionDef, opaque_types: &AHashSet<String>) -> bool {
+    !func.sanitized
+        && func
+            .params
+            .iter()
+            .all(|p| !p.sanitized && crate::codegen::shared::is_delegatable_param(&p.ty, opaque_types))
+        && crate::codegen::shared::is_delegatable_return(&func.return_type)
+}
+
+/// Apply NAPI-specific primitive casts to the call args generated by the generic let-binding handler.
+/// Adds i64→usize, i64→isize, f64→f32 casts where needed.
+pub(super) fn napi_apply_primitive_casts_to_call_args(generic_args: &str, params: &[ParamDef]) -> String {
+    // Split args by comma and match with params to apply casting
+    let args_list: Vec<&str> = generic_args.split(',').map(|s| s.trim()).collect();
+    args_list
+        .iter()
+        .zip(params.iter())
+        .map(|(arg, p)| {
+            // Special case: Vec<f32> param with is_ref uses the converted variable
+            if needs_vec_f32_conversion(&p.ty) && p.is_ref {
+                return format!("&{}_f32", p.name);
+            }
+            match &p.ty {
+                TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
+                    let core_ty = core_prim_str(prim);
+                    if p.optional {
+                        // Optional: arg might be like "param.map(...)" so re-apply map
+                        if arg.contains(".map(") || arg.contains(".as_") {
+                            // Already handled, keep as is
+                            arg.to_string()
+                        } else {
+                            format!("{}.map(|v| v as {})", arg, core_ty)
+                        }
+                    } else {
+                        // Non-optional: simple cast
+                        format!("{} as {}", arg, core_ty)
+                    }
+                }
+                _ => arg.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Generate let bindings for Vec<f32> parameters that need f64→f32 conversion.
+/// This handles the case where NAPI maps f32→f64, but a function param is Vec<f32> taking a reference.
+pub(super) fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
+    let mut bindings = String::new();
+    for p in params {
+        if needs_vec_f32_conversion(&p.ty) && p.is_ref {
+            let conv_name = format!("{}_f32", p.name);
+            bindings.push_str(&crate::backends::napi::template_env::render(
+                "vec_f32_conversion_binding.jinja",
+                minijinja::context! {
+                    conv_name => conv_name,
+                    param_name => &p.name,
+                },
+            ));
+        }
+    }
+    bindings
+}
+
+/// Generate let bindings for napi::Buffer parameters that need conversion to Vec<u8>.
+/// NAPI gives us napi::Buffer which dereferences to &[u8], but we need Vec<u8>.
+pub(super) fn gen_napi_buffer_conversion_bindings(params: &[ParamDef]) -> String {
+    let mut bindings = String::new();
+    for p in params {
+        if is_bytes_param(&p.ty) {
+            // Convert napi::Buffer to Vec<u8> by calling .to_vec()
+            bindings.push_str(&crate::backends::napi::template_env::render(
+                "buffer_conversion_binding.jinja",
+                minijinja::context! {
+                    param_name => &p.name,
+                },
+            ));
+        }
+    }
+    bindings
+}
+
+/// NAPI-specific call args that casts i64 params to u64/usize where the core expects it.
+/// Properly handles is_ref for reference parameters and complex type conversions.
+pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    params
+        .iter()
+        .map(|p| {
+            // Special case: Vec<f32> param with is_ref uses the converted variable
+            if needs_vec_f32_conversion(&p.ty) && p.is_ref {
+                return format!("&{}_f32", p.name);
+            }
+            match &p.ty {
+                TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
+                    let core_ty = core_prim_str(prim);
+                    if p.optional {
+                        format!("{}.map(|v| v as {})", p.name, core_ty)
+                    } else {
+                        format!("{} as {}", p.name, core_ty)
+                    }
+                }
+                TypeRef::Duration => {
+                    if p.optional {
+                        format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
+                    } else {
+                        format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
+                    }
+                }
+                TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    // When an opaque type param is required by a builder/owned-receiver method,
+                    // clone the inner value (Arc dereference) to get an owned copy.
+                    // When used as a reference param, borrow `&v.inner` instead.
+                    if p.is_ref {
+                        if p.optional {
+                            format!("{}.as_ref().map(|v| v.inner.as_ref())", p.name)
+                        } else {
+                            format!("{}.inner.as_ref()", p.name)
+                        }
+                    } else if p.optional {
+                        format!("{}.as_ref().map(|v| (*v.inner).clone())", p.name)
+                    } else {
+                        format!("(*{}.inner).clone()", p.name)
+                    }
+                }
+                TypeRef::Named(_) => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_ref()", p.name)
+                        } else {
+                            format!("{}.map(Into::into)", p.name)
+                        }
+                    } else {
+                        format!("{}.into()", p.name)
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::Path => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                        } else {
+                            format!("{}.map(std::path::PathBuf::from)", p.name)
+                        }
+                    } else if p.is_ref {
+                        format!("std::path::Path::new(&{})", p.name)
+                    } else {
+                        format!("std::path::PathBuf::from({})", p.name)
+                    }
+                }
+                TypeRef::Bytes => {
+                    // In NAPI, Bytes becomes napi::Buffer, which needs conversion to Vec<u8>
+                    // The conversion happens in let bindings, so we use the parameter name as-is
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::Vec(inner) => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        format!("&{}_refs", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::Map(_, _) => {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_ref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Helper: wrap a value in Arc::new(...) with optional Mutex::new(...) for mutex types.
+fn arc_wrap(val: &str, type_name: &str, mutex_types: &AHashSet<String>) -> String {
+    if mutex_types.contains(type_name) {
+        format!("Arc::new(std::sync::Mutex::new({val}))")
+    } else {
+        format!("Arc::new({val})")
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+/// NAPI-specific return wrapping for opaque instance methods.
+/// Extends the shared `wrap_return` with i64 casts for u64/usize/isize primitives.
+pub(super) fn napi_wrap_return(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    self_is_opaque: bool,
+    returns_ref: bool,
+    prefix: &str,
+    mutex_types: &AHashSet<String>,
+) -> String {
+    match return_type {
+        TypeRef::Primitive(p) if needs_napi_cast(p) => {
+            format!("{expr} as i64")
+        }
+        TypeRef::Duration => format!("{expr}.as_millis() as i64"),
+        // Opaque Named returns need prefix
+        TypeRef::Named(n) if n == type_name && self_is_opaque => {
+            // When expr is self.inner or self.inner.clone(), it's already Arc<T>, so don't wrap again.
+            let already_arc = expr == "self.inner"
+                || expr == "self.inner.clone()"
+                || expr.starts_with("self.inner.as_ref()")
+                || expr.starts_with("self.inner.clone()");
+            if already_arc {
+                format!("Self {{ inner: {expr} }}")
+            } else if returns_ref {
+                format!(
+                    "Self {{ inner: {} }}",
+                    arc_wrap(&format!("{expr}.clone()"), n, mutex_types)
+                )
+            } else {
+                format!("Self {{ inner: {} }}", arc_wrap(expr, n, mutex_types))
+            }
+        }
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            // When expr is self.inner or self.inner.clone(), it's already Arc<T>, so don't wrap again.
+            // For method calls that return the inner type directly, we need to wrap in Arc.
+            let already_arc = expr == "self.inner"
+                || expr == "self.inner.clone()"
+                || expr.starts_with("self.inner.as_ref()")
+                || expr.starts_with("self.inner.clone()");
+            if already_arc {
+                format!("{prefix}{n} {{ inner: {expr} }}")
+            } else if returns_ref {
+                format!(
+                    "{prefix}{n} {{ inner: {} }}",
+                    arc_wrap(&format!("{expr}.clone()"), n, mutex_types)
+                )
+            } else {
+                format!("{prefix}{n} {{ inner: {} }}", arc_wrap(expr, n, mutex_types))
+            }
+        }
+        TypeRef::Named(_) => {
+            if returns_ref {
+                format!("{expr}.clone().into()")
+            } else {
+                format!("{expr}.into()")
+            }
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                if returns_ref {
+                    format!(
+                        "{expr}.map(|v| {prefix}{name} {{ inner: {} }})",
+                        arc_wrap("v.clone()", name, mutex_types)
+                    )
+                } else {
+                    format!(
+                        "{expr}.map(|v| {prefix}{name} {{ inner: {} }})",
+                        arc_wrap("v", name, mutex_types)
+                    )
+                }
+            }
+            TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if returns_ref {
+                        format!(
+                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x.clone()", n, mutex_types)
+                        )
+                    } else {
+                        format!(
+                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x", n, mutex_types)
+                        )
+                    }
+                }
+                _ => generators::wrap_return(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    self_is_opaque,
+                    returns_ref,
+                    false,
+                ),
+            },
+            _ => generators::wrap_return(
+                expr,
+                return_type,
+                type_name,
+                opaque_types,
+                self_is_opaque,
+                returns_ref,
+                false,
+            ),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                if returns_ref {
+                    format!(
+                        "{expr}.into_iter().map(|v| {prefix}{name} {{ inner: {} }}).collect()",
+                        arc_wrap("v.clone()", name, mutex_types)
+                    )
+                } else {
+                    format!(
+                        "{expr}.into_iter().map(|v| {prefix}{name} {{ inner: {} }}).collect()",
+                        arc_wrap("v", name, mutex_types)
+                    )
+                }
+            }
+            _ => generators::wrap_return(
+                expr,
+                return_type,
+                type_name,
+                opaque_types,
+                self_is_opaque,
+                returns_ref,
+                false,
+            ),
+        },
+        _ => generators::wrap_return(
+            expr,
+            return_type,
+            type_name,
+            opaque_types,
+            self_is_opaque,
+            returns_ref,
+            false,
+        ),
+    }
+}
+
+/// NAPI-specific return wrapping for free functions (no type_name context).
+pub(super) fn napi_wrap_return_fn(
+    expr: &str,
+    return_type: &TypeRef,
+    opaque_types: &AHashSet<String>,
+    returns_ref: bool,
+    prefix: &str,
+    capsule_types: Option<&std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>>,
+    mutex_types: &AHashSet<String>,
+) -> String {
+    match return_type {
+        TypeRef::Primitive(p) if needs_napi_cast(p) => {
+            format!("{expr} as i64")
+        }
+        TypeRef::Duration => format!("{expr}.as_millis() as i64"),
+        TypeRef::Named(n) if capsule_types.is_some_and(|ct| ct.contains_key(n.as_str())) => {
+            // Capsule types are returned as-is from the core, no wrapper wrapping
+            expr.to_string()
+        }
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            if returns_ref {
+                format!(
+                    "{prefix}{n} {{ inner: {} }}",
+                    arc_wrap(&format!("{expr}.clone()"), n, mutex_types)
+                )
+            } else {
+                format!("{prefix}{n} {{ inner: {} }}", arc_wrap(expr, n, mutex_types))
+            }
+        }
+        TypeRef::Named(_) => {
+            if returns_ref {
+                format!("{expr}.clone().into()")
+            } else {
+                format!("{expr}.into()")
+            }
+        }
+        TypeRef::String | TypeRef::Char => {
+            if returns_ref {
+                format!("{expr}.into()")
+            } else {
+                expr.to_string()
+            }
+        }
+        // Bytes always converts: core returns Vec<u8>/Bytes, binding expects napi Buffer.
+        TypeRef::Bytes => format!("{expr}.into()"),
+        TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
+        TypeRef::Json => format!("{expr}.to_string()"),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if capsule_types.is_some_and(|ct| ct.contains_key(name.as_str())) => {
+                // Capsule types wrapped in Option are returned as-is
+                expr.to_string()
+            }
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                if returns_ref {
+                    format!(
+                        "{expr}.map(|v| {prefix}{name} {{ inner: {} }})",
+                        arc_wrap("v.clone()", name, mutex_types)
+                    )
+                } else {
+                    format!(
+                        "{expr}.map(|v| {prefix}{name} {{ inner: {} }})",
+                        arc_wrap("v", name, mutex_types)
+                    )
+                }
+            }
+            TypeRef::Named(_) => {
+                if returns_ref {
+                    format!("{expr}.map(|v| v.clone().into())")
+                } else {
+                    format!("{expr}.map(Into::into)")
+                }
+            }
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if returns_ref {
+                        format!(
+                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x.clone()", n, mutex_types)
+                        )
+                    } else {
+                        format!(
+                            "{expr}.map(|v| v.into_iter().map(|x| {prefix}{n} {{ inner: {} }}).collect())",
+                            arc_wrap("x", n, mutex_types)
+                        )
+                    }
+                }
+                TypeRef::Named(_) => {
+                    if returns_ref {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| x.clone().into()).collect())")
+                    } else {
+                        format!("{expr}.map(|v| v.into_iter().map(Into::into).collect())")
+                    }
+                }
+                _ => expr.to_string(),
+            },
+            TypeRef::Path => {
+                format!("{expr}.map(Into::into)")
+            }
+            TypeRef::String | TypeRef::Char => {
+                if returns_ref {
+                    format!("{expr}.map(Into::into)")
+                } else {
+                    expr.to_string()
+                }
+            }
+            TypeRef::Bytes => format!("{expr}.map(Into::into)"),
+            _ => expr.to_string(),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Primitive(p) if needs_napi_cast(p) => {
+                // Vec<usize>, Vec<f32>, etc. need element-wise casting to i64 or f64
+                let target_ty = match p {
+                    crate::core::ir::PrimitiveType::F32 => "f64",
+                    _ => "i64", // u64, usize, isize
+                };
+                format!("{expr}.into_iter().map(|v| v as {target_ty}).collect()")
+            }
+            // Vec<Vec<T>> where the inner primitive needs widening (e.g. Vec<Vec<f32>> → Vec<Vec<f64>>)
+            TypeRef::Vec(inner2) => {
+                if let TypeRef::Primitive(p) = inner2.as_ref() {
+                    if needs_napi_cast(p) {
+                        let target_ty = match p {
+                            crate::core::ir::PrimitiveType::F32 => "f64",
+                            _ => "i64",
+                        };
+                        return format!(
+                            "{expr}.into_iter().map(|row| row.into_iter().map(|x| x as {target_ty}).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                        );
+                    }
+                }
+                expr.to_string()
+            }
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                if returns_ref {
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }}).collect()")
+                } else {
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v) }}).collect()")
+                }
+            }
+            TypeRef::Named(_) => {
+                if returns_ref {
+                    // `&[T]` → `Vec<U>`: clone each `&T` and convert. Use `.iter()`
+                    // not `.into_iter()` because `.into_iter()` on `&[T]` yields `&T`
+                    // (clippy::into_iter_on_ref under -D warnings).
+                    format!("{expr}.iter().map(|v| v.clone().into()).collect()")
+                } else {
+                    format!("{expr}.into_iter().map(Into::into).collect()")
+                }
+            }
+            TypeRef::Path => {
+                format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            TypeRef::String | TypeRef::Char => {
+                if returns_ref {
+                    // `&[&str]` → `Vec<String>`: convert each `&&str` element through
+                    // `.to_string()`. `Into::into` would need
+                    // `impl From<&&str> for String`, which doesn't exist.
+                    format!("{expr}.iter().map(|s| s.to_string()).collect()")
+                } else {
+                    expr.to_string()
+                }
+            }
+            TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.iter().map(|b| b.to_vec()).collect()")
+                } else {
+                    expr.to_string()
+                }
+            }
+            _ => expr.to_string(),
+        },
+        _ => expr.to_string(),
+    }
+}
+
+/// Check if a type is Vec<f32> which needs element-wise conversion from f64 in NAPI.
+pub(super) fn needs_vec_f32_conversion(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::F32)))
+}
+
+pub(super) fn needs_napi_cast(p: &crate::core::ir::PrimitiveType) -> bool {
+    // U32 maps to u32 in both NAPI and core, so no cast needed.
+    // U64/Usize/Isize map to i64 in NAPI but u64/usize/isize in core.
+    // F32 maps to f64 in NAPI but f32 in core.
+    matches!(
+        p,
+        crate::core::ir::PrimitiveType::U64
+            | crate::core::ir::PrimitiveType::Usize
+            | crate::core::ir::PrimitiveType::Isize
+            | crate::core::ir::PrimitiveType::F32
+    )
+}
+
+pub(super) fn core_prim_str(p: &crate::core::ir::PrimitiveType) -> &'static str {
+    match p {
+        crate::core::ir::PrimitiveType::U64 => "u64",
+        crate::core::ir::PrimitiveType::Usize => "usize",
+        crate::core::ir::PrimitiveType::Isize => "isize",
+        crate::core::ir::PrimitiveType::F32 => "f32",
+        _ => unreachable!(),
+    }
+}
+
+/// Check if a type is Vec<u8> or Bytes (which becomes napi::Buffer).
+pub(super) fn is_bytes_param(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Bytes)
+        || matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)))
+}
+
+/// Generate a global Tokio runtime for NAPI async support.
+pub(super) fn gen_tokio_runtime() -> String {
+    "static WORKER_POOL: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect(\"Failed to create Tokio runtime\")
+});"
+    .to_string()
+}
+
+/// Emit a module-level wrapper function for an adapter (streaming method).
+pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, core_crate: &str) -> String {
+    use crate::core::config::AdapterPattern;
+
+    let adapter_name = &adapter.name;
+    let js_name = to_node_name(adapter_name);
+    let owner_type = adapter.owner_type.as_deref().unwrap_or("CrawlEngineHandle");
+    let js_owner_type = format!("Js{owner_type}");
+
+    // Build parameter list from adapter params (skip 'self' which is implicit on engine).
+    let mut param_parts = vec![format!("engine: &{js_owner_type}")];
+    let mut param_conversions = Vec::new();
+
+    for param in &adapter.params {
+        let param_name = &param.name;
+        let param_type = &param.ty;
+        // Map to JS wrapper types for parameters
+        let js_type = format!("Js{param_type}");
+        param_parts.push(format!("{param_name}: {js_type}"));
+        // Record conversion: "let core_req: {core_crate}::Type = req.into();"
+        let core_type = if param_type.contains("::") {
+            param_type.clone()
+        } else {
+            format!("{core_crate}::{param_type}")
+        };
+        param_conversions.push(format!(
+            "    let core_{}: {} = {}.into();",
+            param_name, core_type, param_name
+        ));
+    }
+
+    // Build the positional param list for core_req usage.
+    let core_params_list = adapter
+        .params
+        .iter()
+        .map(|p| format!("core_{}", p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    match &adapter.pattern {
+        AdapterPattern::Streaming => {
+            // Streaming: replicate the instance method's channel/tokio spawn pattern.
+            // The free function calls engine.inner.method(...).await to get the stream,
+            // then wraps it in channels and spawns a background task.
+            // item_type drives the Js{Type}::from(c) event cast in the channel loop.
+            let item_type_name = adapter.item_type.as_deref().unwrap_or("Item");
+            // Iterator struct name matches crate::adapters::streaming::iterator_name:
+            // to_pascal_case(adapter_name) + "Iterator" (e.g. crawl_stream → CrawlStreamIterator).
+            let return_iterator_type = format!("{}Iterator", adapter_name.to_pascal_case());
+
+            let _method_call = if core_params_list.is_empty() {
+                format!("engine.inner.{}()", adapter_name)
+            } else {
+                format!("engine.inner.{}({})", adapter_name, core_params_list)
+            };
+
+            let conversions_code = if param_conversions.is_empty() {
+                String::new()
+            } else {
+                format!("{}\n", param_conversions.join("\n"))
+            };
+
+            // Generate the method call using the cloned inner engine
+            let method_call_inner = if core_params_list.is_empty() {
+                format!("inner.{}()", adapter_name)
+            } else {
+                format!("inner.{}({})", adapter_name, core_params_list)
+            };
+
+            format!(
+                "#[allow(clippy::missing_errors_doc)]\n\
+                 #[napi(js_name = \"{js_name}\")]\n\
+                 pub async fn {}({}) -> Result<{}> {{\n\
+                 {conversions_code}    let inner = engine.inner.clone();\n\
+                     let (tx, rx) = tokio::sync::mpsc::channel(32);\n\
+                     tokio::spawn(async move {{\n\
+                         use futures_util::StreamExt;\n\
+                         match {method_call_inner}.await {{\n\
+                             Err(e) => {{\n\
+                                 let _ = tx\n\
+                                     .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
+                                     .await;\n\
+                             }}\n\
+                             Ok(mut stream) => {{\n\
+                                 while let Some(chunk) = stream.next().await {{\n\
+                                     let item = match chunk {{\n\
+                                         Ok(c) => Js{item_type_name}::from(c),\n\
+                                         Err(e) => {{\n\
+                                             let _ = tx\n\
+                                                 .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
+                                                 .await;\n\
+                                             break;\n\
+                                         }}\n\
+                                     }};\n\
+                                     if tx.send(Ok(item)).await.is_err() {{\n\
+                                         break;\n\
+                                     }}\n\
+                                 }}\n\
+                             }}\n\
+                         }}\n\
+                     }});\n\
+                     let iter = {} {{\n\
+                         receiver: Arc::new(tokio::sync::Mutex::new(rx)),\n\
+                     }};\n\
+                     Ok(iter)\n\
+                 }}\n\n",
+                adapter_name,
+                param_parts.join(", "),
+                return_iterator_type,
+                return_iterator_type
+            )
+        }
+        _ => String::new(), // Only Streaming pattern is relevant for NAPI
+    }
+}
+
+/// Generate an `index.d.ts` file for the NAPI binding crate.
+///
+/// NAPI-RS generates `const enum` in its auto-generated `.d.ts`, which is incompatible
+/// with `verbatimModuleSyntax` (const enums cannot be re-exported as values). This
+/// function produces an equivalent `.d.ts` with `export declare enum` (regular enum)
+/// so the file can be committed and used directly without a post-build patch step.
+///
+/// The output format matches what NAPI-RS would generate after patching, using the same
+/// alphabetical ordering and type declarations seen in the committed `index.d.ts` files.
+#[cfg(test)]
+mod tests {
+    use super::gen_tokio_runtime;
+
+    /// gen_tokio_runtime produces a static TOKIO_RUNTIME definition.
+    #[test]
+    fn gen_tokio_runtime_contains_runtime() {
+        let result = gen_tokio_runtime();
+        assert!(result.contains("TOKIO_RUNTIME") || result.contains("Runtime") || result.contains("tokio"));
+    }
+}

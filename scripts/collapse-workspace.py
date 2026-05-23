@@ -98,6 +98,14 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def assert_clean_tree() -> None:
+    """Block only if the working tree has changes outside this migration's domain.
+
+    Allowed (our own in-flight output):
+      - any change under crates/ (we're emptying it)
+      - any change under src/, tests/, benches/, examples/ (our destination)
+      - changes to Cargo.toml, alef.toml (we rewrite both)
+      - the script itself (untracked or modified)
+    """
     out = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=REPO,
@@ -105,14 +113,36 @@ def assert_clean_tree() -> None:
         text=True,
         check=True,
     )
-    dirty = [
-        line
-        for line in out.stdout.splitlines()
-        if line and not line.startswith("?? scripts/collapse-workspace.py")
-    ]
+    allow_prefixes = (
+        "crates/",
+        "src/",
+        "tests/",
+        "benches/",
+        "examples/",
+        "Cargo.toml",
+        "alef.toml",
+        "scripts/collapse-workspace.py",
+    )
+    dirty = []
+    for line in out.stdout.splitlines():
+        if not line:
+            continue
+        # porcelain format: "XY path" or "R  old -> new"
+        path_part = line[3:]
+        if " -> " in path_part:
+            old, new = path_part.split(" -> ", 1)
+            paths = [old, new]
+        else:
+            paths = [path_part]
+        if any(p.startswith(allow_prefixes) for p in paths):
+            continue
+        dirty.append(line)
     if dirty:
-        print("ERROR: working tree has uncommitted changes:", file=sys.stderr)
-        print(out.stdout, file=sys.stderr)
+        print(
+            "ERROR: working tree has uncommitted changes outside migration scope:",
+            file=sys.stderr,
+        )
+        print("\n".join(dirty), file=sys.stderr)
         sys.exit(1)
 
 
@@ -161,13 +191,22 @@ def rewrite_uses_in_tree(root: Path, *, in_tests: bool) -> int:
 
 
 def move_module(crate: str, dest: str) -> None:
-    """Move crates/<crate>/{src,templates,tests,benches,README.md} into the new layout."""
+    """Move crates/<crate>/{src,templates,tests,benches,README.md} into the new layout.
+
+    Idempotent: skips a crate whose dest src/ already exists, but still finishes
+    cleanup of leftover bits (tests/benches/Cargo.toml) if present.
+    """
     crate_dir = CRATES_DIR / crate
-    if not crate_dir.exists():
-        print(f"SKIP: {crate} (not found)")
+    dest_src_root = SRC_DIR / dest
+    flat = dest.replace("/", "_")
+
+    if not crate_dir.exists() and not dest_src_root.exists():
+        print(f"SKIP: {crate} (neither source nor dest exists)")
+        return
+    if not crate_dir.exists() and dest_src_root.exists():
+        print(f"SKIP: {crate} (already migrated to {dest})")
         return
 
-    dest_src_root = SRC_DIR / dest
     dest_src_root.parent.mkdir(parents=True, exist_ok=True)
 
     # src/ → src/<dest>/
@@ -193,7 +232,6 @@ def move_module(crate: str, dest: str) -> None:
     tests = crate_dir / "tests"
     if tests.exists():
         TESTS_DIR.mkdir(exist_ok=True)
-        flat = dest.replace("/", "_")
         for child in sorted(tests.iterdir()):
             if child.is_dir():
                 # snapshots/ — move whole dir under tests/snapshots/ with prefix
@@ -218,12 +256,18 @@ def move_module(crate: str, dest: str) -> None:
     benches = crate_dir / "benches"
     if benches.exists():
         BENCHES_DIR.mkdir(exist_ok=True)
-        flat = dest.replace("/", "_")
         for child in sorted(benches.iterdir()):
             move_file(child, BENCHES_DIR / f"{flat}_{child.name}")
 
+    # examples/ → examples/<flat>_<file>
+    examples = crate_dir / "examples"
+    if examples.exists():
+        EXAMPLES_DIR = REPO / "examples"
+        EXAMPLES_DIR.mkdir(exist_ok=True)
+        for child in sorted(examples.iterdir()):
+            move_file(child, EXAMPLES_DIR / f"{flat}_{child.name}")
+
     # README.md inside crate — drop it (we'll write a new root README)
-    # but git rm to be explicit
     readme = crate_dir / "README.md"
     if readme.exists():
         run(["git", "rm", str(readme.relative_to(REPO))])
@@ -233,23 +277,23 @@ def move_module(crate: str, dest: str) -> None:
     if cargo.exists():
         run(["git", "rm", str(cargo.relative_to(REPO))])
 
-    # any other files in crate dir (build.rs etc.)
-    for stray in crate_dir.iterdir():
-        if stray.is_file():
-            run(["git", "rm", str(stray.relative_to(REPO))])
-        elif stray.is_dir():
-            # empty dirs after the moves should disappear automatically
-            try:
-                stray.rmdir()
-            except OSError:
-                # not empty — log
-                print(f"WARN: leftover dir not removed: {stray}")
+    # any other files in crate dir (build.rs etc.) — defensive iteration
+    if crate_dir.exists():
+        for stray in list(crate_dir.iterdir()):
+            if stray.is_file():
+                run(["git", "rm", str(stray.relative_to(REPO))])
+            elif stray.is_dir():
+                try:
+                    stray.rmdir()
+                except OSError:
+                    print(f"WARN: leftover dir not removed: {stray}")
 
     # remove the now-empty crate dir
-    try:
-        crate_dir.rmdir()
-    except OSError as e:
-        print(f"WARN: could not remove {crate_dir}: {e}")
+    if crate_dir.exists():
+        try:
+            crate_dir.rmdir()
+        except OSError as e:
+            print(f"WARN: could not remove {crate_dir}: {e}")
 
 
 def move_cli_crate() -> None:

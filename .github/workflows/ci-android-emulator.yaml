@@ -48,7 +48,7 @@ jobs:
         run: cargo build --release -p liter-llm-jni 2>/dev/null || echo "JNI crate not present in this repo; skipping"
 
       - name: Generate e2e Android test sources
-        run: cargo run -p alef-codegen -- generate --lang kotlin_android 2>/dev/null || echo "codegen step skipped"
+        run: cargo run -p alef -- generate --lang kotlin_android 2>/dev/null || echo "codegen step skipped"
 
       - name: Run connectedAndroidTest via emulator
         uses: reactivecircus/android-emulator-runner@v2.37.0

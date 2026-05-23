@@ -1,0 +1,337 @@
+/// Test that generates and displays sample Java code output.
+use alef::backends::java::JavaBackend;
+use alef::core::backend::Backend;
+use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
+use alef::core::ir::{
+    ApiSurface, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
+    TypeRef,
+};
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
+#[test]
+#[ignore] // Run with: cargo test -- --ignored --nocapture
+fn print_generated_java_code() {
+    let backend = JavaBackend;
+
+    // Create a comprehensive test API surface
+    let api = ApiSurface {
+        crate_name: "kreuzberg".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ExtractionConfig".to_string(),
+                rust_path: "kreuzberg::ExtractionConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    FieldDef {
+                        name: "ocrBackend".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: Some("\"tesseract\"".to_string()),
+                        doc: "OCR backend to use".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                    FieldDef {
+                        name: "timeout".to_string(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64))),
+                        optional: true,
+                        default: None,
+                        doc: "Optional timeout in milliseconds".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Configuration for extraction".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "ExtractionResult".to_string(),
+                rust_path: "kreuzberg::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    FieldDef {
+                        name: "text".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: "Extracted text".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                    FieldDef {
+                        name: "confidence".to_string(),
+                        ty: TypeRef::Primitive(PrimitiveType::F32),
+                        optional: false,
+                        default: None,
+                        doc: "Confidence score".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Result of extraction".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![
+            FunctionDef {
+                name: "extractFileSync".to_string(),
+                rust_path: "kreuzberg::extract_file_sync".to_string(),
+                original_rust_path: String::new(),
+                params: vec![
+                    ParamDef {
+                        name: "path".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "config".to_string(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".to_string()))),
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                ],
+                return_type: TypeRef::Named("ExtractionResult".to_string()),
+                is_async: false,
+                error_type: Some("Error".to_string()),
+                doc: "Extract text from a file synchronously".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            FunctionDef {
+                name: "extractFileAsync".to_string(),
+                rust_path: "kreuzberg::extract_file_async".to_string(),
+                original_rust_path: String::new(),
+                params: vec![
+                    ParamDef {
+                        name: "path".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                    ParamDef {
+                        name: "config".to_string(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".to_string()))),
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    },
+                ],
+                return_type: TypeRef::Named("ExtractionResult".to_string()),
+                is_async: true,
+                error_type: Some("Error".to_string()),
+                doc: "Extract text from a file asynchronously".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        enums: vec![EnumDef {
+            name: "OcrBackend".to_string(),
+            rust_path: "kreuzberg::OcrBackend".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Tesseract".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "Tesseract OCR".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "PaddleOcr".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "PaddleOCR".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "EasyOcr".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "EasyOCR".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Available OCR backends".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![ErrorDef {
+            name: "Error".to_string(),
+            rust_path: "kreuzberg::Error".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "IoError".to_string(),
+                    message_template: Some("I/O error".to_string()),
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: "File I/O error".to_string(),
+                },
+                ErrorVariant {
+                    name: "OcrError".to_string(),
+                    message_template: Some("OCR processing failed".to_string()),
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: "OCR processing error".to_string(),
+                },
+            ],
+            doc: "Error types".to_string(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "kreuzberg"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "kreuzberg"
+
+[crates.java]
+package = "dev.kreuzberg.extraction"
+"#,
+    );
+
+    let result = backend.generate_bindings(&api, &config).unwrap();
+
+    println!("\n\n=== GENERATED JAVA FILES ===\n");
+
+    for file in &result {
+        let filename = file.path.to_string_lossy();
+        println!("--- {} ---\n", filename);
+        println!("{}\n", file.content);
+    }
+}

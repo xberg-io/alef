@@ -4,7 +4,7 @@
 # which:
 #   1. Prefers a pre-installed `alef` binary on PATH whose version matches the
 #      hook's pinned `alef.toml` version (zero-cost when you've already done
-#      `cargo install --path crates/alef-cli`).
+#      `cargo install --path .`).
 #   2. Falls back to the sha256-verified release tarball download under
 #      `~/.cache/alef-hooks/{version}/` (ideal for CI without a Rust
 #      toolchain).

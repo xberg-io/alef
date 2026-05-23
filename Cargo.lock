@@ -32,461 +32,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "alef-adapters"
-version = "0.17.36"
+name = "alef"
+version = "0.18.0"
 dependencies = [
  "ahash",
- "alef-core",
- "anyhow",
- "heck",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-csharp"
-version = "0.17.36"
-dependencies = [
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "serde_json",
- "tempfile",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-dart"
-version = "0.17.36"
-dependencies = [
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "alef-docs",
- "anyhow",
- "criterion",
- "heck",
- "insta",
- "minijinja",
- "regex",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-extendr"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-ffi"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-gleam"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-codegen",
- "alef-core",
- "alef-docs",
- "anyhow",
- "criterion",
- "heck",
- "insta",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-go"
-version = "0.17.36"
-dependencies = [
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-java"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-jni"
-version = "0.17.36"
-dependencies = [
- "alef-core",
- "anyhow",
- "heck",
- "insta",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-kotlin"
-version = "0.17.36"
-dependencies = [
- "alef-backend-jni",
- "alef-codegen",
- "alef-core",
- "alef-docs",
- "anyhow",
- "criterion",
- "heck",
- "insta",
- "minijinja",
- "regex",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-kotlin-android"
-version = "0.17.36"
-dependencies = [
- "alef-backend-kotlin",
- "alef-core",
- "alef-scaffold",
- "anyhow",
- "insta",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-magnus"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-napi"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-php"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-pyo3"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-rustler"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-swift"
-version = "0.17.36"
-dependencies = [
- "alef-codegen",
- "alef-core",
- "anyhow",
- "criterion",
- "heck",
- "insta",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-wasm"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-adapters",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-backend-zig"
-version = "0.17.36"
-dependencies = [
- "alef-codegen",
- "alef-core",
- "alef-docs",
- "anyhow",
- "criterion",
- "heck",
- "insta",
- "minijinja",
- "toml",
-]
-
-[[package]]
-name = "alef-cli"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-backend-csharp",
- "alef-backend-dart",
- "alef-backend-extendr",
- "alef-backend-ffi",
- "alef-backend-gleam",
- "alef-backend-go",
- "alef-backend-java",
- "alef-backend-jni",
- "alef-backend-kotlin",
- "alef-backend-kotlin-android",
- "alef-backend-magnus",
- "alef-backend-napi",
- "alef-backend-php",
- "alef-backend-pyo3",
- "alef-backend-rustler",
- "alef-backend-swift",
- "alef-backend-wasm",
- "alef-backend-zig",
- "alef-core",
- "alef-docs",
- "alef-e2e",
- "alef-extract",
- "alef-publish",
- "alef-readme",
- "alef-scaffold",
- "alef-snippets",
  "anyhow",
  "blake3",
  "clap",
+ "criterion",
  "glob",
+ "heck",
+ "insta",
+ "jsonschema",
+ "minijinja",
+ "quote",
  "rayon",
  "regex",
  "semver",
+ "serde",
  "serde_json",
+ "serde_yaml",
+ "sha2 0.11.0",
  "similar 3.1.0",
+ "syn",
  "tempfile",
+ "thiserror",
  "toml",
  "toml_edit",
  "tracing",
  "tracing-subscriber",
+ "tracing-test",
  "ureq",
  "walkdir",
-]
-
-[[package]]
-name = "alef-codegen"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-core",
- "heck",
- "minijinja",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "alef-core"
-version = "0.17.36"
-dependencies = [
- "anyhow",
- "blake3",
- "heck",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "toml",
- "tracing",
- "tracing-test",
-]
-
-[[package]]
-name = "alef-docs"
-version = "0.17.36"
-dependencies = [
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "regex",
- "toml",
-]
-
-[[package]]
-name = "alef-e2e"
-version = "0.17.36"
-dependencies = [
- "alef-backend-php",
- "alef-codegen",
- "alef-core",
- "anyhow",
- "heck",
- "jsonschema",
- "minijinja",
- "serde",
- "serde_json",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "alef-extract"
-version = "0.17.36"
-dependencies = [
- "ahash",
- "alef-core",
- "anyhow",
- "heck",
- "quote",
- "syn",
- "tempfile",
- "toml",
-]
-
-[[package]]
-name = "alef-publish"
-version = "0.17.36"
-dependencies = [
- "alef-core",
- "alef-scaffold",
- "anyhow",
- "serde_json",
- "sha2 0.11.0",
- "tempfile",
- "toml",
- "toml_edit",
- "tracing",
- "zip",
-]
-
-[[package]]
-name = "alef-readme"
-version = "0.17.36"
-dependencies = [
- "alef-backend-gleam",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "serde_json",
- "serde_yaml",
- "toml",
-]
-
-[[package]]
-name = "alef-scaffold"
-version = "0.17.36"
-dependencies = [
- "alef-backend-dart",
- "alef-backend-gleam",
- "alef-backend-php",
- "alef-core",
- "anyhow",
- "heck",
- "minijinja",
- "serde_json",
- "tempfile",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "alef-snippets"
-version = "0.17.36"
-dependencies = [
- "rayon",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror",
- "toml",
- "walkdir",
  "which",
-]
-
-[[package]]
-name = "alloca"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5a7d05ea6aea7e9e64d25b9156ba2fee3fdd659e34e41063cd2fc7cd020d7f4"
-dependencies = [
- "cc",
+ "zip",
 ]
 
 [[package]]
@@ -571,9 +150,9 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "autocfg"
-version = "1.5.0"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "base64"
@@ -652,9 +231,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.20.2"
+version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
+checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bytecount"
@@ -799,9 +378,9 @@ dependencies = [
 
 [[package]]
 name = "cookie_store"
-version = "0.22.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b2c103cf610ec6cae3da84a766285b42fd16aad564758459e6ecf128c75206"
+checksum = "3fc4bff745c9b4c7fb1e97b25d13153da2bc7796260141df62378998d070207f"
 dependencies = [
  "cookie",
  "document-features",
@@ -844,11 +423,10 @@ dependencies = [
 
 [[package]]
 name = "criterion"
-version = "0.8.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "950046b2aa2492f9a536f5f4f9a3de7b9e2476e575e05bd6c333371add4d98f3"
+checksum = "e1c047a62b0cc3e145fa84415a3191f628e980b194c2755aa12300a4e6cbd928"
 dependencies = [
- "alloca",
  "anes",
  "cast",
  "ciborium",
@@ -857,7 +435,6 @@ dependencies = [
  "itertools",
  "num-traits",
  "oorandom",
- "page_size",
  "plotters",
  "rayon",
  "regex",
@@ -869,9 +446,9 @@ dependencies = [
 
 [[package]]
 name = "criterion-plot"
-version = "0.8.2"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8d80a2f4f5b554395e47b5d8305bc3d27813bacb73493eb1001e8f76dae29ea"
+checksum = "9b1bcc0dc7dfae599d84ad0b1a55f80cde8af3725da8313b528da95ef783e338"
 dependencies = [
  "cast",
  "itertools",
@@ -920,9 +497,9 @@ dependencies = [
 
 [[package]]
 name = "crypto-common"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
+checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "hybrid-array",
 ]
@@ -960,7 +537,7 @@ checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.0",
  "const-oid",
- "crypto-common 0.2.1",
+ "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -985,9 +562,9 @@ dependencies = [
 
 [[package]]
 name = "either"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
 name = "email_address"
@@ -1017,7 +594,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1244,13 +821,12 @@ dependencies = [
 
 [[package]]
 name = "icu_collections"
-version = "2.2.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2984d1cd16c883d7935b9e07e44071dca8d917fd52ecc02c04d5fa0b5a3f191c"
+checksum = "4c6b649701667bbe825c3b7e6388cb521c23d88644678e83c0c4d0a621a34b43"
 dependencies = [
  "displaydoc",
  "potential_utf",
- "utf8_iter",
  "yoke",
  "zerofrom",
  "zerovec",
@@ -1258,9 +834,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_core"
-version = "2.2.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92219b62b3e2b4d88ac5119f8904c10f8f61bf7e95b640d25ba3075e6cac2c29"
+checksum = "edba7861004dd3714265b4db54a3c390e880ab658fec5f7db895fae2046b5bb6"
 dependencies = [
  "displaydoc",
  "litemap",
@@ -1271,9 +847,9 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer"
-version = "2.2.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c56e5ee99d6e3d33bd91c5d85458b6005a22140021cc324cea84dd0e72cff3b4"
+checksum = "5f6c8828b67bf8908d82127b2054ea1b4427ff0230ee9141c54251934ab1b599"
 dependencies = [
  "icu_collections",
  "icu_normalizer_data",
@@ -1285,15 +861,15 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer_data"
-version = "2.2.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da3be0ae77ea334f4da67c12f149704f19f81d1adf7c51cf482943e84a2bad38"
+checksum = "7aedcccd01fc5fe81e6b489c15b247b8b0690feb23304303a9e560f37efc560a"
 
 [[package]]
 name = "icu_properties"
-version = "2.2.0"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bee3b67d0ea5c2cca5003417989af8996f8604e34fb9ddf96208a033901e70de"
+checksum = "020bfc02fe870ec3a66d93e677ccca0562506e5872c650f893269e08615d74ec"
 dependencies = [
  "icu_collections",
  "icu_locale_core",
@@ -1305,15 +881,15 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.2.0"
+version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e2bbb201e0c04f7b4b3e14382af113e17ba4f63e2c9d2ee626b720cbce54a14"
+checksum = "616c294cf8d725c6afcd8f55abc17c56464ef6211f9ed59cccffe534129c77af"
 
 [[package]]
 name = "icu_provider"
-version = "2.2.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "139c4cf31c8b5f33d7e199446eff9c1e02decfc2f0eec2c8d71f65befa45b421"
+checksum = "85962cf0ce02e1e0a629cc34e7ca3e373ce20dda4c4d7294bbd0bf1fdb59e614"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
@@ -1343,9 +919,9 @@ dependencies = [
 
 [[package]]
 name = "idna_adapter"
-version = "1.2.2"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
@@ -1401,9 +977,9 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "js-sys"
-version = "0.3.98"
+version = "0.3.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67df7112613f8bfd9150013a0314e196f4800d3201ae742489d999db2f979f08"
+checksum = "142bc4740e452c1e57ade0cbc129f139c9093e354346f0872ef985f4f5cf5f11"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -1586,9 +1162,9 @@ dependencies = [
 
 [[package]]
 name = "num-conv"
-version = "0.2.2"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
+checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
 
 [[package]]
 name = "num-integer"
@@ -1653,16 +1229,6 @@ name = "outref"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
-
-[[package]]
-name = "page_size"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
-dependencies = [
- "libc",
- "winapi",
-]
 
 [[package]]
 name = "parking_lot"
@@ -1944,7 +1510,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2200,7 +1766,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2234,9 +1800,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.47"
+version = "0.3.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
+checksum = "f9e442fc33d7fdb45aa9bfeb312c095964abdf596f7567261062b2a7107aaabd"
 dependencies = [
  "deranged",
  "itoa",
@@ -2249,15 +1815,15 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.8"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
+checksum = "8b36ee98fd31ec7426d599183e8fe26932a8dc1fb76ddb6214d05493377d34ca"
 
 [[package]]
 name = "time-macros"
-version = "0.2.27"
+version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
+checksum = "71e552d1249bf61ac2a52db88179fd0673def1e1ad8243a00d9ec9ed71fee3dd"
 dependencies = [
  "num-conv",
  "time-core",
@@ -2573,11 +2139,11 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasip2"
-version = "1.0.3+wasi-0.2.9"
+version = "1.0.1+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
+checksum = "0562428422c63773dad2c345a1882263bbf4d65cf3f42e90921f787ef5ad58e7"
 dependencies = [
- "wit-bindgen 0.57.1",
+ "wit-bindgen 0.46.0",
 ]
 
 [[package]]
@@ -2591,9 +2157,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49ace1d07c165b0864824eee619580c4689389afa9dc9ed3a4c75040d82e6790"
+checksum = "3ed04576f974d2b2fba0f38c51dbc5518011e38c36bf1143164be765528fd409"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -2604,9 +2170,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e68e6f4afd367a562002c05637acb8578ff2dea1943df76afb9e83d177c8578"
+checksum = "916151b09da36bd82f6615cbf3a419e2f0ba23a03c6160e8e92eb6bd4aa1dec6"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -2614,9 +2180,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d95a9ec35c64b2a7cb35d3fead40c4238d0940c86d107136999567a4703259f2"
+checksum = "299047362ccbfce148b67ab7e73349f77748e00c8296f9542adfad2ad82c5c5e"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -2627,9 +2193,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.121"
+version = "0.2.122"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4e0100b01e9f0d03189a92b96772a1fb998639d981193d7dbab487302513441"
+checksum = "9a929b2c61f11ba3e9bc35b50c1f25cb38e0e892c0c231ae2b8cf78d5dad4437"
 dependencies = [
  "unicode-ident",
 ]
@@ -2670,9 +2236,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.98"
+version = "0.3.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b572dff8bcf38bad0fa19729c89bb5748b2b9b1d8be70cf90df697e3a8f32aa"
+checksum = "6d621441cfc37b84979402712047321980c178f299193a3589d05b99e8763436"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -2697,35 +2263,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "winapi"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
-dependencies = [
- "winapi-i686-pc-windows-gnu",
- "winapi-x86_64-pc-windows-gnu",
-]
-
-[[package]]
-name = "winapi-i686-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
-
-[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
-
-[[package]]
-name = "winapi-x86_64-pc-windows-gnu"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-link"
@@ -2826,18 +2370,18 @@ dependencies = [
 
 [[package]]
 name = "wit-bindgen"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
+
+[[package]]
+name = "wit-bindgen"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 dependencies = [
  "wit-bindgen-rust-macro",
 ]
-
-[[package]]
-name = "wit-bindgen"
-version = "0.57.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wit-bindgen-core"
@@ -3029,9 +2573,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "8.6.0"
+version = "7.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+checksum = "c42e33efc22a0650c311c2ef19115ce232583abbe80850bc8b66509ebef02de0"
 dependencies = [
  "crc32fast",
  "flate2",

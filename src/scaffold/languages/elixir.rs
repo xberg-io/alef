@@ -1,0 +1,407 @@
+use crate::core::backend::GeneratedFile;
+use crate::core::config::{AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig};
+use crate::core::ir::ApiSurface;
+use crate::core::template_versions as tv;
+use crate::{
+    scaffold::capitalize_first, scaffold::cargo_package_header, scaffold::core_dep_features,
+    scaffold::detect_workspace_inheritance, scaffold::render_extra_deps, scaffold::scaffold_meta,
+};
+use heck::{ToPascalCase, ToSnakeCase};
+use std::path::PathBuf;
+
+pub(crate) fn scaffold_elixir_cargo(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
+    let app_name = config.elixir_app_name();
+    let nif_name = format!("{app_name}_nif");
+    let version = &api.version;
+    let core_crate_dir = config.core_crate_dir();
+    let pkg_dir = config.package_dir(Language::Elixir);
+    let native_crate_dir = format!("{pkg_dir}/native/{nif_name}");
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
+    let pkg_header = cargo_package_header(
+        &nif_name,
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
+
+    let extra_deps = render_extra_deps(config, Language::Elixir);
+    let has_async =
+        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    // Trait bridges generate async_trait impls and a tokio::sync::oneshot-based
+    // reply channel, so async-trait and tokio are required whenever there are
+    // active Elixir trait bridges even if no API functions are async.
+    let has_trait_bridges = config
+        .trait_bridges
+        .iter()
+        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    // Streaming adapters generate `use futures_util::StreamExt` plus a
+    // `futures_util::stream::BoxStream` field on the per-adapter handle struct,
+    // so the scaffold must add `futures-util` whenever a streaming adapter is
+    // declared on this crate.
+    let has_streaming = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
+    let lib_path_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
+        let output_dir = elixir_out.to_string_lossy();
+        if output_dir.contains("/native/") {
+            String::new()
+        } else {
+            let native_depth = std::path::Path::new(&native_crate_dir).components().count();
+            let output_path = output_dir.trim_end_matches('/');
+            let lib_path = format!(
+                "{}{}{}",
+                "../".repeat(native_depth),
+                output_path.trim_start_matches('/'),
+                "/lib.rs"
+            );
+            format!("path = \"{lib_path}\"\n")
+        }
+    } else {
+        String::new()
+    };
+
+    // Collect all [dependencies] entries then sort alphabetically so the emitted
+    // Cargo.toml is cargo-sort canonical without a post-processing step.
+    let features_str = core_dep_features(config, Language::Elixir);
+    let mut dep_lines: Vec<String> = vec![
+        format!(
+            "{crate_name} = {{ path = \"../../../../crates/{core_crate_dir}\"{features} }}",
+            crate_name = &config.name,
+            core_crate_dir = core_crate_dir,
+            features = features_str,
+        ),
+        format!("rustler = \"{}\"", tv::cargo::RUSTLER),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
+        "serde_json = \"1\"".to_owned(),
+    ];
+    if has_trait_bridges {
+        dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
+    }
+    if has_async || has_trait_bridges || has_streaming {
+        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }".to_owned());
+    }
+    if has_streaming && !dep_lines.iter().any(|l| l.starts_with("futures-util")) {
+        dep_lines.push("futures-util = \"0.3\"".to_owned());
+    }
+    for line in extra_deps.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && !dep_lines
+                .iter()
+                .any(|l| l.starts_with(trimmed.split('=').next().unwrap_or("")))
+        {
+            dep_lines.push(trimmed.to_owned());
+        }
+    }
+    dep_lines.sort();
+    let deps_section = dep_lines.join("\n");
+
+    let content = format!(
+        r#"{pkg_header}
+
+[workspace]
+
+[lib]
+name = "{nif_name}"
+{lib_path_line}
+crate-type = ["cdylib"]
+
+[dependencies]
+{deps_section}
+"#,
+        pkg_header = pkg_header,
+        nif_name = nif_name,
+        lib_path_line = lib_path_line,
+        deps_section = deps_section,
+    );
+
+    Ok(vec![GeneratedFile {
+        path: PathBuf::from(format!("{native_crate_dir}/Cargo.toml")),
+        content,
+        generated_header: true,
+    }])
+}
+
+pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
+    let app_name = config.elixir_app_name();
+    let version = &api.version;
+    let pkg_dir = config.package_dir(Language::Elixir);
+
+    // Jason is required whenever visitor bridges are active (options_field or function_param
+    // mode) because the visitor receive loop uses Jason.decode! / Jason.encode!.
+    let has_visitor_bridges = config
+        .trait_bridges
+        .iter()
+        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    let jason_dep = if has_visitor_bridges {
+        format!("\n      {{:jason, \"{jason}\"}},", jason = tv::hex::JASON)
+    } else {
+        String::new()
+    };
+
+    // Determine if the generated Elixir source files live outside the default `lib/`
+    // subdirectory. If so, emit an `elixirc_paths` entry so Mix can find them.
+    // The same external path is also added to the Hex `files:` list below, since
+    // `mix hex.publish` verifies every entry exists on disk.
+    let external_elixir_src: Option<String> = config.explicit_output.elixir.as_ref().and_then(|elixir_out| {
+        let elixir_out_str = elixir_out.to_string_lossy();
+        let expected_lib = format!("{pkg_dir}/lib");
+        if elixir_out_str.starts_with(&expected_lib) {
+            return None;
+        }
+        let pkg = std::path::Path::new(&pkg_dir);
+        let out = std::path::Path::new(elixir_out_str.trim_end_matches('/'));
+        let pkg_depth = pkg.components().count();
+        let out_path = out.display().to_string();
+        Some(format!(
+            "{}{}",
+            "../".repeat(pkg_depth),
+            out_path.trim_start_matches('/')
+        ))
+    });
+
+    let elixirc_paths_line = match external_elixir_src.as_deref() {
+        Some(relative) => format!("\n      elixirc_paths: [\"lib\", Path.expand(\"{relative}\", __DIR__)],"),
+        None => String::new(),
+    };
+
+    // `lib/` is only populated when there is at least one non-OptionsField trait
+    // bridge GenServer module to emit (see the bridge generation loop below).
+    // Hex publish refuses to package a non-existent directory, so include `lib`
+    // in `files:` only when we actually write into it.
+    let lib_populated = config.trait_bridges.iter().any(|b| {
+        !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler")
+            && b.bind_via != BridgeBinding::OptionsField
+    });
+
+    // Always-present entries on disk after scaffolding: native crate dir,
+    // .formatter.exs, mix.exs, and the README (alef writes one or expects one).
+    // `lib` is conditional (see above); `checksum-*.exs` is intentionally omitted
+    // because alef does not wire up the `mix rustler_precompiled.download` step
+    // — consumers fall back to building from source via plain `rustler`.
+    let mut files_entries: Vec<String> = vec![
+        ".formatter.exs".into(),
+        "mix.exs".into(),
+        "README*".into(),
+        "native".into(),
+    ];
+    if lib_populated {
+        files_entries.insert(0, "lib".into());
+    }
+    if let Some(relative) = external_elixir_src.as_deref() {
+        files_entries.push(format!("{relative}/*.ex"));
+    }
+    let files_line = files_entries.join(" ");
+
+    let content = format!(
+        r#"defmodule {module}.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :{app_name},
+      version: "{version}",
+      elixir: "~> 1.14",{elixirc_paths}
+      rustler_crates: [{nif_atom}: [mode: :release]],
+      description: "{description}",
+      package: package(),
+      deps: deps()
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["{license}"],
+      links: %{{"GitHub" => "{repository}"}},
+      files: ~w({files_line})
+    ]
+  end
+
+  defp deps do
+    [{jason_dep}
+      {{:rustler, "{rustler_hex}", runtime: false}},
+      {{:rustler_precompiled, "{rustler_precompiled}"}},
+      {{:credo, "{credo}", only: [:dev, :test], runtime: false}},
+      {{:ex_doc, "{ex_doc}", only: :dev, runtime: false}}
+    ]
+  end
+end
+"#,
+        module = app_name.to_pascal_case(),
+        app_name = app_name,
+        nif_atom = format_args!("{app_name}_nif"),
+        version = version,
+        elixirc_paths = elixirc_paths_line,
+        files_line = files_line,
+        jason_dep = jason_dep,
+        description = meta.description,
+        license = meta.license,
+        repository = meta.repository,
+        rustler_hex = tv::hex::RUSTLER,
+        rustler_precompiled = tv::hex::RUSTLER_PRECOMPILED,
+        credo = tv::hex::CREDO,
+        ex_doc = tv::hex::EX_DOC,
+    );
+
+    let formatter_content = r#"[
+  import_deps: [:rustler],
+  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"],
+  line_length: 120
+]
+"#;
+
+    let mut files = vec![
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/mix.exs")),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.formatter.exs")),
+            content: formatter_content.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.credo.exs")),
+            content: r#"%{
+  configs: [
+    %{
+      name: "default",
+      strict: true,
+      parse_timeout: 5000,
+      files: %{
+        included: [
+          "lib/",
+          "src/",
+          "test/",
+          "web/",
+          "apps/*/lib/",
+          "apps/*/src/",
+          "apps/*/test/",
+          "apps/*/web/"
+        ],
+        excluded: [
+          ~r"/_build/",
+          ~r"/deps/",
+          ~r"/node_modules/"
+        ]
+      },
+      checks: %{
+        enabled: [
+          {Credo.Check.Refactor.CyclomaticComplexity, max_complexity: 16}
+        ]
+      }
+    }
+  ]
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
+    ];
+
+    // Generate trait bridge GenServer modules.
+    // Options-field bridges use inline visitor maps passed alongside the call — they do
+    // not use a registered GenServer, so skip them here.
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg
+            .exclude_languages
+            .iter()
+            .any(|l| l == "elixir" || l == "rustler")
+        {
+            continue;
+        }
+        // Skip options-field bridges — visitor is passed inline, no GenServer needed.
+        if bridge_cfg.bind_via == BridgeBinding::OptionsField {
+            continue;
+        }
+        let trait_name_snake = bridge_cfg.trait_name.to_snake_case();
+        let trait_name_camel = capitalize_first(&bridge_cfg.trait_name);
+        let module_name = format!("{}{}Bridge", app_name.to_pascal_case(), trait_name_camel);
+        let native_mod = format!("{}.Native", app_name.to_pascal_case());
+
+        let bridge_content = format!(
+            r#"defmodule {module_name} do
+  @moduledoc """
+  GenServer bridge for {trait_name} implementation in {app_name}.
+
+  Handles incoming trait method calls from Rust and dispatches them to an implementation module.
+  """
+
+  use GenServer
+
+  require Logger
+
+  @doc """
+  Start a GenServer linked to the current process.
+
+  impl_module should be a module that implements the {trait_name} trait methods.
+  """
+  def start_link(impl_module) do
+    GenServer.start_link(__MODULE__, impl_module, name: __MODULE__)
+  end
+
+  @impl GenServer
+  def init(impl_module) do
+    {{:ok, impl_module}}
+  end
+
+  @doc """
+  Handle an incoming trait call message.
+
+  Message format: {{:trait_call, method_atom, args_json, reply_id}}
+  """
+  @impl GenServer
+  def handle_info({{:trait_call, method, args_json, reply_id}}, impl_module) do
+    try do
+      args = Jason.decode!(args_json)
+
+      # Dispatch to the implementation module
+      result = apply(impl_module, String.to_existing_atom(method), args)
+
+      # Send result back to Rust
+      {native_mod}.complete_trait_call(reply_id, Jason.encode!(result))
+    rescue
+      e ->
+        Logger.error("Error calling {{impl_module}}.{{method}}: {{Exception.message(e)}}")
+        {native_mod}.fail_trait_call(reply_id, Exception.message(e))
+    end
+
+    {{:noreply, impl_module}}
+  end
+
+  @doc """
+  Register an implementation module, starting a GenServer to handle trait calls.
+  """
+  def register(impl_module) do
+    {{:ok, _pid}} = start_link(impl_module)
+    {native_mod}.register_{trait_name_snake}(self(), Atom.to_string(impl_module))
+  end
+end
+"#,
+            module_name = module_name,
+            trait_name = bridge_cfg.trait_name,
+            app_name = app_name,
+            trait_name_snake = trait_name_snake,
+            native_mod = native_mod,
+        );
+
+        let bridge_path = PathBuf::from(format!("{pkg_dir}/lib/{app_name}/{trait_name_snake}_bridge.ex"));
+        files.push(GeneratedFile {
+            path: bridge_path,
+            content: bridge_content,
+            generated_header: true,
+        });
+    }
+
+    Ok(files)
+}

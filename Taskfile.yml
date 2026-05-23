@@ -37,7 +37,7 @@ tasks:
   build:release:
     desc: "Build release binary"
     cmds:
-      - cargo build --release -p alef-cli
+      - cargo build --release -p alef
 
   test:
     desc: "Run all tests"
@@ -50,13 +50,9 @@ tasks:
       - cargo test --release --workspace
 
   bench:
-    desc: "Run codegen benchmarks (criterion) for new-language backends"
+    desc: "Run codegen benchmarks (criterion)"
     cmds:
-      - cargo bench -p alef-backend-kotlin
-      - cargo bench -p alef-backend-swift
-      - cargo bench -p alef-backend-dart
-      - cargo bench -p alef-backend-gleam
-      - cargo bench -p alef-backend-zig
+      - cargo bench
 
   check:
     desc: "Type-check all crates"
@@ -74,7 +70,7 @@ tasks:
       - prek run --all-files
 
   set-version:
-    desc: "Set workspace version (usage: task set-version -- 0.15.0)"
+    desc: "Set package version (usage: task set-version -- 0.18.0)"
     requires:
       vars: [CLI_ARGS]
     cmds:
@@ -84,17 +80,15 @@ tasks:
         version="${version#v}"
         case "$version" in
           [0-9]*.[0-9]*.[0-9]*) ;;
-          *) echo "set-version: expected semver like '0.15.0' (with or without leading 'v'); got '{{.CLI_ARGS}}'" >&2; exit 2 ;;
+          *) echo "set-version: expected semver like '0.18.0' (with or without leading 'v'); got '{{.CLI_ARGS}}'" >&2; exit 2 ;;
         esac
-        for f in Cargo.toml alef.toml; do
-          sed -i.bak "s/^version = \".*\"/version = \"$version\"/" "$f"
-          rm -f "$f.bak"
-        done
-        sed -i.bak -E "s|^(alef-[a-z0-9-]+ = \{ version = )\"v?[0-9]+\.[0-9]+\.[0-9]+\"|\\1\"$version\"|" Cargo.toml
+        sed -i.bak "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
         rm -f Cargo.toml.bak
-        sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+\";|pub const ALEF_REV: \&str = \"v$version\";|" crates/alef-core/src/template_versions.rs
-        rm -f crates/alef-core/src/template_versions.rs.bak
-      - cargo update --workspace
+        sed -i.bak "s/^alef_version = \".*\"/alef_version = \"$version\"/" alef.toml
+        rm -f alef.toml.bak
+        sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+\";|pub const ALEF_REV: \&str = \"v$version\";|" src/core/template_versions.rs
+        rm -f src/core/template_versions.rs.bak
+      - cargo update
 
   clean:
     desc: "Clean build artifacts"

@@ -13,7 +13,7 @@ builds:
     command: zigbuild
     flags:
       - --release
-      - --package=alef-cli
+      - --package=alef
     targets:
       - x86_64-unknown-linux-gnu
       - aarch64-unknown-linux-gnu

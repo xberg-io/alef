@@ -77,7 +77,7 @@ jobs:
       - uses: kreuzberg-dev/actions/build-rust-cli@v1
         id: build-cli
         with:
-          package-name: alef-cli
+          package-name: alef
           binary-name: alef
       - name: Verify binary
         run: ${{ steps.build-cli.outputs.binary-path }} --help

@@ -1,5 +1,5 @@
 [workspace]
-alef_version = "0.17.25"
+alef_version = "0.18.0"
 languages = []
 
 [workspace.dto]
@@ -7,6 +7,6 @@ python = "dataclass"
 python_output = "typed-dict"
 
 [[crates]]
-name = "alef-cli"
-sources = ["crates/alef-cli/src/main.rs"]
+name = "alef"
+sources = ["src/main.rs"]
 version_from = "Cargo.toml"

@@ -39,12 +39,13 @@ Every step has a hard verification — never assume; always check.
    release commit.
 5. **Add tests for any fix that changed behavior.** A release that includes a
    fix without a regression test is a release that will regress.
-6. **Use the Taskfile** for version setting — never hand-edit cargo manifests
-   if a task target exists. Verify the bump propagated to _every_ workspace
-   member's `Cargo.toml`.
+6. **Use the Taskfile** for version setting — never hand-edit `Cargo.toml`,
+   `alef.toml`, or `src/core/template_versions.rs`. `task set-version`
+   rewrites all three in lockstep.
 7. **Publish with `gh release create`** — a bare `git tag` is not a release.
    The GitHub release is what triggers downstream automation and what users
-   discover.
+   discover. Alef ships as a single crate, so the tag push triggers exactly
+   one `cargo publish` — no multi-crate sequencing, no index propagation race.
 
 ## Procedure
 
@@ -53,8 +54,8 @@ Every step has a hard verification — never assume; always check.
 ```bash
 git status              # working tree clean (or only release-prep diffs)
 git pull --ff-only      # don't release on a stale main
-cargo check --workspace --all-features
-cargo test --workspace
+cargo check --all-features
+cargo test
 ```
 
 If any of those fail, stop. Fix first, release second.
@@ -73,28 +74,24 @@ If any of those fail, stop. Fix first, release second.
 ### 2. Set the version via Taskfile
 
 ```bash
-task set-version -- X.Y.Z           # bumps workspace.package.version + every inter-crate dep
+task set-version -- X.Y.Z           # bumps Cargo.toml, alef.toml, ALEF_REV; runs cargo update
 ```
 
 The `set-version` task is the **only** sanctioned way to bump versions in this
-repo. It rewrites both `Cargo.toml` (workspace.package.version) and every
-inter-crate dependency declaration so workspace members stay in lockstep. Never
-hand-edit `version = "..."` in `Cargo.toml` — the dep lines (`alef-adapters = {
-version = "X.Y.Z", ... }`) will silently drift out of sync and break publish.
+repo. It rewrites `Cargo.toml` (`package.version`), `alef.toml`
+(`alef_version`), and `src/core/template_versions.rs::ALEF_REV` in one shot,
+then runs `cargo update`. Never hand-edit any of these — they must stay in
+lockstep.
 
 After the task finishes, **verify**:
 
 ```bash
-# Workspace root version
-grep -E '^version' Cargo.toml
-
-# Every workspace member should inherit workspace.package.version,
-# OR have an explicit version matching X.Y.Z.
-rg --no-heading '^version\s*=' crates/*/Cargo.toml | \
-  rg -v 'workspace = true' || true
+grep -E '^version' Cargo.toml                       # package version
+grep -E '^alef_version' alef.toml                   # alef.toml mirror
+grep ALEF_REV src/core/template_versions.rs        # template version pin
 ```
 
-If any crate manifest has a hardcoded older version, fix it before continuing.
+All three must match `X.Y.Z` (the `ALEF_REV` line includes a leading `v`).
 
 ### 3. Lint pass
 
@@ -169,8 +166,9 @@ PR that bumps the pin. Don't bundle that into the release commit.
 
 - Tagging without a `gh release create` — invisible release, breaks automation.
 - Empty `## [Unreleased]` rolled forward to a new version section.
-- Hand-editing `version = "..."` in every `Cargo.toml` instead of using the
-  workspace version + Taskfile target.
+- Hand-editing `version = "..."` in `Cargo.toml`, `alef_version` in
+  `alef.toml`, or `ALEF_REV` in `src/core/template_versions.rs` instead of
+  using `task set-version`.
 - Fix commits with no test added.
 - `--no-verify` to skip a real lint failure.
 - AI attribution in commit/tag/release text.
@@ -180,9 +178,9 @@ PR that bumps the pin. Don't bundle that into the release commit.
 
 | Step       | Command                                                            | What it verifies           |
 | ---------- | ------------------------------------------------------------------ | -------------------------- |
-| Pre-flight | `cargo check --workspace --all-features && cargo test --workspace` | Clean build + green tests  |
+| Pre-flight | `cargo check --all-features && cargo test`                         | Clean build + green tests  |
 | Changelog  | manual edit of `CHANGELOG.md`                                      | Every change is documented |
-| Version    | `task version:...` then `grep -E '^version' Cargo.toml`            | Workspace version updated  |
+| Version    | `task set-version -- X.Y.Z` then `grep -E '^version' Cargo.toml`   | Crate version updated      |
 | Lint       | `prek run --all-files`                                             | Pre-commit clean           |
 | Commit     | `git commit -m "chore(release): X.Y.Z"`                            | Atomic release commit      |
 | Tag        | `git tag -a vX.Y.Z -m "vX.Y.Z" && git push --tags`                 | Tag exists remotely        |

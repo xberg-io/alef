@@ -90,12 +90,12 @@ jobs:
     outputs:
       exists: ${{ steps.check.outputs.exists }}
     steps:
-      - name: Check crates.io for alef-cli
+      - name: Check crates.io for alef
         id: check
         uses: kreuzberg-dev/actions/check-registry@v1
         with:
           registry: cratesio
-          package: alef-cli
+          package: alef
           version: ${{ needs.prepare.outputs.version }}
           alef-version: main
 
@@ -159,7 +159,7 @@ jobs:
         id: build
         uses: kreuzberg-dev/actions/build-rust-cli@v1
         with:
-          package-name: alef-cli
+          package-name: alef
           binary-name: alef
           target: ${{ matrix.target }}
 
@@ -291,42 +291,7 @@ jobs:
       - name: Publish to crates.io
         uses: kreuzberg-dev/actions/publish-crates@v1
         with:
-          # Topological order: deeper deps first.
-          # core → (extract, codegen, adapters, docs, scaffold) → all backends →
-          # (e2e, readme) → publish → cli
-          # alef-e2e depends on alef-backend-php, so backends MUST come first.
-          # alef-backend-kotlin-android depends on alef-scaffold for shared
-          # metadata helpers, so alef-scaffold MUST publish before any backend.
-          crates: >-
-            alef-core
-            alef-extract
-            alef-codegen
-            alef-adapters
-            alef-docs
-            alef-scaffold
-            alef-backend-pyo3
-            alef-backend-napi
-            alef-backend-wasm
-            alef-backend-ffi
-            alef-backend-magnus
-            alef-backend-php
-            alef-backend-rustler
-            alef-backend-extendr
-            alef-backend-go
-            alef-backend-java
-            alef-backend-csharp
-            alef-backend-dart
-            alef-backend-gleam
-            alef-backend-jni
-            alef-backend-kotlin
-            alef-backend-kotlin-android
-            alef-backend-swift
-            alef-backend-zig
-            alef-e2e
-            alef-readme
-            alef-publish
-            alef-snippets
-            alef-cli
+          crates: alef
           version: ${{ needs.prepare.outputs.version }}
           dry-run: ${{ needs.prepare.outputs.dry_run }}
 

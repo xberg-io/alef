@@ -1,0 +1,940 @@
+//! PHP (ext-php-rs) specific trait bridge code generation.
+//!
+//! Generates Rust wrapper structs that implement Rust traits by delegating
+//! to PHP objects via ext-php-rs Zval method calls.
+
+use minijinja::context;
+
+use crate::codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
+use crate::codegen::generators::trait_bridge::{
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
+    visitor_param_type,
+};
+use crate::core::config::TraitBridgeConfig;
+use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashMap;
+
+/// Find the first parameter index and bridge config where the parameter's named type
+/// matches a trait bridge's `type_alias`.
+///
+/// Returns `None` when no bridge applies.
+pub use crate::codegen::generators::trait_bridge::find_bridge_param;
+
+/// PHP-specific trait bridge generator.
+/// Implements code generation for bridging PHP objects to Rust traits.
+pub struct PhpBridgeGenerator {
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for type references.
+    pub type_paths: HashMap<String, String>,
+    /// Error type name (e.g., `"KreuzbergError"`).
+    pub error_type: String,
+}
+
+impl TraitBridgeGenerator for PhpBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        "*mut ext_php_rs::types::ZendObject"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec!["std::sync::Arc".to_string()]
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+
+        let has_args = !method.params.is_empty();
+        let args_expr = if has_args {
+            let mut args_parts = Vec::new();
+            for p in &method.params {
+                let arg_expr = match &p.ty {
+                    TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
+                    TypeRef::Path => format!(
+                        "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Bytes => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Named(_) => {
+                        format!(
+                            "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
+                            p.name
+                        )
+                    }
+                    TypeRef::Primitive(_) => {
+                        format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
+                    }
+                    _ => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                };
+                args_parts.push(arg_expr);
+            }
+            let args_array = format!("[{}]", args_parts.join(", "));
+            format!(
+                "{}.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
+                args_array
+            )
+        } else {
+            "vec![]".to_string()
+        };
+
+        let is_result_type = method.error_type.is_some();
+        let is_unit_return = matches!(method.return_type, TypeRef::Unit);
+        let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
+        let call_error_expr = spec.make_error("e.to_string()");
+
+        crate::backends::php::template_env::render(
+            "sync_method_body.jinja",
+            context! {
+                method_name => name,
+                args_expr => args_expr,
+                is_result_type => is_result_type,
+                is_unit_return => is_unit_return,
+                deserialize_error_expr => deserialize_error_expr,
+                call_error_expr => call_error_expr,
+            },
+        )
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        let name = &method.name;
+
+        let string_params: Vec<String> = method
+            .params
+            .iter()
+            .filter(|p| matches!(&p.ty, TypeRef::String))
+            .map(|p| p.name.clone())
+            .collect();
+
+        let has_args = !method.params.is_empty();
+        let args_expr = if has_args {
+            let mut args_parts = Vec::new();
+            for p in &method.params {
+                let arg_expr = match &p.ty {
+                    TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
+                    TypeRef::Path => format!(
+                        "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Bytes => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                    TypeRef::Named(_) => {
+                        format!(
+                            "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
+                            p.name
+                        )
+                    }
+                    TypeRef::Primitive(_) => {
+                        format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
+                    }
+                    _ => format!(
+                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                        p.name
+                    ),
+                };
+                args_parts.push(arg_expr);
+            }
+            let args_array = format!("[{}]", args_parts.join(", "));
+            format!(
+                "{}.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
+                args_array
+            )
+        } else {
+            "vec![]".to_string()
+        };
+
+        let is_result_type = method.error_type.is_some();
+        let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
+        let call_error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
+        ));
+
+        crate::backends::php::template_env::render(
+            "async_method_body.jinja",
+            context! {
+                method_name => name,
+                args_expr => args_expr,
+                string_params => string_params,
+                is_result_type => is_result_type,
+                deserialize_error_expr => deserialize_error_expr,
+                call_error_expr => call_error_expr,
+            },
+        )
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        let wrapper = spec.wrapper_name();
+
+        crate::backends::php::template_env::render(
+            "bridge_constructor.jinja",
+            context! {
+                wrapper => &wrapper,
+            },
+        )
+    }
+
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
+
+        crate::backends::php::template_env::render(
+            "bridge_unregister_fn.jinja",
+            context! {
+                unregister_fn => unregister_fn,
+                host_path => &host_path,
+            },
+        )
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
+
+        crate::backends::php::template_env::render(
+            "bridge_clear_fn.jinja",
+            context! {
+                clear_fn => clear_fn,
+                host_path => &host_path,
+            },
+        )
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
+        let wrapper = spec.wrapper_name();
+        let trait_path = spec.trait_path();
+
+        let req_methods: Vec<&MethodDef> = spec.required_methods();
+        let required_methods: Vec<minijinja::Value> = req_methods
+            .iter()
+            .map(|m| {
+                minijinja::context! {
+                    name => m.name.as_str(),
+                }
+            })
+            .collect();
+
+        let extra_args = spec
+            .bridge_config
+            .register_extra_args
+            .as_deref()
+            .map(|a| format!(", {a}"))
+            .unwrap_or_default();
+
+        crate::backends::php::template_env::render(
+            "bridge_registration_fn.jinja",
+            context! {
+                register_fn => register_fn,
+                required_methods => required_methods,
+                wrapper => &wrapper,
+                trait_path => &trait_path,
+                registry_getter => registry_getter,
+                extra_args => &extra_args,
+            },
+        )
+    }
+}
+
+/// Generate all trait bridge code for a given trait type and bridge config.
+pub fn gen_trait_bridge(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+    api: &ApiSurface,
+) -> BridgeOutput {
+    // Build type name → rust_path lookup as owned HashMap
+    let type_paths: HashMap<String, String> = api
+        .types
+        .iter()
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // are qualified with the full Rust path rather than emitting the bare type name.
+        .chain(
+            api.excluded_type_paths
+                .iter()
+                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
+        )
+        .collect();
+
+    // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
+    let is_visitor_bridge = bridge_cfg.type_alias.is_some()
+        && bridge_cfg.register_fn.is_none()
+        && bridge_cfg.super_trait.is_none()
+        && trait_type.methods.iter().all(|m| m.has_default_impl);
+
+    if is_visitor_bridge {
+        let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
+        let trait_path = trait_type.rust_path.replace('-', "_");
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+
+        // Note: PHP interface file generation is handled separately by the PHP backend
+        // in generate_bindings() to emit it as a standalone PHP file, not inline Rust code.
+        BridgeOutput { imports: vec![], code }
+    } else {
+        // Use the IR-driven TraitBridgeGenerator infrastructure
+        let generator = PhpBridgeGenerator {
+            core_import: core_import.to_string(),
+            type_paths: type_paths.clone(),
+            error_type: error_type.to_string(),
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: trait_type,
+            bridge_config: bridge_cfg,
+            core_import,
+            wrapper_prefix: "Php",
+            type_paths,
+            error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
+        };
+        gen_bridge_all(&spec, &generator)
+    }
+}
+
+/// Generate a visitor-style bridge wrapping a PHP `Zval` object reference.
+///
+/// Every trait method checks if the PHP object has a matching camelCase method,
+/// then calls it and maps the PHP return value to `VisitResult`.
+fn gen_visitor_bridge(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    struct_name: &str,
+    trait_path: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(4096);
+    let core_crate = trait_path
+        .split("::")
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| panic!("trait_path '{trait_path}' must be a qualified path of the form 'crate_name::...'; configure extension_name in alef.toml"))
+        .to_string();
+
+    // Helper: convert NodeContext to a PHP array (Zval)
+    out.push_str(&crate::backends::php::template_env::render(
+        "visitor_nodecontext_helper.jinja",
+        context! {
+            core_crate => &core_crate,
+        },
+    ));
+    out.push('\n');
+
+    // Helper: map a PHP return Zval to VisitResult.
+    out.push_str(&crate::backends::php::template_env::render(
+        "visitor_zval_to_visitresult.jinja",
+        context! {
+            core_crate => &core_crate,
+        },
+    ));
+    out.push('\n');
+
+    // Helper: apply {param_name} template substitution to Custom visit results.
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_visit_result_with_template.jinja",
+        context! {
+            core_crate => &core_crate,
+        },
+    ));
+    out.push_str("\n\n");
+
+    // Bridge struct — stores a reference to the PHP object.
+    out.push_str(&crate::backends::php::template_env::render(
+        "visitor_bridge_struct.jinja",
+        context! {
+            struct_name => struct_name,
+        },
+    ));
+    out.push('\n');
+
+    // Trait impl
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_trait_impl_start.jinja",
+        context! {
+            trait_path => &trait_path,
+            struct_name => struct_name,
+        },
+    ));
+    for method in &trait_type.methods {
+        if method.trait_source.is_some() {
+            continue;
+        }
+        gen_visitor_method_php(&mut out, method, bridge_cfg, type_paths);
+    }
+    out.push_str("}\n");
+    out.push('\n');
+
+    out
+}
+
+/// Generate a single visitor method that checks for a snake_case PHP method and calls it.
+fn gen_visitor_method_php(
+    out: &mut String,
+    method: &MethodDef,
+    bridge_cfg: &TraitBridgeConfig,
+    type_paths: &HashMap<String, String>,
+) {
+    let name = &method.name;
+
+    let mut sig_parts = vec!["&mut self".to_string()];
+    for p in &method.params {
+        let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
+        sig_parts.push(format!("{}: {}", p.name, ty_str));
+    }
+    let sig = sig_parts.join(", ");
+
+    let ret_ty = match &method.return_type {
+        TypeRef::Named(n) => type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
+        other => param_type(other, "", false, type_paths),
+    };
+
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_visitor_method_signature.jinja",
+        context! {
+            name => name,
+            sig => &sig,
+            ret_ty => &ret_ty,
+        },
+    ));
+
+    // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
+    out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
+    out.push_str("        let php_obj_ref = unsafe { &mut *self.php_obj };\n");
+
+    // Build args array
+    let has_args = !method.params.is_empty();
+    if has_args {
+        out.push_str("        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();\n");
+        for p in &method.params {
+            if let TypeRef::Named(n) = &p.ty {
+                if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_visitor_arg_nodecontext.jinja",
+                        context! {
+                            name => &p.name,
+                            ref => if p.is_ref { "" } else { "&" },
+                        },
+                    ));
+                    out.push('\n');
+                    continue;
+                }
+            }
+            // Check optional string ref BEFORE non-optional string, since visitor_param_type
+            // returns Option<&str> for optional string ref params.
+            if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+                out.push_str(&crate::backends::php::template_env::render(
+                    "php_visitor_arg_optional_string_ref.jinja",
+                    context! {
+                        name => &p.name,
+                    },
+                ));
+                out.push('\n');
+                continue;
+            }
+            if matches!(&p.ty, TypeRef::String) {
+                if p.is_ref {
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_visitor_arg_string_ref.jinja",
+                        context! {
+                            name => &p.name,
+                        },
+                    ));
+                } else {
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_visitor_arg_string_owned.jinja",
+                        context! {
+                            name => &p.name,
+                        },
+                    ));
+                }
+                out.push('\n');
+                continue;
+            }
+            if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
+                out.push_str(&crate::backends::php::template_env::render(
+                    "php_visitor_arg_bool.jinja",
+                    context! {
+                        name => &p.name,
+                    },
+                ));
+                out.push('\n');
+                continue;
+            }
+            // Default: format as string
+            out.push_str(&crate::backends::php::template_env::render(
+                "php_visitor_arg_default.jinja",
+                context! {
+                    name => &p.name,
+                },
+            ));
+            out.push('\n');
+        }
+    }
+
+    // Call the PHP method via try_call_method which takes Vec<&dyn IntoZvalDyn>.
+    // If the method does not exist, try_call_method returns Err(Error::Callable),
+    // which we treat as a "no-op, return Continue" (same as the default impl).
+    if has_args {
+        out.push_str("        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();\n");
+    }
+    let args_expr = if has_args { "dyn_args" } else { "vec![]" };
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_visitor_method_php_call.jinja",
+        context! {
+            name => name,
+            args_expr => args_expr,
+        },
+    ));
+
+    // Build template vars for {param_name} → value substitution in Custom results.
+    // Each non-ctx param gets an owned String so we can take &str references.
+    let mut tmpl_var_names: Vec<String> = Vec::new();
+    for p in &method.params {
+        if let TypeRef::Named(n) = &p.ty {
+            if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
+                continue;
+            }
+        }
+        // Skip Vec/slice params — no Display impl; not useful in templates.
+        if matches!(&p.ty, TypeRef::Vec(_)) {
+            continue;
+        }
+        // Strip leading underscore from param name for the template key (e.g. _src → src)
+        let key = p.name.strip_prefix('_').unwrap_or(&p.name);
+        let owned_var = format!("_{key}_s");
+        let expr: String = if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+            format!("{}.map(|s| s.to_string()).unwrap_or_default()", p.name)
+        } else if matches!(&p.ty, TypeRef::String) && p.is_ref {
+            format!("{}.to_string()", p.name)
+        } else if matches!(&p.ty, TypeRef::String) {
+            format!("{}.clone()", p.name)
+        } else if matches!(&p.ty, TypeRef::Optional(_)) {
+            format!("{}.map(|v| v.to_string()).unwrap_or_default()", p.name)
+        } else {
+            format!("{}.to_string()", p.name)
+        };
+        out.push_str(&crate::backends::php::template_env::render(
+            "php_visitor_template_var_let_binding.jinja",
+            context! {
+                owned_var => &owned_var,
+                expr => &expr,
+            },
+        ));
+        out.push('\n');
+        tmpl_var_names.push(format!("(\"{key}\", {owned_var}.as_str())"));
+    }
+    let tmpl_vars_expr = if tmpl_var_names.is_empty() {
+        "&[]".to_string()
+    } else {
+        format!("&[{}]", tmpl_var_names.join(", "))
+    };
+
+    // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_visitor_method_result_match.jinja",
+        context! {
+            ret_ty => &ret_ty,
+            tmpl_vars_expr => &tmpl_vars_expr,
+        },
+    ));
+    out.push('\n');
+}
+
+/// Generate a PHP static method that has one parameter replaced by
+/// `Option<ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendObject>>` (a trait bridge).
+#[allow(clippy::too_many_arguments)]
+pub fn gen_bridge_function(
+    func: &crate::core::ir::FunctionDef,
+    bridge_param_idx: usize,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &dyn crate::codegen::type_mapper::TypeMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+    handle_path: &str,
+) -> String {
+    use crate::core::ir::TypeRef;
+
+    let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
+    let param_name = &func.params[bridge_param_idx].name;
+    let bridge_param = &func.params[bridge_param_idx];
+    let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
+
+    // Build parameter list, hiding bridge params from signature
+    let mut sig_parts = Vec::new();
+    for (idx, p) in func.params.iter().enumerate() {
+        if idx == bridge_param_idx {
+            // Bridge param: &mut ZendObject implements FromZvalMut in ext-php-rs 0.15,
+            // allowing PHP to pass any object. ZBox<ZendObject> does NOT implement
+            // FromZvalMut, so we must use the reference form here.
+            let php_obj_ty = "&mut ext_php_rs::types::ZendObject";
+            if is_optional {
+                sig_parts.push(format!("{}: Option<{php_obj_ty}>", p.name));
+            } else {
+                sig_parts.push(format!("{}: {php_obj_ty}", p.name));
+            }
+        } else {
+            let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
+            let base = mapper.map_type(&p.ty);
+            // #[php_class] types (non-opaque Named) only implement FromZvalMut for &mut T,
+            // not for owned T — so we must use &mut T in the function signature.
+            let ty = match &p.ty {
+                TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
+                    if p.optional || promoted {
+                        format!("Option<&mut {base}>")
+                    } else {
+                        format!("&mut {base}")
+                    }
+                }
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if !opaque_types.contains(n.as_str()) {
+                            format!("Option<&mut {base}>")
+                        } else if p.optional || promoted {
+                            format!("Option<{base}>")
+                        } else {
+                            base
+                        }
+                    } else if p.optional || promoted {
+                        format!("Option<{base}>")
+                    } else {
+                        base
+                    }
+                }
+                _ => {
+                    if p.optional || promoted {
+                        format!("Option<{base}>")
+                    } else {
+                        base
+                    }
+                }
+            };
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        }
+    }
+
+    let params_str = sig_parts.join(", ");
+    let return_type = mapper.map_type(&func.return_type);
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+
+    let err_conv = ".map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))";
+
+    // Bridge wrapping code
+    let bridge_wrap = if is_optional {
+        format!(
+            "let {param_name} = {param_name}.map(|v| {{\n        \
+             let bridge = {struct_name}::new(v);\n        \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
+             }});"
+        )
+    } else {
+        format!(
+            "let {param_name} = {{\n        \
+             let bridge = {struct_name}::new({param_name});\n        \
+             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
+             }};"
+        )
+    };
+
+    // Serde let bindings for non-bridge Named params
+    let serde_bindings: String = func
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(idx, p)| {
+            if *idx == bridge_param_idx {
+                return false;
+            }
+            let named = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            named.is_some_and(|n| !opaque_types.contains(n))
+        })
+        .map(|(_, p)| {
+            let name = &p.name;
+            let core_path = format!(
+                "{core_import}::{}",
+                match &p.ty {
+                    TypeRef::Named(n) => n.clone(),
+                    TypeRef::Optional(inner) =>
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            n.clone()
+                        } else {
+                            String::new()
+                        },
+                    _ => String::new(),
+                }
+            );
+            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                format!(
+                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
+                     let json = serde_json::to_string(&v){err_conv}?;\n        \
+                     serde_json::from_str(&json){err_conv}\n    \
+                     }}).transpose()?;\n    "
+                )
+            } else {
+                format!(
+                    "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n    \
+                     let {name}_core: {core_path} = serde_json::from_str(&{name}_json){err_conv}?;\n    "
+                )
+            }
+        })
+        .collect();
+
+    // Build call args
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == bridge_param_idx {
+                return p.name.clone();
+            }
+            match &p.ty {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::Named(_) => format!("{}_core", p.name),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if opaque_types.contains(n.as_str()) {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) => "val.into()".to_string(),
+        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{err_conv}")
+        } else {
+            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
+        }
+    } else {
+        format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
+    };
+
+    let func_name = &func.name;
+    let mut out = String::with_capacity(1024);
+    if func.error_type.is_some() {
+        out.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_bridge_function_definition.jinja",
+        context! {
+            func_name => func_name,
+            params_str => &params_str,
+            ret => &ret,
+            body => &body,
+        },
+    ));
+
+    out
+}
+
+/// Convert a Rust TypeRef to a PHP type string for interface declarations.
+/// Handles Rust types like `&str`, `Option<&str>`, `bool`, etc.
+fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_paths: &HashMap<String, String>) -> String {
+    // String reference or optional string ref → PHP string (nullable if optional)
+    if matches!(ty, TypeRef::String) {
+        if optional {
+            return "?string".to_string();
+        }
+        return "string".to_string();
+    }
+
+    // Boolean type
+    if matches!(ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
+        if optional {
+            return "?bool".to_string();
+        }
+        return "bool".to_string();
+    }
+
+    // Numeric types → int or float
+    if let TypeRef::Primitive(prim) = ty {
+        match prim {
+            crate::core::ir::PrimitiveType::I32
+            | crate::core::ir::PrimitiveType::I64
+            | crate::core::ir::PrimitiveType::U32
+            | crate::core::ir::PrimitiveType::U64
+            | crate::core::ir::PrimitiveType::Usize => {
+                if optional {
+                    return "?int".to_string();
+                }
+                return "int".to_string();
+            }
+            crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => {
+                if optional {
+                    return "?float".to_string();
+                }
+                return "float".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    // Default: untyped (mixed)
+    if optional {
+        "?mixed".to_string()
+    } else {
+        "mixed".to_string()
+    }
+}
+
+/// Generate a PHP interface stub definition for the trait.
+/// This allows PHP users to implement the interface and pass their implementation to functions.
+pub fn gen_visitor_interface(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    namespace: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let interface_name = format!("{}Interface", bridge_cfg.trait_name);
+    let mut out = String::with_capacity(2048);
+
+    // PHP file header with declare(strict_types=1)
+    out.push_str("<?php\n\n");
+    out.push_str("declare(strict_types=1);\n\n");
+    out.push_str(&format!("namespace {namespace};\n\n"));
+
+    // Interface declaration header
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_visitor_interface_start.jinja",
+        context! {
+            interface_name => &interface_name,
+        },
+    ));
+    out.push('\n');
+
+    // Generate each interface method
+    for method in &trait_type.methods {
+        if method.trait_source.is_some() {
+            continue;
+        }
+
+        let name = &method.name;
+
+        // Build method signature parameters (excluding self and only PHP-visible ones)
+        let mut method_params_parts = Vec::new();
+        let mut param_docs = Vec::new();
+
+        for p in &method.params {
+            // Skip the context parameter - it's internal to the bridge
+            let is_ctx_param = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()) == bridge_cfg.context_type.as_deref(),
+                _ => false,
+            };
+            if is_ctx_param {
+                continue;
+            }
+
+            // Convert Rust type to PHP type
+            let php_type = rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths);
+            method_params_parts.push(format!("{} ${}", php_type, p.name));
+
+            let doc = format!("     * @param {} ${}", php_type, p.name);
+            param_docs.push(doc);
+        }
+
+        let method_params = if method_params_parts.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", method_params_parts.join(", "))
+        };
+
+        let param_docs_str = if param_docs.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", param_docs.join("\n"))
+        };
+
+        // Get docstring from method, sanitized for PHP target
+        let doc_lines = if !method.doc.is_empty() {
+            let sanitized = sanitize_rust_idioms(&method.doc, DocTarget::PhpDoc);
+            sanitized.lines().next().unwrap_or("").to_string()
+        } else {
+            format!("Handle for {} callback", name)
+        };
+
+        out.push_str(&crate::backends::php::template_env::render(
+            "php_visitor_interface_method.jinja",
+            context! {
+                method_name => name,
+                method_params => &method_params,
+                doc_lines => &doc_lines,
+                param_docs => &param_docs_str,
+            },
+        ));
+        out.push('\n');
+    }
+
+    out.push_str("}\n");
+
+    out
+}

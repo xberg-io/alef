@@ -36,21 +36,17 @@ repos:
     rev: v1.1.17
     hooks:
       - id: cargo-sort
-        args:
-          - -w
       - id: cargo-fmt
         args:
           - --all
       - id: cargo-check
         args:
-          - --workspace
           - --all-targets
       - id: cargo-clippy
         args:
           - --fix
           - --allow-dirty
           - --allow-staged
-          - --workspace
           - --all-targets
           - --
           - -D

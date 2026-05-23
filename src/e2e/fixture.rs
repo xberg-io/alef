@@ -1,0 +1,849 @@
+//! Fixture loading, validation, and grouping for e2e test generation.
+
+use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+
+/// Mock HTTP response for testing HTTP clients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockResponse {
+    /// HTTP status code.
+    pub status: u16,
+    /// JSON response body (for non-streaming responses).
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    /// SSE stream chunks (for streaming responses).
+    /// Each chunk is a JSON object sent as `data: <chunk>\n\n`.
+    #[serde(default)]
+    pub stream_chunks: Option<Vec<serde_json::Value>>,
+    /// Response headers to apply to the mock response.
+    /// Bridged from `http.expected_response.headers` for consumer-style fixtures.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+}
+
+/// Visitor specification for visitor pattern tests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisitorSpec {
+    /// Map of callback method name to action.
+    pub callbacks: BTreeMap<String, CallbackAction>,
+}
+
+/// Action a visitor callback should take.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum CallbackAction {
+    /// Return VisitResult::Skip.
+    #[serde(rename = "skip")]
+    Skip,
+    /// Return VisitResult::Continue.
+    #[serde(rename = "continue")]
+    Continue,
+    /// Return VisitResult::PreserveHtml.
+    #[serde(rename = "preserve_html")]
+    PreserveHtml,
+    /// Return VisitResult::Custom with static output.
+    #[serde(rename = "custom")]
+    Custom {
+        /// The static replacement string.
+        output: String,
+    },
+    /// Return VisitResult::Custom with template interpolation.
+    #[serde(rename = "custom_template")]
+    CustomTemplate {
+        /// Template with placeholders like {text}, {href}.
+        template: String,
+        /// How the generated visitor returns the rendered template to the host.
+        /// `Dict` (default) returns `{"custom": "..."}` (or per-language equivalent)
+        /// to hit the structured-result code path; `BareString` returns the raw
+        /// rendered string to hit the string-result code path. Both must produce
+        /// `VisitResult::Custom`.
+        #[serde(default)]
+        return_form: TemplateReturnForm,
+    },
+}
+
+/// How a `CustomTemplate` action returns its rendered value from the visitor.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateReturnForm {
+    /// Return a host-native structured value (e.g. dict, hash, array, object)
+    /// carrying the rendered string under a `custom` key.
+    #[default]
+    Dict,
+    /// Return the rendered string directly, with no wrapper.
+    BareString,
+}
+
+/// Environment variable requirements for a smoke/live test fixture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FixtureEnv {
+    /// Name of the env var that holds the API key (e.g. `"OPENAI_API_KEY"`).
+    #[serde(default)]
+    pub api_key_var: Option<String>,
+}
+
+/// A single e2e test fixture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Fixture {
+    /// Unique identifier (used as test function name).
+    pub id: String,
+    /// Optional category (defaults to parent directory name).
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Human-readable description.
+    pub description: String,
+    /// Optional tags for filtering.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Skip directive.
+    #[serde(default)]
+    pub skip: Option<SkipDirective>,
+    /// Environment variable requirements (used by smoke/live tests).
+    #[serde(default)]
+    pub env: Option<FixtureEnv>,
+    /// Named call config to use (references `[e2e.calls.<name>]`).
+    /// When omitted, uses the default `[e2e.call]`.
+    #[serde(default)]
+    pub call: Option<String>,
+    /// Input data passed to the function under test.
+    #[serde(default)]
+    pub input: serde_json::Value,
+    /// Optional mock HTTP response for testing HTTP clients.
+    #[serde(default)]
+    pub mock_response: Option<MockResponse>,
+    /// Optional visitor specification for visitor pattern tests.
+    #[serde(default)]
+    pub visitor: Option<VisitorSpec>,
+    /// List of assertions to check.
+    #[serde(default)]
+    pub assertions: Vec<Assertion>,
+    /// Source file path (populated during loading).
+    #[serde(skip)]
+    pub source: String,
+    /// HTTP server test specification. When present, this fixture tests
+    /// an HTTP handler rather than a function call.
+    #[serde(default)]
+    pub http: Option<HttpFixture>,
+}
+
+/// HTTP server test specification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpFixture {
+    /// Handler/route definition.
+    pub handler: HttpHandler,
+    /// The HTTP request to send.
+    pub request: HttpRequest,
+    /// Expected response.
+    pub expected_response: HttpExpectedResponse,
+}
+
+/// Handler/route definition for HTTP server tests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpHandler {
+    /// Route pattern (e.g., "/users/{user_id}").
+    pub route: String,
+    /// HTTP method (GET, POST, PUT, etc.).
+    pub method: String,
+    /// JSON Schema for request body validation.
+    #[serde(default)]
+    pub body_schema: Option<serde_json::Value>,
+    /// Parameter schemas by source (path, query, header, cookie).
+    #[serde(default)]
+    pub parameters: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    /// Middleware configuration.
+    #[serde(default)]
+    pub middleware: Option<HttpMiddleware>,
+}
+
+/// HTTP request to send in a server test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpRequest {
+    pub method: String,
+    pub path: String,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub query_params: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub cookies: BTreeMap<String, String>,
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+/// Expected HTTP response specification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpExpectedResponse {
+    pub status_code: u16,
+    /// Exact body match.
+    #[serde(default)]
+    pub body: Option<serde_json::Value>,
+    /// Partial body match (only check specified fields).
+    #[serde(default)]
+    pub body_partial: Option<serde_json::Value>,
+    /// Header expectations. Special tokens: `<<uuid>>`, `<<present>>`, `<<absent>>`.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    /// Expected validation errors (for 422 responses).
+    #[serde(default)]
+    pub validation_errors: Option<Vec<ValidationErrorExpectation>>,
+}
+
+/// Expected validation error entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationErrorExpectation {
+    pub loc: Vec<String>,
+    pub msg: String,
+    #[serde(rename = "type")]
+    pub error_type: String,
+}
+
+/// CORS policy configuration for HTTP handler tests.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CorsConfig {
+    /// Allowed origins (e.g. `["https://example.com"]`). Empty means deny all.
+    #[serde(default)]
+    pub allow_origins: Vec<String>,
+    /// Allowed HTTP methods (e.g. `["GET", "POST"]`). Empty means deny all.
+    #[serde(default)]
+    pub allow_methods: Vec<String>,
+    /// Allowed request headers (e.g. `["Content-Type"]`). Empty means deny all.
+    #[serde(default)]
+    pub allow_headers: Vec<String>,
+    /// Exposed response headers (e.g. `["X-Total-Count"]`).
+    #[serde(default)]
+    pub expose_headers: Vec<String>,
+    /// `Access-Control-Max-Age` value in seconds.
+    #[serde(default)]
+    pub max_age: Option<u64>,
+    /// Whether to allow credentials.
+    #[serde(default)]
+    pub allow_credentials: bool,
+}
+
+/// A single static file entry for the static-files middleware.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticFile {
+    /// Relative path within the served directory (e.g. `"hello.txt"`).
+    pub path: String,
+    /// File content (plain text or HTML string).
+    pub content: String,
+}
+
+/// Static-files middleware configuration for HTTP handler tests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticFilesConfig {
+    /// URL route prefix (e.g. `"/public"`).
+    pub route_prefix: String,
+    /// Files to write to the temporary directory.
+    #[serde(default)]
+    pub files: Vec<StaticFile>,
+    /// Whether to serve `index.html` for directory requests.
+    #[serde(default)]
+    pub index_file: bool,
+    /// `Cache-Control` header value to apply.
+    #[serde(default)]
+    pub cache_control: Option<String>,
+}
+
+/// Middleware configuration for HTTP handler tests.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HttpMiddleware {
+    #[serde(default)]
+    pub jwt_auth: Option<serde_json::Value>,
+    #[serde(default)]
+    pub api_key_auth: Option<serde_json::Value>,
+    #[serde(default)]
+    pub compression: Option<serde_json::Value>,
+    #[serde(default)]
+    pub rate_limit: Option<serde_json::Value>,
+    #[serde(default)]
+    pub request_timeout: Option<serde_json::Value>,
+    #[serde(default)]
+    pub request_id: Option<serde_json::Value>,
+    /// CORS policy to apply via tower-http `CorsLayer`.
+    #[serde(default)]
+    pub cors: Option<CorsConfig>,
+    /// Static-files configuration to serve via tower-http `ServeDir`.
+    #[serde(default)]
+    pub static_files: Option<Vec<StaticFilesConfig>>,
+}
+
+/// Returns true for paths that the crawler fetches from the host root rather than under a
+/// fixture-namespaced prefix.  Mirrors the identical predicate in the standalone mock-server
+/// binary (`codegen/rust/mock_server.rs`).
+fn is_host_root_path(path: &str) -> bool {
+    path.starts_with("/robots") || path.starts_with("/sitemap")
+}
+
+impl Fixture {
+    /// Returns true if this is an HTTP server test fixture.
+    pub fn is_http_test(&self) -> bool {
+        self.http.is_some()
+    }
+
+    /// Returns true if this fixture requires a mock HTTP server.
+    /// This is true when either `mock_response` (liter-llm shape),
+    /// `http.expected_response` (consumer shape), or the kreuzcrawl-style
+    /// `input.mock_responses` array is non-empty.
+    pub fn needs_mock_server(&self) -> bool {
+        if self.mock_response.is_some() || self.http.is_some() {
+            return true;
+        }
+        // kreuzcrawl-style: input.mock_responses array with at least one entry
+        self.input
+            .get("mock_responses")
+            .and_then(|v| v.as_array())
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Returns the effective mock response for this fixture, bridging both schemas:
+    /// - liter-llm shape: `mock_response: { status, body, stream_chunks }`
+    /// - consumer shape: `http.expected_response: { status_code, body, headers }`
+    ///
+    /// Returns `None` if neither schema is present.
+    pub fn as_mock_response(&self) -> Option<MockResponse> {
+        if let Some(mock) = &self.mock_response {
+            return Some(mock.clone());
+        }
+        if let Some(http) = &self.http {
+            return Some(MockResponse {
+                status: http.expected_response.status_code,
+                body: http.expected_response.body.clone(),
+                stream_chunks: None,
+                headers: http.expected_response.headers.clone(),
+            });
+        }
+        None
+    }
+
+    /// Returns true if the mock response uses streaming (SSE).
+    pub fn is_streaming_mock(&self) -> bool {
+        self.mock_response
+            .as_ref()
+            .and_then(|m| m.stream_chunks.as_ref())
+            .map(|c| !c.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Returns true if any of this fixture's mock response paths are host-root paths —
+    /// i.e. paths the crawler fetches from the host root rather than under a
+    /// fixture-namespaced prefix.  Mirrors the `is_host_root_path` predicate in the
+    /// standalone mock-server binary (`codegen/rust/mock_server.rs`).
+    ///
+    /// Host-root fixtures get a dedicated per-fixture listener and their base URL is
+    /// published in the `MOCK_SERVERS={"fixture_id":"http://..."}` JSON line.
+    pub fn has_host_root_route(&self) -> bool {
+        // Array schema: input.mock_responses[*].path
+        if let Some(arr) = self.input.get("mock_responses").and_then(|v| v.as_array()) {
+            // Direct host-root paths (/robots*, /sitemap*).
+            if arr.iter().any(|entry| {
+                entry
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(is_host_root_path)
+                    .unwrap_or(false)
+            }) {
+                return true;
+            }
+            // Any response that triggers an intra-fixture redirect to a host-root path:
+            // the engine resolves the redirect target against the origin (not the
+            // /fixtures/<id>/ namespace), so the fixture must serve at host root for the
+            // follow-up GET to hit the correct route. Three trigger shapes are detected:
+            //   - 3xx with Location: /...
+            //   - any status with Refresh: <s>;url=/...
+            //   - 200 HTML with <meta http-equiv="refresh" content="...url=/...">
+            return arr.iter().any(|entry| {
+                let status = entry.get("status_code").and_then(|v| v.as_u64()).unwrap_or(0);
+                let headers = entry.get("headers").and_then(|v| v.as_object());
+                let location_redirect = (300..400).contains(&status)
+                    && headers
+                        .map(|hdrs| {
+                            hdrs.iter().any(|(name, value)| {
+                                name.eq_ignore_ascii_case("location")
+                                    && value.as_str().is_some_and(|s| s.starts_with('/'))
+                            })
+                        })
+                        .unwrap_or(false);
+                let refresh_redirect = headers
+                    .map(|hdrs| {
+                        hdrs.iter().any(|(name, value)| {
+                            if !name.eq_ignore_ascii_case("refresh") {
+                                return false;
+                            }
+                            value
+                                .as_str()
+                                .and_then(|s| s.to_ascii_lowercase().find("url=").map(|i| (s.to_owned(), i)))
+                                .map(|(s, idx)| s[idx + 4..].trim_start().starts_with('/'))
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false);
+                let meta_refresh = entry
+                    .get("body_inline")
+                    .and_then(|v| v.as_str())
+                    .map(|body| {
+                        let lower = body.to_ascii_lowercase();
+                        lower
+                            .split("http-equiv=\"refresh\"")
+                            .nth(1)
+                            .and_then(|s| s.split("content=").nth(1))
+                            .map(|s| s.trim_start_matches(['"', '\'']).contains("url=/"))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                // Inline HTML anchor with host-absolute target (`<a href="/page1">`)
+                // — same trigger as the runtime mock-server `has_inline_host_link`
+                // detection.  Without this, language-specific e2e codegens for
+                // multi-page crawl fixtures emit the shared `/fixtures/<id>/` URL
+                // and the crawl engine then resolves linked `/page` paths against
+                // the host root, 404'ing against the namespaced shared listener.
+                let inline_host_link = entry
+                    .get("body_inline")
+                    .and_then(|v| v.as_str())
+                    .map(|body| body.contains("href=\"/") || body.contains("href='/"))
+                    .unwrap_or(false);
+                location_redirect || refresh_redirect || meta_refresh || inline_host_link
+            });
+        }
+        false
+    }
+
+    /// Get the resolved category (explicit or from source directory).
+    pub fn resolved_category(&self) -> String {
+        self.category.clone().unwrap_or_else(|| {
+            Path::new(&self.source)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("default")
+                .to_string()
+        })
+    }
+}
+
+/// Skip directive for conditionally excluding fixtures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkipDirective {
+    /// Languages to skip (empty means skip all).
+    #[serde(default)]
+    pub languages: Vec<String>,
+    /// Human-readable reason for skipping.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+impl SkipDirective {
+    /// Check if this fixture should be skipped for a given language.
+    pub fn should_skip(&self, language: &str) -> bool {
+        self.languages.is_empty() || self.languages.iter().any(|l| l == language)
+    }
+}
+
+/// A single assertion in a fixture.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Assertion {
+    /// Assertion type (equals, contains, not_empty, error, etc.).
+    #[serde(rename = "type")]
+    pub assertion_type: String,
+    /// Field path to access on the result (dot-separated).
+    #[serde(default)]
+    pub field: Option<String>,
+    /// Expected value (string, number, bool, or array depending on type).
+    #[serde(default)]
+    pub value: Option<serde_json::Value>,
+    /// Expected values (for contains_all, contains_any).
+    #[serde(default)]
+    pub values: Option<Vec<serde_json::Value>>,
+    /// Method name to call on the result (for method_result assertions).
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Assertion check type for the method result (equals, is_true, is_false, greater_than_or_equal, count_min).
+    #[serde(default)]
+    pub check: Option<String>,
+    /// Arguments to pass to the method call (for method_result assertions).
+    #[serde(default)]
+    pub args: Option<serde_json::Value>,
+    /// Return type hint for C method_result codegen.
+    ///
+    /// Supported values:
+    /// - `"string"` — the method returns a heap-allocated `char*` that must be
+    ///   freed with `free()` after the assertion.  The generator emits
+    ///   `char* _r = call(); assert(...); free(_r);`.
+    ///
+    /// Defaults to primitive integer dispatch when absent.
+    #[serde(default)]
+    pub return_type: Option<String>,
+}
+
+/// A group of fixtures sharing the same category.
+#[derive(Debug, Clone)]
+pub struct FixtureGroup {
+    pub category: String,
+    pub fixtures: Vec<Fixture>,
+}
+
+/// Load all fixtures from a directory recursively.
+pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>> {
+    let mut fixtures = Vec::new();
+    load_fixtures_recursive(dir, dir, &mut fixtures)?;
+
+    // Validate: check for duplicate IDs
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for f in &fixtures {
+        if let Some(prev_source) = seen.get(&f.id) {
+            bail!(
+                "duplicate fixture ID '{}': found in '{}' and '{}'",
+                f.id,
+                prev_source,
+                f.source
+            );
+        }
+        seen.insert(f.id.clone(), f.source.clone());
+    }
+
+    // Sort by (category, id) for deterministic output
+    fixtures.sort_by(|a, b| {
+        let cat_cmp = a.resolved_category().cmp(&b.resolved_category());
+        cat_cmp.then_with(|| a.id.cmp(&b.id))
+    });
+
+    Ok(fixtures)
+}
+
+fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>) -> Result<()> {
+    let entries =
+        std::fs::read_dir(dir).with_context(|| format!("failed to read fixture directory: {}", dir.display()))?;
+
+    let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    paths.sort();
+
+    for path in paths {
+        if path.is_dir() {
+            load_fixtures_recursive(base, &path, fixtures)?;
+        } else if path.extension().is_some_and(|ext| ext == "json") {
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Skip schema files and files starting with _
+            if filename == "schema.json" || filename.starts_with('_') {
+                continue;
+            }
+            let content = std::fs::read_to_string(&path)
+                .with_context(|| format!("failed to read fixture: {}", path.display()))?;
+            let relative = path.strip_prefix(base).unwrap_or(&path).to_string_lossy().to_string();
+
+            // Try parsing as array first, then as single fixture
+            let parsed: Vec<Fixture> = if content.trim_start().starts_with('[') {
+                serde_json::from_str(&content)
+                    .with_context(|| format!("failed to parse fixture array: {}", path.display()))?
+            } else {
+                let single: Fixture = serde_json::from_str(&content)
+                    .with_context(|| format!("failed to parse fixture: {}", path.display()))?;
+                vec![single]
+            };
+
+            for mut fixture in parsed {
+                fixture.source = relative.clone();
+                // Expand template expressions (e.g. `{{ repeat 'x' 10000 times }}`)
+                // in all JSON string values so generators emit the expanded values.
+                expand_json_templates(&mut fixture.input);
+                if let Some(ref mut http) = fixture.http {
+                    for (_, v) in http.request.headers.iter_mut() {
+                        *v = crate::e2e::escape::expand_fixture_templates(v);
+                    }
+                    if let Some(ref mut body) = http.request.body {
+                        expand_json_templates(body);
+                    }
+                }
+                normalize_assertions(&mut fixture);
+                fixtures.push(fixture);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Group fixtures by their resolved category.
+pub fn group_fixtures(fixtures: &[Fixture]) -> Vec<FixtureGroup> {
+    let mut groups: HashMap<String, Vec<Fixture>> = HashMap::new();
+    for f in fixtures {
+        groups.entry(f.resolved_category()).or_default().push(f.clone());
+    }
+    let mut result: Vec<FixtureGroup> = groups
+        .into_iter()
+        .map(|(category, fixtures)| FixtureGroup { category, fixtures })
+        .collect();
+    result.sort_by(|a, b| a.category.cmp(&b.category));
+    result
+}
+
+/// Normalize alias-style assertion fields that are not direct struct-field
+/// accesses on the call's result type but have well-defined semantic meanings.
+///
+/// Currently rewrites:
+/// - `pages_crawled` (with optional `crawl.` namespace prefix) → `count_equals`
+///   on the `pages` field. Semantically "the crawl produced N pages", which
+///   maps to `len(result.pages) == N` when the call's `result_fields` contain
+///   `pages` (i.e. the call returns a `CrawlResult`-shaped value).
+/// - `min_pages` (with optional `crawl.` namespace prefix) → `count_min` on the
+///   `pages` field. Used with `greater_than_or_equal` to assert a lower bound on
+///   the number of pages crawled.
+///
+/// This rewrite operates on the assertion *before* per-language codegen, so
+/// every backend benefits without per-backend changes. When the call's
+/// `result_fields` do not contain `pages`, the rewritten assertion falls
+/// through to the standard `is_valid_for_result` skip path, just like any
+/// other field that does not exist on the result type.
+fn normalize_assertions(fixture: &mut Fixture) {
+    for assertion in fixture.assertions.iter_mut() {
+        let Some(field) = assertion.field.as_deref() else {
+            continue;
+        };
+        // Tolerate both the bare alias and a `crawl.` namespace prefix that
+        // fixtures commonly use to group crawl-related assertions.
+        let bare = field.strip_prefix("crawl.").unwrap_or(field);
+        match bare {
+            "pages_crawled" => {
+                assertion.field = Some("pages".to_string());
+                match assertion.assertion_type.as_str() {
+                    "equals" => assertion.assertion_type = "count_equals".to_string(),
+                    "greater_than_or_equal" => assertion.assertion_type = "count_min".to_string(),
+                    "less_than_or_equal" => assertion.assertion_type = "count_max".to_string(),
+                    _ => {}
+                }
+            }
+            "min_pages" => {
+                assertion.field = Some("pages".to_string());
+                if assertion.assertion_type == "greater_than_or_equal" {
+                    assertion.assertion_type = "count_min".to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Recursively expand fixture template expressions in all string values of a JSON tree.
+fn expand_json_templates(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(s) => {
+            let expanded = crate::e2e::escape::expand_fixture_templates(s);
+            if expanded != *s {
+                *s = expanded;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                expand_json_templates(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                expand_json_templates(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fixture_with_mock_response() {
+        let json = r#"{
+            "id": "test_chat",
+            "description": "Test chat",
+            "call": "chat",
+            "input": {"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+            "mock_response": {
+                "status": 200,
+                "body": {"choices": [{"message": {"content": "hello"}}]}
+            },
+            "assertions": [{"type": "not_error"}]
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.needs_mock_server());
+        assert!(!fixture.is_streaming_mock());
+        assert_eq!(fixture.mock_response.unwrap().status, 200);
+    }
+
+    #[test]
+    fn test_fixture_with_streaming_mock_response() {
+        let json = r#"{
+            "id": "test_stream",
+            "description": "Test streaming",
+            "input": {},
+            "mock_response": {
+                "status": 200,
+                "stream_chunks": [{"delta": "hello"}, {"delta": " world"}]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.needs_mock_server());
+        assert!(fixture.is_streaming_mock());
+    }
+
+    fn make_fixture_with_assertion(assertion_json: &str) -> Fixture {
+        let json = format!(
+            r#"{{
+                "id": "x",
+                "description": "x",
+                "input": {{}},
+                "assertions": [{assertion_json}]
+            }}"#,
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_pages_crawled_to_count_equals_on_pages() {
+        let mut fixture =
+            make_fixture_with_assertion(r#"{"type": "equals", "field": "crawl.pages_crawled", "value": 3}"#);
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_bare_pages_crawled() {
+        let mut fixture = make_fixture_with_assertion(r#"{"type": "equals", "field": "pages_crawled", "value": 5}"#);
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_pages_crawled_gte_to_count_min() {
+        let mut fixture = make_fixture_with_assertion(
+            r#"{"type": "greater_than_or_equal", "field": "crawl.pages_crawled", "value": 3}"#,
+        );
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_min");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_pages_crawled_lte_to_count_max() {
+        let mut fixture = make_fixture_with_assertion(
+            r#"{"type": "less_than_or_equal", "field": "crawl.pages_crawled", "value": 7}"#,
+        );
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_max");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_rewrites_min_pages_to_count_min_on_pages() {
+        let mut fixture =
+            make_fixture_with_assertion(r#"{"type": "greater_than_or_equal", "field": "crawl.min_pages", "value": 2}"#);
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "count_min");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("pages"));
+    }
+
+    #[test]
+    fn normalize_assertions_leaves_unrelated_fields_unchanged() {
+        let mut fixture = make_fixture_with_assertion(r#"{"type": "equals", "field": "content", "value": "hi"}"#);
+        normalize_assertions(&mut fixture);
+        assert_eq!(fixture.assertions[0].assertion_type, "equals");
+        assert_eq!(fixture.assertions[0].field.as_deref(), Some("content"));
+    }
+
+    #[test]
+    fn test_fixture_without_mock_response() {
+        let json = r#"{
+            "id": "test_no_mock",
+            "description": "No mock",
+            "input": {},
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(!fixture.needs_mock_server());
+        assert!(!fixture.is_streaming_mock());
+    }
+
+    #[test]
+    fn has_host_root_route_true_for_robots_path() {
+        let json = r#"{
+            "id": "robots_disallow_path",
+            "description": "Robots fixture",
+            "input": {
+                "mock_responses": [
+                    {"path": "/robots.txt", "status_code": 200, "body_inline": "User-agent: *\nDisallow: /"},
+                    {"path": "/", "status_code": 200, "body_inline": "<html/>"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.has_host_root_route(), "expected true for /robots.txt path");
+    }
+
+    #[test]
+    fn has_host_root_route_true_for_sitemap_path() {
+        let json = r#"{
+            "id": "sitemap_index",
+            "description": "Sitemap fixture",
+            "input": {
+                "mock_responses": [
+                    {"path": "/sitemap.xml", "status_code": 200, "body_inline": "<?xml version='1.0'?>"},
+                    {"path": "/", "status_code": 200, "body_inline": "<html/>"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(fixture.has_host_root_route(), "expected true for /sitemap.xml path");
+    }
+
+    #[test]
+    fn has_host_root_route_false_for_data_json_path() {
+        let json = r#"{
+            "id": "data_endpoint",
+            "description": "Non-host-root fixture",
+            "input": {
+                "mock_responses": [
+                    {"path": "/data.json", "status_code": 200, "body_inline": "{}"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(!fixture.has_host_root_route(), "expected false for /data.json path");
+    }
+
+    #[test]
+    fn has_host_root_route_false_for_single_mock_response_schema() {
+        // Single mock_response schema (no input.mock_responses array) is never host-root.
+        let json = r#"{
+            "id": "basic_chat",
+            "description": "Basic chat",
+            "mock_response": {"status": 200, "body": {}},
+            "input": {},
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(
+            !fixture.has_host_root_route(),
+            "expected false for single mock_response schema"
+        );
+    }
+
+    #[test]
+    fn has_host_root_route_false_for_empty_mock_responses() {
+        let json = r#"{
+            "id": "empty_responses",
+            "description": "No mock_responses",
+            "input": {},
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(!fixture.has_host_root_route(), "expected false when no mock_responses");
+    }
+}
