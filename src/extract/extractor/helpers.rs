@@ -763,9 +763,11 @@ pub(crate) fn has_serde_default(attrs: &[syn::Attribute]) -> bool {
         if !attr_str.contains("serde") {
             return false;
         }
-        // Look for standalone `default` (not `default = "..."`).
-        // We want `default` as a boundary word, not part of `default_` or `use_default`.
-        attr_str.contains("default ,")
+        // Look for `default` keyword: both bare `#[serde(default)]` and
+        // `#[serde(default = "...")]` variants. Match `default` as a boundary word,
+        // not part of `default_` or `use_default`.
+        attr_str.contains("default =")
+            || attr_str.contains("default ,")
             || attr_str.contains("default,")
             || attr_str.contains("default )")
             || attr_str.contains("default)")
