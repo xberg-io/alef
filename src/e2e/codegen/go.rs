@@ -814,6 +814,16 @@ fn render_test_file(
         }
     }
     let needs_assert = body.contains("assert.");
+    // `strings` is used by the rendered body in ways the up-front heuristic does not fully
+    // capture — notably `strings.NewReader(...)` for every HTTP request body. Detect it
+    // empirically from the rendered code (like `assert`) so the import always matches the
+    // emitted usage and never goes missing (compile error) or unused (compile error).
+    let needs_strings = needs_strings || body.contains("strings.");
+    // The binding package is only referenced when the rendered body actually calls into it
+    // (typed body deserialization, visitor structs, direct callable fixtures). Pure HTTP
+    // status/header tests never touch it, so confirm usage empirically to avoid an
+    // "imported and not used" compile error on those files.
+    let needs_pkg = needs_pkg && body.contains(&format!("{import_alias}."));
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "package e2e_test");

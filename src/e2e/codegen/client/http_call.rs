@@ -54,7 +54,24 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
     }
 
     let response_var = DEFAULT_RESPONSE_VAR;
-    let ctx = CallCtx::from_request(&http.request, response_var);
+    // The alef mock server registers every fixture's recorded response under the namespaced
+    // default route `/fixtures/<id>` (see the mock-server `as_routes` logic), independent of
+    // the fixture's original `request.path`. Raw paths like `/items/` are intentionally not
+    // exposed on the shared server (they collide across fixtures), so the client must hit the
+    // namespaced route — exactly like the python/node/rust generators do — or every request
+    // 404s. Build the CallCtx manually so the namespaced path borrow lives long enough.
+    let namespaced_path = format!("/fixtures/{}", fixture.id);
+    let req = &http.request;
+    let ctx = CallCtx {
+        method: req.method.as_str(),
+        path: &namespaced_path,
+        headers: &req.headers,
+        query_params: &req.query_params,
+        cookies: &req.cookies,
+        body: req.body.as_ref(),
+        content_type: req.content_type.as_deref(),
+        response_var,
+    };
     renderer.render_call(out, &ctx);
 
     renderer.render_assert_status(out, response_var, http.expected_response.status_code);

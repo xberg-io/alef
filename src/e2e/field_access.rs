@@ -587,6 +587,16 @@ impl FieldResolver {
     /// when the first segment already matches a result field or when stripping it
     /// would leave an empty string.
     pub fn namespace_stripped_path<'a>(&self, path: &'a str) -> Option<&'a str> {
+        // When the consumer hasn't configured `result_fields`, there is no way
+        // to tell a virtual namespace prefix (e.g. `interaction.action_results`)
+        // from a real nested-struct field path (e.g. `metrics.total_lines`).
+        // Defaulting to "strip" was lossy — every dotted field path was reduced
+        // to its leaf segment, so backends (notably the C e2e codegen) emitted
+        // accessors against the wrong parent type. Opt the stripping in only
+        // when the consumer explicitly listed the top-level result fields.
+        if self.result_fields.is_empty() {
+            return None;
+        }
         let dot_pos = path.find('.')?;
         let first = &path[..dot_pos];
         // Only strip if the first segment contains no brackets (i.e. is a bare
@@ -2995,5 +3005,19 @@ mod tests {
             r.accessor("metadata.title", "python", "result"),
             "result.metadata.title"
         );
+    }
+
+    /// When `result_fields` is empty, `namespace_stripped_path` must return
+    /// `None` so dotted field paths like `metrics.total_lines` survive intact
+    /// for backends that navigate the path segment-by-segment (e.g. C). Prior
+    /// behaviour stripped unconditionally, collapsing every dotted path to its
+    /// leaf — the C codegen then emitted `<root>_<leaf>` accessors against the
+    /// wrong parent type (e.g. `ts_pack_process_result_total_lines(result)`
+    /// instead of `ts_pack_file_metrics_total_lines(metrics)`).
+    #[test]
+    fn namespace_stripped_path_returns_none_when_result_fields_empty() {
+        let r = make_resolver_with_result_fields(&[]);
+        assert_eq!(r.namespace_stripped_path("metrics.total_lines"), None);
+        assert_eq!(r.namespace_stripped_path("anything.deeply.nested.path"), None);
     }
 }

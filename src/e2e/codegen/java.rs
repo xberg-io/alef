@@ -858,7 +858,13 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    format!("{}={}", k, escape_java(&val_str))
+                    // Percent-encode so values with spaces/reserved characters yield a valid
+                    // URI literal (java.net.URI.create rejects raw spaces).
+                    format!(
+                        "{}={}",
+                        super::percent_encode_query(k),
+                        super::percent_encode_query(&val_str)
+                    )
                 })
                 .collect();
             format!("{}?{}", ctx.path, pairs.join("&"))

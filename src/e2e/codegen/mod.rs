@@ -80,10 +80,34 @@ pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_conf
     if call_config.skip_languages.iter().any(|l| l == language) {
         return false;
     }
-    if call_config.function.is_empty() && !call_config.overrides.contains_key(language) {
+    // HTTP/mock fixtures are exercised by issuing a request to the alef mock server
+    // (`MOCK_SERVER_URL/fixtures/<id>`), not by invoking a binding function, so they are
+    // includable even when no call `function` is resolved for the language. Function-call
+    // consumers (fixtures without `mock_response`/`http`) still require a resolved function
+    // or a per-language override, leaving their behaviour unchanged.
+    let is_http_fixture = fixture.mock_response.is_some() || fixture.http.is_some();
+    if !is_http_fixture && call_config.function.is_empty() && !call_config.overrides.contains_key(language) {
         return false;
     }
     true
+}
+
+/// Percent-encode a string for use as a URI query component per RFC 3986.
+///
+/// Only the unreserved set (`ALPHA / DIGIT / "-" / "." / "_" / "~"`) is left
+/// literal; every other byte (spaces, `?`, `&`, `=`, non-ASCII, …) is `%XX`-escaped.
+/// Used by per-language e2e generators that embed query parameters into a request URL
+/// literal — without this, values like `hi there` produce an invalid URI and the
+/// generated test throws at parse time instead of exercising the fixture.
+pub(crate) fn percent_encode_query(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for &byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => out.push(byte as char),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 /// Recursively rewrite a JSON value's object keys to the target wire case.

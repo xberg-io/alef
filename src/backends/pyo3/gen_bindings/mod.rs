@@ -63,6 +63,38 @@ impl Pyo3Backend {
     }
 }
 
+/// Whether a `#[cfg(...)]` predicate is satisfied for PyO3 bindings.
+///
+/// PyO3 bindings always compile for native CPython (never WASM), so we can include
+/// cfg-gated fields in constructor signatures if either:
+/// - The field is gated on `not(target_arch = "wasm32")` (always present on native)
+/// - The field is gated on a feature (statically enabled when kompiling pyo3 module)
+///
+/// This is safe because the PyO3 compilation unit is directly controlled by the
+/// binding's `Cargo.toml` (kreuzberg-py), which explicitly lists all features
+/// like `pdf`, `html`, `tree-sitter`, etc. Unlike FFI-based bindings that link
+/// against a separately-compiled core library, pyo3 builds the core with known
+/// features, so feature gates are deterministic at binding-compilation time.
+fn cfg_present_for_pyo3(cfg: &str) -> bool {
+    let normalized: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
+    // Accept `not(target_arch="wasm32")` — always true on native Python
+    if normalized == "not(target_arch=\"wasm32\")" {
+        return true;
+    }
+    // Accept feature gates — pyo3 features are statically enabled/disabled
+    if normalized.starts_with("feature=") {
+        return true;
+    }
+    // Accept `any(...)` containing only feature gates and native-target gates
+    if normalized.starts_with("any(") && normalized.ends_with(")") {
+        let inner = &normalized[4..normalized.len() - 1];
+        return inner
+            .split(',')
+            .all(|part| part.starts_with("feature=") || part == "not(target_arch=\"wasm32\")");
+    }
+    false
+}
+
 /// Replace the constructor in an impl block with one that honors serde_rename.
 /// For has_default types, the constructor parameters should use serde_rename names
 /// (the JSON wire names) to match other language bindings' public APIs.
@@ -592,19 +624,23 @@ impl Backend for Pyo3Backend {
                 }
             })
             .collect();
-        // Force-restore cfg-gated fields only for types where the Rust struct is compiled
-        // with ALL fields present (has_stripped_cfg_fields = false). When the struct has had
-        // its cfg-gated fields stripped from the compilation unit, those fields cannot be
-        // constructor parameters — the generated code would pass arguments that don't exist
-        // in the Rust struct and fail to compile. Types with has_stripped_cfg_fields = true
-        // should instead use `None`/`Default::default()` in the struct literal for cfg fields.
-        for typ in api
-            .types
-            .iter()
-            .filter(|t| t.has_default && !t.is_trait && !t.has_stripped_cfg_fields)
-        {
+        // Force-restore cfg-gated fields into the constructor when they are present in this
+        // binding's compilation unit, so the generated api.py can pass them as kwargs without
+        // a runtime TypeError. A field is restored when either:
+        //   * the type has no stripped cfg fields at all (every field is unconditionally
+        //     compiled in), or
+        //   * the field's own cfg predicate holds on a native target — pyo3 always targets a
+        //     native CPython host, so `not(target_arch = "wasm32")` fields are always present.
+        // Feature gates and other predicates we cannot prove are left out (conservative): the
+        // crate may be built without that feature, so the field stays defaulted in the struct
+        // literal instead of becoming a parameter that fails to compile.
+        for typ in api.types.iter().filter(|t| t.has_default && !t.is_trait) {
             for field in binding_fields(&typ.fields) {
-                if field.cfg.is_some() && !never_skip_cfg_field_names.contains(&field.name) {
+                let Some(cfg) = field.cfg.as_deref() else {
+                    continue;
+                };
+                let present = !typ.has_stripped_cfg_fields || cfg_present_for_pyo3(cfg);
+                if present && !never_skip_cfg_field_names.contains(&field.name) {
                     never_skip_cfg_field_names.push(field.name.clone());
                 }
             }
@@ -1842,7 +1878,9 @@ fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Pyo3Backend, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct};
+    use super::{
+        Pyo3Backend, cfg_present_for_pyo3, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct,
+    };
     use crate::core::backend::Backend;
     use crate::core::config::Language;
 
@@ -1900,5 +1938,29 @@ mod tests {
         );
         let result = rewrite_to_tokio_mutex_impl(input);
         assert_eq!(result, input);
+    }
+
+    /// `cfg_present_for_pyo3` accepts `not(target_arch = "wasm32")` gates.
+    #[test]
+    fn cfg_present_for_pyo3_accepts_non_wasm_gate() {
+        assert!(cfg_present_for_pyo3("not(target_arch = \"wasm32\")"));
+        assert!(cfg_present_for_pyo3("not (target_arch = \"wasm32\")"));
+    }
+
+    /// `cfg_present_for_pyo3` accepts feature gates since pyo3 compiles with known features.
+    #[test]
+    fn cfg_present_for_pyo3_accepts_feature_gates() {
+        assert!(cfg_present_for_pyo3("feature = \"pdf\""));
+        assert!(cfg_present_for_pyo3("feature = \"html\""));
+        assert!(cfg_present_for_pyo3("feature=\"tree-sitter\""));
+        assert!(cfg_present_for_pyo3("any(feature=\"keywords-yake\", feature=\"keywords-rake\")"));
+    }
+
+    /// `cfg_present_for_pyo3` rejects unsupported gates.
+    #[test]
+    fn cfg_present_for_pyo3_rejects_unsupported_gates() {
+        assert!(!cfg_present_for_pyo3("target_arch = \"wasm32\""));
+        assert!(!cfg_present_for_pyo3("any(unix, windows)"));
+        assert!(!cfg_present_for_pyo3("any(unix, feature=\"pdf\")"));
     }
 }

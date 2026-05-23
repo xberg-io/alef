@@ -5250,10 +5250,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
                 name: "ConversionOptions".to_string(),
                 rust_path: "test_lib::ConversionOptions".to_string(),
                 original_rust_path: String::new(),
-                fields: vec![
-                    make_field("format", TypeRef::String, false),
-                    visitor_field,
-                ],
+                fields: vec![make_field("format", TypeRef::String, false), visitor_field],
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,

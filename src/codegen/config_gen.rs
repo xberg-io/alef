@@ -596,7 +596,6 @@ fn field_is_optional_in_rust(field: &FieldDef) -> bool {
     field.optional || matches!(&field.ty, TypeRef::Optional(_))
 }
 
-
 /// Generate a PHP kwargs constructor for a type with `has_default`.
 /// All fields become `Option<T>` parameters so PHP users can omit any field.
 /// Assignments wrap non-Optional fields in `Some()` and apply defaults.
@@ -2354,5 +2353,4 @@ mod tests {
             "hash constructor should call inner-type::try_convert, not Option<T>::try_convert: {output}"
         );
     }
-
 }

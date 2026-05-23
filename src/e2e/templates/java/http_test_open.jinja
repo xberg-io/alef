@@ -13,6 +13,9 @@
 {%- else %}
     void test{{ fn_name }}() throws Exception {
         // {{ description }}
-        String baseUrl = System.getenv("MOCK_SERVER_URL");
+        // MockServerListener spawns the mock-server and publishes its URL as the
+        // `mockServerUrl` system property (the JVM cannot set its own env vars); prefer it,
+        // then an externally exported MOCK_SERVER_URL, then the default dev port.
+        String baseUrl = System.getProperty("mockServerUrl", System.getenv("MOCK_SERVER_URL"));
         if (baseUrl == null) baseUrl = "http://localhost:8080";
 {%- endif %}

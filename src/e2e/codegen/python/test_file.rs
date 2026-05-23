@@ -25,7 +25,10 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let options_type = resolve_options_type(e2e_config);
     let options_via = resolve_options_via(e2e_config);
 
-    // Prefer the global override; fall back to the first fixture's per-call override.
+    // Prefer the global python override; fall back to the first fixture's per-call
+    // python override; then the call-level binding-agnostic `options_type`
+    // (`[e2e.call] options_type` or `[e2e.calls.<name>] options_type`), which is
+    // identical across every binding when the config-class name doesn't differ per language.
     let effective_options_type: Option<String> = options_type.clone().or_else(|| {
         fixtures.iter().find_map(|f| {
             let cc = e2e_config.resolve_call_for_fixture(
@@ -35,7 +38,10 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
                 &f.tags,
                 &f.input,
             );
-            cc.overrides.get("python").and_then(|o| o.options_type.clone())
+            cc.overrides
+                .get("python")
+                .and_then(|o| o.options_type.clone())
+                .or_else(|| cc.options_type.clone())
         })
     });
     let effective_options_via: &str = if options_via != "kwargs" {
