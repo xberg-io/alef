@@ -472,12 +472,18 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         let headers_arg = if ctx.headers.is_empty() { "&.{}" } else { "&headers" };
         let has_body = ctx.body.is_some();
 
+        // zig 0.16: std.http.Client requires an `io: Io` (the new std.Io abstraction), and
+        // the response body is captured through a std.Io.Writer rather than the removed
+        // `response_storage`/ArrayList API. A blocking `Io.Threaded` instance backs the client.
+        let _ = writeln!(out, "    var threaded = std.Io.Threaded.init(allocator, .{{}});");
+        let _ = writeln!(out, "    defer threaded.deinit();");
+        let _ = writeln!(out, "    const io = threaded.io();");
         let _ = writeln!(
             out,
-            "    var http_client = std.http.Client{{ .allocator = allocator }};"
+            "    var http_client = std.http.Client{{ .allocator = allocator, .io = io }};"
         );
         let _ = writeln!(out, "    defer http_client.deinit();");
-        let _ = writeln!(out, "    var response_body = std.ArrayList(u8).init(allocator);");
+        let _ = writeln!(out, "    var response_body = std.Io.Writer.Allocating.init(allocator);");
         let _ = writeln!(out, "    defer response_body.deinit();");
 
         let method_zig = match method.as_str() {
@@ -494,7 +500,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         let payload_field = if has_body { ", .payload = body_bytes" } else { "" };
         let _ = writeln!(
             out,
-            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .response_storage = .{{ .dynamic = &response_body }} }});",
+            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .response_writer = &response_body.writer }});",
             rv = ctx.response_var,
         );
     }
@@ -542,7 +548,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         let escaped = escape_zig(&json_str);
         let _ = writeln!(
             out,
-            "    try testing.expectEqualStrings(\"{escaped}\", response_body.items);"
+            "    try testing.expectEqualStrings(\"{escaped}\", response_body.written());"
         );
     }
 
