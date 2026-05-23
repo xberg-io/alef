@@ -319,24 +319,28 @@ fn build_gradle_uses_vanniktech_maven_publish_plugin() {
         "build.gradle.kts should include vanniktech maven.publish plugin"
     );
 
-    // Verify vanniktech DSL imports are present
+    // Verify vanniktech DSL imports are present. Vanniktech 0.36 dropped the
+    // `SonatypeHost` enum (Central Portal is now the default destination), so the
+    // `SonatypeHost` import is intentionally absent.
     assert!(
         content.contains("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary"),
         "build.gradle.kts should import AndroidSingleVariantLibrary"
     );
     assert!(
-        content.contains("import com.vanniktech.maven.publish.SonatypeHost"),
-        "build.gradle.kts should import SonatypeHost"
+        !content.contains("import com.vanniktech.maven.publish.SonatypeHost"),
+        "build.gradle.kts should NOT import SonatypeHost (removed in vanniktech 0.36)"
     );
 
-    // Verify the new mavenPublishing block exists
+    // Verify the new mavenPublishing block exists. Under vanniktech 0.36,
+    // `publishToMavenCentral()` is a no-arg function with Central Portal as the
+    // default destination.
     assert!(
         content.contains("mavenPublishing {"),
         "build.gradle.kts should have mavenPublishing block"
     );
     assert!(
-        content.contains("publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)"),
-        "build.gradle.kts should call publishToMavenCentral"
+        content.contains("publishToMavenCentral()"),
+        "build.gradle.kts should call publishToMavenCentral() (no-arg form, vanniktech 0.36)"
     );
     assert!(
         content.contains("signAllPublications()"),
@@ -378,13 +382,12 @@ fn buildscript_comes_after_imports_in_correct_order() {
 
     let content = &gradle_file.content;
 
-    // Find positions of the three imports in the entire file
+    // Find positions of the two imports in the entire file. Vanniktech 0.36
+    // dropped `SonatypeHost`, so only AndroidSingleVariantLibrary and JvmTarget
+    // are emitted.
     let pos_android_variant = content
         .find("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary")
         .expect("AndroidSingleVariantLibrary import not found");
-    let pos_sonatype = content
-        .find("import com.vanniktech.maven.publish.SonatypeHost")
-        .expect("SonatypeHost import not found");
     let pos_jvm_target = content
         .find("import org.jetbrains.kotlin.gradle.dsl.JvmTarget")
         .expect("JvmTarget import not found");
@@ -398,29 +401,17 @@ fn buildscript_comes_after_imports_in_correct_order() {
         pos_buildscript
     );
     assert!(
-        pos_sonatype < pos_buildscript,
-        "SonatypeHost import must come before buildscript; found at {}, buildscript at {}",
-        pos_sonatype,
-        pos_buildscript
-    );
-    assert!(
         pos_jvm_target < pos_buildscript,
         "JvmTarget import must come before buildscript; found at {}, buildscript at {}",
         pos_jvm_target,
         pos_buildscript
     );
 
-    // Verify the three imports are in lexicographic order
+    // Verify the imports are in lexicographic order
     assert!(
-        pos_android_variant < pos_sonatype,
-        "imports must be in lexicographic order; AndroidSingleVariantLibrary ({}) before SonatypeHost ({})",
+        pos_android_variant < pos_jvm_target,
+        "imports must be in lexicographic order; AndroidSingleVariantLibrary ({}) before JvmTarget ({})",
         pos_android_variant,
-        pos_sonatype
-    );
-    assert!(
-        pos_sonatype < pos_jvm_target,
-        "imports must be in lexicographic order; SonatypeHost ({}) before JvmTarget ({})",
-        pos_sonatype,
         pos_jvm_target
     );
 }
