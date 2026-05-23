@@ -268,7 +268,13 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                     <failOnWarning>true</failOnWarning>
                     <show>protected</show>
                     <additionalOptions>--enable-preview</additionalOptions>
-                    <sourcepath>${{project.basedir}}/src/main/java</sourcepath>
+                    <!-- sourcepath MUST match <sourceDirectory> above (which is
+                         ${{project.basedir}} for the flat layout alef emits) — the
+                         Maven-default `src/main/java/` does not exist in our tree,
+                         so attach-javadocs found no sources and skipped jar
+                         creation, which Sonatype Central rejected as
+                         "Javadocs must be provided but not found in entries". -->
+                    <sourcepath>${{project.basedir}}</sourcepath>
                 </configuration>
                 <executions>
                     <execution>
