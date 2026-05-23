@@ -338,10 +338,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/config_gen/magnus_hash_constructor.jinja"),
     ),
     (
-        "config_gen/magnus_positional_constructor.jinja",
-        include_str!("templates/config_gen/magnus_positional_constructor.jinja"),
-    ),
-    (
         "config_gen/php_kwargs_constructor.jinja",
         include_str!("templates/config_gen/php_kwargs_constructor.jinja"),
     ),
