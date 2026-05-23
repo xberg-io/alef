@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.35] - 2026-05-23
+
 ### Fixed
 
 - **alef-e2e/dart: construct a default options instance for absent optional `json_object` config args when the Dart facade declares the arg as required-positional.** Calls like `embed_texts_async(texts, config)` have `config` marked `optional = true` in the alef IR but the Dart facade signature is `embedTextsAsync(List<String>, EmbeddingConfig)` — non-nullable. When the fixture omitted the `config` field, the e2e codegen previously skipped emitting any value (relying on a hypothetical wrapper-side default), so the generated test compiled to `KreuzbergBridge.embedTextsAsync(<String>[])` and failed with `Too few positional arguments: 2 required, 1 given`. The codegen now mirrors the existing empty-object branch: when `arg_value` is absent and the call has a configured `options_type`, emit `final _config = await create<Type>FromJson(json: '{}');` and pass `_config` positionally. Calls without an `options_type` (e.g. the `ExtractionConfig?` nullable facade path) still omit the arg. (`crates/alef-e2e/src/codegen/dart.rs`)
