@@ -796,14 +796,19 @@ fn gen_struct_methods_impl(
         // For Option<NonOpaqueNamed>, ext-php-rs's IntoZval impl may not handle
         // the conversion to PHP null correctly. Explicitly unwrap and map through
         // .into() conversion, which is what php_wrap_return does for returns.
-        if field.name == "document" {
-            eprintln!("DEBUG: Processing document field: ty={:?}, optional={}, already_optional={}", field.ty, field.optional, matches!(field.ty, TypeRef::Optional(_)));
-        }
-        let is_optional_named_non_opaque = matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-        if is_optional_named_non_opaque && field.name == "document" {
-            eprintln!("DEBUG: Found document field - applying Option<T> mapping");
-        }
-        let body = if is_optional_named_non_opaque {
+        // For Option<NonOpaqueNamed>, ext-php-rs's IntoZval impl may not handle
+        // the conversion to PHP null correctly. Explicitly unwrap and map through
+        // .into() conversion, which is what php_wrap_return does for returns.
+        // The IR type may be either:
+        // 1. Optional<Named> — field.optional=true, field.ty=Optional(Named), already_optional=true
+        // 2. Named with optional flag set — field.optional=true, field.ty=Named, already_optional=false
+        // In case (2), the getter returns Option<T> due to the condition on line 790.
+        let is_optional_named = match &field.ty {
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())),
+            TypeRef::Named(n) if field.optional && !already_optional => !opaque_types.contains(n.as_str()),
+            _ => false,
+        };
+        let body = if is_optional_named {
             format!("self.{name}.clone().map(Into::into)", name = field.name)
         } else {
             format!("self.{name}.clone()", name = field.name)
