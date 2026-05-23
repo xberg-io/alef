@@ -98,7 +98,7 @@ mod tests {
     use super::super::{CallCtx, TestClientRenderer};
     use super::render_http_test;
     use crate::fixture::{Fixture, HttpExpectedResponse, HttpFixture, HttpRequest, ValidationErrorExpectation};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     /// Mock renderer that records every call as a tag in `out`. Lets us assert
     /// the exact sequence of trait calls the shared driver makes for each
@@ -155,15 +155,15 @@ mod tests {
                     route: format!("/fixtures/{id}"),
                     method: "GET".into(),
                     body_schema: None,
-                    parameters: HashMap::new(),
+                    parameters: BTreeMap::new(),
                     middleware: None,
                 },
                 request: HttpRequest {
                     method: "GET".into(),
                     path: format!("/fixtures/{id}"),
-                    headers: HashMap::new(),
-                    query_params: HashMap::new(),
-                    cookies: HashMap::new(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
                     body: None,
                     content_type: None,
                 },
@@ -177,7 +177,7 @@ mod tests {
             status_code: status,
             body: None,
             body_partial: None,
-            headers: HashMap::new(),
+            headers: BTreeMap::new(),
             validation_errors: None,
         }
     }

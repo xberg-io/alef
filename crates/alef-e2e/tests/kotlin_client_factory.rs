@@ -11,7 +11,7 @@ use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::kotlin::KotlinE2eCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 fn make_fixture(id: &str) -> Fixture {
     Fixture {
@@ -27,7 +27,7 @@ fn make_fixture(id: &str) -> Fixture {
             status: 200,
             body: Some(serde_json::Value::Null),
             stream_chunks: None,
-            headers: HashMap::new(),
+            headers: BTreeMap::new(),
         }),
         visitor: None,
         assertions: vec![Assertion {
