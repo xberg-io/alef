@@ -217,10 +217,10 @@ keywords = ["zebra", "apple", "banana"]
         "build-backend should come before requires in [build-system]"
     );
 
-    // Check array spacing: requires = [ ... ] not [ ...]
+    // Check array spacing: requires = [...] (no inner spaces, pyproject-fmt style)
     assert!(
-        content.contains("requires = [ \"maturin"),
-        "requires should have space after ["
+        content.contains("requires = [\"maturin"),
+        "requires should not have space after ["
     );
 
     // Check keywords are sorted: apple, banana, zebra (not zebra, apple, banana)
@@ -228,7 +228,7 @@ keywords = ["zebra", "apple", "banana"]
         .split("[project.urls]")
         .next()
         .expect("should have [project.urls] section");
-    let keywords_idx = keywords_section.find("keywords = [ ").expect("should have keywords");
+    let keywords_idx = keywords_section.find("keywords = [").expect("should have keywords");
     let apple_idx = keywords_section[keywords_idx..]
         .find("\"apple\"")
         .map(|i| keywords_idx + i)
@@ -412,7 +412,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         "expected default-branch target table with cfg(not(...)), got:\n{cargo_toml}"
     );
     assert!(
-        cargo_toml.contains("my-lib = { path = \"../my-lib\", features = [\"full\", \"ocr\"] }"),
+        cargo_toml.contains("my-lib = { path = \"../my-lib\", version = \"0.1.0\", features = [\"full\", \"ocr\"] }"),
         "default branch should keep the full feature set, got:\n{cargo_toml}"
     );
 
@@ -422,7 +422,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         "expected override target table, got:\n{cargo_toml}"
     );
     assert!(
-        cargo_toml.contains("my-lib = { path = \"../my-lib\", features = [\"android-target\"] }"),
+        cargo_toml.contains("my-lib = { path = \"../my-lib\", version = \"0.1.0\", features = [\"android-target\"] }"),
         "override branch should emit android-target feature, got:\n{cargo_toml}"
     );
 
@@ -2707,5 +2707,93 @@ fn test_scaffold_license_files_deduplicates_same_package_dir() {
         license_files[0].path,
         PathBuf::from("packages/dart/LICENSE"),
         "Dart LICENSE must live in packages/dart/"
+    );
+}
+
+/// BLK-9 regression: When explicit_output.elixir points to a .rs-only directory
+/// (e.g., the Rust NIF source root), the generated mix.exs should NOT include
+/// the {relative}/*.ex glob in the `files:` list, as `mix hex.publish` will reject
+/// it with "Missing files" error.
+#[test]
+fn test_scaffold_elixir_mix_exs_omits_ex_glob_for_rs_only_directory() {
+    let tmp = tempfile::tempdir().expect("tempdir must be created");
+    let rs_dir = tmp.path();
+
+    // Create a Rust NIF directory with only .rs and .toml files (no .ex files).
+    std::fs::write(rs_dir.join("lib.rs"), "// Rust NIF source\n")
+        .expect("write lib.rs");
+    std::fs::write(rs_dir.join("Cargo.toml"), "[package]\n").expect("write Cargo.toml");
+
+    // Build config pointing explicit_output.elixir at the .rs-only directory.
+    let explicit_path = rs_dir.to_string_lossy().to_string();
+    let config = test_config_from_toml(&format!(
+        r#"
+[crates.output]
+elixir = "{explicit_path}"
+"#
+    ));
+    let api = test_api();
+
+    // Scaffold Elixir and extract the generated mix.exs.
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix_exs = files
+        .iter()
+        .find(|f| f.path.ends_with("mix.exs"))
+        .expect("mix.exs must be generated");
+
+    // The files: list should NOT contain *.ex glob when the directory has no .ex files.
+    assert!(
+        !mix_exs.content.contains("*.ex"),
+        "mix.exs should not contain *.ex glob for .rs-only directory; content:\n{}",
+        mix_exs.content
+    );
+    // Verify that standard entries are still present.
+    assert!(
+        mix_exs.content.contains(".formatter.exs"),
+        "mix.exs should contain .formatter.exs"
+    );
+    assert!(
+        mix_exs.content.contains("native"),
+        "mix.exs should contain native"
+    );
+}
+
+/// BLK-9 regression: When explicit_output.elixir points to a directory containing
+/// .ex or .exs files, the generated mix.exs should include the {relative}/*.ex glob
+/// in the `files:` list for `mix hex.publish`.
+#[test]
+fn test_scaffold_elixir_mix_exs_includes_ex_glob_for_elixir_sources() {
+    let tmp = tempfile::tempdir().expect("tempdir must be created");
+    let ex_dir = tmp.path();
+
+    // Create a directory with Elixir source files.
+    std::fs::write(ex_dir.join("module.ex"), "defmodule Test do\nend\n")
+        .expect("write module.ex");
+    std::fs::write(ex_dir.join("helper.exs"), "# helper\n").expect("write helper.exs");
+
+    // Build config pointing explicit_output.elixir at the .ex-containing directory.
+    let explicit_path = ex_dir.to_string_lossy().to_string();
+    let config = test_config_from_toml(&format!(
+        r#"
+[crates.output]
+elixir = "{explicit_path}"
+"#
+    ));
+    let api = test_api();
+
+    // Scaffold Elixir and extract the generated mix.exs.
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix_exs = files
+        .iter()
+        .find(|f| f.path.ends_with("mix.exs"))
+        .expect("mix.exs must be generated");
+
+    // The files: list SHOULD contain *.ex glob when the directory has .ex/.exs files.
+    assert!(
+        mix_exs.content.contains("*.ex"),
+        "mix.exs should contain *.ex glob for directory with .ex/.exs files; content:\n{}",
+        mix_exs.content
     );
 }
