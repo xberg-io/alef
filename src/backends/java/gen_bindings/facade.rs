@@ -201,11 +201,17 @@ pub(crate) fn gen_facade_class(
             })
             .collect();
 
-        // Build the wrapper method: call the streaming instance method on the owner handle
+        // Build the wrapper method: call the streaming instance method on the owner handle.
+        // The instance method (emitted by gen_bindings/types.rs via the
+        // `streaming_iterator_method.jinja` template) returns
+        // `java.util.stream.Stream<T>`, so the facade signature must match —
+        // `Stream<T>` does NOT implement `Iterable<T>` in the JDK, and the
+        // `return engine.<method>(...)` body would not compile against an
+        // `Iterable<T>` declared return type.
         let method_call = if param_parts.is_empty() {
             // No additional params besides the owner handle
             format!(
-                "    public static Iterable<{short_item_type}> {java_name}(final {owner_type} engine) throws {raw_class}Exception {{\n        return engine.{java_name}();\n    }}\n"
+                "    public static java.util.stream.Stream<{short_item_type}> {java_name}(final {owner_type} engine) throws {raw_class}Exception {{\n        return engine.{java_name}();\n    }}\n"
             )
         } else {
             let param_str = format!("final {owner_type} engine, {}", param_parts.join(", "));
@@ -217,7 +223,7 @@ pub(crate) fn gen_facade_class(
                 .join(", ");
 
             format!(
-                "    public static Iterable<{short_item_type}> {java_name}({param_str}) throws {raw_class}Exception {{\n        return engine.{java_name}({call_args});\n    }}\n"
+                "    public static java.util.stream.Stream<{short_item_type}> {java_name}({param_str}) throws {raw_class}Exception {{\n        return engine.{java_name}({call_args});\n    }}\n"
             )
         };
 
