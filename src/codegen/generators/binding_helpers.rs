@@ -1279,7 +1279,9 @@ fn gen_lossy_binding_to_core_fields_inner(
                 }
             }
             TypeRef::String => {
-                if field.core_wrapper == CoreWrapper::Cow {
+                // Cow<'_, str> and Box<str> both need `.into()` to convert
+                // back to the wrapper from the binding-side `String`.
+                if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
                     format!("self.{name}.clone().into()")
                 } else {
                     format!("self.{name}.clone()")

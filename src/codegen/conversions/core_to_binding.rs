@@ -1068,13 +1068,12 @@ fn apply_core_wrapper_from_core(
 
     match core_wrapper {
         CoreWrapper::None => conversion.to_string(),
-        CoreWrapper::Cow => {
-            // Cow<str> → String: core val.name is Cow<'static, str>, binding needs String.
-            // Always emit val.{name}.into_owned() regardless of what the base conversion emits.
-            // This handles both the normal path (base = "name: val.name") and the sanitized path
-            // (base = "name: format!(\"{:?}\", val.name)") which produces debug-escaped strings.
-            // When the binding has been optionalized (e.g. NAPI default-optional fields), the
-            // upstream pass already wrapped the conversion in Some(...) — preserve that wrap.
+        CoreWrapper::Cow | CoreWrapper::Box => {
+            // Cow<str> / Box<str> → String: core val.name is `Cow<'static, str>` or
+            // `Box<str>`; binding needs `String`. Both wrappers deref to `&str`, so
+            // `to_string()` covers both. When the binding has been optionalized
+            // (e.g. NAPI default-optional fields), the upstream pass already wrapped
+            // the conversion in Some(...) — preserve that wrap.
             let prefix = format!("{name}: ");
             let already_some_wrapped = conversion
                 .strip_prefix(&prefix)

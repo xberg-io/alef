@@ -529,6 +529,24 @@ pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> crate::core::ir::CoreWrappe
             match ident.as_str() {
                 "Cow" => return CoreWrapper::Cow,
                 "Bytes" => return CoreWrapper::Bytes,
+                // `Box<str>` is a common compact-string idiom in storage-heavy
+                // structs (e.g. SHA-256 hex digests, immutable filenames). The
+                // resolved IR ty is `String`, so binding emitters need to
+                // `.into()` to round-trip back to `Box<str>` on the core side.
+                // Box<dyn Trait> and Box<NamedType> are handled differently
+                // (opaque or normal), so only flag Box<str> / Box<Bytes>.
+                "Box" => {
+                    if let Some(box_inner) = type_resolver::extract_single_generic_arg_syn(seg) {
+                        if let syn::Type::Path(inner_path) = &*box_inner {
+                            if let Some(inner_seg) = inner_path.path.segments.last() {
+                                let inner_ident = inner_seg.ident.to_string();
+                                if inner_ident == "str" {
+                                    return CoreWrapper::Box;
+                                }
+                            }
+                        }
+                    }
+                }
                 "Arc" => {
                     // Inspect Arc's inner type. If it's Mutex<T> or RwLock<T>, return ArcMutex.
                     // `Arc<dyn Trait>` stays as plain Arc — trait-object semantics differ.

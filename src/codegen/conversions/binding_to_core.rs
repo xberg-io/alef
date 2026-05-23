@@ -1082,10 +1082,12 @@ pub fn apply_core_wrapper_to_core(
 
     match core_wrapper {
         CoreWrapper::None => conversion.to_string(),
-        CoreWrapper::Cow => {
-            // Cow<str>: binding String → core Cow via .into()
-            // The field_conversion already emits "name: val.name" for strings,
-            // we need to add .into() to convert String → Cow<'static, str>
+        CoreWrapper::Cow | CoreWrapper::Box => {
+            // Cow<str> / Box<str>: binding String → core wrapper via .into().
+            // Both wrappers have the same conversion shape — binding is `String`
+            // and core is `Cow<'_, str>` or `Box<str>`, so `String -> wrapper`
+            // goes through the same `.into()` path. The field_conversion already
+            // emits "name: val.name" for strings; we add .into() to wrap.
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
                     format!("{name}: {expr}.map(Into::into)")

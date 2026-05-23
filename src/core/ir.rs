@@ -14,6 +14,9 @@ pub enum CoreWrapper {
     Bytes,
     /// `Arc<Mutex<T>>` — binding wraps with `Arc::new(Mutex::new())`, methods call `.lock()`
     ArcMutex,
+    /// `Box<str>` — binding uses String, core needs `.into()` (same shape as Cow
+    /// but distinct so backends can keep wrapper-specific behavior addressable).
+    Box,
 }
 
 /// Typed default value for a field, enabling backends to emit language-native defaults.
