@@ -264,7 +264,7 @@ pub mod maven {
     pub const KOTLIN_JVM_PLUGIN: &str = "2.3.21";
 
     // renovate: datasource=maven depName=com.android.tools.build:gradle
-    pub const ANDROID_GRADLE_PLUGIN: &str = "8.7.3";
+    pub const ANDROID_GRADLE_PLUGIN: &str = "8.13.0";
 
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "13.1.0";

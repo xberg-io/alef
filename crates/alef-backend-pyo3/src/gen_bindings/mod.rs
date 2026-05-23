@@ -75,6 +75,7 @@ fn replace_constructor_with_serde_rename(
     config: &alef_codegen::generators::RustBindingConfig,
     config_renames: Option<&std::collections::HashMap<String, String>>,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
+    never_skip_cfg_field_names: &[String],
 ) -> String {
     use alef_codegen::shared::binding_fields;
     use alef_core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
@@ -107,9 +108,12 @@ fn replace_constructor_with_serde_rename(
         }
     }
 
-    // Build parameter list with serde_rename and config-based renames
+    // Build parameter list with serde_rename and config-based renames.
+    // Include cfg-gated fields that the consumer has force-restored via
+    // `never_skip_cfg_field_names` (e.g. kreuzberg-py builds with all features so
+    // pdf_options / keywords / html_* / layout / tree_sitter need to be kwargs).
     let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
-        .filter(|f| !f.binding_excluded && f.cfg.is_none())
+        .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
         .collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
 
@@ -199,8 +203,8 @@ fn replace_constructor_with_serde_rename(
         .iter()
         .filter(|f| !f.binding_excluded && (bridge_field_name.is_none() || f.name != bridge_field_name.unwrap()))
         .map(|f| {
-            if f.cfg.is_some() {
-                // Cfg-gated field: not a constructor parameter, use default
+            if f.cfg.is_some() && !never_skip_cfg_field_names.contains(&f.name) {
+                // Cfg-gated field that was NOT force-restored: not a constructor parameter, use default
                 if f.optional {
                     format!("{}: None", f.name)
                 } else {
@@ -917,6 +921,7 @@ mod alef_json_str_opt {
                     type_cfg,
                     renames_ref,
                     &config.trait_bridges,
+                    type_cfg.never_skip_cfg_field_names,
                 );
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block
