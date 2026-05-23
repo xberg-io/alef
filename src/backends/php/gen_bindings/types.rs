@@ -1323,74 +1323,13 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             }
         }
     }
-    // Fallback to default variant (marked with #[default], or first if none) for unrecognised tags.
-    if let Some(first) = enum_def
-        .variants
-        .iter()
-        .find(|v| v.is_default)
-        .or_else(|| enum_def.variants.first())
-    {
-        if first.fields.is_empty() {
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_flat_enum_fallback_variant_empty.jinja",
-                minijinja::context! {
-                    core_path => &core_path,
-                    variant_name => &first.name,
-                },
-            ));
-        } else if crate::codegen::conversions::is_tuple_variant(&first.fields) {
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_flat_enum_fallback_variant_tuple_start.jinja",
-                minijinja::context! {
-                    core_path => &core_path,
-                    variant_name => &first.name,
-                },
-            ));
-            let parts: Vec<String> = first
-                .fields
-                .iter()
-                .map(|f| {
-                    if f.is_boxed {
-                        "Box::default()".to_string()
-                    } else {
-                        "Default::default()".to_string()
-                    }
-                })
-                .collect();
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_flat_enum_tuple_exprs.jinja",
-                minijinja::context! {
-                    exprs_joined => parts.join(", "),
-                },
-            ));
-            out.push_str(" ),\n");
-        } else {
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_flat_enum_fallback_variant_struct_start.jinja",
-                minijinja::context! {
-                    core_path => &core_path,
-                    variant_name => &first.name,
-                },
-            ));
-            for f in &first.fields {
-                // Pass only the expression (without "name: " prefix and without trailing comma)
-                // since php_flat_enum_fallback_variant_field.jinja adds "{{ field_name }}: {{ default_expr }},"
-                let default_expr = if f.is_boxed {
-                    "Box::default()".to_string()
-                } else {
-                    "Default::default()".to_string()
-                };
-                out.push_str(&crate::backends::php::template_env::render(
-                    "php_flat_enum_fallback_variant_field.jinja",
-                    minijinja::context! {
-                        field_name => &f.name,
-                        default_expr => &default_expr,
-                    },
-                ));
-            }
-            out.push_str(" },\n");
-        }
-    }
+    // Fallback for unrecognised tags: delegate to `<CorePath>::default()`.
+    // This respects the core type's custom `impl Default` (e.g. `EmbeddingModelType` returns
+    // `Preset { name: "balanced" }`) AND the `#[default]` variant attribute when present.
+    // The prior path constructed the `#[default]`-marked or first variant with field-level
+    // `Default::default()` defaults, which produced invalid sentinel values like
+    // `Preset { name: "" }` for enums whose `Default` is custom rather than derived.
+    out.push_str(&format!("            _ => {core_path}::default(),\n"));
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_match_end.jinja",
         minijinja::Value::default(),
