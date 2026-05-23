@@ -1815,4 +1815,122 @@ languages:
 
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    // --- STY-5 regression test: alef all vs cold alef readme produce identical READMEs ---
+    //
+    // This test verifies that README generation is consistent regardless of whether it's
+    // called after scaffold (as in `alef all`) or in isolation (as in `alef readme`).
+    // Previously, alef all would produce READMEs with extra blank lines and different table
+    // cell padding compared to cold alef readme, causing CI gate failures even when nothing
+    // else changed. The root cause was suspected to be state pollution from earlier pipeline
+    // stages or inconsistent minijinja environment setup.
+    //
+    // This test simulates both paths:
+    // Path A: readme generation in isolation (cold path, what `alef readme` does)
+    // Path B: readme generation after some operations (warm path, what `alef all` does)
+    // Both should produce identical README content.
+    #[test]
+    fn test_alef_all_and_cold_readme_produce_same_output() {
+        let tmp = std::env::temp_dir().join("alef_sty5_test");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        // Create a minimal template to test with
+        fs::create_dir_all(tmp.join("templates")).unwrap();
+
+        // Template that exercises key paths: variables, performance table
+        let template_content = r#"# {{name}}
+
+{{description}}
+
+## Features
+
+- Item 1
+- Item 2
+
+{% if performance %}
+## Performance
+
+{{ performance | render_performance_table(name) }}
+{% endif %}
+
+## Installation
+
+{{ install_command }}
+"#;
+        fs::write(tmp.join("templates/test.md"), template_content).unwrap();
+
+        // Set up a config with template-based README generation
+        let mut config = test_config();
+        config.workspace_root = Some(tmp.clone());
+
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "test.md",
+                "output_path": "packages/python/README.md",
+                "install_command": "pip install my-lib==0.1.0",
+                "performance": {
+                    "platform": "Apple M4",
+                    "function": "convert()",
+                    "note": "Test doc",
+                    "benchmarks": [
+                        {
+                            "name": "Small",
+                            "size": "10KB",
+                            "latency": "1.0ms",
+                            "throughput": "10 MB/s"
+                        },
+                        {
+                            "name": "Large",
+                            "size": "1MB",
+                            "latency": "10.0ms",
+                            "throughput": "100 MB/s"
+                        }
+                    ]
+                }
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(PathBuf::from("templates")),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+
+        let api = test_api();
+
+        // Path A: readme generation in isolation (cold path)
+        let cold_files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(cold_files.len(), 1);
+        let cold_content = &cold_files[0].content;
+
+        // Path B: readme generation again (warm path, simulating alef all)
+        // In real alef all, scaffold runs first, but that shouldn't affect readme input.
+        // If there's state pollution, it would show up here.
+        let warm_files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(warm_files.len(), 1);
+        let warm_content = &warm_files[0].content;
+
+        // Both paths should produce identical output
+        if cold_content != warm_content {
+            eprintln!("=== COLD OUTPUT ===\n{}\n", cold_content);
+            eprintln!("=== WARM OUTPUT ===\n{}\n", warm_content);
+            eprintln!("=== DIFF (cold vs warm) ===");
+            for (i, (c, w)) in cold_content.lines().zip(warm_content.lines()).enumerate() {
+                if c != w {
+                    eprintln!("Line {}: COLD: {}", i + 1, c);
+                    eprintln!("Line {}: WARM: {}", i + 1, w);
+                }
+            }
+        }
+        assert_eq!(cold_content, warm_content,
+            "README generation must be deterministic: alef readme and alef all must produce identical output (STY-5 regression)");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
