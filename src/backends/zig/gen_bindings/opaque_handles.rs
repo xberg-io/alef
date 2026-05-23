@@ -275,7 +275,17 @@ fn emit_streaming_struct(
     let _ = writeln!(out, "        const _json = c.{prefix}_{item_snake}_to_json(_chunk);");
     let _ = writeln!(out, "        defer c.{prefix}_free_string(_json);");
     let _ = writeln!(out, "        const _json_slice = std.mem.span(_json);");
-    let _ = writeln!(out, "        return try parse{item_type}FromJson(_json_slice);");
+    // Parse the chunk JSON into `{item_type}` using std.json. We use
+    // `parseFromSliceLeaky` against the c_allocator so that the parsed value's
+    // string slices can outlive the FFI-owned `_json` buffer (which we free on
+    // the next line via the `defer` above). Callers receive an owned value with
+    // c_allocator-backed slices; releasing them is not strictly required for
+    // process-bounded tools but consumers can call
+    // `std.json.parseFromSliceLeaky`-style cleanup if they manage their own arena.
+    let _ = writeln!(
+        out,
+        "        return try std.json.parseFromSliceLeaky({item_type}, std.heap.c_allocator, _json_slice, .{{ .ignore_unknown_fields = true, .allocate = .alloc_always }});"
+    );
     let _ = writeln!(out, "    }}");
     let _ = writeln!(out);
 
