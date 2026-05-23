@@ -1370,17 +1370,14 @@ impl Backend for RustlerBackend {
             .filter(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming))
             .collect();
 
-        // Emit StreamError exception module once if there are streaming adapters
-        if !streaming_adapters.is_empty() {
-            let exception_module = format!("{app_module}.StreamError");
-            content.push_str(&template_env::render(
-                "elixir_stream_error_exception.jinja",
-                minijinja::context! {
-                    exception_module => &exception_module,
-                },
-            ));
-            content.push('\n');
-        }
+        // StreamError exception module is emitted AFTER the outer `defmodule
+        // <AppModule>` closes (see post-trim block below). Emitting `defmodule
+        // <AppModule>.StreamError` INSIDE `defmodule <AppModule>` produces a
+        // doubly-namespaced `Elixir.<AppModule>.<AppModule>.StreamError` because
+        // Elixir treats nested `defmodule <Outer>.<Suffix>` as relative — and
+        // the rebind to the doubly-nested name also breaks every plain
+        // `<AppModule>.Native.X` reference in the wrapper bodies, producing
+        // `Elixir.<AppModule>.<AppModule>.Native.X is undefined` warnings.
 
         for adapter in streaming_adapters {
             let Some(owner) = adapter.owner_type.as_deref() else {
@@ -1514,6 +1511,39 @@ impl Backend for RustlerBackend {
         // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
         let trimmed = content.trim_end_matches('\n');
         content = format!("{trimmed}\nend\n");
+
+        // Emit the StreamError exception module at top level AFTER the outer
+        // `defmodule <AppModule>` closes — Elixir's nested-defmodule semantics
+        // would otherwise create `<AppModule>.<AppModule>.StreamError` (the
+        // outer name is prepended) AND shadow the `<AppModule>` alias so every
+        // `<AppModule>.Native.X` body reference becomes undefined.
+        let streaming_adapters: Vec<_> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming))
+            .collect();
+        if !streaming_adapters.is_empty() {
+            let exception_module = format!("{app_module}.StreamError");
+            let rendered = template_env::render(
+                "elixir_stream_error_exception.jinja",
+                minijinja::context! {
+                    exception_module => &exception_module,
+                },
+            );
+            // The template indents by two spaces (for nested-in-defmodule usage).
+            // At top level the leading spaces must be stripped so `mix format`
+            // doesn't reflow the block.
+            let dedented = rendered
+                .lines()
+                .map(|line| line.strip_prefix("  ").unwrap_or(line))
+                .collect::<Vec<_>>()
+                .join("\n");
+            content.push('\n');
+            content.push_str(&dedented);
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
+        }
 
         files.push(GeneratedFile {
             path: PathBuf::from(&output_dir).join(format!("{}.ex", app_name.to_snake_case())),

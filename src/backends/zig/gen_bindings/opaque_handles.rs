@@ -267,7 +267,7 @@ fn emit_streaming_struct(
     let _ = writeln!(out, "            // Check errno: 0 = clean EOS, != 0 = error");
     let _ = writeln!(
         out,
-        "            if (_has_error()) return _first_error({zig_error_type});"
+        "            if (c.{prefix}_last_error_code() != 0) return _first_error({zig_error_type});"
     );
     let _ = writeln!(out, "            return null;");
     let _ = writeln!(out, "        }}");
