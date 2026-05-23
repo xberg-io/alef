@@ -204,6 +204,7 @@ impl E2eCodegen for PhpCodegen {
 
             let test_class = format!("{}Test", sanitize_filename(&group.category).to_upper_camel_case());
             let filename = format!("{test_class}.php");
+            let php_lang_rename_all = config.serde_rename_all_for_language(crate::core::config::Language::Php);
             let content = render_test_file(
                 &group.category,
                 &active,
@@ -219,6 +220,7 @@ impl E2eCodegen for PhpCodegen {
                 php_client_factory,
                 options_via,
                 &config.adapters,
+                php_lang_rename_all,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -527,18 +529,9 @@ fn render_test_file(
     php_client_factory: Option<&str>,
     options_via: &str,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    php_lang_rename_all: String,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-
-    // Determine if any handle arg has a non-null config (needs CrawlConfig import).
-    let needs_crawl_config_import = fixtures.iter().any(|f| {
-        let call =
-            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        call.args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-            let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
-            !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
-        })
-    });
 
     // Determine if any fixture is an HTTP test (needs GuzzleHttp).
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
@@ -580,9 +573,6 @@ fn render_test_file(
 
     // Build imports_use list
     let mut imports_use: Vec<String> = Vec::new();
-    if needs_crawl_config_import {
-        imports_use.push(format!("use {namespace}\\CrawlConfig;"));
-    }
     for type_name in &options_type_imports {
         if type_name != class_name {
             imports_use.push(format!("use {namespace}\\{type_name};"));
@@ -609,6 +599,7 @@ fn render_test_file(
                 php_client_factory,
                 options_via,
                 adapters,
+                &php_lang_rename_all,
             );
         }
         if i + 1 < fixtures.len() {
@@ -938,6 +929,7 @@ fn render_test_method(
     php_client_factory: Option<&str>,
     options_via: &str,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    php_lang_rename_all: &str,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let mut call_config = e2e_config.resolve_call_for_fixture(
@@ -1034,6 +1026,7 @@ fn render_test_method(
         namespace,
         streaming_owner_handle.is_some(),
         type_defs,
+        php_lang_rename_all,
     );
 
     // Check for skip_languages early
@@ -1320,6 +1313,7 @@ fn build_args_and_setup(
     namespace: &str,
     owner_handle_is_receiver: bool,
     type_defs: &[crate::core::ir::TypeDef],
+    php_lang_rename_all: &str,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1444,17 +1438,31 @@ fn build_args_and_setup(
                 setup_lines.push(format!("${} = {class_name}::{constructor_name}(null);", arg.name,));
             } else {
                 let name = &arg.name;
-                // Use CrawlConfig::from_json() instead of direct property assignment.
+                // Use <ConfigType>::from_json() instead of direct property assignment.
                 // ext-php-rs doesn't support writable #[php(prop)] fields for complex types,
                 // so serialize the config to JSON and use from_json() to construct it.
                 // Filter out empty string enum values before passing to from_json().
                 let filtered_config = filter_empty_enum_strings(config_value);
-                // For handle-type args, the type name is hardcoded as "CrawlConfig" (kreuzberg-specific).
-                // Look up its serde_rename_all setting from the IR.
-                let config_rename_all = get_serde_rename_all("CrawlConfig", type_defs);
+                // The PHP binding's `from_json` deserializes into the binding struct, which is
+                // always emitted with `#[serde(rename_all = "{php_lang_rename_all}")]` by the
+                // PHP backend (camelCase by default, or whatever `[crates.php] serde_rename_all`
+                // overrides). The core IR's `serde_rename_all` may be None, but that has nothing
+                // to do with what the binding deserializer expects.
+                let config_rename_all = Some(php_lang_rename_all);
+                let config_type = options_type.unwrap_or_else(|| {
+                    panic!(
+                        "e2e fixture {fixture_id}: handle arg `{}` requires an `options_type` on the call config (or per-language override). Set `[e2e.call] options_type = \"...\"` to the PHP class name of the handle's config struct.",
+                        arg.name
+                    )
+                });
                 setup_lines.push(format!(
-                    "${name}_config = CrawlConfig::from_json(json_encode({}));",
-                    json_to_php_camel_keys(&filtered_config, config_rename_all.as_deref())
+                    "${name}_config = {config_type}::from_json(json_encode({}));",
+                    json_to_php_camel_keys_with_types(
+                        &filtered_config,
+                        Some(config_type),
+                        config_rename_all,
+                        type_defs
+                    )
                 ));
                 setup_lines.push(format!(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
@@ -1598,12 +1606,14 @@ fn build_args_and_setup(
                                 }
                             }
 
-                            // Look up the serde_rename_all setting for the receiving type (if specified).
-                            // If options_type is set, use it; otherwise pass None (no key transformation).
-                            let rename_all = options_type.and_then(|tn| get_serde_rename_all(tn, type_defs));
+                            // The PHP binding deserializes into the binding struct, which is
+                            // always emitted with the language-effective rename strategy
+                            // (camelCase by default). The core IR's serde_rename_all is not
+                            // what serde_json::from_str::<Self> reads.
+                            let rename_all = Some(php_lang_rename_all);
                             parts.push(format!(
                                 "json_encode({})",
-                                json_to_php_camel_keys(&filtered_v, rename_all.as_deref())
+                                json_to_php_camel_keys_with_types(&filtered_v, options_type, rename_all, type_defs)
                             ));
                             continue;
                         }
@@ -1629,13 +1639,22 @@ fn build_args_and_setup(
                                 }
 
                                 let arg_var = format!("${}", arg.name);
-                                // The serde_rename_all strategy comes from the Rust core struct's
-                                // `#[serde(rename_all = "...")]` attribute, not from what the PHP
-                                // binding wishes were true. Look up the actual setting from the IR.
-                                let type_rename_all = get_serde_rename_all(type_name, type_defs);
+                                // The PHP `from_json` deserializes into the binding struct, which is
+                                // emitted by the PHP backend with `#[serde(rename_all = "...")]` set
+                                // to the language's effective rename strategy (camelCase by default
+                                // for PHP, or whatever `[crates.php] serde_rename_all` overrides).
+                                // The Rust core struct's serde_rename_all is irrelevant here — what
+                                // matters is the BINDING struct, since `from_json` calls
+                                // `serde_json::from_str::<Self>` against the binding type.
+                                let type_rename_all = Some(php_lang_rename_all);
                                 setup_lines.push(format!(
                                     "{arg_var} = \\{namespace}\\{type_name}::from_json(json_encode({}));",
-                                    json_to_php_camel_keys(&filtered_v, type_rename_all.as_deref())
+                                    json_to_php_camel_keys_with_types(
+                                        &filtered_v,
+                                        Some(type_name),
+                                        type_rename_all,
+                                        type_defs
+                                    )
                                 ));
                                 parts.push(arg_var);
                                 continue;
@@ -2128,23 +2147,41 @@ fn json_to_php(value: &serde_json::Value) -> String {
     }
 }
 
-/// Look up the serde_rename_all setting for a type name from the IR type_defs.
-/// Returns the rename_all strategy (e.g., Some("camelCase")) or None if not found or not set.
-fn get_serde_rename_all(type_name: &str, type_defs: &[crate::core::ir::TypeDef]) -> Option<String> {
+/// Get the field type name for a given struct and field name.
+/// Returns the string name of the field's type if it's a Named type, otherwise None.
+fn get_field_type_name(struct_name: &str, field_name: &str, type_defs: &[crate::core::ir::TypeDef]) -> Option<String> {
     type_defs
         .iter()
-        .find(|td| td.name == type_name)
-        .and_then(|td| td.serde_rename_all.clone())
+        .find(|td| td.name == struct_name)
+        .and_then(|td| td.fields.iter().find(|f| f.name == field_name))
+        .and_then(|field| match &field.ty {
+            TypeRef::Named(name) => Some(name.clone()),
+            TypeRef::Optional(inner) => match &**inner {
+                TypeRef::Named(name) => Some(name.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
 }
 
 /// Like `json_to_php` but optionally converts object keys to lowerCamelCase.
 /// When `serde_rename_all` is Some("camelCase"), recursively converts all object keys
 /// from snake_case to camelCase. Otherwise, passes keys through unchanged.
 ///
+/// Uses IR type information to determine the correct serde_rename_all setting for
+/// nested structs — each nested object's keys are transformed based on whether that
+/// specific struct type has `#[serde(rename_all = "camelCase")]`, not inherited from
+/// the parent.
+///
 /// Used when generating PHP option arrays passed to `from_json()` — PHP binding
 /// structs respect the serde attributes of the underlying Rust core types, so we only
 /// apply camelCase transformation when the target type explicitly declares it.
-fn json_to_php_camel_keys(value: &serde_json::Value, serde_rename_all: Option<&str>) -> String {
+fn json_to_php_camel_keys_with_types(
+    value: &serde_json::Value,
+    current_type_name: Option<&str>,
+    serde_rename_all: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> String {
     match value {
         serde_json::Value::Object(map) => {
             let items: Vec<String> = map
@@ -2155,10 +2192,18 @@ fn json_to_php_camel_keys(value: &serde_json::Value, serde_rename_all: Option<&s
                     } else {
                         k.to_string()
                     };
+                    // When recursing into a nested object, propagate the parent's
+                    // serde_rename_all. For PHP this matters because all binding structs are
+                    // emitted with the same `#[serde(rename_all = "...")]` setting (driven by
+                    // the language-effective rename strategy), so nested objects use the same
+                    // strategy as the parent. The Rust core type's serde_rename_all on the
+                    // nested field's type is irrelevant — the binding deserializer reads the
+                    // binding struct's attributes.
+                    let nested_type_name = current_type_name.and_then(|tn| get_field_type_name(tn, k, type_defs));
                     format!(
                         "\"{}\" => {}",
                         escape_php(&final_key),
-                        json_to_php_camel_keys(v, serde_rename_all)
+                        json_to_php_camel_keys_with_types(v, nested_type_name.as_deref(), serde_rename_all, type_defs)
                     )
                 })
                 .collect();
@@ -2167,7 +2212,7 @@ fn json_to_php_camel_keys(value: &serde_json::Value, serde_rename_all: Option<&s
         serde_json::Value::Array(arr) => {
             let items: Vec<String> = arr
                 .iter()
-                .map(|item| json_to_php_camel_keys(item, serde_rename_all))
+                .map(|item| json_to_php_camel_keys_with_types(item, current_type_name, serde_rename_all, type_defs))
                 .collect();
             format!("[{}]", items.join(", "))
         }
