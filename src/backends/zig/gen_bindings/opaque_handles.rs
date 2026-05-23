@@ -159,12 +159,28 @@ pub(crate) fn emit_opaque_handle(
     streaming_item_types: &HashMap<String, String>,
     out: &mut String,
 ) {
+    // First, emit streaming struct types for any streaming methods on this type.
+    // These must be declared before the opaque handle type that returns them.
+    let type_snake = AsSnakeCase(&ty.name).to_string();
+    for method in ty.methods.iter().filter(|m| !m.is_static) {
+        if let Some(item_type) = streaming_item_types.get(&method.name) {
+            emit_streaming_struct(
+                method,
+                ty,
+                prefix,
+                &type_snake,
+                item_type,
+                declared_errors,
+                out,
+            );
+            let _ = writeln!(out);
+        }
+    }
+
     emit_cleaned_zig_doc(out, &ty.doc, "");
     let _ = writeln!(out, "pub const {type_name} = struct {{", type_name = ty.name);
     let _ = writeln!(out, "    _handle: *anyopaque,");
     let _ = writeln!(out);
-
-    let type_snake = AsSnakeCase(&ty.name).to_string();
 
     for method in ty.methods.iter().filter(|m| !m.is_static) {
         emit_opaque_method(
@@ -206,16 +222,82 @@ fn emit_opaque_free(ty: &TypeDef, prefix: &str, type_snake: &str, out: &mut Stri
     let _ = writeln!(out, "    }}");
 }
 
+/// Emit a Zig struct type for a streaming iterator.
+///
+/// The struct holds a stream handle and provides `next()` and `deinit()` methods
+/// to incrementally consume chunks without eagerly collecting them all into memory.
+fn emit_streaming_struct(
+    method: &MethodDef,
+    _ty: &TypeDef,
+    prefix: &str,
+    type_snake: &str,
+    item_type: &str,
+    declared_errors: &[String],
+    out: &mut String,
+) {
+    let method_snake = AsSnakeCase(&method.name).to_string();
+    let item_snake = AsSnakeCase(item_type).to_string();
+    let upper_prefix = prefix.to_uppercase();
+
+    // Struct name: `CrawlEventStream` (ItemType + "Stream")
+    let struct_name = format!("{}Stream", item_type);
+
+    // Error type for the stream's next() method
+    let zig_error_type = method
+        .error_type
+        .as_ref()
+        .map(|e| resolve_zig_error_type(e, declared_errors))
+        .unwrap_or_else(|| "anyerror".to_string());
+
+    let _ = writeln!(out, "/// Iterator over `{}` items in a streaming response.", item_type);
+    let _ = writeln!(out, "pub const {struct_name} = struct {{");
+    let _ = writeln!(out, "    _handle: *c.{upper_prefix}{item_type}Stream,");
+    let _ = writeln!(out);
+
+    // Emit next() method: returns `?ItemType` or error
+    let _ = writeln!(out, "    /// Fetch the next item from the stream, or null at end-of-stream.");
+    let _ = writeln!(out, "    /// Returns an error on mid-stream failure; null on clean EOS.");
+    let _ = writeln!(
+        out,
+        "    pub fn next(self: *{struct_name}) ({zig_error_type}||error{{OutOfMemory}})!?{item_type} {{"
+    );
+    let _ = writeln!(
+        out,
+        "        const _chunk = c.{prefix}_{type_snake}_{method_snake}_next(self._handle);"
+    );
+    let _ = writeln!(out, "        if (_chunk == null) {{");
+    let _ = writeln!(out, "            // Check errno: 0 = clean EOS, != 0 = error");
+    let _ = writeln!(out, "            if (_has_error()) return _first_error({zig_error_type});");
+    let _ = writeln!(out, "            return null;");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "        defer c.{prefix}_{item_snake}_free(_chunk);");
+    let _ = writeln!(
+        out,
+        "        const _json = c.{prefix}_{item_snake}_to_json(_chunk);"
+    );
+    let _ = writeln!(out, "        defer c.{prefix}_free_string(_json);");
+    let _ = writeln!(out, "        const _json_slice = std.mem.span(_json);");
+    let _ = writeln!(out, "        return try parse{item_type}FromJson(_json_slice);");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out);
+
+    // Emit deinit() method: releases the stream handle
+    let _ = writeln!(out, "    /// Release the underlying stream handle.");
+    let _ = writeln!(out, "    pub fn deinit(self: *{struct_name}) void {{");
+    let _ = writeln!(
+        out,
+        "        c.{prefix}_{type_snake}_{method_snake}_free(self._handle);"
+    );
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}};");
+}
+
 /// Emit a streaming method on an opaque handle wrapper struct.
 ///
 /// Streaming methods use the iterator-handle pattern (`_start` / `_next` / `_free`)
-/// rather than the callback-based C symbol. The Zig wrapper:
-///   1. Creates the request handle from JSON.
-///   2. Calls `{prefix}_{type_snake}_{method_name}_start(client, req_handle)`.
-///   3. Loops `{prefix}_{type_snake}_{method_name}_next(handle)` until null.
-///   4. Serialises each chunk to JSON, accumulating them into a `[chunk1,chunk2,...]` array.
-///   5. Frees the stream handle.
-///   6. Returns the full JSON array string so callers receive every event in the stream.
+/// and return a struct type that provides `next()` and `deinit()` methods for
+/// incremental, backpressure-aware consumption. Callers can cancel by dropping
+/// the struct early without draining the entire stream.
 fn emit_opaque_streaming_method(
     method: &MethodDef,
     ty: &TypeDef,
@@ -228,7 +310,7 @@ fn emit_opaque_streaming_method(
     emit_cleaned_zig_doc(out, &method.doc, "    ");
 
     let method_snake = AsSnakeCase(&method.name).to_string();
-    let item_snake = AsSnakeCase(item_type).to_string();
+    let struct_name = format!("{}Stream", item_type);
     let upper_prefix = prefix.to_uppercase();
 
     // Streaming methods take a single JSON request parameter.
@@ -239,12 +321,12 @@ fn emit_opaque_streaming_method(
         .map(|e| resolve_zig_error_type(e, declared_errors))
         .unwrap_or_else(|| "anyerror".to_string());
 
-    // The Zig wrapper signature: self + one JSON request slice → JSON string.
+    // The Zig wrapper signature: self + one JSON request slice → struct
     let req_param = method.params.first().map(|p| p.name.as_str()).unwrap_or("req");
 
     let _ = writeln!(
         out,
-        "    pub fn {method_name}(self: *{type_name}, {req_param}: []const u8) ({zig_error_type}||error{{OutOfMemory}})![]u8 {{",
+        "    pub fn {method_name}(self: *{type_name}, {req_param}: []const u8) ({zig_error_type}||error{{OutOfMemory}})!{struct_name} {{",
         method_name = method.name,
         type_name = ty.name,
     );
@@ -292,46 +374,12 @@ fn emit_opaque_streaming_method(
         out,
         "        if (_stream_handle == null) {{ return _first_error({zig_error_type}); }}",
     );
-    let _ = writeln!(
-        out,
-        "        defer c.{prefix}_{type_snake}_{method_snake}_free(_stream_handle);",
-    );
 
-    // Accumulate all chunks into a JSON array — the Zig caller parses elements lazily.
-    // Zig 0.16+ changed ArrayList API: allocator is passed at each operation, not at init.
+    // Return the stream struct without defer-freeing yet — caller owns it via deinit()
     let _ = writeln!(
         out,
-        "        var _buf = try std.ArrayList(u8).initCapacity(std.heap.c_allocator, 0);"
+        "        return {struct_name}{{ ._handle = _stream_handle }};"
     );
-    let _ = writeln!(out, "        defer _buf.deinit(std.heap.c_allocator);");
-    let _ = writeln!(out, "        try _buf.append(std.heap.c_allocator, '[');");
-    let _ = writeln!(out, "        var _first = true;");
-    let _ = writeln!(out, "        while (true) {{");
-    let _ = writeln!(
-        out,
-        "            const _chunk = c.{prefix}_{type_snake}_{method_snake}_next(_stream_handle);",
-    );
-    let _ = writeln!(out, "            if (_chunk == null) break;");
-    let _ = writeln!(
-        out,
-        "            const _chunk_json_ptr = c.{prefix}_{item_snake}_to_json(_chunk);",
-    );
-    let _ = writeln!(out, "            c.{prefix}_{item_snake}_free(_chunk);");
-    let _ = writeln!(out, "            if (_chunk_json_ptr == null) continue;");
-    let _ = writeln!(
-        out,
-        "            if (!_first) try _buf.append(std.heap.c_allocator, ',');"
-    );
-    let _ = writeln!(out, "            _first = false;");
-    let _ = writeln!(out, "            const _chunk_slice = std.mem.span(_chunk_json_ptr);");
-    let _ = writeln!(
-        out,
-        "            try _buf.appendSlice(std.heap.c_allocator, _chunk_slice);"
-    );
-    let _ = writeln!(out, "            c.{prefix}_free_string(_chunk_json_ptr);");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "        try _buf.append(std.heap.c_allocator, ']');");
-    let _ = writeln!(out, "        return _buf.toOwnedSlice(std.heap.c_allocator);");
     let _ = writeln!(out, "    }}");
 }
 
