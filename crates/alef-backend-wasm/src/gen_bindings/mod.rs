@@ -844,13 +844,21 @@ fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
             format!(r#""{}""#, tv::cargo::WASM_BINDGEN_FUTURES),
         ),
     ];
-    // Append parsed extra deps as (name, value) pairs.
+    // Parse extra deps into (name, value) pairs.
+    let mut extra_parsed: Vec<(String, String)> = Vec::new();
     for line in extra_deps_section.lines() {
         let trimmed = line.trim();
         if let Some((name, value)) = trimmed.split_once('=') {
-            deps.push((name.trim().to_string(), value.trim().to_string()));
+            extra_parsed.push((name.trim().to_string(), value.trim().to_string()));
         }
     }
+    // A dependency listed in `[crates.<lang>.extra_dependencies]` overrides the
+    // built-in of the same name rather than emitting a second key. Without this,
+    // re-declaring a built-in (e.g. `serde`) produces a duplicate key and cargo
+    // rejects the manifest with "duplicate key in dependencies".
+    let extra_names: AHashSet<&str> = extra_parsed.iter().map(|(name, _)| name.as_str()).collect();
+    deps.retain(|(name, _)| !extra_names.contains(name.as_str()));
+    deps.extend(extra_parsed);
     deps.sort_by(|a, b| a.0.cmp(&b.0));
     let deps_block = deps
         .iter()
@@ -938,6 +946,51 @@ sources = ["src/lib.rs"]
         assert_eq!(files.len(), 2);
         assert!(files[0].path.to_string_lossy().ends_with("lib.rs"));
         assert!(files[1].path.to_string_lossy().ends_with("Cargo.toml"));
+    }
+
+    #[test]
+    fn extra_dependency_overrides_builtin_without_duplicate_key() {
+        // `serde` is a built-in wasm dependency. Re-declaring it via
+        // `[crates.wasm.extra_dependencies]` must override the built-in rather
+        // than emit a second `serde` key (which makes cargo reject the manifest).
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["wasm"]
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+[crates.wasm]
+[crates.wasm.extra_dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+"#,
+        )
+        .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+        let cargo_toml = super::gen_cargo_toml(&api, &config);
+
+        let serde_lines = cargo_toml
+            .lines()
+            .filter(|l| l.trim_start().starts_with("serde =") || l.trim_start().starts_with("serde="))
+            .count();
+        assert_eq!(serde_lines, 1, "expected exactly one `serde` key, got:\n{cargo_toml}");
+        // The override (with the extra `rc` feature) wins over the built-in.
+        assert!(
+            cargo_toml.contains(r#"features = ["derive", "rc"]"#),
+            "extra_dependencies override should win:\n{cargo_toml}"
+        );
+        // The manifest must parse as valid TOML (duplicate keys would fail here).
+        toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
     }
 
     #[test]
