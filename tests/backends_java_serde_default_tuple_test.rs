@@ -1,9 +1,7 @@
 use alef::backends::java::JavaBackend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::{
-    ApiSurface, CoreWrapper, FieldDef, PrimitiveType, TypeDef, TypeRef,
-};
+use alef::core::ir::{ApiSurface, CoreWrapper, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 fn resolved_one(toml: &str) -> alef::core::config::ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
@@ -50,7 +48,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         has_stripped_cfg_fields: false,
         is_return_type: false,
         serde_rename_all: None,
-        has_serde: true,  // This is important for builder generation
+        has_serde: true, // This is important for builder generation
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
@@ -69,8 +67,8 @@ fn test_java_serde_default_tuple_field_uses_nullable_type_and_null_default() {
     let tuple_field = make_field(
         "ngram_range",
         TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64))),
-        false,                                                        // non-optional
-        Some("/* serde(default) */".to_string()),                    // has #[serde(default)]
+        false,                                    // non-optional
+        Some("/* serde(default) */".to_string()), // has #[serde(default)]
     );
     let typ = make_type("KeywordConfig", vec![tuple_field]);
 

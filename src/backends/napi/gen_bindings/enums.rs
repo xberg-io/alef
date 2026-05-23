@@ -243,9 +243,9 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     lines.push(format!("#[napi(object, js_name = \"{js_name}\")]"));
     lines.push(format!("pub struct {prefix}{} {{", enum_def.name));
     lines.push(format!("    #[napi(js_name = \"{ts_discriminant}\")]"));
-    // When the tag field name differs from the discriminant, add #[serde(rename)] for serialization
-    if has_serde && tag_field != &format!("{}_tag", tag_field) && ts_discriminant != tag_field {
-        // The Rust field is `{tag_field}_tag`, but JS expects `{ts_discriminant}` → rename in serde
+    // The Rust field is `{tag_field}_tag` (e.g., `type_tag`), but the JS name is `{ts_discriminant}` (e.g., `type`).
+    // serde will serialize using the Rust field name unless #[serde(rename)] is set.
+    if has_serde {
         lines.push(format!("    #[serde(rename = \"{ts_discriminant}\")]"));
     }
     lines.push(format!("    pub {tag_field}_tag: String,"));
@@ -276,6 +276,10 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
                 let js_name = tagged_enum_field_js_name(variant, field);
                 if js_name != field_name {
                     lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
+                    // When js_name differs from field_name, add #[serde(rename)] for serialization
+                    if has_serde {
+                        lines.push(format!("    #[serde(rename = \"{js_name}\")]"));
+                    }
                 }
                 lines.push(format!("    pub {field_name}: Option<{field_type}>,"));
             }
@@ -298,6 +302,10 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             let js_name = tagged_enum_field_js_name(v, field);
             if js_name != field_name {
                 lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
+                // When js_name differs from field_name, add #[serde(rename)] for serialization
+                if has_serde {
+                    lines.push(format!("    #[serde(rename = \"{js_name}\")]"));
+                }
             }
             lines.push(format!("    pub {field_name}: Option<{binding_type}>,"));
         }

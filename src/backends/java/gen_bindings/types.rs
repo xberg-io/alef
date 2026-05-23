@@ -1846,8 +1846,7 @@ fn gen_builder_nested_class(
                 && default != "/* serde(default) */"
             {
                 default.clone()
-            } else if field.default == Some("/* serde(default) */".to_string())
-            {
+            } else if field.default == Some("/* serde(default) */".to_string()) {
                 // Field has #[serde(default)]: special handling per type.
                 if matches!(&field.ty, TypeRef::Named(_)) {
                     // Non-optional enum field with #[serde(default)].

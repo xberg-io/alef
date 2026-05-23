@@ -55,18 +55,13 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // When option_duration_on_defaults is set for a has_default type, non-optional Duration
     // fields are stored as Option<u64> in the binding struct.  We use the builder pattern
     // so that None falls back to the core type's Default (giving the real field default,
-    // e.g. Duration::from_millis(30000)) rather than Duration::ZERO.
-    // However, WASM bindings may also have genuinely-optional primitive fields (created during
-    // type mapping) alongside the optionalized Duration fields. We must use builder pattern
-    // whenever any field is optional in the binding struct AND the core config has optionalize_defaults,
-    // so omitted fields preserve their core defaults rather than being overwritten with
-    // primitive zeros (0, false, empty) from serde deserialization.
+    // e.g. Duration::from_millis(30000)) rather than Duration::ZERO).
     let has_optionalized_fields = config.option_duration_on_defaults
         && typ.has_default
         && typ
             .fields
             .iter()
-            .any(|f| f.optional || (!f.optional && matches!(f.ty, TypeRef::Duration)));
+            .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration));
 
     if has_optionalized_fields {
         // Builder pattern: start from core default, override explicitly-set fields.
@@ -96,38 +91,30 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 ));
                 continue;
             }
-            // A field is considered optionalized if:
-            // 1. optionalize_defaults=true and the field is non-optional (all fields case), OR
-            // 2. option_duration_on_defaults=true and the field is optional in the binding struct
-            //    (either explicitly Optional in IR, or forced-Optional for Duration fields)
+            // Determine if this field was Option-wrapped by config for ergonomics.
+            // Two cases:
+            // 1. optionalize_defaults=true: all non-optional IR fields become Option<T> in binding
+            // 2. option_duration_on_defaults=true: non-optional Duration IR fields become Option<u64> in binding
+            //
+            // Core field optionality matters:
+            // - If core is non-optional (T): unwrap binding Option, use if-let to preserve defaults
+            // - If core is optional (Option<T>): both binding and core are Option, skip if-let
             let field_is_optionalized_by_duration = config.option_duration_on_defaults
                 && typ.has_default
                 && !field.optional
                 && matches!(field.ty, TypeRef::Duration);
-            let field_is_truly_optional_in_binding = config.option_duration_on_defaults
-                && typ.has_default
-                && field.optional;
-            let field_was_optionalized = (optionalized && !field.optional)
-                || field_is_optionalized_by_duration
-                || field_is_truly_optional_in_binding;
-            let conversion = if field_was_optionalized {
-                // Field was Option-wrapped in the binding for ergonomics; core expects T.
-                // For optionalize_defaults, the IR field is non-optional, so pass optional=false.
-                // For option_duration_on_defaults:
-                //   - Non-optional Duration fields: pass optional=false (they're wrapped to Option<u64>)
-                //   - Truly-optional IR fields: pass optional=true (they're already Option<T> in IR and binding)
-                let should_pass_optional = field_is_truly_optional_in_binding && field.optional;
-                // Compute the conversion as if the binding field were the unwrapped T value —
-                // the if-let wrapping below extracts `__v` from the Option and substitutes it
-                // into the expression, so we keep core's Default for omitted fields rather
-                // than overwriting with the primitive zero of `unwrap_or_default()`.
-                field_conversion_to_core_cfg(&field.name, &field.ty, should_pass_optional, config)
+            let field_is_config_optionalized = (optionalized && !field.optional) || field_is_optionalized_by_duration;
+
+            // Genuinely-optional fields (both binding and core are Option<T>).
+            // These should NOT use if-let unwrapping.
+            let _field_is_genuinely_optional = config.option_duration_on_defaults && typ.has_default && field.optional;
+
+            let conversion = if field_is_config_optionalized {
+                // Field was Option-wrapped by optionalize_defaults or option_duration_on_defaults;
+                // core field is non-optional (T). Compute conversion for the unwrapped value.
+                field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
             } else {
-                // Genuinely-optional IR field (binding: Option<T>, core: Option<T>) or required
-                // field (`!field.optional` with optionalize_defaults=false). Both cases are
-                // handled correctly by `field_conversion_to_core_cfg`. Routing genuinely-optional
-                // fields through `gen_optionalized_field_to_core` would emit `.unwrap_or_default()`
-                // for primitives/String/Path/Duration and break the `Option<T>` destination.
+                // Standard path: either not optionalized, or genuinely-optional (Option<T>→Option<T>).
                 field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
             };
             // Apply binding field name substitution for keyword-escaped fields.
@@ -138,7 +125,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             };
             // Strip the "name: " prefix to get just the expression, then assign
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
-                if field_was_optionalized {
+                if field_is_config_optionalized {
                     // Emit `if let Some(__v) = val.field { __result.field = <expr with __v>; }`
                     // so omitted fields preserve core's Default value rather than being
                     // overwritten with the primitive zero from `.unwrap_or_default()`.

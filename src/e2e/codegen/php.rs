@@ -1200,7 +1200,8 @@ fn render_test_method(
                 && !(f.contains("metadata.format.") && f.matches('.').count() >= 2)
                 && field_resolver.is_array(f)
                 // Only collect bindings for fields that are valid on the result type
-                && field_resolver.is_valid_for_result(f) {
+                && field_resolver.is_valid_for_result(f)
+            {
                 // Only emit binding if not already added
                 if !fields_array_bindings.contains_key(f.as_str()) {
                     let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
