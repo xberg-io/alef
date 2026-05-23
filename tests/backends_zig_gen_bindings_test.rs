@@ -1271,54 +1271,214 @@ type = "CrawlStreamRequest"
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Streaming wrapper must be emitted on the CrawlEngineHandle struct.
+    // Streaming struct type must be emitted (before the opaque handle).
+    assert!(
+        content.contains("pub const CrawlEventStream = struct {"),
+        "must emit CrawlEventStream struct type: {content}"
+    );
+    // Struct must have _handle field holding the FFI stream handle.
+    assert!(
+        content.contains("_handle: *c.DEMOCrawlEventStream,"),
+        "struct must have _handle field with FFI stream type: {content}"
+    );
+    // Struct must have next() method that returns optional item or error.
+    assert!(
+        content.contains("pub fn next(self: *CrawlEventStream)"),
+        "struct must have next() method: {content}"
+    );
+    assert!(
+        content.contains("!?CrawlEvent"),
+        "next() must return error union of optional item: {content}"
+    );
+    // next() must call _next to fetch a chunk.
+    assert!(
+        content.contains("c.demo_crawl_engine_handle_crawl_stream_next(self._handle)"),
+        "next() must call _next to fetch the next chunk: {content}"
+    );
+    // next() must distinguish clean EOS (null + errno==0) from mid-stream error (null + errno!=0).
+    assert!(
+        content.contains("if (_has_error()) return _first_error(DemoError);"),
+        "next() must check error state on null chunk: {content}"
+    );
+    assert!(
+        content.contains("return null;"),
+        "next() must return null on clean EOS: {content}"
+    );
+    // next() must parse the chunk to the item type.
+    assert!(
+        content.contains("return try parseCrawlEventFromJson("),
+        "next() must parse JSON to item type: {content}"
+    );
+    // Struct must have deinit() method to release the stream handle.
+    assert!(
+        content.contains("pub fn deinit(self: *CrawlEventStream) void {"),
+        "struct must have deinit() method: {content}"
+    );
+    assert!(
+        content.contains("c.demo_crawl_engine_handle_crawl_stream_free(self._handle)"),
+        "deinit() must call _free to release the stream handle: {content}"
+    );
+    // Streaming wrapper method must be emitted on the CrawlEngineHandle struct.
     assert!(
         content.contains("pub fn crawl_stream(self: *CrawlEngineHandle"),
         "must emit streaming wrapper on opaque handle: {content}"
     );
-    // Return type must be a JSON byte slice (not a single chunk).
+    // Return type must be the struct (not a JSON array).
     assert!(
-        content.contains("![]u8 {"),
-        "streaming return type must be `![]u8` (JSON array of events): {content}"
+        content.contains("!CrawlEventStream {"),
+        "streaming return type must be `!CrawlEventStream` (not `![]u8`): {content}"
     );
     // Body must build the request handle from JSON via the request_type's _from_json.
     assert!(
         content.contains("c.demo_crawl_stream_request_from_json("),
         "must build request handle from JSON: {content}"
     );
-    // Body must call the iterator `_start` symbol.
+    // Body must call the iterator `_start` symbol to begin the stream.
     assert!(
         content.contains("c.demo_crawl_engine_handle_crawl_stream_start("),
         "must call `_start` to begin the stream: {content}"
     );
-    // Body must loop on `_next` (not call once).
+    // Body must return the struct (not defer-free it).
     assert!(
-        content.contains("c.demo_crawl_engine_handle_crawl_stream_next("),
-        "must call `_next` to drain the stream: {content}"
+        content.contains("return CrawlEventStream{ ._handle = _stream_handle };"),
+        "must return the stream struct (caller owns it via deinit()): {content}"
+    );
+    // Must NOT eagerly collect chunks into a JSON array.
+    assert!(
+        !content.contains("while (true) {"),
+        "must NOT eagerly loop over chunks in the binding function: {content}"
     );
     assert!(
-        content.contains("while (true) {"),
-        "must loop over `_next` (not a single call): {content}"
+        !content.contains("try _buf.append(std.heap.c_allocator, '[')"),
+        "must NOT build a JSON array in the binding function: {content}"
     );
-    // Each chunk must be appended into the JSON array buffer.
+}
+
+/// Regression test: streaming adapters must emit iterator-based structs with next() and deinit().
+/// This test verifies that the struct has the correct methods and that intermediate chunks can
+/// be inspected without draining the entire stream.
+#[test]
+fn streaming_struct_has_next_and_deinit_methods() {
+    let toml = r#"
+[workspace]
+languages = ["zig", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[[crates.adapters]]
+name = "crawl_stream"
+pattern = "streaming"
+core_path = "demo::crawl_stream"
+owner_type = "CrawlEngineHandle"
+item_type = "CrawlEvent"
+error_type = "DemoError"
+request_type = "demo::CrawlStreamRequest"
+
+[[crates.adapters.params]]
+name = "req"
+type = "CrawlStreamRequest"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let crawl_stream_method = MethodDef {
+        name: "crawl_stream".into(),
+        params: vec![make_param("req", TypeRef::Named("CrawlStreamRequest".into()))],
+        return_type: TypeRef::String,
+        is_async: true,
+        is_static: false,
+        error_type: Some("DemoError".into()),
+        doc: "Stream crawl events for a single URL.".into(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let engine_type = TypeDef {
+        name: "CrawlEngineHandle".into(),
+        rust_path: "demo::CrawlEngineHandle".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![crawl_stream_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![engine_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Network".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The next() method must be present and take `self: *CrawlEventStream`.
     assert!(
-        content.contains("try _buf.appendSlice(std.heap.c_allocator, _chunk_slice)"),
-        "must append each chunk into the JSON buffer (not last-chunk-only): {content}"
+        content.contains("pub fn next(self: *CrawlEventStream)"),
+        "next() method must be present on CrawlEventStream: {content}"
     );
-    // Buffer must start with `[` and end with `]` — a proper JSON array.
+
+    // The deinit() method must be present and take `self: *CrawlEventStream`.
     assert!(
-        content.contains("try _buf.append(std.heap.c_allocator, '[')")
-            && content.contains("try _buf.append(std.heap.c_allocator, ']')"),
-        "must wrap chunks in a JSON array: {content}"
+        content.contains("pub fn deinit(self: *CrawlEventStream) void {"),
+        "deinit() method must be present on CrawlEventStream: {content}"
     );
-    // Stream handle must be freed.
+
+    // next() must return an optional item (or error).
     assert!(
-        content.contains("c.demo_crawl_engine_handle_crawl_stream_free("),
-        "must free the stream handle (defer): {content}"
+        content.contains("!?CrawlEvent"),
+        "next() must return error union of optional item type: {content}"
     );
-    // Each per-chunk C-allocated JSON pointer must be freed via the prefixed `_free_string`.
+
+    // deinit() must release the handle via _free.
     assert!(
-        content.contains("c.demo_free_string(_chunk_json_ptr)"),
-        "must free each chunk JSON pointer: {content}"
+        content.contains("c.demo_crawl_engine_handle_crawl_stream_free(self._handle);"),
+        "deinit() must call the _free FFI function: {content}"
     );
 }
