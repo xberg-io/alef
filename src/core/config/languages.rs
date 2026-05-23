@@ -226,6 +226,12 @@ pub struct NodeConfig {
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,
+    /// Overrides the default `crates/{name}-node` formula for the crate directory.
+    /// Useful when the Rust crate directory does not follow the alef convention
+    /// (e.g., consumer strips a `-rs` suffix so actual crate dir is `crates/html-to-markdown-node`
+    /// instead of `crates/html-to-markdown-rs-node`). Used by setup, test, clean, and format tasks.
+    #[serde(default)]
+    pub crate_dir: Option<String>,
     /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
@@ -403,6 +409,12 @@ pub struct WasmConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Overrides the default `crates/{name}-wasm` formula for the crate directory.
+    /// Useful when the Rust crate directory does not follow the alef convention
+    /// (e.g., consumer strips a `-rs` suffix so actual crate dir is `crates/html-to-markdown-wasm`
+    /// instead of `crates/html-to-markdown-rs-wasm`). Used by setup, test, clean, and format tasks.
+    #[serde(default)]
+    pub crate_dir: Option<String>,
     /// Override the core Cargo dependency name and path for the WASM binding crate.
     /// When set, the binding `Cargo.toml` depends on this crate (resolved as
     /// `../<override>`) instead of the umbrella `[crate.name]`. Use this to point
@@ -559,6 +571,13 @@ pub struct GoConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Struct types that should emit the functional-options pattern (`With<Field>` helpers
+    /// plus `New<Struct>(opts ...<Struct>Option)` constructor).
+    /// By default, pure data DTOs emit plain struct literals; this allowlist enables the
+    /// functional-options pattern only for behaviour-knob types (e.g., `DialOptions`).
+    /// Defaults to empty (no functional-options emitted).
+    #[serde(default)]
+    pub functional_options: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

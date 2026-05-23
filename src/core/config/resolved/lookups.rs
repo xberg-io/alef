@@ -22,6 +22,7 @@ impl ResolvedCrateConfig {
     }
     /// Get the package output directory for a language.
     /// Uses `scaffold_output` from per-language config if set, otherwise defaults.
+    /// For Node and Wasm, checks `crate_dir` override before the default formula.
     pub fn package_dir(&self, lang: Language) -> String {
         let override_path = match lang {
             Language::Python => self.python.as_ref().and_then(|c| c.scaffold_output.as_ref()),
@@ -42,8 +43,22 @@ impl ResolvedCrateConfig {
                 // and the historical `packages/{node,wasm}/` scaffolds were dead weight
                 // that modern alef-scaffold no longer emits. Setup/test/clean defaults
                 // need to track the live crate dir, not the dead packages one.
-                Language::Node => format!("crates/{}-node", self.name),
-                Language::Wasm => format!("crates/{}-wasm", self.name),
+                //
+                // The default formula `crates/{name}-{lang}` assumes the crate name includes
+                // any `-rs` or similar suffix. When the consumer strips the suffix for
+                // publication matching, use the `crate_dir` override.
+                Language::Node => self
+                    .node
+                    .as_ref()
+                    .and_then(|c| c.crate_dir.as_ref())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("crates/{}-node", self.name)),
+                Language::Wasm => self
+                    .wasm
+                    .as_ref()
+                    .and_then(|c| c.crate_dir.as_ref())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("crates/{}-wasm", self.name)),
                 Language::Ruby => "packages/ruby".to_string(),
                 Language::Php => "packages/php".to_string(),
                 Language::Elixir => "packages/elixir".to_string(),
@@ -474,5 +489,121 @@ tokio = "1"
         assert_eq!(r.package_dir(Language::Go), "packages/go");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
         assert_eq!(r.package_dir(Language::KotlinAndroid), "packages/kotlin-android");
+    }
+
+    #[test]
+    fn package_dir_node_crate_dir_override_takes_precedence() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["node"]
+
+[[crates]]
+name = "html-to-markdown-rs"
+sources = ["src/lib.rs"]
+
+[crates.node]
+crate_dir = "crates/html-to-markdown-node"
+"#,
+        );
+        assert_eq!(
+            r.package_dir(Language::Node),
+            "crates/html-to-markdown-node",
+            "crate_dir override should be used instead of default formula"
+        );
+    }
+
+    #[test]
+    fn package_dir_wasm_crate_dir_override_takes_precedence() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["wasm"]
+
+[[crates]]
+name = "html-to-markdown-rs"
+sources = ["src/lib.rs"]
+
+[crates.wasm]
+crate_dir = "crates/html-to-markdown-wasm"
+"#,
+        );
+        assert_eq!(
+            r.package_dir(Language::Wasm),
+            "crates/html-to-markdown-wasm",
+            "crate_dir override should be used instead of default formula"
+        );
+    }
+
+    #[test]
+    fn package_dir_node_without_override_uses_default_formula() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["node"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        );
+        assert_eq!(
+            r.package_dir(Language::Node),
+            "crates/test-lib-node",
+            "default formula should apply when crate_dir is not set"
+        );
+    }
+
+    #[test]
+    fn package_dir_wasm_without_override_uses_default_formula() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["wasm"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        );
+        assert_eq!(
+            r.package_dir(Language::Wasm),
+            "crates/test-lib-wasm",
+            "default formula should apply when crate_dir is not set"
+        );
+    }
+
+    #[test]
+    fn package_dir_html_to_markdown_scenario_with_both_overrides() {
+        // Reproduce the STY-4 scenario: h2m strips `-rs` for Node and Wasm
+        // so the actual crate dirs don't follow the default formula.
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["node", "wasm"]
+
+[[crates]]
+name = "html-to-markdown-rs"
+sources = ["src/lib.rs"]
+
+[crates.node]
+crate_dir = "crates/html-to-markdown-node"
+
+[crates.wasm]
+crate_dir = "crates/html-to-markdown-wasm"
+"#,
+        );
+        // Without overrides, the formula would produce html-to-markdown-rs-{node,wasm}
+        // (WRONG). With overrides, we get the correct stripped names.
+        assert_eq!(
+            r.package_dir(Language::Node),
+            "crates/html-to-markdown-node",
+            "Node override should return exact path without formula"
+        );
+        assert_eq!(
+            r.package_dir(Language::Wasm),
+            "crates/html-to-markdown-wasm",
+            "Wasm override should return exact path without formula"
+        );
     }
 }
