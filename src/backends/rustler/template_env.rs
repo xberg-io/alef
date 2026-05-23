@@ -792,6 +792,10 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         include_str!("templates/elixir_streaming_unfold_wrapper.jinja"),
     ),
     (
+        "elixir_stream_error_exception.jinja",
+        include_str!("templates/elixir_stream_error_exception.jinja"),
+    ),
+    (
         "rustler_resource_registration.rs.jinja",
         include_str!("templates/rustler_resource_registration.rs.jinja"),
     ),

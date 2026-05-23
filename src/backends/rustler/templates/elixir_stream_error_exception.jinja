@@ -1,0 +1,9 @@
+  defmodule {{ exception_module }} do
+    @moduledoc false
+
+    defexception [:message, :reason, :adapter]
+
+    @impl true
+    def message(%__MODULE__{message: msg}), do: msg
+  end
+

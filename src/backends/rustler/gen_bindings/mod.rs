@@ -1364,11 +1364,25 @@ impl Backend for RustlerBackend {
         // Streaming-adapter wrappers: emit the underlying `_start` / `_next` defs
         // (delegating to NIFs) plus a high-level `{name}/2` (or `/3`) function
         // returning an Elixir `Stream` driven by `Stream.unfold/2`.
-        for adapter in config
+        let streaming_adapters: Vec<_> = config
             .adapters
             .iter()
             .filter(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming))
-        {
+            .collect();
+
+        // Emit StreamError exception module once if there are streaming adapters
+        if !streaming_adapters.is_empty() {
+            let exception_module = format!("{app_module}.StreamError");
+            content.push_str(&template_env::render(
+                "elixir_stream_error_exception.jinja",
+                minijinja::context! {
+                    exception_module => &exception_module,
+                },
+            ));
+            content.push('\n');
+        }
+
+        for adapter in streaming_adapters {
             let Some(owner) = adapter.owner_type.as_deref() else {
                 continue;
             };
@@ -1422,6 +1436,7 @@ impl Backend for RustlerBackend {
                 .first()
                 .map(|p| elixir_safe_param_name(&p.name))
                 .unwrap_or_else(|| "request".to_string());
+            let exception_module = format!("{app_module}.StreamError");
             content.push_str(&template_env::render(
                 "elixir_streaming_unfold_wrapper.jinja",
                 minijinja::context! {
@@ -1431,6 +1446,7 @@ impl Backend for RustlerBackend {
                     native_mod => &native_mod,
                     start_fn => &start_fn,
                     next_fn => &next_fn,
+                    exception_module => &exception_module,
                 },
             ));
         }

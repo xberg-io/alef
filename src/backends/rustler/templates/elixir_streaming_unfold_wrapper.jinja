@@ -18,8 +18,11 @@
               {:ok, chunk_json} ->
                 {Jason.decode!(chunk_json, keys: :atoms), h}
 
-              {:error, _} ->
-                nil
+              {:error, reason} ->
+                raise {{ exception_module }},
+                  message: "{{ stream_fn }} stream failed: #{inspect(reason)}",
+                  reason: reason,
+                  adapter: :{{ stream_fn }}
             end
           end)
 
