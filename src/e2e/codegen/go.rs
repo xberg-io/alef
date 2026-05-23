@@ -1682,7 +1682,7 @@ impl client::TestClientRenderer for GoTestClientRenderer {
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"request failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
-        let _ = writeln!(out, "\tdefer resp.Body.Close()");
+        let _ = writeln!(out, "\tdefer func() {{ _ = resp.Body.Close() }}()");
 
         // Always read the response body so body-assertion methods can reference
         // `bodyBytes`. Suppress the "declared and not used" compile error with
