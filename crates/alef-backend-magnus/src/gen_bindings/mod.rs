@@ -779,7 +779,9 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
     }
     out.push_str(&format!("  module {class_name}\n"));
     out.push_str("    extend T::Helpers\n");
-    out.push_str("    extend T::Sig\n");
+    // Blank line after the module-inclusion group before non-inclusion code
+    // (Layout/EmptyLinesAfterModuleInclusion).
+    out.push_str("    extend T::Sig\n\n");
     // `interface!` already declares the module abstract; calling `abstract!` again
     // raises `T::Private::Abstract::Declare: already declared as abstract`.
     out.push_str("    interface!\n\n");
@@ -798,18 +800,16 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         let snake = classes::pascal_to_snake(&variant.name);
         let variant_const = format!("{}{}", class_name, &variant.name);
         if let Some(rename) = &variant.serde_rename {
-            out.push_str(&format!(
-                "      when '{rename}' then {variant_const}.from_hash(hash)\n"
-            ));
+            out.push_str(&format!("      when '{rename}' then {variant_const}.from_hash(hash)\n"));
         } else {
-            out.push_str(&format!(
-                "      when '{snake}' then {variant_const}.from_hash(hash)\n"
-            ));
+            out.push_str(&format!("      when '{snake}' then {variant_const}.from_hash(hash)\n"));
         }
     }
     out.push_str("      else raise \"Unknown discriminator: #{discriminator}\"\n");
     out.push_str("      end\n");
-    out.push_str("    end\n\n");
+    // No trailing blank line: the dispatcher is the last member of the marker
+    // module, so a blank here trips Layout/EmptyLinesAroundModuleBody.
+    out.push_str("    end\n");
 
     out.push_str("  end\n\n");
 
@@ -908,6 +908,11 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
         out.push_str("  end\n\n");
     }
 
+    // The variant loop leaves a trailing blank line; drop it so the enclosing
+    // module body doesn't end with an empty line (Layout/EmptyLinesAroundModuleBody).
+    if out.ends_with("\n\n") {
+        out.pop();
+    }
     out.push_str("end\n");
     out
 }

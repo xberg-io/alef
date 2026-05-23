@@ -2325,15 +2325,16 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
     );
 }
 
-/// Regression: the tagged-enum `from_hash` dispatcher must emit single-quoted
-/// string literals (RuboCop's default `Style/StringLiterals`). Generated Ruby
-/// lives under `lib/**` which the gem's `.rubocop.yml` excludes, so alef's own
-/// `rubocop -A` pass never touches it — but a pre-commit `rubocop` hook that
-/// passes the file explicitly overrides that exclusion and rewrites
-/// double-quoted literals to single quotes, invalidating alef's file hash.
-/// Emitting single quotes up front keeps the file stable and `alef verify`-clean.
+/// Regression: the tagged-enum marker module must be RuboCop-clean — single-quoted
+/// string literals (`Style/StringLiterals`), a blank line after the module-inclusion
+/// group (`Layout/EmptyLinesAfterModuleInclusion`), and no blank line at a module
+/// body end (`Layout/EmptyLinesAroundModuleBody`). Generated Ruby lives under `lib/**`
+/// which the gem's `.rubocop.yml` excludes, so alef's own `rubocop -A` pass never
+/// touches it — but a pre-commit `rubocop` hook that passes the file explicitly
+/// overrides that exclusion and reformats it, invalidating alef's file hash and
+/// tripping `alef verify`. Emitting clean code up front keeps the file stable.
 #[test]
-fn tagged_enum_dispatcher_uses_single_quoted_string_literals() {
+fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
@@ -2417,6 +2418,24 @@ fn tagged_enum_dispatcher_uses_single_quoted_string_literals() {
     assert!(
         content.contains("raise \"Unknown discriminator: #{discriminator}\""),
         "interpolated raise must remain double-quoted:\n{content}"
+    );
+
+    // Layout/EmptyLinesAfterModuleInclusion: blank line after the inclusion group.
+    assert!(
+        content.contains("    extend T::Sig\n\n    interface!"),
+        "must emit a blank line after the module-inclusion group:\n{content}"
+    );
+    // Layout/EmptyLinesAroundModuleBody: the dispatcher's `end` sits directly
+    // against the marker module's `end` — no intervening blank line.
+    assert!(
+        content.contains("    end\n  end\n"),
+        "marker module body must not end with a blank line:\n{content}"
+    );
+    // Layout/EmptyLinesAroundModuleBody: the outer module closes without a
+    // trailing blank line after the last variant class.
+    assert!(
+        content.contains("  end\nend\n") && !content.contains("  end\n\nend"),
+        "outer module body must not end with a blank line:\n{content}"
     );
 }
 
