@@ -1234,6 +1234,7 @@ fn render_test_method(
             result_is_simple,
             call_config.result_is_array,
             &fields_array_bindings,
+            is_streaming,
         );
     }
 
@@ -1755,6 +1756,7 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_array: bool,
     fields_array_bindings: &std::collections::BTreeMap<String, (String, String)>,
+    is_streaming: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1887,8 +1889,9 @@ fn render_assertion(
 
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `$chunks` collected-list variable.
+    // Only treat a field as streaming if the call is actually streaming.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+        if !f.is_empty() && is_streaming && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             if let Some(expr) =
                 crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "php", "chunks")
             {

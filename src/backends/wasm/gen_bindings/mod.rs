@@ -551,6 +551,7 @@ impl Backend for WasmBackend {
             type_name_prefix: &prefix,
             map_uses_jsvalue: true,
             option_duration_on_defaults: true,
+            optionalize_defaults: true,
             exclude_types: &exclude_types,
             source_crate_remaps: &source_remaps_borrowed,
             // Treat bridge type aliases (e.g. VisitorHandle) as opaque so binding→core

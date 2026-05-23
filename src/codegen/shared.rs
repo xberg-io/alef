@@ -355,7 +355,16 @@ pub fn config_constructor_parts_with_options(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, None, &[])
+    config_constructor_parts_with_options_cfg(fields, type_mapper, option_duration_on_defaults, false)
+}
+
+pub fn config_constructor_parts_with_options_cfg(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    option_duration_on_defaults: bool,
+    optionalize_all_defaults: bool,
+) -> (String, String, String) {
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, optionalize_all_defaults, None, &[])
 }
 
 /// Like `config_constructor_parts_with_options` but with field renames for keyword escaping.
@@ -365,7 +374,7 @@ pub fn config_constructor_parts_with_renames(
     option_duration_on_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, field_renames, &[])
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, false, field_renames, &[])
 }
 
 /// Like `config_constructor_parts_with_renames` but includes assignments for cfg-gated fields
@@ -381,6 +390,7 @@ pub fn config_constructor_parts_with_renames_and_cfg_restore(
         fields,
         type_mapper,
         option_duration_on_defaults,
+        false,
         field_renames,
         never_skip_cfg_field_names,
     )
@@ -390,13 +400,14 @@ pub fn config_constructor_parts(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, false, None, &[])
+    config_constructor_parts_inner(fields, type_mapper, false, false, None, &[])
 }
 
 fn config_constructor_parts_inner(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
+    optionalize_all_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
     never_skip_cfg_field_names: &[String],
 ) -> (String, String, String) {
@@ -457,7 +468,8 @@ fn config_constructor_parts_inner(
             }
             // Duration fields on has_default types are stored as Option<u64> when
             // option_duration_on_defaults is set — treat them as passthrough.
-            if option_duration_on_defaults && matches!(f.ty, TypeRef::Duration) {
+            // When optionalize_all_defaults is set, all non-optional fields are Option<T> and passthrough.
+            if (option_duration_on_defaults && matches!(f.ty, TypeRef::Duration)) || optionalize_all_defaults {
                 return format!("{}: {}", binding_name, f.name);
             }
             if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {

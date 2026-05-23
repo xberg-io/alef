@@ -857,7 +857,7 @@ pub(super) fn gen_tokio_runtime() -> String {
 }
 
 /// Emit a module-level wrapper function for an adapter (streaming method).
-pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, core_crate: &str) -> String {
+pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, core_crate: &str, types: &[crate::core::ir::TypeDef]) -> String {
     use crate::core::config::AdapterPattern;
 
     let adapter_name = &adapter.name;
@@ -869,35 +869,173 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
     });
     let js_owner_type = format!("Js{owner_type}");
 
-    // Build parameter list from adapter params (skip 'self' which is implicit on engine).
-    let mut param_parts = vec![format!("engine: &{js_owner_type}")];
-    let mut param_conversions = Vec::new();
+    // When adapter.request_type is set and there's a single param, decompose the request struct
+    // into its first field and use that as the function parameter (for ergonomic JS API).
+    // E.g. CrawlStreamRequest { url: String } → accept (url string), construct req, call method.
+    let (param_parts, param_conversions, core_params_list) =
+        if adapter.request_type.is_some() && adapter.params.len() == 1 {
+        // Single request param: decompose by inspecting the request type's first field in IR.
+        let param = &adapter.params[0];
+        let param_ty_name = &param.ty;
+        let ir_type = types.iter().find(|t| &t.name == param_ty_name);
 
-    for param in &adapter.params {
-        let param_name = &param.name;
-        let param_type = &param.ty;
-        // Map to JS wrapper types for parameters
-        let js_type = format!("Js{param_type}");
-        param_parts.push(format!("{param_name}: {js_type}"));
-        // Record conversion: "let core_req: {core_crate}::Type = req.into();"
-        let core_type = if param_type.contains("::") {
-            param_type.clone()
+        if let Some(ty_def) = ir_type {
+            if let Some(first_field) = ty_def.fields.first() {
+                let field_name = &first_field.name;
+                // Handle Optional<T> by unwrapping to get T
+                let unwrapped_type = match &first_field.ty {
+                    crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
+                    other => other,
+                };
+                let field_js_type = match unwrapped_type {
+                    crate::core::ir::TypeRef::String => "String",
+                    crate::core::ir::TypeRef::Bytes => "JsBytes",
+                    crate::core::ir::TypeRef::Vec(inner) => {
+                        // Vec<T> — determine T's type
+                        match inner.as_ref() {
+                            crate::core::ir::TypeRef::String => "Vec<String>",
+                            crate::core::ir::TypeRef::Primitive(p) => {
+                                use crate::core::ir::PrimitiveType;
+                                match p {
+                                    PrimitiveType::I32 => "Vec<i32>",
+                                    PrimitiveType::I64 => "Vec<i64>",
+                                    PrimitiveType::F64 => "Vec<f64>",
+                                    PrimitiveType::Bool => "Vec<bool>",
+                                    PrimitiveType::U8 => "Vec<u8>",
+                                    _ => "Vec<String>", // Default fallback
+                                }
+                            },
+                            _ => "Vec<String>", // Default fallback
+                        }
+                    },
+                    crate::core::ir::TypeRef::Primitive(p) => {
+                        use crate::core::ir::PrimitiveType;
+                        match p {
+                            PrimitiveType::I32 => "i32",
+                            PrimitiveType::I64 => "i64",
+                            PrimitiveType::F64 => "f64",
+                            PrimitiveType::Bool => "bool",
+                            PrimitiveType::U8 => "u8",
+                            PrimitiveType::U32 => "u32",
+                            PrimitiveType::Usize => "usize",
+                            _ => "String", // Default fallback
+                        }
+                    },
+                    _ => "String", // Fallback for complex types
+                };
+
+                let param_parts = vec![
+                    format!("engine: &{js_owner_type}"),
+                    format!("{field_name}: {field_js_type}"),
+                ];
+
+                let js_struct_name = format!("Js{param_ty_name}");
+                // Check if the field type is Optional and wrap accordingly
+                let wrapped_field_value = if matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_)) {
+                    format!("Some({})", field_name)
+                } else {
+                    field_name.clone()
+                };
+                let param_conversions = vec![
+                    format!(
+                        "    let core_{param_ty_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value} }}.into();",
+                        param_ty_name = param_ty_name,
+                        js_struct_name = js_struct_name,
+                        field_name = field_name,
+                        core_crate = core_crate,
+                    )
+                ];
+
+                let core_params = format!("core_{}", param_ty_name);
+
+                (param_parts, param_conversions, core_params)
+            } else {
+                // No fields: fallback to original behavior
+                let mut param_parts = vec![format!("engine: &{js_owner_type}")];
+                let mut param_conversions = Vec::new();
+                for param in &adapter.params {
+                    let param_name = &param.name;
+                    let param_type = &param.ty;
+                    let js_type = format!("Js{param_type}");
+                    param_parts.push(format!("{param_name}: {js_type}"));
+                    let core_type = if param_type.contains("::") {
+                        param_type.clone()
+                    } else {
+                        format!("{core_crate}::{param_type}")
+                    };
+                    param_conversions.push(format!(
+                        "    let core_{}: {} = {}.into();",
+                        param_name, core_type, param_name
+                    ));
+                }
+                let core_params_list = adapter
+                    .params
+                    .iter()
+                    .map(|p| format!("core_{}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                (param_parts, param_conversions, core_params_list)
+            }
         } else {
-            format!("{core_crate}::{param_type}")
-        };
-        param_conversions.push(format!(
-            "    let core_{}: {} = {}.into();",
-            param_name, core_type, param_name
-        ));
-    }
+            // Type not found: fallback to original behavior
+            let mut param_parts = vec![format!("engine: &{js_owner_type}")];
+            let mut param_conversions = Vec::new();
+            for param in &adapter.params {
+                let param_name = &param.name;
+                let param_type = &param.ty;
+                let js_type = format!("Js{param_type}");
+                param_parts.push(format!("{param_name}: {js_type}"));
+                let core_type = if param_type.contains("::") {
+                    param_type.clone()
+                } else {
+                    format!("{core_crate}::{param_type}")
+                };
+                param_conversions.push(format!(
+                    "    let core_{}: {} = {}.into();",
+                    param_name, core_type, param_name
+                ));
+            }
+            let core_params_list = adapter
+                .params
+                .iter()
+                .map(|p| format!("core_{}", p.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            (param_parts, param_conversions, core_params_list)
+        }
+    } else {
+        // Multi-param or no request_type: use original behavior
+        let mut param_parts = vec![format!("engine: &{js_owner_type}")];
+        let mut param_conversions = Vec::new();
 
-    // Build the positional param list for core_req usage.
-    let core_params_list = adapter
-        .params
-        .iter()
-        .map(|p| format!("core_{}", p.name))
-        .collect::<Vec<_>>()
-        .join(", ");
+        for param in &adapter.params {
+            let param_name = &param.name;
+            let param_type = &param.ty;
+            // Map to JS wrapper types for parameters
+            let js_type = format!("Js{param_type}");
+            param_parts.push(format!("{param_name}: {js_type}"));
+            // Record conversion: "let core_req: {core_crate}::Type = req.into();"
+            let core_type = if param_type.contains("::") {
+                param_type.clone()
+            } else {
+                format!("{core_crate}::{param_type}")
+            };
+            param_conversions.push(format!(
+                "    let core_{}: {} = {}.into();",
+                param_name, core_type, param_name
+            ));
+        }
+
+        // Build the positional param list for core_req usage.
+        let core_params_list = adapter
+            .params
+            .iter()
+            .map(|p| format!("core_{}", p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        (param_parts, param_conversions, core_params_list)
+    };
 
     match &adapter.pattern {
         AdapterPattern::Streaming => {
@@ -931,13 +1069,13 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
 
             format!(
                 "#[allow(clippy::missing_errors_doc)]\n\
-                 #[napi(js_name = \"{js_name}\")]\n\
+                 #[napi(js_name = \"{}\")]\n\
                  pub async fn {}({}) -> Result<{}> {{\n\
-                 {conversions_code}    let inner = engine.inner.clone();\n\
+                 {}    let inner = engine.inner.clone();\n\
                      let (tx, rx) = tokio::sync::mpsc::channel(32);\n\
                      tokio::spawn(async move {{\n\
                          use futures_util::StreamExt;\n\
-                         match {method_call_inner}.await {{\n\
+                         match {}.await {{\n\
                              Err(e) => {{\n\
                                  let _ = tx\n\
                                      .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
@@ -946,7 +1084,7 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
                              Ok(mut stream) => {{\n\
                                  while let Some(chunk) = stream.next().await {{\n\
                                      let item = match chunk {{\n\
-                                         Ok(c) => Js{item_type_name}::from(c),\n\
+                                         Ok(c) => Js{}::from(c),\n\
                                          Err(e) => {{\n\
                                              let _ = tx\n\
                                                  .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
@@ -966,9 +1104,13 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
                      }};\n\
                      Ok(iter)\n\
                  }}\n\n",
+                js_name,
                 adapter_name,
                 param_parts.join(", "),
                 return_iterator_type,
+                conversions_code,
+                method_call_inner,
+                item_type_name,
                 return_iterator_type
             )
         }
