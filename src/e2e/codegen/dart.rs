@@ -2034,6 +2034,12 @@ impl client::TestClientRenderer for DartTestClientRenderer {
             "    final ioReq = await _httpClient.openUrl('{escaped_method}', uri);"
         );
 
+        // Use a fresh (non-persistent) connection per request. Dart's HttpClient keeps
+        // connections alive and reuses them; when the mock server closes an idle keep-alive
+        // socket, the next reused request races into a "Connection reset by peer". Disabling
+        // persistence trades a little speed for deterministic, reset-free runs.
+        let _ = writeln!(out, "    ioReq.persistentConnection = false;");
+
         // Disable automatic redirect following for 3xx fixtures so the test can
         // assert on the redirect status code itself.
         if self.is_redirect.get() {
