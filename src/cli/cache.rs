@@ -249,6 +249,26 @@ pub fn is_stage_cached(crate_name: &str, stage: &str, stage_hash: &str) -> bool 
     }
 }
 
+/// Read the manifest of output paths previously written for the given stage.
+///
+/// Returns an empty `Vec` when the manifest does not exist (either the stage
+/// has never been generated for this crate, or the cache predates the manifest
+/// format introduced in 0.18.1). Callers should use this to repopulate
+/// `current_gen_paths` on a cache hit so the orphan-cleanup pass does not
+/// delete files that the previous run wrote but the current run skipped.
+pub fn read_stage_paths(crate_name: &str, stage: &str) -> Vec<PathBuf> {
+    let dir = hashes_dir(crate_name);
+    let manifest_path = dir.join(format!("{stage}.manifest"));
+    match fs::read_to_string(&manifest_path) {
+        Ok(content) => content
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(PathBuf::from)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Write stage hash and output file manifest for the given crate.
 pub fn write_stage_hash(
     crate_name: &str,

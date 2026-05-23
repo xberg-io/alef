@@ -1354,6 +1354,13 @@ fn main() -> Result<()> {
                     let e2e_stage_hash = cache::compute_stage_hash(&ir_json, "e2e", &config_toml, &fixture_hash);
                     if !clean && cache::is_stage_cached(&resolved_cfg.name, "e2e", &e2e_stage_hash) {
                         eprintln!("  [e2e] up to date (skipping)");
+                        // Repopulate `current_gen_paths` from the cached manifest so the
+                        // orphan-cleanup pass below does not treat previously-generated
+                        // e2e files as stale. Without this, every cached `alef all` run
+                        // would delete every e2e file in the workspace.
+                        for path in cache::read_stage_paths(&resolved_cfg.name, "e2e") {
+                            current_gen_paths.insert(path);
+                        }
                     } else {
                         eprintln!("Generating e2e test suites...");
                         let files = alef::e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types, &api.enums)?;
