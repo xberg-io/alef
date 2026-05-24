@@ -305,6 +305,64 @@ mode = "kmp"
 }
 
 #[test]
+fn test_scaffold_gitattributes_kotlin_multiplatform_target_uses_kotlin_mpp_dir() {
+    // target = "multiplatform" (no mode) must also resolve to packages/kotlin-mpp/
+    use crate::core::config::NewAlefConfig;
+
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["kotlin"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Test"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+
+[crates.kotlin]
+target = "multiplatform"
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let ga = all_files
+        .iter()
+        .find(|f| f.path == std::path::Path::new(".gitattributes"))
+        .expect(".gitattributes must be emitted");
+
+    assert!(
+        ga.content.contains("packages/kotlin-mpp/**"),
+        "target=multiplatform must use packages/kotlin-mpp, got:\n{}",
+        ga.content
+    );
+}
+
+#[test]
+fn test_scaffold_gitattributes_kotlin_android_uses_kotlin_android_dir() {
+    let config = test_config();
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::KotlinAndroid]).unwrap();
+    let ga = all_files
+        .iter()
+        .find(|f| f.path == std::path::Path::new(".gitattributes"))
+        .expect(".gitattributes must be emitted");
+
+    assert!(
+        ga.content.contains("packages/kotlin-android/**"),
+        "KotlinAndroid must use packages/kotlin-android, got:\n{}",
+        ga.content
+    );
+}
+
+#[test]
 fn test_scaffold_python_production_features() {
     let config = test_config();
     let api = test_api();

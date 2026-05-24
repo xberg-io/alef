@@ -1064,7 +1064,9 @@ mod write_scaffold_normalize_tests {
             generated_header: false,
         };
 
-        write_scaffold_files_with_overwrite(&[generated], base, false).expect("write ok");
+        let count =
+            write_scaffold_files_with_overwrite(&[generated], base, false).expect("write ok");
+        assert_eq!(count, 0, "overwrite=false must not write any file when seed already exists");
 
         let after = std::fs::read_to_string(base.join(".gitattributes")).expect("read");
         assert_eq!(
