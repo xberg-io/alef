@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **alef-backend-pyo3: omit kwargs for non-optional Named fields with `#[serde(default)]` when the user value is `None`, so the PyO3 default applies instead of raising `TypeError`.** The generated Python facade (e.g. `packages/python/kreuzberg/api.py::_to_rust_chunking_config`) previously always emitted `sizing=value.sizing if isinstance(...) else _rust.ChunkSizing(value.sizing)`. When the user passed `ChunkingConfig(sizing=None)` this called `_rust.ChunkingConfig(..., sizing=None)`, but the PyO3 `#[pyo3(signature = (..., sizing=Self::default().sizing, ...))]` constructor declares `sizing: ChunkSizing` (non-`Optional`), so passing `None` explicitly raises `TypeError: argument 'sizing': 'None' is not an instance of 'ChunkSizing'`. The PyO3 default applies ONLY when the kwarg is omitted entirely. The fix introduces a new `field_kwarg_optional_default.jinja` template that emits `**({"name": <conversion>} if <raw> is not None else {})` (dict-splat), so the kwarg is omitted when the user value is `None` and the Rust `#[serde(default)]` fallback applies. The codegen at `gen_api_py` (`src/backends/pyo3/gen_bindings/functions.rs`) selects the new template only when the IR field has `default == Some("/* serde(default) */")`, is not Optional in the binding, and references a `Named` type — the exact triple-condition that triggered the kreuzberg Python e2e failures. A second template `simple_enum_dict_coerce_optional_default.jinja` mirrors the same pattern for the `_coerce_enum(_rust.E, value)` arm, covering Named-enum fields with the same shape. (`src/backends/pyo3/gen_bindings/functions.rs`, `src/backends/pyo3/template_env.rs`, `src/backends/pyo3/templates/field_kwarg_optional_default.jinja`, `src/backends/pyo3/templates/simple_enum_dict_coerce_optional_default.jinja`)
+
 ## [0.18.4] - 2026-05-24
 
 ### Fixed

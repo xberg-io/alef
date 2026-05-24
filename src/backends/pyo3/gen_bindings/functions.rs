@@ -709,14 +709,32 @@ pub(super) fn gen_api_py(
                                 },
                             ));
                         } else {
-                            out.push_str(&crate::backends::pyo3::template_env::render(
-                                "data_enum_dict_coerce_no_guard.jinja",
-                                minijinja::context! {
-                                    name => &field.name,
-                                    accessor => &accessor,
-                                    enum_name => nested_name,
-                                },
-                            ));
+                            // For non-optional data enums with #[serde(default)], the user-facing
+                            // dataclass may carry None (because Python users often omit it).
+                            // Passing the coercion expression unconditionally to the PyO3
+                            // constructor would call `_rust.<Enum>(None)` and raise TypeError.
+                            // Use dict-splat to omit the kwarg when None and let PyO3's
+                            // #[pyo3(signature = ...)] default apply.
+                            let has_serde_default = field.default.as_deref() == Some("/* serde(default) */");
+                            if has_serde_default {
+                                out.push_str(&crate::backends::pyo3::template_env::render(
+                                    "data_enum_dict_coerce_optional_default.jinja",
+                                    minijinja::context! {
+                                        name => &field.name,
+                                        accessor => &accessor,
+                                        enum_name => nested_name,
+                                    },
+                                ));
+                            } else {
+                                out.push_str(&crate::backends::pyo3::template_env::render(
+                                    "data_enum_dict_coerce_no_guard.jinja",
+                                    minijinja::context! {
+                                        name => &field.name,
+                                        accessor => &accessor,
+                                        enum_name => nested_name,
+                                    },
+                                ));
+                            }
                         }
                     } else {
                         // Simple unit enum: callers pass a string/alias or a _rust.<Enum>
