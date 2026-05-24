@@ -217,6 +217,94 @@ fn test_scaffold_gitattributes_ffi_and_jni_use_crate_dirs() {
 }
 
 #[test]
+fn test_scaffold_gitattributes_kotlin_native_uses_kotlin_native_dir() {
+    use crate::core::config::NewAlefConfig;
+
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["kotlin"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Test"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+
+[crates.kotlin]
+target = "native"
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let ga = all_files
+        .iter()
+        .find(|f| f.path == std::path::Path::new(".gitattributes"))
+        .expect(".gitattributes must be emitted");
+
+    assert!(
+        ga.content.contains("packages/kotlin-native/**"),
+        "native target must use packages/kotlin-native, got:\n{}",
+        ga.content
+    );
+    assert!(
+        !ga.content.contains("packages/kotlin/**"),
+        "native target must not emit JVM dir, got:\n{}",
+        ga.content
+    );
+}
+
+#[test]
+fn test_scaffold_gitattributes_kotlin_mpp_uses_kotlin_mpp_dir() {
+    use crate::core::config::NewAlefConfig;
+
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["kotlin"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Test"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+
+[crates.kotlin]
+mode = "kmp"
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let ga = all_files
+        .iter()
+        .find(|f| f.path == std::path::Path::new(".gitattributes"))
+        .expect(".gitattributes must be emitted");
+
+    assert!(
+        ga.content.contains("packages/kotlin-mpp/**"),
+        "kmp mode must use packages/kotlin-mpp, got:\n{}",
+        ga.content
+    );
+    assert!(
+        !ga.content.contains("packages/kotlin/**"),
+        "kmp mode must not emit JVM dir, got:\n{}",
+        ga.content
+    );
+}
+
+#[test]
 fn test_scaffold_python_production_features() {
     let config = test_config();
     let api = test_api();
