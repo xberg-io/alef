@@ -10,7 +10,7 @@ mod gen_mpp;
 pub(crate) mod gen_native;
 pub mod naming;
 mod template_env;
-mod type_map;
+pub(crate) mod type_map;
 
 pub use gen_bindings::KotlinBackend;
 pub use gen_bindings::trait_bridge::KotlinJvmBridgeGenerator;

@@ -591,8 +591,10 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
+    use crate::backends::kotlin::type_map::KotlinMapper;
     use crate::codegen::defaults::language_defaults;
-    use heck::ToLowerCamelCase;
+    use crate::codegen::type_mapper::TypeMapper as _;
+    use heck::{ToLowerCamelCase, ToUpperCamelCase};
     use std::fmt::Write as _;
 
     let pascal_id = fixture.id.to_upper_camel_case();
@@ -602,6 +604,8 @@ pub fn emit_test_backend(
     // Use the canonical naming helper so both production and e2e emit the same bridge object name.
     let bridge_object = crate::backends::kotlin_android::naming::bridge_object_name(&trait_bridge.trait_name);
 
+    // Prefer the fixture's input "name" field (e.g. "test-extractor") over the
+    // fixture id, which is an internal snake_case identifier, not a backend name.
     let plugin_name = fixture
         .input
         .get("name")
@@ -610,6 +614,7 @@ pub fn emit_test_backend(
         .to_string();
 
     let defaults = language_defaults("kotlin_android");
+    let mapper = KotlinMapper;
 
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name} : {interface_name} {{");
@@ -619,32 +624,33 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "    override fun name(): String = \"{plugin_name}\"");
     }
 
-    // Required methods.
+    // Required methods — use concrete Kotlin types from KotlinMapper.
     for method in methods {
         if method.has_default_impl {
             continue;
         }
         let method_name = method.name.to_lower_camel_case();
 
-        // Build parameter list.
+        // Build parameter list with concrete Kotlin types.
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("{}: Any", p.name.to_lower_camel_case()))
+            .map(|p| format!("{}: {}", p.name.to_lower_camel_case(), mapper.map_type(&p.ty)))
             .collect();
         let params_str = params.join(", ");
 
+        let return_type = mapper.map_type(&method.return_type);
         let default_val = defaults.emit_default(&method.return_type);
 
         if method.is_async {
             let _ = writeln!(
                 setup,
-                "    override suspend fun {method_name}({params_str}): Any = {default_val}"
+                "    override suspend fun {method_name}({params_str}): {return_type} = {default_val}"
             );
         } else {
             let _ = writeln!(
                 setup,
-                "    override fun {method_name}({params_str}): Any = {default_val}"
+                "    override fun {method_name}({params_str}): {return_type} = {default_val}"
             );
         }
     }
@@ -659,6 +665,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
+        type_imports: Vec::new(),
     }
 }
 
@@ -759,6 +766,92 @@ mod test_backend_tests {
         assert!(
             output.contains("processItem"),
             "required method must be emitted in camelCase, got:\n{output}"
+        );
+    }
+
+    fn make_param(name: &str, ty: crate::core::ir::TypeRef) -> crate::core::ir::ParamDef {
+        crate::core::ir::ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn make_method_with_params(name: &str, required: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![
+                make_param("content", TypeRef::Bytes),
+                make_param("mime_type", TypeRef::String),
+            ],
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: true,
+            is_static: false,
+            error_type: Some("anyhow::Error".to_string()),
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: !required,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Verify params use concrete Kotlin types (not `Any`) and return type is concrete.
+    #[test]
+    fn kotlin_android_stub_uses_typed_params_not_any() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method_with_params("extractBytes", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            !output.contains(": Any"),
+            "param type must not be `Any`, got:\n{output}"
+        );
+        assert!(
+            output.contains("content: ByteArray"),
+            "bytes param must map to ByteArray in Kotlin, got:\n{output}"
+        );
+        assert!(
+            output.contains("mimeType: String"),
+            "string param must map to String in Kotlin, got:\n{output}"
+        );
+        assert!(
+            output.contains("): ExtractionResult"),
+            "return type must be concrete not Any, got:\n{output}"
+        );
+    }
+
+    /// Verify that `fixture.input["name"]` is used as the plugin name when present.
+    #[test]
+    fn kotlin_android_stub_uses_fixture_input_name_for_plugin_name() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("process_item", true);
+        let methods = [&required_method];
+        let mut fixture = make_fixture("my_fixture_id");
+        fixture.input = serde_json::json!({ "name": "my-backend-name" });
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            output.contains("\"my-backend-name\""),
+            "plugin name must come from fixture.input.name, got:\n{output}"
         );
     }
 }
