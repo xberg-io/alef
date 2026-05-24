@@ -2463,20 +2463,26 @@ fn emit_tagged_enum_array(
         let mut field_strs: Vec<String> = Vec::with_capacity(variant.fields.len());
         for field in &variant.fields {
             let wire_field = field.serde_rename.as_deref().unwrap_or(&field.name);
-            let Some(field_val) = obj.get(wire_field) else {
-                continue;
-            };
             let rust_field_atom = field.name.clone();
-            // If the field's type is a Named reference to a unit-only enum, convert
-            // the input string value to an atom via that enum's rename_all.
-            let emitted_val = if let crate::core::ir::TypeRef::Named(type_name) = &field.ty {
-                all_enums
-                    .iter()
-                    .find(|e| &e.name == type_name && e.serde_tag.is_none())
-                    .and_then(|nested| match_unit_enum_atom(field_val, nested))
-                    .unwrap_or_else(|| json_to_elixir(field_val))
+            let emitted_val = if let Some(field_val) = obj.get(wire_field) {
+                // If the field's type is a Named reference to a unit-only enum, convert
+                // the input string value to an atom via that enum's rename_all.
+                if let crate::core::ir::TypeRef::Named(type_name) = &field.ty {
+                    all_enums
+                        .iter()
+                        .find(|e| &e.name == type_name && e.serde_tag.is_none())
+                        .and_then(|nested| match_unit_enum_atom(field_val, nested))
+                        .unwrap_or_else(|| json_to_elixir(field_val))
+                } else {
+                    json_to_elixir(field_val)
+                }
+            } else if field.optional {
+                // Optional fields missing from the JSON should use `nil` as default
+                "nil".to_string()
             } else {
-                json_to_elixir(field_val)
+                // Non-optional fields missing from the JSON should not be included
+                // (could indicate an error in the fixture, but we skip for safety)
+                continue;
             };
             field_strs.push(format!("{rust_field_atom}: {emitted_val}"));
         }
