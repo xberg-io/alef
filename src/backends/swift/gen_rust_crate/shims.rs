@@ -162,6 +162,24 @@ pub(crate) fn swift_call_arg(
         }
     }
 
+    // AHashMap<Cow<'static, str>, Value> params: swift-bridge receives these as
+    // HashMap<String, String> (user-friendly types). We need a two-step conversion:
+    // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
+    // (2) pass the reference in the call arg. This requires pre-call binding emission
+    // in emit_function_shim; here we return a reference to the pre-bound variable.
+    if let TypeRef::Map(_, _) = &p.ty {
+        if p.map_is_ahash && p.map_key_is_cow {
+            let bound_name = format!("__{}_ahash", p.name);
+            return if p.optional && p.is_ref {
+                format!("{bound_name}.as_ref()")
+            } else if p.is_ref {
+                format!("{bound_name}.as_ref().unwrap()")
+            } else {
+                bound_name
+            };
+        }
+    }
+
     // JSON-bridged: deserialize from the bridged String.
     if needs_json_bridge(&p.ty) {
         let native_ty = swift_bridge_rust_type(&p.ty);
@@ -296,11 +314,33 @@ pub(crate) fn emit_function_shim(
         bridge_type_with_handles(&f.return_type, handle_returned_types)
     };
 
+    // Collect pre-call `let` bindings for params that require a two-step conversion
+    // (e.g. AHashMap<Cow, Value> params received as HashMap<String, String>).
+    // These must be bound before the call so the reference in the call arg can borrow
+    // the owned value rather than a temporary that would drop immediately.
+    let mut pre_call_bindings: Vec<String> = Vec::new();
+
     // Build call args, deserializing JSON-bridged params before passing to the real fn
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| swift_call_arg(p, enum_names, type_paths))
+        .map(|p| {
+            // AHashMap<Cow<'static, str>, Value> params: swift-bridge receives these as
+            // HashMap<String, String> (user-friendly types). We need a two-step conversion:
+            // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
+            // (2) pass the reference in the call arg.
+            if let TypeRef::Map(_, _) = &p.ty {
+                if p.map_is_ahash && p.map_key_is_cow {
+                    let bound_name = format!("__{}_ahash", p.name);
+                    let name = p.name.to_snake_case();
+                    pre_call_bindings.push(format!(
+                        "    let {bound_name} = {}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());",
+                        name
+                    ));
+                }
+            }
+            swift_call_arg(p, enum_names, type_paths)
+        })
         .collect();
     let call_args_str = call_args.join(", ");
 
@@ -478,13 +518,21 @@ pub(crate) fn emit_function_shim(
     // Uses `Builder::new_multi_thread()` (not `new_current_thread`) so the
     // runtime can be re-entered from any host thread (Swift, JVM, Python's
     // GIL release, etc.) without blocking on its own worker.
+
+    // Emit pre-call bindings (if any) before the body expression.
+    let bindings_str = if !pre_call_bindings.is_empty() {
+        pre_call_bindings.join("\n") + "\n    "
+    } else {
+        String::new()
+    };
+
     if f.is_async {
         format!(
             "pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
-            {ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{ {body} }})\n}}\n"
+            {bindings_str}{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{ {body} }})\n}}\n"
         )
     } else {
-        format!("pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {body}\n}}\n")
+        format!("pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {bindings_str}{body}\n}}\n")
     }
 }
 

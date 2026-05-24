@@ -114,7 +114,8 @@ bench = false
 
 [dependencies]
 {core_dep}
-{extra_deps_block}async-trait = "0.1"
+{extra_deps_block}ahash = "0.8"
+async-trait = "0.1"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["rt", "rt-multi-thread", "macros"] }}
