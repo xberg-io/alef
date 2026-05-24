@@ -437,5 +437,5 @@ pub mod precommit {
     pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.19.0";
+    pub const ALEF_REV: &str = "v0.19.1";
 }
