@@ -785,24 +785,6 @@ fn render_chat_stream_example(
         }
     }
 
-    // Detect which aggregators a fixture's assertions actually need so we don't
-    // emit unused locals (rubocop trips on assigned-but-unread vars).
-    let mut needs_finish_reason = false;
-    let mut needs_tool_calls_json = false;
-    let mut needs_tool_calls_0_function_name = false;
-    let mut needs_total_tokens = false;
-    for a in &fixture.assertions {
-        if let Some(f) = a.field.as_deref() {
-            match f {
-                "finish_reason" => needs_finish_reason = true,
-                "tool_calls" => needs_tool_calls_json = true,
-                "tool_calls[0].function.name" => needs_tool_calls_0_function_name = true,
-                "usage.total_tokens" => needs_total_tokens = true,
-                _ => {}
-            }
-        }
-    }
-
     let mut out = String::new();
     out.push_str(&format!("  it '{test_name}: {description}' do\n"));
 
