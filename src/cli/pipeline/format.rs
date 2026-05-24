@@ -265,10 +265,10 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         }),
         Language::KotlinAndroid => Some(FormatterSpec {
             commands: vec![FormatterCommand {
-                command: "ktlint".to_owned(),
-                args: vec!["--format".to_owned()],
+                command: "ktfmt".to_owned(),
+                args: vec!["--kotlinlang-style".to_owned(), "packages/kotlin-android/src".to_owned()],
             }],
-            work_dir: "packages/kotlin-android/src/".to_owned(),
+            work_dir: String::new(),
         }),
         Language::Swift => Some(FormatterSpec {
             commands: vec![FormatterCommand {
@@ -758,6 +758,31 @@ wasm = "crates/ts-pack-core-wasm/src/"
             cmd.args,
             vec!["format"],
             "without project_file, args must be just ['format']"
+        );
+    }
+
+    // KotlinAndroid formatter must use ktfmt (Google style) with --kotlinlang-style to match prek.
+    // ktfmt and ktlint produce different formatting, so alef must use the same tool as prek
+    // to ensure generated code is byte-identical to what prek's hook would produce.
+    #[test]
+    fn test_kotlin_android_formatter_uses_ktfmt() {
+        let config = make_config("html-to-markdown");
+        let spec = get_default_formatter(&config, Language::KotlinAndroid)
+            .expect("KotlinAndroid should have formatter");
+        assert_eq!(spec.commands.len(), 1, "KotlinAndroid must have exactly one formatter command");
+        let cmd = &spec.commands[0];
+        assert_eq!(
+            cmd.command, "ktfmt",
+            "KotlinAndroid must use ktfmt, not ktlint or gradle"
+        );
+        assert_eq!(
+            cmd.args,
+            vec!["--kotlinlang-style".to_owned(), "packages/kotlin-android/src".to_owned()],
+            "KotlinAndroid must include --kotlinlang-style flag and target src directory"
+        );
+        assert!(
+            spec.work_dir.is_empty(),
+            "KotlinAndroid formatter must run at project root"
         );
     }
 
