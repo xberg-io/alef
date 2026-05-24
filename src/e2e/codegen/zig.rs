@@ -97,6 +97,39 @@ impl E2eCodegen for ZigE2eCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
+        // Whether any fixture hits the mock server: a direct HTTP fixture, a
+        // fixture with a mock_response, or a function-call fixture that derives
+        // its URL from a `mock_url` / `mock_url_list` arg or a `client_factory`
+        // override. Zig has no test-suite init hook, so when true the generated
+        // `build.zig` spawns the mock-server binary at configure time and exports
+        // `MOCK_SERVER_URL` into every test run step's environment. Without it the
+        // tests fall back to `http://localhost:8080` and fail with connection
+        // refused (the server binds an ephemeral 127.0.0.1 port).
+        let needs_mock_server = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+            if f.needs_mock_server() {
+                return true;
+            }
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
+            if cc
+                .args
+                .iter()
+                .any(|a| a.arg_type == "mock_url" || a.arg_type == "mock_url_list")
+            {
+                return true;
+            }
+            cc.overrides
+                .get("zig")
+                .or_else(|| e2e_config.call.overrides.get("zig"))
+                .and_then(|o| o.client_factory.as_deref())
+                .is_some()
+        });
+
         // Zig language filtering: when `[crates.zig].languages` is set, omit
         // fixtures whose target language falls outside that static-compiled list.
         // The Zig binding does not dynamically load tree-sitter parsers; only the
@@ -197,7 +230,10 @@ impl E2eCodegen for ZigE2eCodegen {
                     &module_name,
                     &config.ffi_lib_name(),
                     &config.ffi_crate_path(),
-                    has_file_fixtures,
+                    ZigBuildFlags {
+                        has_file_fixtures,
+                        needs_mock_server,
+                    },
                     &e2e_config.test_documents_relative_from(0),
                 ),
                 generated_header: false,
@@ -268,15 +304,30 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::e2e::co
     )
 }
 
+/// Fixture-shape flags that toggle optional `build.zig` wiring.
+#[derive(Debug, Clone, Copy)]
+struct ZigBuildFlags {
+    /// Any fixture loads files by path (`file_path`/`bytes` args) and so the
+    /// test run step must `setCwd` into the test-documents directory.
+    has_file_fixtures: bool,
+    /// Any fixture hits the mock server, so `build.zig` must spawn it and export
+    /// `MOCK_SERVER_URL` into the test run steps.
+    needs_mock_server: bool,
+}
+
 fn render_build_zig(
     test_filenames: &[String],
     _pkg_name: &str,
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
-    has_file_fixtures: bool,
+    flags: ZigBuildFlags,
     test_documents_path: &str,
 ) -> String {
+    let ZigBuildFlags {
+        has_file_fixtures,
+        needs_mock_server,
+    } = flags;
     if test_filenames.is_empty() {
         return r#"const std = @import("std");
 
@@ -341,6 +392,17 @@ pub fn build(b: *std.Build) void {
     );
     let _ = writeln!(content);
 
+    // Spawn the mock-server at configure time and capture its ephemeral URL so
+    // every test run step can read it via `MOCK_SERVER_URL`. Zig has no
+    // test-suite init hook (unlike Go's TestMain or the Python conftest), so the
+    // build script itself owns the server's lifetime: it lives as long as the
+    // `zig build` process, which spans test execution. A pre-set
+    // `MOCK_SERVER_URL` (external CI orchestration) short-circuits the spawn.
+    if needs_mock_server {
+        content.push_str(render_zig_mock_server_spawn());
+        let _ = writeln!(content);
+    }
+
     for filename in test_filenames {
         // Convert filename like "basic_test.zig" to a test name
         let test_name = filename.trim_end_matches("_test.zig");
@@ -400,11 +462,113 @@ pub fn build(b: *std.Build) void {
                 "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
             ));
         }
+        if needs_mock_server {
+            // Forward the captured mock-server URL into the test binary's
+            // environment so `std.c.getenv(\"MOCK_SERVER_URL\")` resolves to the
+            // live ephemeral address.
+            content.push_str("    if (mock_server_url) |_url| {\n");
+            content.push_str(&format!(
+                "        {test_name}_run.setEnvironmentVariable(\"MOCK_SERVER_URL\", _url);\n"
+            ));
+            content.push_str("    }\n");
+            content.push_str("    if (mock_servers_json) |_json| {\n");
+            content.push_str(&format!(
+                "        {test_name}_run.setEnvironmentVariable(\"MOCK_SERVERS\", _json);\n"
+            ));
+            content.push_str("    }\n");
+            content.push_str("    {\n");
+            content.push_str("        var _it = mock_servers_map.iterator();\n");
+            content.push_str("        while (_it.next()) |_entry| {\n");
+            content.push_str(&format!(
+                "            {test_name}_run.setEnvironmentVariable(_entry.key_ptr.*, _entry.value_ptr.*);\n"
+            ));
+            content.push_str("        }\n");
+            content.push_str("    }\n");
+        }
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }
 
     content.push_str("}\n");
     content
+}
+
+/// Emit the `build.zig` block that spawns the standalone mock-server binary at
+/// configure time and captures its URL.
+///
+/// The mock-server binds an ephemeral `127.0.0.1` port and prints
+/// `MOCK_SERVER_URL=http://127.0.0.1:<port>` (plus an optional
+/// `MOCK_SERVERS={...}` JSON line for host-root fixtures) on stdout once it is
+/// listening. The block produces three bindings consumed by the test run steps:
+///   * `mock_server_url: ?[]const u8` — the base URL, or `null` when no binary
+///     was found and no preset env var was supplied.
+///   * `mock_servers_json: ?[]const u8` — the raw `MOCK_SERVERS=` JSON payload.
+///   * `mock_servers_map: std.StringHashMap([]const u8)` — `MOCK_SERVER_<ID>`
+///     env-var name → per-fixture URL, for host-root fixtures.
+///
+/// The spawned child is intentionally not awaited: it lives for the duration of
+/// the `zig build` process, which spans test execution. A pre-set
+/// `MOCK_SERVER_URL` short-circuits the spawn. Targets Zig 0.16 std APIs.
+fn render_zig_mock_server_spawn() -> &'static str {
+    r#"    const _alloc = b.allocator;
+    var mock_server_url: ?[]const u8 = b.graph.environ_map.get("MOCK_SERVER_URL");
+    var mock_servers_json: ?[]const u8 = null;
+    var mock_servers_map = std.StringHashMap([]const u8).init(_alloc);
+    if (mock_server_url == null) {
+        const _bin = b.pathFromRoot("../rust/target/release/mock-server");
+        const _fixtures = b.pathFromRoot("../../fixtures");
+        var _threaded = std.Io.Threaded.init(_alloc, .{});
+        const _io = _threaded.io();
+        const _spawned = std.process.spawn(_io, .{
+            .argv = &.{ _bin, _fixtures },
+            .stdin = .pipe,
+            .stdout = .pipe,
+            .stderr = .inherit,
+        });
+        if (_spawned) |_child| {
+            // The child is intentionally not awaited: it lives for the duration
+            // of the `zig build` process, which spans test execution.
+            const _stdout = _child.stdout.?;
+            var _buf: [65536]u8 = undefined;
+            var _file_reader = _stdout.readerStreaming(_io, &_buf);
+            const _r = &_file_reader.interface;
+            // Read startup lines: MOCK_SERVER_URL= then MOCK_SERVERS= (always
+            // emitted, possibly `{}`). Cap the loop so a misbehaving server
+            // cannot block the build indefinitely.
+            var _saw_url = false;
+            var _i: usize = 0;
+            while (_i < 64) : (_i += 1) {
+                const _line_raw = _r.takeDelimiterExclusive('\n') catch break;
+                const _line = std.mem.trim(u8, _line_raw, " \r\t");
+                if (std.mem.startsWith(u8, _line, "MOCK_SERVER_URL=")) {
+                    mock_server_url = _alloc.dupe(u8, _line["MOCK_SERVER_URL=".len..]) catch null;
+                    _saw_url = true;
+                } else if (std.mem.startsWith(u8, _line, "MOCK_SERVERS=")) {
+                    const _json = _line["MOCK_SERVERS=".len..];
+                    mock_servers_json = _alloc.dupe(u8, _json) catch null;
+                    if (std.json.parseFromSlice(std.json.Value, _alloc, _json, .{})) |_parsed| {
+                        if (_parsed.value == .object) {
+                            var _entries = _parsed.value.object.iterator();
+                            while (_entries.next()) |_entry| {
+                                if (_entry.value_ptr.* == .string) {
+                                    const _key = std.fmt.allocPrint(_alloc, "MOCK_SERVER_{s}", .{_entry.key_ptr.*}) catch continue;
+                                    for (_key) |*_c| _c.* = std.ascii.toUpper(_c.*);
+                                    const _val = _alloc.dupe(u8, _entry.value_ptr.*.string) catch continue;
+                                    mock_servers_map.put(_key, _val) catch {};
+                                }
+                            }
+                        }
+                    } else |_| {}
+                    break;
+                } else if (_saw_url) {
+                    break;
+                }
+            }
+        } else |_| {
+            // Binary not built — leave mock_server_url null so tests surface a
+            // clear connection error rather than a build failure.
+        }
+    }
+"#
 }
 
 // ---------------------------------------------------------------------------

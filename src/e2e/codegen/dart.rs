@@ -347,12 +347,15 @@ fn render_test_file(
         out,
         "import 'package:{pkg_name}/src/{frb_module_name}_bridge_generated/frb_generated.dart' show RustLib;"
     );
-    if has_http_fixtures {
+    // dart:async provides Completer (HTTP response handling + the mock-server
+    // spawn harness, which awaits a Completer for the startup URL line).
+    if has_http_fixtures || has_mock_url_refs {
         let _ = writeln!(out, "import 'dart:async';");
     }
     // dart:convert provides jsonDecode for handle-arg engine construction, HTTP response parsing,
-    // and PageAction array deserialization.
-    if has_http_fixtures || has_handle_args || has_page_action {
+    // and PageAction array deserialization, plus utf8/LineSplitter for decoding the mock-server's
+    // startup stdout (MOCK_SERVER_URL= / MOCK_SERVERS=) in the spawn harness.
+    if has_http_fixtures || has_handle_args || has_page_action || has_mock_url_refs {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     let _ = writeln!(out);
@@ -513,6 +516,57 @@ fn render_test_file(
         let _ = writeln!(out);
     }
 
+    // Whether this test file must spawn the mock-server. True for direct HTTP
+    // fixtures and for any fixture that derives a URL from `MOCK_SERVER_URL`
+    // (mock_url args / client_factory). `package:test` has no cross-file global
+    // setup, so each file spawns its own server in `setUpAll` and tears it down
+    // in `tearDownAll`; `dart_test.yaml` pins `concurrency: 1` so at most one
+    // server runs at a time. A pre-set `MOCK_SERVER_URL` (external CI
+    // orchestration) short-circuits the spawn. Mirrors the Python conftest /
+    // Ruby spec_helper / Java MockServerListener pattern.
+    let needs_mock_server_spawn = has_http_fixtures || has_mock_url_refs;
+
+    // The `_mockServerFor` helper (per-fixture URL lookup) is only referenced by
+    // host-root fixtures and by `mock_url`/`mock_url_list` args. Emitting it for
+    // pure-HTTP files would trip the `unused_element` analyzer lint, so gate it
+    // on actual usage. The `_spawnedMockServers` map it reads is gated likewise.
+    let needs_mock_server_for_helper = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return f.has_host_root_route();
+        }
+        let call_config =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        f.has_host_root_route()
+            || f.resolved_args(call_config)
+                .iter()
+                .any(|a| a.arg_type == "mock_url" || a.arg_type == "mock_url_list")
+    });
+
+    // Top-level mock-server state. `Platform.environment` is read-only in Dart,
+    // so the spawned server's URL is held in mutable globals and read through
+    // helper functions (rather than re-reading the environment) by the test
+    // bodies below.
+    if needs_mock_server_spawn {
+        let _ = writeln!(out, "Process? _mockServer;");
+        let _ = writeln!(out, "String? _spawnedMockServerUrl;");
+        if needs_mock_server_for_helper {
+            let _ = writeln!(out, "final Map<String, String> _spawnedMockServers = {{}};");
+        }
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "String _mockServerUrl() => _spawnedMockServerUrl ?? Platform.environment['MOCK_SERVER_URL'] ?? 'http://localhost:8080';"
+        );
+        let _ = writeln!(out);
+        if needs_mock_server_for_helper {
+            let _ = writeln!(
+                out,
+                "String _mockServerFor(String fixtureId, String envKey) => _spawnedMockServers[fixtureId] ?? Platform.environment[envKey] ?? '${{_mockServerUrl()}}/fixtures/$fixtureId';"
+            );
+            let _ = writeln!(out);
+        }
+    }
+
     let _ = writeln!(out, "void main() {{");
 
     // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
@@ -532,12 +586,27 @@ fn render_test_file(
         let _ = writeln!(out, "    final _dir = Directory(_testDocs);");
         let _ = writeln!(out, "    if (_dir.existsSync()) Directory.current = _dir;");
     }
+    if needs_mock_server_spawn {
+        render_dart_mock_server_spawn(&mut out, needs_mock_server_for_helper);
+    }
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
 
-    // Close the shared client after all tests in this file complete.
-    if has_http_fixtures {
-        let _ = writeln!(out, "  tearDownAll(() => _httpClient.close());");
+    // Close the shared client after all tests in this file complete, and tear
+    // down the mock-server we spawned.
+    if has_http_fixtures || needs_mock_server_spawn {
+        let _ = writeln!(out, "  tearDownAll(() async {{");
+        if has_http_fixtures {
+            let _ = writeln!(out, "    _httpClient.close(force: true);");
+        }
+        if needs_mock_server_spawn {
+            let _ = writeln!(out, "    final server = _mockServer;");
+            let _ = writeln!(out, "    if (server != null) {{");
+            let _ = writeln!(out, "      server.kill();");
+            let _ = writeln!(out, "      await server.exitCode;");
+            let _ = writeln!(out, "    }}");
+        }
+        let _ = writeln!(out, "  }});");
         let _ = writeln!(out);
     }
 
@@ -557,6 +626,83 @@ fn render_test_file(
 
     let _ = writeln!(out, "}}");
     out
+}
+
+/// Emit the `setUpAll` body that spawns the standalone mock-server binary and
+/// captures its URL into the top-level `_spawnedMockServerUrl` /
+/// `_spawnedMockServers` globals.
+///
+/// The mock-server binds an ephemeral `127.0.0.1` port and prints
+/// `MOCK_SERVER_URL=http://127.0.0.1:<port>` (plus an optional
+/// `MOCK_SERVERS={...}` JSON line for host-root fixtures) on stdout once it is
+/// listening. A pre-set `MOCK_SERVER_URL` environment variable (external CI
+/// orchestration) short-circuits the spawn. Mirrors the Python conftest / Ruby
+/// spec_helper / Java MockServerListener spawn pattern.
+///
+/// Emitted inside an `async` `setUpAll`; the binary lives at
+/// `../rust/target/release/mock-server` relative to the `e2e/dart/test/`
+/// directory and is passed the repo-root `fixtures/` directory as its argument.
+fn render_dart_mock_server_spawn(out: &mut String, parse_mock_servers: bool) {
+    let _ = writeln!(out, "    if (Platform.environment['MOCK_SERVER_URL'] == null) {{");
+    let _ = writeln!(
+        out,
+        "      final _bin = Platform.script.resolve('../rust/target/release/mock-server').toFilePath();"
+    );
+    let _ = writeln!(
+        out,
+        "      final _fixturesDir = Platform.script.resolve('../../fixtures').toFilePath();"
+    );
+    let _ = writeln!(out, "      if (File(_bin).existsSync()) {{");
+    let _ = writeln!(
+        out,
+        "        _mockServer = await Process.start(_bin, [_fixturesDir], mode: ProcessStartMode.normal);"
+    );
+    // A single `listen` keeps draining stdout after the startup lines are seen
+    // (so a full pipe never blocks the child); the Completer resolves once the
+    // URL has been captured. `Process.stdout` is a single-subscription stream,
+    // so it must be consumed exactly once — re-reading `.stdout` would throw.
+    let _ = writeln!(out, "        final _ready = Completer<void>();");
+    let _ = writeln!(out, "        _mockServer!.stdout");
+    let _ = writeln!(out, "            .transform(utf8.decoder)");
+    let _ = writeln!(out, "            .transform(const LineSplitter())");
+    let _ = writeln!(out, "            .listen((_line) {{");
+    let _ = writeln!(out, "          final _trimmed = _line.trim();");
+    let _ = writeln!(out, "          if (_trimmed.startsWith('MOCK_SERVER_URL=')) {{");
+    let _ = writeln!(
+        out,
+        "            _spawnedMockServerUrl = _trimmed.substring('MOCK_SERVER_URL='.length);"
+    );
+    let _ = writeln!(out, "          }} else if (_trimmed.startsWith('MOCK_SERVERS=')) {{");
+    if parse_mock_servers {
+        // Parse the per-fixture host-root URL map (MOCK_SERVERS={...}) into the
+        // `_spawnedMockServers` lookup consumed by `_mockServerFor`.
+        let _ = writeln!(
+            out,
+            "            final _json = _trimmed.substring('MOCK_SERVERS='.length);"
+        );
+        let _ = writeln!(out, "            try {{");
+        let _ = writeln!(
+            out,
+            "              final _parsed = jsonDecode(_json) as Map<String, dynamic>;"
+        );
+        let _ = writeln!(out, "              _parsed.forEach((k, v) {{");
+        let _ = writeln!(out, "                _spawnedMockServers[k] = v as String;");
+        let _ = writeln!(out, "              }});");
+        let _ = writeln!(out, "            }} catch (_) {{}}");
+    }
+    let _ = writeln!(out, "            if (!_ready.isCompleted) _ready.complete();");
+    let _ = writeln!(out, "          }} else if (_spawnedMockServerUrl != null) {{");
+    let _ = writeln!(out, "            if (!_ready.isCompleted) _ready.complete();");
+    let _ = writeln!(out, "          }}");
+    let _ = writeln!(out, "        }}, onDone: () {{");
+    let _ = writeln!(out, "          if (!_ready.isCompleted) _ready.complete();");
+    let _ = writeln!(out, "        }});");
+    let _ = writeln!(
+        out,
+        "        await _ready.future.timeout(const Duration(seconds: 30), onTimeout: () {{}});"
+    );
+    let _ = writeln!(out, "      }}");
+    let _ = writeln!(out, "    }}");
 }
 
 fn render_test_case(
@@ -668,7 +814,8 @@ fn render_test_case(
     // For `extract_file_sync` / `extract_file` fixtures that omit `mime_type`,
     // derive the MIME from the path extension so `extractBytesSync`/`extractBytes`
     // can be called (both require an explicit MIME type).
-    let file_path_for_mime: Option<&str> = fixture.resolved_args(call_config)
+    let file_path_for_mime: Option<&str> = fixture
+        .resolved_args(call_config)
         .iter()
         .find(|a| a.arg_type == "file_path")
         .and_then(|a| resolve_field(&fixture.input, &a.field).as_str());
@@ -679,7 +826,10 @@ fn render_test_case(
     // function override has already been applied), remap the function name:
     //   extractFile      → extractBytes
     //   extractFileSync  → extractBytesSync
-    let has_file_path_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "file_path");
+    let has_file_path_arg = fixture
+        .resolved_args(call_config)
+        .iter()
+        .any(|a| a.arg_type == "file_path");
     // Apply the remap only when no per-fixture dart override has already specified the
     // function — if the fixture author set a dart-specific function name we trust it.
     let caller_supplied_override = call_overrides.and_then(|o| o.function.as_ref()).is_some();
@@ -724,11 +874,11 @@ fn render_test_case(
                 if fixture.has_host_root_route() {
                     let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
                     setup_lines.push(format!(
-                        r#"final {name} = Platform.environment["{env_key}"] ?? (Platform.environment["MOCK_SERVER_URL"]! + "/fixtures/{fixture_id}");"#
+                        r#"final {name} = _mockServerFor("{fixture_id}", "{env_key}");"#
                     ));
                 } else {
                     setup_lines.push(format!(
-                        r#"final {name} = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
+                        r#"final {name} = "${{_mockServerUrl()}}/fixtures/{fixture_id}";"#
                     ));
                 }
                 // For streaming adapters with a request_type, wrap the URL in the request constructor.
@@ -800,7 +950,7 @@ fn render_test_case(
                 let paths_literal = paths.join(", ");
 
                 setup_lines.push(format!(
-                    r#"final {var_name}Base = Platform.environment["{env_key}"] ?? (Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080") + "/fixtures/{fixture_id}";"#
+                    r#"final {var_name}Base = _mockServerFor("{fixture_id}", "{env_key}");"#
                 ));
                 setup_lines.push(format!(
                     r#"final {var_name} = <String>[{paths_literal}].map((p) => p.startsWith('http') ? p : {var_name}Base + p).toList();"#
@@ -1218,17 +1368,20 @@ fn render_test_case(
     // The mock URL derivation follows the same has_host_root_route / plain-fixture split
     // used by the mock_url arg handler above.
     let (receiver, extra_setup): (String, Option<String>) = if let Some(factory) = &client_factory_camel {
-        let has_mock_url = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "mock_url");
+        let has_mock_url = fixture
+            .resolved_args(call_config)
+            .iter()
+            .any(|a| a.arg_type == "mock_url");
         let mock_url_setup = if !has_mock_url {
             // No explicit mock_url arg — derive the URL inline.
             if fixture.has_host_root_route() {
                 let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
                 Some(format!(
-                    "final _mockUrl = Platform.environment[\"{env_key}\"] ?? (Platform.environment[\"MOCK_SERVER_URL\"]! + \"/fixtures/{fixture_id}\");"
+                    "final _mockUrl = _mockServerFor(\"{fixture_id}\", \"{env_key}\");"
                 ))
             } else {
                 Some(format!(
-                    r#"final _mockUrl = "${{Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080"}}/fixtures/{fixture_id}";"#
+                    r#"final _mockUrl = "${{_mockServerUrl()}}/fixtures/{fixture_id}";"#
                 ))
             }
         } else {
@@ -2058,10 +2211,7 @@ impl client::TestClientRenderer for DartTestClientRenderer {
             ""
         };
 
-        let _ = writeln!(
-            out,
-            "    final baseUrl = Platform.environment['MOCK_SERVER_URL'] ?? 'http://localhost:8080';"
-        );
+        let _ = writeln!(out, "    final baseUrl = _mockServerUrl();");
         let _ = writeln!(out, "    final uri = Uri.parse('$baseUrl{fixture_path}');");
         let _ = writeln!(
             out,

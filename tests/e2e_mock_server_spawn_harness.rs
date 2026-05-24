@@ -30,6 +30,7 @@ fn make_http_fixture(id: &str) -> Fixture {
         skip: None,
         env: None,
         call: None,
+        args: Vec::new(),
         input: serde_json::json!({}),
         mock_response: None,
         visitor: None,
@@ -159,7 +160,7 @@ fn zig_http_fixture_build_spawns_mock_server() {
         "zig build must export MOCK_SERVER_URL to the test run steps. Rendered:\n{content}"
     );
     assert!(
-        content.contains("std.process.Child") || content.contains("ChildProcess"),
+        content.contains("std.process.spawn") || content.contains("std.process.Child"),
         "zig build must spawn a child process for the mock-server. Rendered:\n{content}"
     );
 }
