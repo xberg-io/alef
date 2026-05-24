@@ -1633,3 +1633,107 @@ fn snapshot_enum_variant_optional_field() {
         );
     }
 }
+
+#[test]
+fn untagged_enum_field_uses_json_decoder_not_ref_init() {
+    // Regression test: a struct whose field type is a `#[serde(untagged)]` enum must emit
+    // a JSONDecoder decode expression in `init(_ rb: RustBridge.{Struct}Ref) throws`, NOT
+    // the opaque-Ref path `try {EnumType}(rb.{field}())`.
+    //
+    // The bug: untagged enums were added to `known_dto_names` (correct — they are Codable),
+    // but the field-init codegen emitted `try UserContent(rb.content())` as if a
+    // `RustBridge.UserContentRef`-taking initializer existed. swift-bridge does not generate
+    // an opaque Ref type for untagged enums; the accessor returns a plain `RustString`
+    // (JSON-encoded payload). The fix routes these fields through `JSONDecoder`.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Message".to_string(),
+            rust_path: "demo::Message".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("content", TypeRef::Named("MessageContent".to_string()), false),
+                make_field("name", TypeRef::String, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "A chat message.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "MessageContent".to_string(),
+            rust_path: "demo::MessageContent".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Text".to_string(),
+                    fields: vec![make_field("field0", TypeRef::String, false)],
+                    is_tuple: true,
+                    doc: "Plain text content.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Parts".to_string(),
+                    fields: vec![make_field("field0", TypeRef::Vec(Box::new(TypeRef::String)), false)],
+                    is_tuple: true,
+                    doc: "Array of parts.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Untagged content enum.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: true,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
+        .expect("Swift source file must be emitted");
+
+    // The field-init for `content` must use JSONDecoder, not `try MessageContent(rb.content())`.
+    assert!(
+        !swift_file.content.contains("try MessageContent(rb.content())"),
+        "untagged enum field must NOT emit Ref-based init — would fail with 'missing argument label \
+         from:' / 'RustString does not conform to Decoder':\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("JSONDecoder().decode(MessageContent.self"),
+        "untagged enum field must decode via JSONDecoder:\n{}",
+        swift_file.content
+    );
+    // Verify Message is still emitted as a first-class Swift struct (not a typealias).
+    assert!(
+        swift_file.content.contains("public struct Message:"),
+        "Message must still be emitted as a first-class struct:\n{}",
+        swift_file.content
+    );
+}

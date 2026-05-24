@@ -468,9 +468,7 @@ impl StreamingFieldResolver {
                 // Ruby: choices/delta/tool_calls are Magnus method accessors;
                 // delta.tool_calls returns nil when absent — default to empty array.
                 "ruby" => {
-                    format!(
-                        "{chunks_var}.flat_map {{ |c| c.choices&.first&.delta&.tool_calls || [] }}"
-                    )
+                    format!("{chunks_var}.flat_map {{ |c| c.choices&.first&.delta&.tool_calls || [] }}")
                 }
                 _ => {
                     format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
@@ -546,9 +544,7 @@ impl StreamingFieldResolver {
                 // Ruby: FinishReason is a Magnus-wrapped enum. Call .to_s to get the
                 // wire string (e.g. "tool_calls") for cross-language fixture parity.
                 "ruby" => {
-                    format!(
-                        "({chunks_var}.empty? ? nil : {chunks_var}.last&.choices&.first&.finish_reason&.to_s)"
-                    )
+                    format!("({chunks_var}.empty? ? nil : {chunks_var}.last&.choices&.first&.finish_reason&.to_s)")
                 }
                 _ => {
                     format!(
