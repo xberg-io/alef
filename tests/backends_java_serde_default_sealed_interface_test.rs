@@ -1,9 +1,7 @@
 use alef::backends::java::JavaBackend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef,
-};
+use alef::core::ir::{ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 fn resolved_one(toml: &str) -> alef::core::config::ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();

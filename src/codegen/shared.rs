@@ -364,7 +364,14 @@ pub fn config_constructor_parts_with_options_cfg(
     option_duration_on_defaults: bool,
     optionalize_all_defaults: bool,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, optionalize_all_defaults, None, &[])
+    config_constructor_parts_inner(
+        fields,
+        type_mapper,
+        option_duration_on_defaults,
+        optionalize_all_defaults,
+        None,
+        &[],
+    )
 }
 
 /// Like `config_constructor_parts_with_options` but with field renames for keyword escaping.
@@ -374,7 +381,14 @@ pub fn config_constructor_parts_with_renames(
     option_duration_on_defaults: bool,
     field_renames: Option<&HashMap<String, String>>,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, false, field_renames, &[])
+    config_constructor_parts_inner(
+        fields,
+        type_mapper,
+        option_duration_on_defaults,
+        false,
+        field_renames,
+        &[],
+    )
 }
 
 /// Like `config_constructor_parts_with_renames` but includes assignments for cfg-gated fields

@@ -110,8 +110,19 @@ impl Backend for SwiftBackend {
             .filter(|t| !t.fields.is_empty())
             .collect();
 
-        // Seed with unit serde enum names (they are Codable and can appear in struct fields).
+        // Collect tagged serde enums (non-unit enums with serde).
+        // They are Codable and can appear in structs/function params (unlike opaque DTOs).
+        let tagged_enum_names: std::collections::HashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| !exclude_types.contains(&e.name))
+            .filter(|e| e.has_serde && e.variants.iter().any(|v| !v.fields.is_empty()))
+            .map(|e| e.name.clone())
+            .collect();
+
+        // Seed with unit serde enum names + tagged enum names (both are Codable and can appear in struct fields).
         let mut known_dto_names: std::collections::HashSet<String> = unit_serde_enum_names.clone();
+        known_dto_names.extend(tagged_enum_names);
         loop {
             let prev_len = known_dto_names.len();
             for ty in &candidate_types {
@@ -119,7 +130,7 @@ impl Backend for SwiftBackend {
                     continue;
                 }
                 // Check if all visible (binding-non-excluded) fields are supported given the
-                // current known set (struct DTOs + unit serde enums).
+                // current known set (struct DTOs + unit serde enums + tagged enums).
                 let all_supported =
                     binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty, &known_dto_names));
                 if all_supported {
@@ -3463,6 +3474,13 @@ fn emit_async_free_function_forwarder(
         format!(" -> {return_ty}")
     };
 
+    // Check if any parameter is Vec<Named(DTO)>, which will constrain the generic type to RustString.
+    // If so, we need to wrap all String parameters in RustString() for type compatibility.
+    let has_vec_dto_param = func
+        .params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(n) if known_dto_names.contains(n))));
+
     // Signature: collect each param as `name: SwiftType`.
     let mut sig_params: Vec<String> = Vec::with_capacity(func.params.len());
     let mut conversion_lines: Vec<String> = Vec::new();
@@ -3476,7 +3494,14 @@ fn emit_async_free_function_forwarder(
         if let Some(line) = local_expr.setup_line.clone() {
             conversion_lines.push(line);
         }
-        call_args.push(local_expr.arg_expr);
+        // If we have a Vec<DTO> parameter and this is a String parameter,
+        // wrap it in RustString() to match the inferred generic type.
+        let arg_expr = if has_vec_dto_param && matches!(&param.ty, TypeRef::String) && !param.optional {
+            format!("RustString({swift_param_name})")
+        } else {
+            local_expr.arg_expr
+        };
+        call_args.push(arg_expr);
     }
     let sig = sig_params.join(", ");
     let args = call_args.join(", ");
@@ -3659,6 +3684,28 @@ fn forwarder_param_signature(
                     },
                 )
             }
+            TypeRef::Named(name) if known_dto_names.contains(name) => {
+                // Vec<FirstClassDTO>: encode each element to JSON and build RustVec<RustString>.
+                // Each DTO has `Codable` + `encode(to:)`, so we serialize to JSON strings.
+                let swift_ty = make_optional(&format!("[{name}]"));
+                let local = format!("_rb_{swift_param_name}");
+                let setup = if optional || matches!(ty, TypeRef::Optional(_)) {
+                    Some(format!(
+                        "let {local} = try {swift_param_name}.map {{ items -> RustVec<RustString> in let v = RustVec<RustString>(); for item in items {{ let data = try JSONEncoder().encode(item); let json = String(data: data, encoding: .utf8) ?? \"null\"; v.push(value: RustString(json)) }}; return v }}"
+                    ))
+                } else {
+                    Some(format!(
+                        "let {local}: RustVec<RustString> = try ({{ () throws -> RustVec<RustString> in let v = RustVec<RustString>(); for item in {swift_param_name} {{ let data = try JSONEncoder().encode(item); let json = String(data: data, encoding: .utf8) ?? \"null\"; v.push(value: RustString(json)) }}; return v }}())"
+                    ))
+                };
+                (
+                    swift_ty,
+                    ForwarderArg {
+                        setup_line: setup,
+                        arg_expr: local,
+                    },
+                )
+            }
             _ => {
                 // Fall back to passing the Swift-side array directly; swift-bridge
                 // accepts `RustVec<T>` for opaque T but kreuzberg does not currently
@@ -3715,13 +3762,18 @@ fn forwarder_param_signature(
 
 /// Returns true when emitting the forwarder argument expression for `ty` requires
 /// a throwing context. Mirrors the conversion logic in
-/// [`forwarder_param_signature`]: only Named-DTO params (bare or `Optional`)
-/// invoke the throwing `intoRust()` initializer.
+/// [`forwarder_param_signature`]: Named-DTO params (bare or `Optional`) invoke
+/// the throwing `intoRust()` initializer, and `Vec<Named(DTO)>` encodes each
+/// element to JSON via throwing `JSONEncoder`.
 fn param_conversion_throws(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
     match ty {
         TypeRef::Named(name) => known_dto_names.contains(name),
         TypeRef::Optional(inner) => matches!(
             inner.as_ref(),
+            TypeRef::Named(name) if known_dto_names.contains(name)
+        ),
+        TypeRef::Vec(elem) => matches!(
+            elem.as_ref(),
             TypeRef::Named(name) if known_dto_names.contains(name)
         ),
         _ => false,

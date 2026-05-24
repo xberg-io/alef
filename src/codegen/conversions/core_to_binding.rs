@@ -290,6 +290,36 @@ pub fn field_conversion_from_core(
                 );
             }
         }
+        // Vec<Vec<String>>: sanitized from Vec<(String, String)> (homogeneous tuple of strings).
+        // parse_homogeneous_tuple lifts (String, String) → Vec<String>; the outer Vec is preserved,
+        // so the IR shape is Vec<Vec<String>>. Core still holds Vec<(String, String)>, so we
+        // destructure each tuple item into a 2-element Vec.
+        if let TypeRef::Vec(outer_inner) = ty {
+            if let TypeRef::Vec(inner) = outer_inner.as_ref() {
+                if matches!(inner.as_ref(), TypeRef::String) {
+                    if optional {
+                        return format!(
+                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect())"
+                        );
+                    }
+                    return format!(
+                        "{name}: val.{name}.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect()"
+                    );
+                }
+            }
+        }
+        // Optional<Vec<Vec<String>>>: sanitized from Option<Vec<(String, String)>>.
+        if let TypeRef::Optional(opt_inner) = ty {
+            if let TypeRef::Vec(outer_inner) = opt_inner.as_ref() {
+                if let TypeRef::Vec(inner) = outer_inner.as_ref() {
+                    if matches!(inner.as_ref(), TypeRef::String) {
+                        return format!(
+                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect())"
+                        );
+                    }
+                }
+            }
+        }
         // Vec<String>: sanitized from Vec<Box<str>>, Vec<Cow<str>>, Vec<Named>, etc.
         // Use Debug formatting — the original core type may not implement Display.
         if let TypeRef::Vec(inner) = ty {

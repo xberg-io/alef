@@ -6,7 +6,6 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{DefaultValue, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::{ToLowerCamelCase, ToSnakeCase};
-use std::collections::HashSet;
 
 use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
@@ -154,7 +153,8 @@ pub(crate) fn gen_record_type(
         // name (already snake_case per project convention).
         let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
         let needs_builder = should_emit_builder(typ, builder_mode);
-        let has_json_property = f.serde_rename.is_some() || jname != json_property_name || (needs_builder && !is_visitor_field);
+        let has_json_property =
+            f.serde_rename.is_some() || jname != json_property_name || (needs_builder && !is_visitor_field);
         // Emit @Nullable for optional fields and for non-optional fields with #[serde(default)]
         // or Duration (which are boxed to allow null = "not set").
         let has_nullable = f.optional || has_serde_default || matches!(resolved_ty, TypeRef::Duration);
@@ -352,7 +352,16 @@ pub(crate) fn gen_record_type(
                     let is_boxed = matches!(f.ty, TypeRef::Duration) || has_serde_default;
                     // Add "L" suffix only for Long (Duration or 64-bit numeric types with serde(default))
                     let needs_long_suffix = matches!(f.ty, TypeRef::Duration)
-                        || (has_serde_default && matches!(f.ty, TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize)));
+                        || (has_serde_default
+                            && matches!(
+                                f.ty,
+                                TypeRef::Primitive(
+                                    PrimitiveType::U64
+                                        | PrimitiveType::I64
+                                        | PrimitiveType::Usize
+                                        | PrimitiveType::Isize
+                                )
+                            ));
                     let suffix = if needs_long_suffix { "L" } else { "" };
                     let cond = if is_boxed {
                         format!("{jname} == null")
@@ -392,7 +401,13 @@ pub(crate) fn gen_record_type(
         // CPD-OFF: generated builder pattern produces identical token sequences across
         // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
         record_block.push_str("    // CPD-OFF\n");
-        let nested = gen_builder_nested_class(typ, has_visitor_pattern, enum_defaults, sealed_interface_names, visible_type_names);
+        let nested = gen_builder_nested_class(
+            typ,
+            has_visitor_pattern,
+            enum_defaults,
+            sealed_interface_names,
+            visible_type_names,
+        );
         record_block.push_str(&nested);
         record_block.push_str("    // CPD-ON\n");
     }
@@ -1841,7 +1856,8 @@ fn gen_builder_nested_class(
 
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
-    body.push_str("    @JsonPOJOBuilder(withPrefix = \"with\")\n");
+    // Explicitly specify buildMethodName="build" to ensure Jackson calls the build() method.
+    body.push_str("    @JsonPOJOBuilder(withPrefix = \"with\", buildMethodName = \"build\")\n");
     body.push_str("    public static final class Builder {\n");
     body.push('\n');
 
@@ -2063,8 +2079,8 @@ fn gen_builder_nested_class(
         // Add @Nullable for fields that are boxed for serde(default) or Duration
         // When a non-optional field uses a boxed type to represent "not set" via null,
         // it needs the @Nullable annotation for proper static analysis.
-        let needs_nullable_annotation = has_serde_default && matches!(&field.ty, TypeRef::Named(_))
-            || matches!(field.ty, TypeRef::Duration);
+        let needs_nullable_annotation =
+            has_serde_default && matches!(&field.ty, TypeRef::Named(_)) || matches!(field.ty, TypeRef::Duration);
 
         if needs_nullable_annotation {
             body.push_str("        @Nullable ");
@@ -2161,7 +2177,8 @@ fn gen_builder_nested_class(
         //   wrong:   `@Nullable java.nio.file.Path`
         //   right:   `java.nio.file.@Nullable Path`
         // Match the record-field declaration logic above (see `nullable_at_leading_pos`).
-        let needs_nullable_on_param = (field.optional || has_serde_default || matches!(field.ty, TypeRef::Duration)) && !is_visitor_field;
+        let needs_nullable_on_param =
+            (field.optional || has_serde_default || matches!(field.ty, TypeRef::Duration)) && !is_visitor_field;
         if needs_nullable_on_param {
             if let Some(idx) = field_type.rfind('.') {
                 let (pkg, simple) = field_type.split_at(idx);
