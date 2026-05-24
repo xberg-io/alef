@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-core-config: accept `"arg_type"` as a serde alias for `"type"` on `ArgMapping` so JSON fixtures using `"arg_type": "test_backend"` deserialise correctly instead of silently falling back to the default `"string"`.** `alef.toml` writes the field as `type = "..."` (TOML idiom) and serde was renamed accordingly, but per-fixture JSON files (`fixtures/plugin_api/register_*.json`) carry the more explicit `"arg_type"` key — those were silently ignored, so the walker saw `arg_type == "string"` for test_backend args and emitted the input dict literal instead of dispatching to `emit_test_backend`. The added serde alias makes both spellings work. (`src/core/config/e2e.rs`)
+
 - **alef-e2e-fixture: add fixture-level `args` field and introduce `Fixture::resolved_args()` helper to prefer fixture.args over call_config.args when present.** The fixture-level `args` array allows per-fixture argument overrides (e.g., trait-bridge stubs where each fixture may need to construct a different test backend instance). Previously all per-language walkers iterated only `call_config.args`, ignoring fixture-level args. Now every walker calls `fixture.resolved_args(call_config)` which returns `&fixture.args` if non-empty, else `&call_config.args`. This unblocks trait-bridge test generation where the `register_document_extractor_trait_bridge` fixture carries an `args` array with the test-backend definition, but the call config for `register_document_extractor` has `args = []`. (`src/e2e/fixture.rs`, `src/e2e/codegen/{brew,csharp,dart,elixir,gleam,go,java,kotlin,php,python,r,rust,swift,typescript,zig}.rs`)
 
 ## [0.19.3] - 2026-05-24

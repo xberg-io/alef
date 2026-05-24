@@ -714,7 +714,7 @@ pub struct ArgMapping {
     /// JSON field path in the fixture's `input` object.
     pub field: String,
     /// Type hint for code generation.
-    #[serde(rename = "type", default = "default_arg_type")]
+    #[serde(rename = "type", alias = "arg_type", default = "default_arg_type")]
     pub arg_type: String,
     /// Whether this argument is optional.
     #[serde(default)]
