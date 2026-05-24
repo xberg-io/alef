@@ -273,6 +273,16 @@ impl Backend for JavaBackend {
         // Resolve language-level serde rename strategy (always wins over IR type-level).
         let lang_rename_all = config.serde_rename_all_for_language(Language::Java);
 
+        // Compute visible type names early. These are struct + enum names that get a generated
+        // companion Java class. Types not in this set are JSON-bridged to JsonNode.
+        let visible_type_names: HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait)
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
+
         // 4. Record types
         // Include non-opaque types that either have fields OR are serializable unit structs
         // (has_serde + has_default, empty fields). Unit structs like `ExcelMetadata` need a
@@ -303,6 +313,7 @@ impl Backend for JavaBackend {
                         builder_mode,
                         &enum_defaults,
                         &sealed_interface_names,
+                        &visible_type_names,
                     ),
                     generated_header: true,
                 });
@@ -399,16 +410,7 @@ impl Backend for JavaBackend {
         // Emits two files per trait: I{Trait}.java (managed interface) and
         // {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers).
         //
-        // Set of struct + enum names that get a generated companion Java class.
-        // Trait method signatures referencing types outside this set (e.g. excluded
-        // internal types like `InternalDocument`) are JSON-bridged as Strings.
-        let visible_type_names: HashSet<&str> = api
-            .types
-            .iter()
-            .filter(|t| !t.is_trait)
-            .map(|t| t.name.as_str())
-            .chain(api.enums.iter().map(|e| e.name.as_str()))
-            .collect();
+        // visible_type_names was computed earlier for use with record types.
         for bridge_cfg in &config.trait_bridges {
             if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
                 continue;

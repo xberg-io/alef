@@ -6,12 +6,42 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{DefaultValue, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::{ToLowerCamelCase, ToSnakeCase};
+use std::collections::HashSet;
 
 use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
     java_apply_rename_all, safe_java_field_name, safe_java_method_name,
 };
 use super::marshal::{is_ffi_string_return, java_ffi_return_cast};
+
+/// Resolve a TypeRef to its Java type, replacing unknown/excluded Named types with JsonNode.
+///
+/// When a field references a type that was excluded from code generation (e.g. `#[alef(skip)]`),
+/// we use `JsonNode` to preserve the object structure without requiring a Java type definition.
+fn resolve_field_type(ty: &TypeRef, visible_types: &std::collections::HashSet<&str>) -> TypeRef {
+    match ty {
+        TypeRef::Named(name) if !visible_types.contains(name.as_str()) => {
+            // Unknown type: replace with Json to produce JsonNode
+            TypeRef::Json
+        }
+        TypeRef::Optional(inner) => {
+            // Recursively resolve optional's inner type
+            TypeRef::Optional(Box::new(resolve_field_type(inner, visible_types)))
+        }
+        TypeRef::Vec(inner) => {
+            // Recursively resolve vec's inner type
+            TypeRef::Vec(Box::new(resolve_field_type(inner, visible_types)))
+        }
+        TypeRef::Map(k, v) => {
+            // Recursively resolve map's key and value types
+            TypeRef::Map(
+                Box::new(resolve_field_type(k, visible_types)),
+                Box::new(resolve_field_type(v, visible_types)),
+            )
+        }
+        _ => ty.clone(),
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
@@ -25,6 +55,7 @@ pub(crate) fn gen_record_type(
     builder_mode: JavaBuilderMode,
     enum_defaults: &ahash::AHashMap<String, crate::extract::default_value_for_enum::DefaultEnumVariant>,
     sealed_interface_names: &AHashSet<String>,
+    visible_type_names: &std::collections::HashSet<&str>,
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
@@ -62,21 +93,24 @@ pub(crate) fn gen_record_type(
         // passes null values directly without unboxing (matching the record parameter).
         let has_serde_default = f.default == Some("/* serde(default) */".to_string());
 
+        // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
+        let resolved_ty = resolve_field_type(&f.ty, visible_type_names);
+
         let ftype = if is_visitor_field {
             "Visitor".to_string()
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
         } else if is_complex {
             "Object".to_string()
-        } else if f.optional {
+        } else if matches!(resolved_ty, TypeRef::Optional(_)) {
             // Java best practice: use @Nullable fields, never Optional in records.
-            java_boxed_type(&f.ty).to_string()
-        } else if has_serde_default || matches!(f.ty, TypeRef::Duration) {
+            java_boxed_type(&resolved_ty).to_string()
+        } else if has_serde_default || matches!(resolved_ty, TypeRef::Duration) {
             // Non-optional fields with #[serde(default)] or Duration use boxed types
             // so null can represent "not set" for serde defaults.
-            java_boxed_type(&f.ty).to_string()
+            java_boxed_type(&resolved_ty).to_string()
         } else {
-            java_type(&f.ty).to_string()
+            java_type(&resolved_ty).to_string()
         };
         let jname = safe_java_field_name(&f.name);
 
@@ -91,14 +125,14 @@ pub(crate) fn gen_record_type(
         // so the field-level annotation is redundant. Keeping it produced lines
         // long enough to bust Checkstyle's 140-char limit after Eclipse spotless
         // reflows record components to a single line.
-        let needs_non_null = !f.optional && matches!(&f.ty, TypeRef::Vec(_)) && !typ.has_serde;
+        let needs_non_null = !f.optional && matches!(&resolved_ty, TypeRef::Vec(_)) && !typ.has_serde;
 
         // Non-optional Bytes fields (byte[]) must be serialised as a JSON array of
         // integers, not as a base64 string. Jackson's default serialiser for byte[]
         // produces base64, but Rust's serde for Vec<u8> expects [n, n, …].
         // @JsonSerialize(using = ByteArrayToIntArraySerializer.class) overrides the
         // default Jackson behaviour for this field only.
-        let needs_bytes_int_serialize = !f.optional && matches!(&f.ty, TypeRef::Bytes);
+        let needs_bytes_int_serialize = !f.optional && matches!(&resolved_ty, TypeRef::Bytes);
 
         // Emit `@JsonProperty` in two cases:
         // 1. The field has an explicit `#[serde(rename = "...")]` attribute.
@@ -113,7 +147,7 @@ pub(crate) fn gen_record_type(
         let has_json_property = f.serde_rename.is_some() || jname != json_property_name;
         // Emit @Nullable for optional fields and for non-optional fields with #[serde(default)]
         // or Duration (which are boxed to allow null = "not set").
-        let has_nullable = f.optional || has_serde_default || matches!(f.ty, TypeRef::Duration);
+        let has_nullable = f.optional || has_serde_default || matches!(resolved_ty, TypeRef::Duration);
 
         let mut decl = String::new();
 
@@ -121,7 +155,8 @@ pub(crate) fn gen_record_type(
         // When deserializing through a builder, Jackson needs this annotation to use the
         // custom deserializer for the field type. This must come early to be properly
         // recognized by Jackson's polymorphic deserialization.
-        let field_type_name = match &f.ty {
+        // Only apply this annotation if the field type is known (visible).
+        let field_type_name = match &resolved_ty {
             TypeRef::Named(n) => Some(n.as_str()),
             TypeRef::Optional(inner) => {
                 if let TypeRef::Named(n) = inner.as_ref() {
@@ -347,7 +382,7 @@ pub(crate) fn gen_record_type(
         // CPD-OFF: generated builder pattern produces identical token sequences across
         // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
         record_block.push_str("    // CPD-OFF\n");
-        let nested = gen_builder_nested_class(typ, has_visitor_pattern, enum_defaults, sealed_interface_names);
+        let nested = gen_builder_nested_class(typ, has_visitor_pattern, enum_defaults, sealed_interface_names, visible_type_names);
         record_block.push_str(&nested);
         record_block.push_str("    // CPD-ON\n");
     }
@@ -448,6 +483,10 @@ pub(crate) fn gen_record_type(
     }
     if needs_optional {
         imports.push("java.util.Optional");
+    }
+    // JsonNode is needed when fields reference unknown/skipped types (mapped to Json/Object)
+    if fields_joined.contains("Object") || (will_emit_builder && record_block.contains("Object")) {
+        imports.push("com.fasterxml.jackson.databind.JsonNode");
     }
     // @JsonProperty is needed if the record's fields use it OR the nested builder uses it.
     if needs_json_property || (will_emit_builder && record_block.contains("@JsonProperty(")) {
@@ -1780,6 +1819,7 @@ fn gen_builder_nested_class(
     has_visitor_pattern: bool,
     enum_defaults: &ahash::AHashMap<String, crate::extract::default_value_for_enum::DefaultEnumVariant>,
     sealed_interface_names: &AHashSet<String>,
+    visible_type_names: &std::collections::HashSet<&str>,
 ) -> String {
     let mut body = String::with_capacity(2048);
 
@@ -1816,19 +1856,23 @@ fn gen_builder_nested_class(
         // Similarly, non-optional fields with #[serde(default)] use boxed types so that
         // `null` can represent "not set" in the builder, allowing Rust's serde defaults to apply.
         let has_serde_default = field.default == Some("/* serde(default) */".to_string());
+
+        // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
+        let resolved_field_ty = resolve_field_type(&field.ty, visible_type_names);
+
         let field_type = if is_visitor_field {
             "Optional<Visitor>".to_string()
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
-        } else if field.optional {
-            format!("Optional<{}>", java_boxed_type(&field.ty))
-        } else if matches!(field.ty, TypeRef::Duration) {
-            java_boxed_type(&field.ty).to_string()
+        } else if matches!(resolved_field_ty, TypeRef::Optional(_)) {
+            format!("Optional<{}>", java_boxed_type(&resolved_field_ty))
+        } else if matches!(resolved_field_ty, TypeRef::Duration) {
+            java_boxed_type(&resolved_field_ty).to_string()
         } else if has_serde_default {
             // Non-optional fields with #[serde(default)] use boxed types so null can represent "not set"
-            java_boxed_type(&field.ty).to_string()
+            java_boxed_type(&resolved_field_ty).to_string()
         } else {
-            java_type(&field.ty).to_string()
+            java_type(&resolved_field_ty).to_string()
         };
 
         let default_value = if is_visitor_field {
@@ -2022,6 +2066,11 @@ fn gen_builder_nested_class(
         let field_name_pascal = to_class_name(&field.name);
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
         let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
+        let has_serde_default = field.default == Some("/* serde(default) */".to_string());
+
+        // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
+        let resolved_field_ty = resolve_field_type(&field.ty, visible_type_names);
+
         // Builders store the visitor as Optional<Visitor> for null-safe chaining, but
         // expose `withVisitor(Visitor)` to keep the user-facing API ergonomic — callers
         // should not have to write `Optional.of(visitor)` themselves.
@@ -2029,14 +2078,16 @@ fn gen_builder_nested_class(
             "Visitor".to_string()
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
-        } else if field.optional {
+        } else if matches!(resolved_field_ty, TypeRef::Optional(_)) {
             // Use @Nullable annotation in the setter signature, not Optional<T>.
             // This matches Java best practices and the record field annotation pattern.
-            java_boxed_type(&field.ty).to_string()
-        } else if matches!(field.ty, TypeRef::Duration) {
-            java_boxed_type(&field.ty).to_string()
+            java_boxed_type(&resolved_field_ty).to_string()
+        } else if has_serde_default || matches!(resolved_field_ty, TypeRef::Duration) {
+            // Non-optional fields with #[serde(default)] or Duration must box the parameter type
+            // so that null can represent "not set" when Jackson deserializes.
+            java_boxed_type(&resolved_field_ty).to_string()
         } else {
-            java_type(&field.ty).to_string()
+            java_type(&resolved_field_ty).to_string()
         };
 
         body.push_str("        /** Sets the ");
@@ -2076,7 +2127,8 @@ fn gen_builder_nested_class(
         //   wrong:   `@Nullable java.nio.file.Path`
         //   right:   `java.nio.file.@Nullable Path`
         // Match the record-field declaration logic above (see `nullable_at_leading_pos`).
-        if field.optional && !is_visitor_field {
+        let needs_nullable_on_param = (field.optional || has_serde_default || matches!(field.ty, TypeRef::Duration)) && !is_visitor_field;
+        if needs_nullable_on_param {
             if let Some(idx) = field_type.rfind('.') {
                 let (pkg, simple) = field_type.split_at(idx);
                 let simple = simple.trim_start_matches('.');
@@ -2098,6 +2150,8 @@ fn gen_builder_nested_class(
             body.push_str(&field_name);
             body.push_str(" = Optional.ofNullable(value);\n");
         } else {
+            // For non-optional fields with #[serde(default)] or Duration, we also accept
+            // @Nullable to support Jackson's null injection when fields are absent.
             body.push_str("            this.");
             body.push_str(&field_name);
             body.push_str(" = value;\n");
@@ -2508,6 +2562,7 @@ mod tests {
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
+            &HashSet::default(),
         );
         // `model` is single-word: camelCase == snake_case, so no annotation needed.
         assert!(
@@ -2533,6 +2588,7 @@ mod tests {
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
+            &HashSet::default(),
         );
         assert!(
             out.contains("@JsonProperty(\"max_tokens\")"),
@@ -2563,6 +2619,7 @@ mod tests {
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
+            &HashSet::default(),
         );
         assert!(
             out.contains("requestTimeout == null"),
@@ -2654,6 +2711,7 @@ mod tests {
             "LiterLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
+            &AHashSet::default(),
             &AHashSet::default(),
         );
         // Builder must be emitted so @JsonAnySetter can absorb unknown sibling fields.
