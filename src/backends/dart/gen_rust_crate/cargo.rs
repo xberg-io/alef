@@ -3,6 +3,12 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, TypeRef};
 use std::path::PathBuf;
 
+/// Returns true when any function parameter has `map_is_ahash = true`, meaning
+/// the generated bridge fn references `ahash::AHashMap` in a pre-call binding.
+fn api_has_ahash_param(api: &ApiSurface) -> bool {
+    api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash))
+}
+
 fn type_has_json(t: &TypeRef) -> bool {
     match t {
         TypeRef::Json => true,
@@ -161,6 +167,10 @@ pub(crate) fn emit_cargo_toml(
     // any Named field that resolves to an enum (D6 fix).
     let needs_serde_json = api_has_json_or_enum_field(api);
     let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
+    // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
+    // bridge fn emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
+    let needs_ahash = api_has_ahash_param(api);
+    let ahash_dep = if needs_ahash { "ahash = \"0.8\"\n" } else { "" };
     // The dart streaming-adapter codegen emits `use futures_util::StreamExt;` and
     // calls `stream.next().await`, so add futures-util whenever the API has any
     // streaming adapters configured for dart.
@@ -178,7 +188,7 @@ pub(crate) fn emit_cargo_toml(
     } else {
         ""
     };
-    let extra_deps = format!("{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}");
+    let extra_deps = format!("{ahash_dep}{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
         .scaffold
