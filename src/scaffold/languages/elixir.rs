@@ -133,6 +133,7 @@ crate-type = ["cdylib"]
 pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
+    let nif_name = format!("{app_name}_nif");
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Elixir);
 
@@ -183,16 +184,24 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
             && b.bind_via != BridgeBinding::OptionsField
     });
 
-    // Always-present entries on disk after scaffolding: native crate dir,
+    // Always-present entries on disk after scaffolding: native crate sources,
     // .formatter.exs, mix.exs, and the README (alef writes one or expects one).
-    // `lib` is conditional (see above); `checksum-*.exs` is intentionally omitted
-    // because alef does not wire up the `mix rustler_precompiled.download` step
-    // — consumers fall back to building from source via plain `rustler`.
+    // `lib` is conditional (see above). The native dir is narrowed to source
+    // files only (Cargo.toml/Cargo.lock/src + optional build.rs) to keep
+    // `target/` build artifacts out of the hex tarball — `mix hex.publish`
+    // packs everything listed here, and a populated `target/` can blow past
+    // hex's `metadata.config` size limit. `checksum-*.exs` is included so
+    // RustlerPrecompiled can verify dynamically-downloaded NIFs on the
+    // consumer side without forcing a source build.
     let mut files_entries: Vec<String> = vec![
         ".formatter.exs".into(),
         "mix.exs".into(),
         "README*".into(),
-        "native".into(),
+        "checksum-*.exs".into(),
+        format!("native/{nif_name}/Cargo.toml"),
+        format!("native/{nif_name}/Cargo.lock"),
+        format!("native/{nif_name}/src"),
+        format!("native/{nif_name}/build.rs"),
     ];
     if lib_populated {
         files_entries.insert(0, "lib".into());
