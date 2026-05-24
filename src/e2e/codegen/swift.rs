@@ -2187,10 +2187,20 @@ fn render_assertion(
             }
         }
         "is_true" => {
-            let _ = writeln!(out, "        XCTAssertTrue({field_expr})");
+            let assert_expr = if accessor_is_optional {
+                format!("({field_expr} ?? false)")
+            } else {
+                field_expr.clone()
+            };
+            let _ = writeln!(out, "        XCTAssertTrue({assert_expr})");
         }
         "is_false" => {
-            let _ = writeln!(out, "        XCTAssertFalse({field_expr})");
+            let assert_expr = if accessor_is_optional {
+                format!("({field_expr} ?? true)")
+            } else {
+                field_expr.clone()
+            };
+            let _ = writeln!(out, "        XCTAssertFalse({assert_expr})");
         }
         "matches_regex" => {
             if let Some(expected) = &assertion.value {
