@@ -991,7 +991,7 @@ fn render_test_function(
             .and_then(|o| o.client_factory.as_deref())
     });
 
-    let (mut setup_lines, args_str) = build_args_and_setup(
+    let (package_decls, mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
         import_alias,
@@ -1003,6 +1003,16 @@ fn render_test_function(
         config,
         type_defs,
     );
+
+    // Emit package-level declarations (test-backend struct + method receivers)
+    // before the test function. Go disallows method declarations inside functions.
+    for decl in &package_decls {
+        out.push_str(decl);
+        if !decl.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push('\n');
+    }
 
     // Build visitor if present — integrate into options instead of separate parameter.
     // Go binding's Convert() checks options.Visitor and delegates to convertWithVisitorHelper when set.
@@ -1787,7 +1797,11 @@ impl client::TestClientRenderer for GoTestClientRenderer {
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
-/// Returns `(setup_lines, args_string)`.
+/// Returns `(package_decls, setup_lines, args_string)`.
+///
+/// `package_decls` — Go declarations that must appear at the package (file) level,
+/// outside any function body.  Test-backend stubs (struct type + method receivers)
+/// are placed here because Go does not allow method declarations inside functions.
 ///
 /// `options_ptr` — when `true`, `json_object` args with an `options_type` are
 /// passed as a Go pointer (`*OptionsType`): absent/empty → `nil`, present →
@@ -1804,14 +1818,15 @@ fn build_args_and_setup(
     data_enum_names: &std::collections::HashSet<&str>,
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
-) -> (Vec<String>, String) {
+) -> (Vec<String>, Vec<String>, String) {
     let fixture_id = &fixture.id;
     use heck::ToUpperCamelCase;
 
     if args.is_empty() {
-        return (Vec::new(), String::new());
+        return (Vec::new(), Vec::new(), String::new());
     }
 
+    let mut package_decls: Vec<String> = Vec::new();
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
@@ -1871,7 +1886,10 @@ fn build_args_and_setup(
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
                     let emission = crate::e2e::codegen::emit_test_backend("go", trait_bridge, &methods, fixture);
-                    setup_lines.push(emission.setup_block);
+                    // Go does not allow method declarations inside function bodies.
+                    // The setup_block (struct type + method receivers) must be emitted
+                    // at the package level, outside any test function.
+                    package_decls.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
                 }
@@ -2125,7 +2143,7 @@ fn build_args_and_setup(
         }
     }
 
-    (setup_lines, parts.join(", "))
+    (package_decls, setup_lines, parts.join(", "))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3698,6 +3716,66 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("{struct_name}{{}}"),
+        type_imports: Vec::new(),
+    }
+}
+
+/// Emit a single Go stub method receiver function into `out`.
+///
+/// Used by both the main method loop and the super-trait method section of
+/// `emit_test_backend` so both paths share the same formatting logic.
+/// `go_method` is the already-PascalCased method name (caller's responsibility).
+/// Zero-value expression for Go stub method return statements.
+///
+/// Named types map to `json.RawMessage{}` (the substitute type) rather than
+/// `&TypeName{}` — avoids generating a pointer to an undefined type.
+/// Vec types produce a typed nil slice (`[]ElementType(nil)`) so the return
+/// value is type-correct for the interface without relying on `[]interface{}`.
+fn go_stub_default(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(_) => "json.RawMessage(nil)".to_string(),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "json.RawMessage(nil)".to_string(),
+        TypeRef::Vec(inner) => {
+            let inner_ty = stub_go_type(inner);
+            format!("([]{})(nil)", inner_ty)
+        }
+        TypeRef::Optional(_) => "nil".to_string(),
+        TypeRef::Json => "json.RawMessage(nil)".to_string(),
+        TypeRef::Map(_, _) => "nil".to_string(),
+        TypeRef::Bytes => "nil".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+        TypeRef::Primitive(p) => {
+            use crate::core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "false".to_string(),
+                PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                _ => "0".to_string(),
+            }
+        }
+        TypeRef::Unit => String::new(),
+        TypeRef::Duration => "0".to_string(),
+    }
+}
+
+/// Maps a type reference to its Go representation in stub method signatures.
+///
+/// Named types that are opaque across the FFI boundary (not in the public
+/// binding surface) are substituted with `json.RawMessage`, matching how the
+/// generated Go trait-bridge interface declares them.  This keeps the stub
+/// type-compatible with the interface without importing types that are not
+/// exported from the binding package.
+fn stub_go_type(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::backends::go::type_map::go_type;
+    use crate::core::ir::TypeRef;
+    match ty {
+        // Named types may be opaque (excluded from the binding surface).  Use
+        // json.RawMessage so the stub satisfies the interface without importing
+        // a type that does not exist in the binding package.  This matches how
+        // the generated Go trait-bridge interface declares these return types.
+        TypeRef::Named(_) => "json.RawMessage".to_string(),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "json.RawMessage".to_string(),
+        _ => go_type(ty).into_owned(),
     }
 }
 
@@ -3713,32 +3791,31 @@ fn emit_go_stub_method_body(
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
 ) {
-    use crate::backends::go::type_map::go_type;
     use crate::core::ir::TypeRef;
 
-    // Build parameter list: `name GoType` pairs.
+    // Build parameter list: `name GoType` pairs, substituting opaque Named types
+    // with json.RawMessage (matches the generated Go interface signatures).
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let go_param = go_param_name(&p.name);
-            let type_str = go_type(&p.ty).into_owned();
+            let type_str = stub_go_type(&p.ty);
             format!("{go_param} {type_str}")
         })
         .collect();
     let param_str = params.join(", ");
 
+    let ret_ty = stub_go_type(&method.return_type);
+
     // Build return type.
     let return_type_str = if method.error_type.is_some() {
         match &method.return_type {
             TypeRef::Unit => "error".to_string(),
-            _ => {
-                let ret = go_type(&method.return_type).into_owned();
-                format!("({ret}, error)")
-            }
+            _ => format!("({ret_ty}, error)"),
         }
     } else {
-        go_type(&method.return_type).into_owned()
+        ret_ty.clone()
     };
 
     // Build return expression.
@@ -3746,16 +3823,19 @@ fn emit_go_stub_method_body(
         match &method.return_type {
             TypeRef::Unit => "return nil".to_string(),
             _ => {
-                let default_val = defaults.emit_default(&method.return_type);
+                let default_val = go_stub_default(&method.return_type);
                 format!("return {default_val}, nil")
             }
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         String::new()
     } else {
-        let default_val = defaults.emit_default(&method.return_type);
+        let default_val = go_stub_default(&method.return_type);
         format!("return {default_val}")
     };
+
+    // Drop the `defaults` parameter — the stub uses go_stub_default directly.
+    let _ = defaults; // suppress unused-variable warning
 
     let _ = writeln!(
         out,
