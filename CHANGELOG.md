@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e-codegen-swift: remove incorrect type wrapping in numeric and boolean assertions.** The Swift e2e codegen was wrapping ALL integer literals in `UInt(...)` and boolean values in `UInt(...)`, causing type mismatches: `result.pages().count` (Int) was wrapped as `UInt(1)`, `result.stayedOnDomain()` (Bool) as `UInt(true)`, and `result.statusCode()` (UInt16) as `UInt(200)`. Swift's type inference can handle numeric literal conversion correctly without explicit wrapping. The fix removes the overly broad wrapping logic — booleans are now emitted as-is (`true`/`false`), and integer literals rely on Swift's inference based on the field expression's return type and the comparison operator. This unblocks all Swift e2e tests from compilation. (`src/e2e/codegen/swift.rs`)
+
 ### Added
 
 - **alef-cli/pipeline: `{python_version}` placeholder in `[[workspace.sync.text_replacements]]`.** Consumers can now reference the PEP 440-normalized form of the canonical version inside text replacements that target PyPI metadata. `{version}` continues to emit the raw Cargo.toml form (`1.4.0-rc.30`); `{python_version}` emits the normalized form (`1.4.0rc30`) using the same `to_pep440` helper that already drives `packages/python/pyproject.toml`'s `version =` line. Surfaced in liter-llm where `test_apps/python/pyproject.toml`'s pinned `liter-llm==<v>` dep needed the PEP 440 form to match what PyPI actually serves — uv accepts the dashed form too, but the canonical form avoids ambiguity in retry/verify flows. (`src/cli/pipeline/version.rs`)
