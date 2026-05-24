@@ -380,8 +380,16 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("field_kwarg.jinja", include_str!("templates/field_kwarg.jinja")),
     (
+        "field_kwarg_optional_default.jinja",
+        include_str!("templates/field_kwarg_optional_default.jinja"),
+    ),
+    (
         "simple_enum_dict_coerce.jinja",
         include_str!("templates/simple_enum_dict_coerce.jinja"),
+    ),
+    (
+        "simple_enum_dict_coerce_optional_default.jinja",
+        include_str!("templates/simple_enum_dict_coerce_optional_default.jinja"),
     ),
     (
         "visitor_override_param.jinja",

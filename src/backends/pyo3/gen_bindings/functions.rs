@@ -723,14 +723,33 @@ pub(super) fn gen_api_py(
                         // instance. PyO3 enums do not provide a string `__init__`, so use the
                         // shared `_coerce_enum` helper to look up the canonical variant.
                         let accessor = field_access(&field.name);
-                        out.push_str(&crate::backends::pyo3::template_env::render(
-                            "simple_enum_dict_coerce.jinja",
-                            minijinja::context! {
-                                name => &field.name,
-                                enum_name => nested_name,
-                                accessor => &accessor,
-                            },
-                        ));
+
+                        // If this enum field has #[serde(default)] and is non-optional in Rust,
+                        // the Python dataclass may have it as Optional[T]. When the value is None,
+                        // we must omit the kwarg so PyO3's default applies (not call _coerce_enum(None)).
+                        let has_serde_default = field.default.as_deref() == Some("/* serde(default) */");
+                        let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional;
+
+                        if has_serde_default && !is_optional {
+                            // Use dict-splat to omit the kwarg when None
+                            out.push_str(&crate::backends::pyo3::template_env::render(
+                                "simple_enum_dict_coerce_optional_default.jinja",
+                                minijinja::context! {
+                                    name => &field.name,
+                                    enum_name => nested_name,
+                                    accessor => &accessor,
+                                },
+                            ));
+                        } else {
+                            out.push_str(&crate::backends::pyo3::template_env::render(
+                                "simple_enum_dict_coerce.jinja",
+                                minijinja::context! {
+                                    name => &field.name,
+                                    enum_name => nested_name,
+                                    accessor => &accessor,
+                                },
+                            ));
+                        }
                     }
                     continue;
                 }
@@ -818,13 +837,41 @@ pub(super) fn gen_api_py(
             // When a field has serde_rename, use it for pyo3 binding compatibility.
             // The pyo3 constructor parameter names match serde-renamed field names.
             let pyo3_param_name = field.serde_rename.as_deref().unwrap_or(&field.name);
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "field_kwarg.jinja",
-                minijinja::context! {
-                    name => pyo3_param_name,
-                    accessor => &final_accessor,
-                },
-            ));
+
+            // If this field has a #[serde(default)] and is non-optional in the binding,
+            // we need to omit the kwarg when the Python value is None. Otherwise, passing
+            // None explicitly causes a TypeError at the PyO3 constructor call.
+            // The marker string "/* serde(default) */" indicates the field has #[serde(default)].
+            // This only applies to Named types (enums, structs) that the Python backend
+            // generates as Optional[T] in the dataclass even though Rust declares them non-optional.
+            let has_serde_default = field.default.as_deref() == Some("/* serde(default) */");
+            let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional;
+            let is_named_type = matches!(field.ty, TypeRef::Named(_));
+
+            if has_serde_default && !is_optional && is_named_type {
+                // For Named fields with #[serde(default)] that are non-optional in the binding,
+                // use dict-splat to conditionally omit the kwarg when the source value is None.
+                // We need to check the raw field value (before conversion) to decide
+                // whether to include the kwarg.
+                let raw_field_accessor = field_access(&field.name);
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "field_kwarg_optional_default.jinja",
+                    minijinja::context! {
+                        name => pyo3_param_name,
+                        raw_accessor => &raw_field_accessor,
+                        final_accessor => &final_accessor,
+                    },
+                ));
+            } else {
+                // Normal kwarg rendering
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "field_kwarg.jinja",
+                    minijinja::context! {
+                        name => pyo3_param_name,
+                        accessor => &final_accessor,
+                    },
+                ));
+            }
         }
 
         out.push_str("    )\n\n\n");
