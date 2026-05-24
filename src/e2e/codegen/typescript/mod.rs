@@ -192,20 +192,158 @@ fn is_node_fixture_runnable(fixture: &Fixture) -> bool {
     !fixture.assertions.is_empty()
 }
 
-/// Emit a TypeScript test backend stub.
+/// Emit a TypeScript/Node/WASM test backend stub for a trait-bridge fixture.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Generates a duck-typed TypeScript class `_TestStub_<fixture_id>` whose methods
+/// return sensible default values via `Promise.resolve(...)` for async methods and
+/// plain values for sync ones. When `super_trait` is set, a `name()` method is
+/// emitted returning the fixture's name string extracted from `fixture.input`.
+///
+/// TypeScript/NAPI-RS bridges use duck typing — the class just needs to provide
+/// the right methods that the NAPI-RS bridge's `register<Trait>` function can call.
+///
+/// The `language` parameter distinguishes `"node"` / `"typescript"` / `"wasm"` so
+/// the emitter can use the correct `register` call convention (camelCase for JS).
+///
+/// The returned `arg_expr` is `new _TestStub_<fixture_id>()`.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("TypeScript test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+    use crate::e2e::escape::{escape_js, sanitize_ident};
+    use std::fmt::Write as FmtWrite;
+
+    let stub_name = format!("_TestStub_{}", sanitize_ident(&fixture.id));
+    let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
+    let defaults = language_defaults("typescript");
+
+    let mut setup = String::new();
+
+    let _ = writeln!(setup, "class {stub_name} {{");
+
+    // name() from Plugin super-trait, if configured.
+    if trait_bridge.super_trait.is_some() {
+        let escaped = escape_js(&backend_name);
+        let _ = writeln!(setup, "  name(): string {{ return \"{escaped}\"; }}");
+    }
+
+    // Required methods only.
+    for method in methods {
+        if method.has_default_impl {
+            continue;
+        }
+        // Skip Plugin::name if we already emitted it.
+        if trait_bridge.super_trait.is_some() && method.name == "name" {
+            continue;
+        }
+        emit_ts_stub_method(&mut setup, method, &*defaults);
+    }
+
+    let _ = writeln!(setup, "}}");
+
+    let arg_expr = format!("new {stub_name}()");
+
+    super::TestBackendEmission { setup_block: setup, arg_expr }
+}
+
+/// Format a single TypeScript stub method.
+///
+/// Async methods return `Promise.resolve(<default>)`. Sync methods return the
+/// default value directly. All parameters are elided with `_p0`, `_p1`, ...
+/// prefixes (TypeScript allows unused parameters when prefixed with `_`).
+fn emit_ts_stub_method(
+    out: &mut String,
+    method: &crate::core::ir::MethodDef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) {
+    use std::fmt::Write as FmtWrite;
+
+    // Build parameter list: `_p0?: any, _p1?: any, ...`
+    let params: Vec<String> = method.params.iter().enumerate().map(|(i, _)| format!("_p{i}?: any")).collect();
+    let params_str = params.join(", ");
+
+    let default_val = defaults.emit_default(&method.return_type);
+
+    if method.is_async {
+        let _ = writeln!(
+            out,
+            "  async {name}({params_str}): Promise<any> {{ return {default_val}; }}",
+            name = method.name
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "  {name}({params_str}): any {{ return {default_val}; }}",
+            name = method.name
+        );
+    }
+}
+
+/// Extract a backend name string from the fixture input JSON.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    if let Some(obj) = input.as_object() {
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
+/// Build a minimal `MethodDef` for tests.
+#[cfg(test)]
+fn test_method(
+    name: &str,
+    return_type: crate::core::ir::TypeRef,
+    is_async: bool,
+    has_default_impl: bool,
+) -> crate::core::ir::MethodDef {
+    crate::core::ir::MethodDef {
+        name: name.to_string(),
+        params: Vec::new(),
+        return_type,
+        is_async,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(crate::core::ir::ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_fixture(id: &str, input: serde_json::Value) -> crate::e2e::fixture::Fixture {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "description": "test fixture",
+            "input": input,
+            "assertions": []
+        }))
+        .expect("minimal fixture JSON must parse")
+    }
 
     #[test]
     fn language_name_is_node() {
@@ -241,5 +379,76 @@ result_var = "result"
         let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
         // package.json, tsconfig.json, vitest.config.ts
         assert!(files.len() >= 3, "got {} files", files.len());
+    }
+
+    #[test]
+    fn emit_test_backend_ts_generates_class_and_new_expr() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        };
+
+        let m1 = test_method("syncOp", TypeRef::String, false, false);
+        let m2 = test_method("asyncOp", TypeRef::Named("WorkResult".to_string()), true, false);
+        let methods = [&m1, &m2];
+
+        let fixture = make_fixture(
+            "ts_test_fixture",
+            serde_json::json!({ "name": "my-ts-backend" }),
+        );
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        // setup_block must define a TS class.
+        assert!(emission.setup_block.contains("class _TestStub_ts_test_fixture"),
+            "setup_block should define the stub class, got: {}", emission.setup_block);
+        // Must NOT hardcode kreuzberg-domain trait names.
+        assert!(!emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode OcrBackend");
+        assert!(!emission.setup_block.contains("DocumentExtractor"),
+            "setup_block must not hardcode DocumentExtractor");
+
+        // name() emitted because super_trait is set.
+        assert!(emission.setup_block.contains("name()"),
+            "setup_block should emit name() method");
+        assert!(emission.setup_block.contains("my-ts-backend"),
+            "name() should return the backend name");
+
+        // Required methods emitted.
+        assert!(emission.setup_block.contains("syncOp("),
+            "required sync method should be emitted");
+        assert!(emission.setup_block.contains("async asyncOp("),
+            "required async method should be emitted with async keyword");
+
+        // arg_expr uses new keyword.
+        assert_eq!(emission.arg_expr, "new _TestStub_ts_test_fixture()",
+            "arg_expr should use new constructor");
+    }
+
+    #[test]
+    fn emit_test_backend_ts_skips_default_impl_methods() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            ..Default::default()
+        };
+
+        let required = test_method("mustImplement", TypeRef::String, false, false);
+        let optional = test_method("mayImplement", TypeRef::String, false, true);
+        let methods = [&required, &optional];
+
+        let fixture = make_fixture("ts_skip_defaults", serde_json::json!({}));
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(emission.setup_block.contains("mustImplement("),
+            "required method should be emitted");
+        assert!(!emission.setup_block.contains("mayImplement("),
+            "optional method should be skipped");
     }
 }

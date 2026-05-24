@@ -1358,13 +1358,167 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
     let _ = writeln!(out, "    }},");
 }
 
-/// Emit a test backend stub.
+/// Emit an R test backend stub.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Generates an R named-list object that satisfies the Rust extendr bridge
+/// validation for the given trait.  The list contains one entry per required
+/// method (those without `has_default_impl`) as anonymous R functions, plus a
+/// `name` string entry for the Plugin super-trait when
+/// `trait_bridge.super_trait.is_some()`.
+///
+/// Rules:
+/// - Variable name: `r_backend_{sanitized_fixture_id}`.
+/// - `name` key is a plain string (`"test"`), not a function — the Rust bridge
+///   reads it as `r_obj.dollar("name")` expecting a character vector.
+/// - Each required method key is the Rust snake_case method name.
+/// - Return defaults come from `RDefaults`.
+/// - The registration call uses `{register_fn}(r_backend_{id})`.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+
+    let defaults = language_defaults("r");
+    let var_name = format!("r_backend_{}", sanitize_ident(&fixture.id));
+
+    let mut setup = String::new();
+
+    let _ = writeln!(setup, "  {var_name} <- list(");
+
+    // Plugin super-trait: `name` is a plain string in the R list.
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "    name = \"test\",");
+    }
+
+    // Collect required methods (those without default implementations).
+    let required: Vec<_> = methods.iter().filter(|m| !m.has_default_impl).collect();
+
+    for (i, method) in required.iter().enumerate() {
+        let method_name = &method.name;
+        let default_val = defaults.emit_default(&method.return_type);
+
+        // Build parameter list: skip `&self` (no receiver in R).
+        let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
+        let param_list = params.join(", ");
+
+        let trailing = if i + 1 < required.len() { "," } else { "" };
+        let _ = writeln!(
+            setup,
+            "    {method_name} = function({param_list}) {default_val}{trailing}"
+        );
+    }
+
+    let _ = writeln!(setup, "  )");
+
+    // Registration expression.
+    let register_fn = trait_bridge
+        .register_fn
+        .as_deref()
+        .unwrap_or("register_backend");
+
+    let arg_expr = format!("{register_fn}({var_name})");
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Verify `emit_test_backend` is generic: output must not contain any
+    /// hardcoded domain trait or method names — only names derived from the
+    /// synthetic `TestTrait` / `do_work` inputs.
+    #[test]
+    fn test_emit_test_backend_is_generic_no_domain_names() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeRef};
+        use crate::e2e::fixture::Fixture;
+
+        let method = MethodDef {
+            name: "do_work".to_string(),
+            params: vec![ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..Default::default()
+        };
+
+        let fixture = Fixture {
+            id: "my_fixture".to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        };
+
+        let methods = vec![&method];
+        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+
+        // The setup_block must contain the R method key name.
+        assert!(
+            emission.setup_block.contains("do_work"),
+            "setup_block should contain the method 'do_work', got:\n{}",
+            emission.setup_block
+        );
+        // The register expression must use the provided register_fn.
+        assert!(
+            emission.arg_expr.contains("register_test_trait"),
+            "arg_expr should invoke register_test_trait, got:\n{}",
+            emission.arg_expr
+        );
+        // The super-trait name entry must be present.
+        assert!(
+            emission.setup_block.contains("name = \"test\""),
+            "setup_block should contain name = \"test\" for super-trait, got:\n{}",
+            emission.setup_block
+        );
+
+        // Must not contain any hardcoded domain-specific names.
+        for name in &["OcrBackend", "DocumentExtractor", "process_image", "extract_bytes", "kreuzberg"] {
+            assert!(
+                !emission.setup_block.contains(name),
+                "setup_block must not contain domain name '{name}', got:\n{}",
+                emission.setup_block
+            );
+        }
+    }
 }

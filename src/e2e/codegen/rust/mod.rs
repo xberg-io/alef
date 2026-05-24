@@ -174,9 +174,197 @@ fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
     e2e_config.resolve_package("rust").and_then(|p| p.version.clone())
 }
 
+/// Emit a Rust test backend stub for a trait-bridge fixture.
+///
+/// Generates a minimal `struct _TestStub_<fixture_id>` with a `_name` field and
+/// a concrete `impl <trait_name> for _TestStub_<fixture_id>` block where every
+/// required method returns a language-default value. When the bridge config
+/// declares a `super_trait`, a `name()` method is also emitted returning the
+/// fixture's name string extracted from `fixture.input`.
+///
+/// The returned `arg_expr` wraps the stub in `std::sync::Arc::new(...)`, which
+/// is the form expected by the generated `register_<trait>` function.
+pub fn emit_test_backend(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &Fixture,
+) -> super::TestBackendEmission {
+    use crate::codegen::defaults::language_defaults;
+    use crate::e2e::escape::sanitize_ident;
+    use std::fmt::Write as FmtWrite;
+
+    let stub_name = format!("_TestStub_{}", sanitize_ident(&fixture.id));
+    let trait_name = &trait_bridge.trait_name;
+    let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
+    let defaults = language_defaults("rust");
+
+    let mut setup = String::new();
+
+    // Struct definition with a cached name field.
+    let _ = writeln!(setup, "struct {stub_name} {{ _name: &'static str }}");
+
+    // Impl block.
+    let _ = writeln!(setup, "impl {trait_name} for {stub_name} {{");
+
+    // name() from Plugin super-trait, if configured.
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "    fn name(&self) -> &str {{ self._name }}");
+    }
+
+    // Required methods only (skip those with a default implementation).
+    for method in methods {
+        if method.has_default_impl {
+            continue;
+        }
+        // Skip the Plugin::name method if we already emitted it above.
+        if trait_bridge.super_trait.is_some() && method.name == "name" {
+            continue;
+        }
+        emit_rust_stub_method(&mut setup, method, &*defaults);
+    }
+
+    let _ = writeln!(setup, "}}");
+
+    // arg_expr: wrapped in Arc for the register call.
+    let arg_expr = format!("std::sync::Arc::new({stub_name} {{ _name: \"{backend_name}\" }})");
+
+    super::TestBackendEmission { setup_block: setup, arg_expr }
+}
+
+/// Format a single Rust stub method.
+///
+/// Emits a method body using `LanguageDefaults` for the return value. The method
+/// signature omits parameter names (uses `_` wildcards) since the stub never uses
+/// them. For fallible methods the default is wrapped in `Ok(...)`.
+///
+/// The Rust compiler infers the concrete return type from the trait definition, so
+/// `Default::default()` resolves correctly for value types. For reference-returning
+/// methods (e.g. `-> &[&str]`), the emitted default may not be type-compatible —
+/// in that case the body falls back to `unimplemented!()` which satisfies any return
+/// type via the never type `!`. Phase 3 fixtures can provide richer stub bodies when
+/// they actually call these methods.
+fn emit_rust_stub_method(
+    out: &mut String,
+    method: &crate::core::ir::MethodDef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) {
+    use crate::core::ir::TypeRef;
+    use std::fmt::Write as FmtWrite;
+
+    // Elide all parameters with `_` wildcards so the stub compiles regardless
+    // of whether the parameter types implement Default/Clone.
+    let param_wildcards: Vec<&str> = method.params.iter().map(|_| "_").collect();
+    let params_str = if param_wildcards.is_empty() {
+        String::new()
+    } else {
+        format!(", {}", param_wildcards.join(", "))
+    };
+
+    // For reference-returning methods (`returns_ref = true`), the IR collapses
+    // `&[T]` into `Vec<T>` + flag. A `Default::default()` value can't be returned
+    // as a reference without a named binding that outlives the method body, so we
+    // emit `unimplemented!()` for those. All other return types get the LanguageDefaults
+    // value (wrapped in Ok(...) for fallible methods).
+    let body = if method.returns_ref {
+        "unimplemented!()".to_string()
+    } else {
+        // For Unit / async with Unit, the Rust default "()" works.
+        // For Named types, "TypeName::default()" works when Default is derived.
+        // For primitives/String/Vec/etc., the defaults are concrete Rust expressions.
+        let raw = match &method.return_type {
+            TypeRef::Unit => "()".to_string(),
+            _ => defaults.emit_default(&method.return_type),
+        };
+        if method.error_type.is_some() {
+            format!("Ok({raw})")
+        } else {
+            raw
+        }
+    };
+
+    let async_kw = if method.is_async { "async " } else { "" };
+    let _ = writeln!(
+        out,
+        "    {async_kw}fn {name}(&self{params_str}) {{ {body} }}",
+        name = method.name
+    );
+}
+
+/// Extract a backend name string from the fixture input JSON.
+///
+/// Searches the top-level input object for the first string value at any depth
+/// under keys commonly used for names (`name`, or the first string field found).
+/// Falls back to the fixture id when no string is found.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    // Walk the top-level object, then one level deeper, looking for "name".
+    if let Some(obj) = input.as_object() {
+        // Direct "name" key.
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        // One level deeper in any nested object.
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        // First string value at the top level.
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+/// Build a minimal `MethodDef` for use in unit tests.
+#[cfg(test)]
+fn test_method(
+    name: &str,
+    return_type: crate::core::ir::TypeRef,
+    is_async: bool,
+    error_type: Option<&str>,
+) -> crate::core::ir::MethodDef {
+    crate::core::ir::MethodDef {
+        name: name.to_string(),
+        params: Vec::new(),
+        return_type,
+        is_async,
+        is_static: false,
+        error_type: error_type.map(str::to_string),
+        doc: String::new(),
+        receiver: Some(crate::core::ir::ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_fixture(id: &str, input: serde_json::Value) -> crate::e2e::fixture::Fixture {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "description": "test fixture",
+            "input": input,
+            "assertions": []
+        }))
+        .expect("minimal fixture JSON must parse")
+    }
 
     #[test]
     fn resolve_crate_name_uses_config_name() {
@@ -205,15 +393,116 @@ result_var = "result"
         let name = resolve_crate_name(&e2e, &resolved);
         assert_eq!(name, "my-lib");
     }
-}
 
-/// Emit a Rust test backend stub.
-///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
-pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &Fixture,
-) -> super::TestBackendEmission {
-    unimplemented!("Rust test_backend emission not yet implemented")
+    #[test]
+    fn emit_test_backend_rust_generates_struct_and_arc_expr() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..Default::default()
+        };
+
+        let m1 = test_method("do_work", TypeRef::String, false, None);
+        let m2 = test_method("process_async", TypeRef::Named("WorkResult".to_string()), true, Some("WorkError"));
+        let methods = [&m1, &m2];
+
+        let fixture = make_fixture(
+            "my_test_fixture",
+            serde_json::json!({ "name": "my-test-backend" }),
+        );
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        // setup_block must contain the stub struct and impl.
+        assert!(
+            emission.setup_block.contains("_TestStub_my_test_fixture"),
+            "setup_block should contain stub name, got: {}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("TestTrait"),
+            "setup_block should reference trait by name, got: {}",
+            emission.setup_block
+        );
+        // Must NOT hardcode any kreuzberg-domain trait name.
+        assert!(!emission.setup_block.contains("OcrBackend"), "setup_block must not hardcode OcrBackend");
+        assert!(
+            !emission.setup_block.contains("DocumentExtractor"),
+            "setup_block must not hardcode DocumentExtractor"
+        );
+
+        // name() emitted because super_trait is Some.
+        assert!(
+            emission.setup_block.contains("fn name("),
+            "setup_block should emit name() when super_trait is set"
+        );
+
+        // Required methods emitted.
+        assert!(
+            emission.setup_block.contains("fn do_work("),
+            "required method do_work should be in setup_block"
+        );
+        assert!(
+            emission.setup_block.contains("fn process_async("),
+            "required async method process_async should be in setup_block"
+        );
+
+        // arg_expr wraps in Arc::new.
+        assert!(emission.arg_expr.contains("Arc::new"), "arg_expr should use Arc::new, got: {}", emission.arg_expr);
+        assert!(
+            emission.arg_expr.contains("_TestStub_my_test_fixture"),
+            "arg_expr should reference stub struct, got: {}",
+            emission.arg_expr
+        );
+    }
+
+    #[test]
+    fn emit_test_backend_rust_skips_default_impl_methods() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            ..Default::default()
+        };
+
+        let required = test_method("required_method", TypeRef::String, false, None);
+        let mut optional = test_method("optional_method", TypeRef::String, false, None);
+        optional.has_default_impl = true;
+        let methods = [&required, &optional];
+
+        let fixture = make_fixture("skip_defaults_fixture", serde_json::json!({}));
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(emission.setup_block.contains("fn required_method("), "required method should be emitted");
+        assert!(!emission.setup_block.contains("fn optional_method("), "method with default impl should be skipped");
+    }
+
+    #[test]
+    fn emit_test_backend_rust_name_extracted_from_input() {
+        use crate::core::config::TraitBridgeConfig;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        };
+
+        let fixture = make_fixture(
+            "name_extraction_fixture",
+            serde_json::json!({ "backend": { "name": "extracted-name" } }),
+        );
+
+        let emission = emit_test_backend(&bridge, &[], &fixture);
+
+        assert!(
+            emission.arg_expr.contains("extracted-name"),
+            "arg_expr should contain the name from input.backend.name, got: {}",
+            emission.arg_expr
+        );
+    }
 }

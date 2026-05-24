@@ -415,13 +415,19 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push('\n');
 
     out.push_str("fn jni_call_string_method(env: &mut Env<'_>, obj: JObject, method_name: &str, method_sig: &str) -> std::result::Result<String, jni::errors::Error> {\n");
+    out.push_str("    use std::str::FromStr;\n");
     out.push_str("    let class = env.get_object_class(obj)?;\n");
-    out.push_str("    let method_id = env.get_method_id(&class, method_name, method_sig)?;\n");
+    out.push_str("    let name_jni = jni::strings::JNIString::from(method_name);\n");
+    out.push_str("    let sig_runtime = jni::signature::RuntimeMethodSignature::from_str(method_sig)?;\n");
+    out.push_str("    let sig = sig_runtime.method_signature();\n");
+    out.push_str("    let method_id = env.get_method_id(&class, name_jni, sig)?;\n");
     out.push_str(
-        "    let result = env.call_method_unchecked(obj, method_id, jni::objects::ReturnType::Object, &[])?\n",
+        "    let result = env.call_method_unchecked(obj, method_id, jni::signature::ReturnType::Object, &[])?\n",
     );
     out.push_str("        .l()?;\n");
-    out.push_str("    jstring_to_string(env, JString::from(result))\n");
+    out.push_str("    // SAFETY: JNI return type guaranteed a String, so the raw jstring pointer is valid.\n");
+    out.push_str("    let jstring = unsafe { JString::from_raw(env, result.into_raw()) };\n");
+    out.push_str("    jstring_to_string(env, jstring)\n");
     out.push_str("}\n");
     out.push('\n');
 

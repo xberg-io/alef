@@ -2209,13 +2209,238 @@ fn json_to_zig(value: &serde_json::Value) -> String {
     }
 }
 
-/// Emit a test backend stub.
+/// Map an IR `TypeRef` to a Zig type string for stub method signatures.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Used only by `emit_test_backend` — not the full production type-map.
+/// Keeps stub generation self-contained and avoids a dependency on the
+/// private `backends::zig::type_map` module.
+fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U8 => "u8".to_string(),
+            PrimitiveType::U16 => "u16".to_string(),
+            PrimitiveType::U32 => "u32".to_string(),
+            PrimitiveType::U64 | PrimitiveType::Usize => "u64".to_string(),
+            PrimitiveType::I8 => "i8".to_string(),
+            PrimitiveType::I16 => "i16".to_string(),
+            PrimitiveType::I32 => "i32".to_string(),
+            PrimitiveType::I64 | PrimitiveType::Isize => "i64".to_string(),
+            PrimitiveType::F32 => "f32".to_string(),
+            PrimitiveType::F64 => "f64".to_string(),
+        },
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "[]const u8".to_string(),
+        TypeRef::Unit => "void".to_string(),
+        TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner)),
+        TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner)),
+        TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v)),
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Duration => "i64".to_string(),
+    }
+}
+
+/// Emit a Zig test backend stub.
+///
+/// Generates a Zig struct type for the stub, then builds a vtable via the
+/// `make_{trait_snake}_vtable` helper and registers it.
+///
+/// Rules:
+/// - Struct name: `TestStub_{sanitized_snake_fixture_id}`.
+/// - Required methods (without `has_default_impl`) are stubbed with Zig
+///   defaults from `ZigDefaults`.
+/// - Super-trait `name` method returns the literal `"test"` string.
+/// - The `register_fn` from `trait_bridge.register_fn` drives the
+///   registration expression; snake_case convention for Zig.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+    use crate::core::ir::TypeRef;
+
+    let defaults = language_defaults("zig");
+    let id_snake = crate::e2e::escape::sanitize_ident(&fixture.id.to_snake_case());
+    let struct_name = format!("TestStub_{id_snake}");
+    let var_name = format!("stub_{id_snake}");
+    let vtable_var = format!("vtable_{id_snake}");
+    let trait_snake = trait_bridge.trait_name.to_snake_case();
+
+    let mut setup = String::new();
+
+    let _ = writeln!(setup, "    const {struct_name} = struct {{");
+
+    // Plugin super-trait: `name()` returns a sentinel C-string.
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "        pub fn name() ?[*:0]const u8 {{ return \"test\"; }}");
+        let _ = writeln!(setup, "        pub fn version() ?[*:0]const u8 {{ return \"0.0.1\"; }}");
+        let _ = writeln!(
+            setup,
+            "        pub fn initialize(_: *{struct_name}) !void {{}}"
+        );
+        let _ = writeln!(setup, "        pub fn shutdown(_: *{struct_name}) !void {{}}");
+    }
+
+    // Required methods only.
+    for method in methods.iter().filter(|m| !m.has_default_impl) {
+        let method_snake = method.name.to_snake_case();
+        let ret_ty = zig_type_for_stub(&method.return_type);
+        let default_val = defaults.emit_default(&method.return_type);
+
+        // Build Zig parameter list (self first, then method params).
+        let mut params = vec![format!("_: *{struct_name}")];
+        for p in &method.params {
+            let p_ty = zig_type_for_stub(&p.ty);
+            params.push(format!("{}: {}", p.name, p_ty));
+        }
+        let param_list = params.join(", ");
+
+        let is_fallible = method.error_type.is_some();
+        let ret_sig = if is_fallible {
+            if matches!(method.return_type, TypeRef::Unit) {
+                "!void".to_string()
+            } else {
+                format!("!{ret_ty}")
+            }
+        } else if matches!(method.return_type, TypeRef::Unit) {
+            "void".to_string()
+        } else {
+            ret_ty.clone()
+        };
+
+        if matches!(method.return_type, TypeRef::Unit) {
+            let _ = writeln!(
+                setup,
+                "        pub fn {method_snake}({param_list}) {ret_sig} {{}}"
+            );
+        } else {
+            let _ = writeln!(
+                setup,
+                "        pub fn {method_snake}({param_list}) {ret_sig} {{ return {default_val}; }}"
+            );
+        }
+    }
+
+    let _ = writeln!(setup, "    }};");
+    let _ = writeln!(setup, "    var {var_name} = {struct_name}{{}};");
+    let _ = writeln!(
+        setup,
+        "    const {vtable_var} = lib.make_{trait_snake}_vtable({struct_name}, &{var_name});"
+    );
+
+    // Registration: register_fn snake_case, else default pattern.
+    let register_fn = trait_bridge
+        .register_fn
+        .as_deref()
+        .unwrap_or("register_backend");
+
+    let out_err_var = format!("out_err_{id_snake}");
+    let _ = writeln!(setup, "    var {out_err_var}: ?[*:0]u8 = null;");
+
+    let arg_expr = format!(
+        "_ = lib.{register_fn}(\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var}))"
+    );
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr,
+    }
+}
+
+#[cfg(test)]
+mod tests_trait_bridge {
+    /// Verify `emit_test_backend` is generic: output must not contain any
+    /// hardcoded domain trait or method names — only names derived from the
+    /// synthetic `TestTrait` / `do_work` inputs.
+    #[test]
+    fn test_emit_test_backend_is_generic_no_domain_names() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeRef};
+        use crate::e2e::fixture::Fixture;
+
+        let method = MethodDef {
+            name: "do_work".to_string(),
+            params: vec![ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..Default::default()
+        };
+
+        let fixture = Fixture {
+            id: "my_fixture".to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        };
+
+        let methods = vec![&method];
+        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+
+        // The setup_block must contain the Zig struct with the method.
+        assert!(
+            emission.setup_block.contains("do_work"),
+            "setup_block should contain method 'do_work', got:\n{}",
+            emission.setup_block
+        );
+        // The vtable helper must use the trait snake name.
+        assert!(
+            emission.setup_block.contains("make_test_trait_vtable"),
+            "setup_block should invoke make_test_trait_vtable, got:\n{}",
+            emission.setup_block
+        );
+        // The registration expression must use the provided register_fn.
+        assert!(
+            emission.arg_expr.contains("register_test_trait"),
+            "arg_expr should invoke register_test_trait, got:\n{}",
+            emission.arg_expr
+        );
+
+        // Must not contain any hardcoded domain-specific names.
+        for name in &["OcrBackend", "DocumentExtractor", "processImage", "process_image_fn", "kreuzberg"] {
+            assert!(
+                !emission.setup_block.contains(name),
+                "setup_block must not contain domain name '{name}', got:\n{}",
+                emission.setup_block
+            );
+        }
+    }
 }

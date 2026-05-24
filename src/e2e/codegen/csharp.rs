@@ -3511,15 +3511,140 @@ fn classify_bytes_value_csharp(s: &str) -> String {
     format!("System.Convert.FromBase64String(\"{}\")", s)
 }
 
+/// Map an IR `TypeRef` to a C# type string for stub method signatures.
+///
+/// Used only by `emit_test_backend` — not the full production type-map used by
+/// the C# backend generator.  Keeps stub generation self-contained and avoids
+/// a dependency on the private `backends::csharp::type_map` module.
+fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U8 => "byte".to_string(),
+            PrimitiveType::U16 => "ushort".to_string(),
+            PrimitiveType::U32 => "uint".to_string(),
+            PrimitiveType::U64 => "ulong".to_string(),
+            PrimitiveType::I8 => "sbyte".to_string(),
+            PrimitiveType::I16 => "short".to_string(),
+            PrimitiveType::I32 => "int".to_string(),
+            PrimitiveType::I64 => "long".to_string(),
+            PrimitiveType::F32 => "float".to_string(),
+            PrimitiveType::F64 => "double".to_string(),
+            PrimitiveType::Usize | PrimitiveType::Isize => "long".to_string(),
+        },
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "string".to_string(),
+        TypeRef::Bytes => "byte[]".to_string(),
+        TypeRef::Unit => "void".to_string(),
+        TypeRef::Optional(inner) => format!("{}?", csharp_type_for_stub(inner)),
+        TypeRef::Vec(inner) => format!("List<{}>", csharp_type_for_stub(inner)),
+        TypeRef::Map(k, v) => format!("Dictionary<{}, {}>", csharp_type_for_stub(k), csharp_type_for_stub(v)),
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Json => "object".to_string(),
+        TypeRef::Duration => "ulong?".to_string(),
+    }
+}
+
 /// Emit a C# test backend stub.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Generates a nested private class implementing the bridge interface
+/// (`I{TraitName}`) with minimal stub methods, then returns a
+/// `{TraitName}Bridge.Register(new TestStub_{fixture_id}())` expression
+/// as the registration call site.
+///
+/// Rules:
+/// - The stub class name is `TestStub_{sanitized_fixture_id}` where the id
+///   has been converted to PascalCase (safe C# identifier).
+/// - The Plugin super-trait `Name` property is emitted as a `string` getter
+///   returning `"test"` when `trait_bridge.super_trait.is_some()`.
+/// - Required methods (those without `has_default_impl`) are emitted with
+///   return-type defaults produced by `CSharpDefaults`.
+/// - Async methods return `Task<T>` and are `async`; sync methods are plain.
+/// - Type names come from `csharp_type_for_stub()` — no crate-domain names
+///   are hardcoded here.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("C# test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+    use crate::core::ir::TypeRef;
+
+    let defaults = language_defaults("csharp");
+
+    // Derive a safe C# class identifier from the fixture id.
+    let stub_class = format!("TestStub_{}", sanitize_ident(&fixture.id).to_upper_camel_case());
+
+    // Interface name: I{TraitName} following C# convention.
+    let trait_pascal = trait_bridge.trait_name.to_upper_camel_case();
+    let iface_name = format!("I{trait_pascal}");
+
+    let mut setup = String::new();
+
+    // Emit the stub class inline inside the test method body.
+    let _ = writeln!(setup, "        private class {stub_class} : {iface_name}");
+    let _ = writeln!(setup, "        {{");
+
+    // Plugin super-trait: Name property (read-only string).
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "            public string Name => \"test\";");
+        let _ = writeln!(setup, "            public string Version => \"0.0.1\";");
+        let _ = writeln!(setup, "            public void Initialize() {{ }}");
+        let _ = writeln!(setup, "            public void Shutdown() {{ }}");
+    }
+
+    // Required methods only (skip those with default implementations).
+    for method in methods.iter().filter(|m| !m.has_default_impl) {
+        let method_cs = method.name.to_upper_camel_case();
+        let ret_ty = csharp_type_for_stub(&method.return_type);
+        let default_val = defaults.emit_default(&method.return_type);
+
+        // Build parameter list.
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| format!("{} {}", csharp_type_for_stub(&p.ty), p.name.to_lower_camel_case()))
+            .collect();
+        let param_list = params.join(", ");
+
+        if method.is_async {
+            // async Task<RetType> or async Task for Unit.
+            if matches!(method.return_type, TypeRef::Unit) {
+                let _ = writeln!(setup, "            public async System.Threading.Tasks.Task {method_cs}({param_list})");
+                let _ = writeln!(setup, "            {{");
+                let _ = writeln!(setup, "                await System.Threading.Tasks.Task.CompletedTask;");
+                let _ = writeln!(setup, "            }}");
+            } else {
+                let _ = writeln!(
+                    setup,
+                    "            public async System.Threading.Tasks.Task<{ret_ty}> {method_cs}({param_list})"
+                );
+                let _ = writeln!(setup, "            {{");
+                let _ = writeln!(setup, "                await System.Threading.Tasks.Task.CompletedTask;");
+                let _ = writeln!(setup, "                return {default_val};");
+                let _ = writeln!(setup, "            }}");
+            }
+        } else if matches!(method.return_type, TypeRef::Unit) {
+            let _ = writeln!(setup, "            public void {method_cs}({param_list}) {{ }}");
+        } else {
+            let _ = writeln!(setup, "            public {ret_ty} {method_cs}({param_list})");
+            let _ = writeln!(setup, "                => {default_val};");
+        }
+    }
+
+    let _ = writeln!(setup, "        }}");
+
+    // Registration expression.
+    let arg_expr = if let Some(reg_fn) = trait_bridge.register_fn.as_deref() {
+        format!("{}Bridge.{}(new {}())", trait_pascal, reg_fn.to_upper_camel_case(), stub_class)
+    } else {
+        format!("{}Bridge.Register(new {}())", trait_pascal, stub_class)
+    };
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr,
+    }
 }
 
 #[cfg(test)]
@@ -3597,5 +3722,91 @@ mod tests {
             &fixture_no_batch.input,
         );
         assert_eq!(resolved_default.function, "Scrape");
+    }
+
+    /// Verify `emit_test_backend` is generic: output must not contain any
+    /// hardcoded domain trait or method names — only names derived from the
+    /// synthetic `TestTrait` / `do_work` inputs.
+    #[test]
+    fn test_emit_test_backend_is_generic_no_domain_names() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeRef};
+
+        let method = MethodDef {
+            name: "do_work".to_string(),
+            params: vec![ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..Default::default()
+        };
+
+        let fixture = Fixture {
+            id: "my_fixture".to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        };
+
+        let methods = vec![&method];
+        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+
+        // The generated code must reference the synthetic interface name.
+        assert!(
+            emission.setup_block.contains("ITestTrait"),
+            "setup_block should reference ITestTrait, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("DoWork"),
+            "setup_block should contain method DoWork, got:\n{}",
+            emission.setup_block
+        );
+
+        // Must not contain any hardcoded domain-specific names.
+        for name in &["OcrBackend", "DocumentExtractor", "ProcessImage", "ExtractBytes", "kreuzberg"] {
+            assert!(
+                !emission.setup_block.contains(name),
+                "setup_block must not contain domain name '{name}', got:\n{}",
+                emission.setup_block
+            );
+        }
     }
 }
