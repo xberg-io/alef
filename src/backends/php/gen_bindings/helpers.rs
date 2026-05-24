@@ -110,6 +110,16 @@ pub(crate) fn gen_php_function_params(
                         "PhpBytes".to_string()
                     }
                 }
+                TypeRef::Map(_, _) if p.map_is_ahash && p.map_key_is_cow => {
+                    // AHashMap<Cow<'static, str>, Value> params: PHP cannot provide FromZvalMut
+                    // for this type directly. Receive as HashMap<String, String> (PHP hash with
+                    // string values) and convert in the pre-call binding in the function body.
+                    if p.optional {
+                        "Option<std::collections::HashMap<String, String>>".to_string()
+                    } else {
+                        "std::collections::HashMap<String, String>".to_string()
+                    }
+                }
                 _ => {
                     if p.optional {
                         format!("Option<{base_ty}>")
@@ -251,6 +261,17 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
                         }
                     }
                 }
+                TypeRef::Map(_, _) if p.map_is_ahash && p.map_key_is_cow => {
+                    // AHashMap<Cow, Value>: use the __<name>_ahash pre-bound variable.
+                    let bound_name = format!("__{}_ahash", p.name);
+                    if p.optional && p.is_ref {
+                        format!("{bound_name}.as_ref()")
+                    } else if p.is_ref {
+                        format!("{bound_name}.as_ref().unwrap()")
+                    } else {
+                        bound_name
+                    }
+                }
                 TypeRef::Duration => {
                     if p.optional {
                         format!("{php_name}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))")
@@ -269,6 +290,7 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
 /// Creates `let {name}_core: {core_import}::{TypeName} = {name}.clone().into();`
 /// so the function body can pass `&{name}_core` instead of `{name}.clone().into()`.
 /// Also handles Vec<NonOpaqueCustomType> by iterating PHP arrays and extracting each element.
+/// Also handles AHashMap<Cow, Value> params by converting from HashMap<String, String>.
 pub(crate) fn gen_php_named_let_bindings(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
@@ -277,6 +299,18 @@ pub(crate) fn gen_php_named_let_bindings(
     let mut out = String::new();
 
     for p in params {
+        // AHashMap<Cow<'static, str>, Value> params: PHP receives as HashMap<String, String>.
+        // Convert to ahash::AHashMap<Cow, Value> so core can be called with correct types.
+        if let TypeRef::Map(_, _) = &p.ty {
+            if p.map_is_ahash && p.map_key_is_cow {
+                let php_name = to_php_name(&p.name);
+                let bound_name = format!("__{}_ahash", p.name);
+                out.push_str(&format!(
+                    "    let {bound_name} = {php_name}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());\n",
+                ));
+                continue;
+            }
+        }
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 out.push_str(&crate::backends::php::template_env::render(
@@ -448,6 +482,18 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                         } else {
                             php_name
                         }
+                    }
+                }
+                TypeRef::Map(_, _) if p.map_is_ahash && p.map_key_is_cow => {
+                    // AHashMap<Cow, Value> param: use the pre-bound __<name>_ahash variable
+                    // from gen_php_named_let_bindings.
+                    let bound_name = format!("__{}_ahash", p.name);
+                    if p.optional && p.is_ref {
+                        format!("{bound_name}.as_ref()")
+                    } else if p.is_ref {
+                        format!("{bound_name}.as_ref().unwrap()")
+                    } else {
+                        bound_name
                     }
                 }
                 TypeRef::Map(_, _) => {
