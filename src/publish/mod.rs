@@ -19,11 +19,19 @@ use platform::RustTarget;
 use std::path::{Path, PathBuf};
 
 /// Prepare a language package for publishing: vendor dependencies, stage FFI artifacts.
+///
+/// When `require_registry` is true (CI/release), the Registry vendor mode
+/// regenerates each rewritten binding crate's `Cargo.lock` and fails hard if
+/// resolution fails — catching the case where a referenced workspace-member
+/// version is not yet published to the registry. When false (the default for
+/// local/pre-release dev), the lock is simply deleted so the consumer regenerates
+/// it at build time.
 pub fn prepare(
     config: &ResolvedCrateConfig,
     languages: &[Language],
     target: Option<&RustTarget>,
     dry_run: bool,
+    require_registry: bool,
 ) -> Result<()> {
     for &lang in languages {
         let lang_config = publish_config_for_language(config, lang);
@@ -115,7 +123,14 @@ pub fn prepare(
                                 );
                                 vendor::rewrite_path_deps_to_registry(&manifest_abs, &members, &version)?;
                                 if let Some(manifest_dir) = manifest_abs.parent() {
-                                    vendor::scrub_or_regenerate_lock(manifest_dir, false)?;
+                                    // In require_registry (CI/release) mode, regenerate the
+                                    // lock and fail hard if a member version is not yet on the
+                                    // registry. Otherwise, delete the lock (lenient default).
+                                    vendor::scrub_or_regenerate_lock(
+                                        manifest_dir,
+                                        require_registry,
+                                        require_registry,
+                                    )?;
                                 }
                                 eprintln!("  rewrote {}", manifest_abs.display());
                             }
@@ -1054,7 +1069,7 @@ sources = ["crates/my-lib/src/lib.rs"]
         let (tmp, config) = setup_registry_workspace();
         let root = tmp.path();
 
-        prepare(&config, &[Language::Python], None, false).unwrap();
+        prepare(&config, &[Language::Python], None, false, false).unwrap();
 
         let doc = read_py_manifest(root);
         let deps = doc["dependencies"].as_table().unwrap();
@@ -1072,7 +1087,7 @@ sources = ["crates/my-lib/src/lib.rs"]
         let root = tmp.path();
 
         let before = std::fs::read_to_string(root.join("crates/my-lib-py/Cargo.toml")).unwrap();
-        prepare(&config, &[Language::Python], None, true).unwrap();
+        prepare(&config, &[Language::Python], None, true, false).unwrap();
         let after = std::fs::read_to_string(root.join("crates/my-lib-py/Cargo.toml")).unwrap();
 
         assert_eq!(before, after, "dry-run must not modify the manifest");

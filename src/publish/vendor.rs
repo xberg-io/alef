@@ -458,11 +458,20 @@ fn strip_path_set_version(existing: &Item, version: &str) -> Item {
 /// rewritten to registry deps.
 ///
 /// When `regenerate` is true, runs `cargo generate-lockfile` so the lock resolves
-/// the (now registry-only) graph immediately. On failure — or when `regenerate`
-/// is false — any existing `Cargo.lock` in `manifest_dir` is deleted so cargo
-/// regenerates it at consumer build time. The `regenerate` flag lets tests force
+/// the (now registry-only) graph immediately.
+///
+/// On a `cargo generate-lockfile` failure the behavior depends on `strict`:
+/// - `strict == false` (lenient, the default for local/pre-release dev): the
+///   failure is logged and any existing `Cargo.lock` in `manifest_dir` is deleted
+///   so cargo regenerates it at consumer build time.
+/// - `strict == true` (CI/release): the failure is a HARD error — a referenced
+///   workspace-member version is likely not yet published to the registry, so the
+///   core crates must be published before the language packages.
+///
+/// When `regenerate` is false the lock is simply deleted (the `strict` flag is
+/// only consulted on the regenerate path). The `regenerate` flag lets tests force
 /// the offline delete path.
-pub(crate) fn scrub_or_regenerate_lock(manifest_dir: &Path, regenerate: bool) -> Result<()> {
+pub(crate) fn scrub_or_regenerate_lock(manifest_dir: &Path, regenerate: bool, strict: bool) -> Result<()> {
     let lock_path = manifest_dir.join("Cargo.lock");
 
     if regenerate {
@@ -475,12 +484,31 @@ pub(crate) fn scrub_or_regenerate_lock(manifest_dir: &Path, regenerate: bool) ->
         match status {
             Ok(s) if s.success() => return Ok(()),
             Ok(s) => {
+                if strict {
+                    bail!(
+                        "cargo generate-lockfile failed (exit code {}) for {} — a referenced \
+                         workspace-member version is likely not yet published to the registry. \
+                         Publish the core crate(s) before the language packages, then retry.",
+                        s.code().unwrap_or(-1),
+                        manifest.display()
+                    );
+                }
                 tracing::warn!(
                     code = s.code().unwrap_or(-1),
                     "cargo generate-lockfile failed; deleting Cargo.lock so it regenerates at build time"
                 );
             }
             Err(error) => {
+                if strict {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "could not run cargo generate-lockfile for {} — a referenced \
+                             workspace-member version is likely not yet published to the registry. \
+                             Publish the core crate(s) before the language packages, then retry.",
+                            manifest.display()
+                        )
+                    });
+                }
                 tracing::warn!(%error, "could not run cargo generate-lockfile; deleting Cargo.lock");
             }
         }
@@ -891,7 +919,7 @@ my-lib = "1"
         let lock = tmp.path().join("Cargo.lock");
         fs::write(&lock, "# lock").unwrap();
 
-        scrub_or_regenerate_lock(tmp.path(), false).unwrap();
+        scrub_or_regenerate_lock(tmp.path(), false, false).unwrap();
         assert!(!lock.exists(), "Cargo.lock must be deleted on the offline path");
     }
 
@@ -899,7 +927,7 @@ my-lib = "1"
     fn scrub_lock_no_lock_is_noop() {
         let tmp = TempDir::new().unwrap();
         // No Cargo.lock present — must not error.
-        scrub_or_regenerate_lock(tmp.path(), false).unwrap();
+        scrub_or_regenerate_lock(tmp.path(), false, false).unwrap();
     }
 
     // ---------------------------------------------------------------------
@@ -971,5 +999,62 @@ my-lib = "1"
             !output.status.success(),
             "a path dep to a nonexistent crate must fail resolution"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // S6: strict release-ordering precondition on lock regeneration
+    //
+    // Reuse the bad-path setup: a manifest with a path dep to a nonexistent
+    // crate makes `cargo generate-lockfile` fail locally (missing path, no
+    // network). In strict mode that failure is a hard, actionable error; in
+    // lenient mode it falls back to deleting the lock and returns Ok.
+    // ---------------------------------------------------------------------
+
+    /// Build a crate whose single dependency is an unresolvable path dep, so
+    /// `cargo generate-lockfile` fails offline.
+    fn write_unresolvable_crate(dir: &Path) {
+        write_clean_room_crate(dir, "ghost = { path = \"../does-not-exist\" }");
+    }
+
+    /// Run `scrub_or_regenerate_lock` in regenerate mode. The crate's single
+    /// dependency is an unresolvable path dep, so `cargo generate-lockfile`
+    /// fails locally on the missing path with no network access — no process-wide
+    /// `CARGO_NET_OFFLINE` mutation (which is racy under parallel tests) is needed.
+    fn scrub_regenerate(crate_dir: &Path, strict: bool) -> Result<()> {
+        scrub_or_regenerate_lock(crate_dir, true, strict)
+    }
+
+    #[test]
+    fn scrub_lock_strict_errors_when_lockfile_cannot_resolve() {
+        let tmp = TempDir::new().unwrap();
+        let crate_dir = tmp.path().join("clean-room");
+        write_unresolvable_crate(&crate_dir);
+
+        let err = scrub_regenerate(&crate_dir, true)
+            .expect_err("strict mode must return Err when the lockfile cannot resolve");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("not yet published to the registry"),
+            "error must be actionable about unpublished member versions; got: {msg}"
+        );
+        assert!(
+            msg.contains(&crate_dir.join("Cargo.toml").display().to_string()),
+            "error must name the manifest; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn scrub_lock_lenient_falls_back_to_delete_when_lockfile_cannot_resolve() {
+        let tmp = TempDir::new().unwrap();
+        let crate_dir = tmp.path().join("clean-room");
+        write_unresolvable_crate(&crate_dir);
+
+        // Pre-seed a lock — lenient mode deletes it on regenerate failure.
+        let lock = crate_dir.join("Cargo.lock");
+        fs::write(&lock, "# stale lock").unwrap();
+
+        scrub_regenerate(&crate_dir, false)
+            .expect("lenient mode must return Ok and fall back to deleting the lock");
+        assert!(!lock.exists(), "lenient fallback must delete the unresolved Cargo.lock");
     }
 }

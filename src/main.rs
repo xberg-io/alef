@@ -335,6 +335,12 @@ enum PublishAction {
         /// Show what would be done without executing.
         #[arg(long)]
         dry_run: bool,
+        /// Require referenced workspace-member versions to already be published to
+        /// the registry: regenerate the Cargo.lock and fail hard if resolution
+        /// fails (i.e. a member version is not yet published). Use in CI/release;
+        /// leave off for local/pre-release dev.
+        #[arg(long)]
+        require_registry: bool,
     },
     /// Build release artifacts for a specific platform.
     Build {
@@ -1718,7 +1724,12 @@ fn main() -> Result<()> {
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
             match action {
-                PublishAction::Prepare { lang, target, dry_run } => {
+                PublishAction::Prepare {
+                    lang,
+                    target,
+                    dry_run,
+                    require_registry,
+                } => {
                     let rust_target = target
                         .as_deref()
                         .map(alef::publish::platform::RustTarget::parse)
@@ -1734,7 +1745,13 @@ fn main() -> Result<()> {
                         } else {
                             eprintln!("Preparing publish for: {}", format_languages(&languages));
                         }
-                        alef::publish::prepare(resolved_cfg, &languages, rust_target.as_ref(), dry_run)?;
+                        alef::publish::prepare(
+                            resolved_cfg,
+                            &languages,
+                            rust_target.as_ref(),
+                            dry_run,
+                            require_registry,
+                        )?;
                     }
                     println!("Prepare complete");
                     Ok(())
