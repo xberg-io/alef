@@ -1,6 +1,6 @@
 //! Java (Panama FFM) binding generator backend for alef.
 
-mod gen_bindings;
+pub mod gen_bindings;
 pub mod gen_visitor;
 pub(crate) mod template_env;
 mod type_map;

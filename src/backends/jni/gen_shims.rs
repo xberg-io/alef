@@ -251,7 +251,13 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
 /// - `nativeUnregister<Trait>(name: String)` — calls the host crate's
 ///   `unregister_fn(&name)` and surfaces any `Err(_)` as a thrown JNI exception.
 /// - `nativeClear<Trait>s()` — calls the host crate's `clear_fn()` similarly.
-fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, api: &ApiSurface, package: &str, bridge: &str) {
+fn emit_trait_bridge_shims(
+    out: &mut String,
+    config: &ResolvedCrateConfig,
+    api: &ApiSurface,
+    package: &str,
+    bridge: &str,
+) {
     let bridges: Vec<_> = config
         .trait_bridges
         .iter()
@@ -273,9 +279,12 @@ fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, api: 
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
             let native_name = format!("nativeRegister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
-            if let Some(trait_def) = trait_def {
-                emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def);
-            }
+            // trait_def is currently unused by emit_trait_register_shim (uses the host's
+            // register_fn signature directly); pass None-friendly placeholder to keep the
+            // shim emission unconditional. When method-list-aware codegen lands, gate on
+            // trait_def.is_some() and emit a degraded shim when the trait isn't in the
+            // API surface (e.g. fixture-driven tests with synthetic bridge configs).
+            emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def);
         }
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             let native_name = format!("nativeUnregister{trait_pascal}");
@@ -292,7 +301,13 @@ fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, api: 
 
 /// Emit `Java_*_nativeRegister<Trait>(impl: I<Trait>)` shim that creates a global JNI
 /// reference, calls the host crate's configured `register_fn`, and manages bridge lifetime.
-fn emit_trait_register_shim(out: &mut String, symbol: &str, _trait_pascal: &str, register_fn: &str, _trait_def: &TypeDef) {
+fn emit_trait_register_shim(
+    out: &mut String,
+    symbol: &str,
+    _trait_pascal: &str,
+    register_fn: &str,
+    _trait_def: Option<&TypeDef>,
+) {
     out.push_str(&format!(
         "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    impl_obj: JObject,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
     ));
@@ -300,13 +315,17 @@ fn emit_trait_register_shim(out: &mut String, symbol: &str, _trait_pascal: &str,
     // Extract the name from the impl object by calling its name() method
     out.push_str("    let name = match jni_call_string_method(env, impl_obj, \"name\", \"()Ljava/lang/String;\") {\n");
     out.push_str("        Ok(n) => n,\n");
-    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"Failed to get implementation name: {e}\")); return; }\n");
+    out.push_str(
+        "        Err(e) => { throw_jni_error(env, &format!(\"Failed to get implementation name: {e}\")); return; }\n",
+    );
     out.push_str("    };\n\n");
 
     // Create a global reference to keep the Kotlin impl alive
     out.push_str("    let global_impl = match env.new_global_ref(impl_obj) {\n");
     out.push_str("        Ok(g) => g,\n");
-    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"Failed to create global reference: {e}\")); return; }\n");
+    out.push_str(
+        "        Err(e) => { throw_jni_error(env, &format!(\"Failed to create global reference: {e}\")); return; }\n",
+    );
     out.push_str("    };\n\n");
 
     // Wrap the global ref in a bridge handle (Arc<JObject> for lifetime management)
@@ -398,7 +417,9 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("fn jni_call_string_method(env: &mut Env<'_>, obj: JObject, method_name: &str, method_sig: &str) -> std::result::Result<String, jni::errors::Error> {\n");
     out.push_str("    let class = env.get_object_class(obj)?;\n");
     out.push_str("    let method_id = env.get_method_id(&class, method_name, method_sig)?;\n");
-    out.push_str("    let result = env.call_method_unchecked(obj, method_id, jni::objects::ReturnType::Object, &[])?\n");
+    out.push_str(
+        "    let result = env.call_method_unchecked(obj, method_id, jni::objects::ReturnType::Object, &[])?\n",
+    );
     out.push_str("        .l()?;\n");
     out.push_str("    jstring_to_string(env, JString::from(result))\n");
     out.push_str("}\n");

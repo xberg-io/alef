@@ -12,7 +12,7 @@ mod helpers;
 mod line_wrap;
 mod marshal;
 mod native_lib;
-mod trait_bridge;
+pub mod trait_bridge;
 mod types;
 
 use facade::gen_facade_class;

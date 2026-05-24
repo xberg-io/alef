@@ -21,6 +21,16 @@ __pycache__/
 .gemini/
 GEMINI.md
 
+# Stray `rust_out` artifacts the setup-rust-toolchain composite action
+# occasionally leaves in the working tree during CI (rustc defaults to
+# `rust_out` when compiled with no `-o` flag). cargo publish refuses to
+# proceed against a "dirty" tree, so masking the artifact via .gitignore
+# keeps `git status --porcelain` quiet without affecting the published
+# crate (cargo's include/exclude rules determine what ships). Pairs with
+# the `--allow-dirty` flag added to kreuzberg-dev/actions publish-crates.
+rust_out
+rust_out.*
+
 # AI assistant generated files (broader patterns covering all generated content)
 .github/agents/
 .github/commands/
