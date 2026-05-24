@@ -2499,10 +2499,7 @@ mod trait_bridge_tests {
 
         let extract_bytes = make_method(
             "extract_bytes",
-            vec![
-                ("content", TypeRef::Bytes),
-                ("mime_type", TypeRef::String),
-            ],
+            vec![("content", TypeRef::Bytes), ("mime_type", TypeRef::String)],
             TypeRef::Named("InternalDocument".to_string()),
             false,
         );
@@ -2556,7 +2553,9 @@ mod trait_bridge_tests {
         // The fixture id appears in the variable name (stub_register_...) but
         // the name() method must return the input-derived name, not the fixture id.
         assert!(
-            !emission.setup_block.contains("= 'register_document_extractor_trait_bridge'"),
+            !emission
+                .setup_block
+                .contains("= 'register_document_extractor_trait_bridge'"),
             "name() method must not return fixture id, got:\n{}",
             emission.setup_block
         );
@@ -2597,12 +2596,7 @@ mod trait_bridge_tests {
             "  def extract_bytes(content, mime_type, config) = '{}'\n",
             "end.new\n",
         );
-        assert_eq!(
-            emission.setup_block, expected_setup,
-            "setup_block snapshot mismatch"
-        );
-        assert_eq!(
-            emission.arg_expr, "stub_register_document_extractor_trait_bridge"
-        );
+        assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
+        assert_eq!(emission.arg_expr, "stub_register_document_extractor_trait_bridge");
     }
 }

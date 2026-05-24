@@ -98,14 +98,18 @@ fn snapshot_emit_test_backend_implements_interface() {
 
     // Must implement the interface derived from trait name.
     assert!(
-        emission.setup_block.contains("class TestStubTestExtractor : IDocumentExtractor"),
+        emission
+            .setup_block
+            .contains("class TestStubTestExtractor : IDocumentExtractor"),
         "class must implement interface derived from trait name, got:\n{}",
         emission.setup_block
     );
 
     // Must emit the name() override for Plugin super-trait.
     assert!(
-        emission.setup_block.contains("override fun name(): String = \"test-stub\""),
+        emission
+            .setup_block
+            .contains("override fun name(): String = \"test-stub\""),
         "must emit name() override for Plugin super-trait, got:\n{}",
         emission.setup_block
     );
@@ -197,13 +201,7 @@ fn snapshot_emit_test_backend_skips_default_impl_methods() {
     };
 
     // fn required_method(&self) -> String — no default
-    let required = make_method(
-        "required_method",
-        vec![],
-        TypeRef::String,
-        false,
-        false,
-    );
+    let required = make_method("required_method", vec![], TypeRef::String, false, false);
 
     // fn optional_method(&self) — has default impl, should be skipped
     let optional = make_method(
@@ -259,7 +257,9 @@ fn snapshot_emit_test_backend_uses_fixture_input_name() {
 
     // Must use the input["name"] value, not the fixture id.
     assert!(
-        emission.setup_block.contains("override fun name(): String = \"custom-backend-name\""),
+        emission
+            .setup_block
+            .contains("override fun name(): String = \"custom-backend-name\""),
         "must use fixture.input[\"name\"], got:\n{}",
         emission.setup_block
     );

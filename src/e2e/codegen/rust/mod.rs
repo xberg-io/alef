@@ -263,11 +263,9 @@ pub fn emit_test_backend(
     }
 
     // Determine if any required method is async so we know whether to add #[async_trait].
-    let has_async_methods = methods.iter().any(|m| {
-        !m.has_default_impl
-            && !(trait_bridge.super_trait.is_some() && m.name == "name")
-            && m.is_async
-    });
+    let has_async_methods = methods
+        .iter()
+        .any(|m| !(m.has_default_impl || trait_bridge.super_trait.is_some() && m.name == "name") && m.is_async);
 
     // When the trait has async methods (decorated with #[async_trait] in Rust), the
     // impl block must also carry `#[async_trait]`.  Without it the async fn signatures

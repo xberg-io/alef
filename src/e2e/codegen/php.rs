@@ -2639,10 +2639,7 @@ mod trait_bridge_tests {
 
         let extract_bytes = make_method(
             "extract_bytes",
-            vec![
-                ("content", TypeRef::Bytes),
-                ("mime_type", TypeRef::String),
-            ],
+            vec![("content", TypeRef::Bytes), ("mime_type", TypeRef::String)],
             TypeRef::Named("InternalDocument".to_string()),
             false,
         );
@@ -2694,7 +2691,9 @@ mod trait_bridge_tests {
             emission.setup_block
         );
         assert!(
-            !emission.setup_block.contains("register_document_extractor_trait_bridge"),
+            !emission
+                .setup_block
+                .contains("register_document_extractor_trait_bridge"),
             "setup_block must not use fixture id as name, got:\n{}",
             emission.setup_block
         );
@@ -2735,10 +2734,7 @@ mod trait_bridge_tests {
             "    public function extractBytes($content, $mime_type, $config): mixed { return '{}'; }\n",
             "};\n",
         );
-        assert_eq!(
-            emission.setup_block, expected_setup,
-            "setup_block snapshot mismatch"
-        );
+        assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
         assert_eq!(emission.arg_expr, "$stub");
     }
 }

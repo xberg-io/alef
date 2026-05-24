@@ -369,12 +369,14 @@ fn render_test_case(
     let args_str = build_args_string(
         &fixture.input,
         fixture.resolved_args(call_config),
-        arg_name_map,
-        options_type,
-        fixture,
-        config,
-        type_defs,
-        &mut setup_lines,
+        RArgsContext {
+            arg_name_map,
+            options_type,
+            fixture,
+            config,
+            type_defs,
+            setup_lines: &mut setup_lines,
+        },
     );
 
     // Per-call R extra_args: positional trailing arguments appended verbatim.
@@ -512,16 +514,28 @@ fn strip_options_arg(args_str: &str) -> String {
         .join(", ")
 }
 
+struct RArgsContext<'a> {
+    arg_name_map: Option<&'a std::collections::HashMap<String, String>>,
+    options_type: Option<&'a str>,
+    fixture: &'a Fixture,
+    config: &'a ResolvedCrateConfig,
+    type_defs: &'a [crate::core::ir::TypeDef],
+    setup_lines: &'a mut Vec<String>,
+}
+
 fn build_args_string(
     input: &serde_json::Value,
     args: &[crate::e2e::config::ArgMapping],
-    arg_name_map: Option<&std::collections::HashMap<String, String>>,
-    options_type: Option<&str>,
-    fixture: &Fixture,
-    config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    setup_lines: &mut Vec<String>,
+    context: RArgsContext<'_>,
 ) -> String {
+    let RArgsContext {
+        arg_name_map,
+        options_type,
+        fixture,
+        config,
+        type_defs,
+        setup_lines,
+    } = context;
     if args.is_empty() {
         // No declared args means the wrapper takes zero parameters. Always
         // emit an empty arg list — fixtures may carry harness metadata under

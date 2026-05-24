@@ -1332,13 +1332,15 @@ fn render_test_method(
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         &filtered_args,
-        class_name,
-        effective_options_type,
-        fixture,
-        adapter_request_type.as_deref(),
-        streaming_owner_handle.is_some(),
-        config,
-        type_defs,
+        JavaArgsContext {
+            class_name,
+            options_type: effective_options_type,
+            fixture,
+            adapter_request_type: adapter_request_type.as_deref(),
+            owner_handle_is_receiver: streaming_owner_handle.is_some(),
+            config,
+            type_defs,
+        },
     );
 
     // Per-language `extra_args` from call overrides — verbatim trailing
@@ -1547,17 +1549,30 @@ fn render_test_method(
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
+struct JavaArgsContext<'a> {
+    class_name: &'a str,
+    options_type: Option<&'a str>,
+    fixture: &'a crate::e2e::fixture::Fixture,
+    adapter_request_type: Option<&'a str>,
+    owner_handle_is_receiver: bool,
+    config: &'a ResolvedCrateConfig,
+    type_defs: &'a [crate::core::ir::TypeDef],
+}
+
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::e2e::config::ArgMapping],
-    class_name: &str,
-    options_type: Option<&str>,
-    fixture: &crate::e2e::fixture::Fixture,
-    adapter_request_type: Option<&str>,
-    owner_handle_is_receiver: bool,
-    config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
+    context: JavaArgsContext<'_>,
 ) -> (Vec<String>, String) {
+    let JavaArgsContext {
+        class_name,
+        options_type,
+        fixture,
+        adapter_request_type,
+        owner_handle_is_receiver,
+        config,
+        type_defs,
+    } = context;
     let fixture_id = &fixture.id;
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -2881,7 +2896,10 @@ pub fn emit_test_backend(
             let method_java = method.name.to_lower_camel_case();
             if method.name == "name" {
                 let _ = writeln!(setup, "    @Override");
-                let _ = writeln!(setup, "    public String {method_java}() {{ return \"{plugin_name}\"; }}");
+                let _ = writeln!(
+                    setup,
+                    "    public String {method_java}() {{ return \"{plugin_name}\"; }}"
+                );
             } else {
                 emit_java_stub_method(&mut setup, &method_java, method, &*defaults);
             }

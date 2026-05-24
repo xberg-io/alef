@@ -1318,15 +1318,17 @@ fn render_test_method(
     }
 
     let (setup_lines, args_str) = build_args_and_setup(
-        fixture,
         &fixture.input,
         args,
-        class_name,
-        options_type,
-        &fixture.id,
-        kotlin_android_style,
-        config,
-        type_defs,
+        KotlinArgsContext {
+            fixture,
+            class_name,
+            options_type,
+            fixture_id: &fixture.id,
+            kotlin_android_style,
+            config,
+            type_defs,
+        },
     );
 
     // When client_factory is set, emit client-object instantiation + instance method call.
@@ -1476,17 +1478,30 @@ fn render_test_method(
 /// builder call would not compile. The Android facade signatures declare the
 /// optional argument as `T? = null`, making `null` the idiomatic positional
 /// default that matches the call arity.
+struct KotlinArgsContext<'a> {
+    fixture: &'a Fixture,
+    class_name: &'a str,
+    options_type: Option<&'a str>,
+    fixture_id: &'a str,
+    kotlin_android_style: bool,
+    config: &'a ResolvedCrateConfig,
+    type_defs: &'a [crate::core::ir::TypeDef],
+}
+
 fn build_args_and_setup(
-    fixture: &Fixture,
     input: &serde_json::Value,
     args: &[crate::e2e::config::ArgMapping],
-    class_name: &str,
-    options_type: Option<&str>,
-    fixture_id: &str,
-    kotlin_android_style: bool,
-    config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
+    context: KotlinArgsContext<'_>,
 ) -> (Vec<String>, String) {
+    let KotlinArgsContext {
+        fixture,
+        class_name,
+        options_type,
+        fixture_id,
+        kotlin_android_style,
+        config,
+        type_defs,
+    } = context;
     if args.is_empty() {
         return (Vec::new(), String::new());
     }
