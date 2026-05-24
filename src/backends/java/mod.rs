@@ -3,6 +3,6 @@
 pub mod gen_bindings;
 pub mod gen_visitor;
 pub(crate) mod template_env;
-mod type_map;
+pub(crate) mod type_map;
 
 pub use gen_bindings::JavaBackend;

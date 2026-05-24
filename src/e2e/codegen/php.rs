@@ -1528,7 +1528,11 @@ fn build_args_and_setup(
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
                     let emission = crate::e2e::codegen::emit_test_backend("php", trait_bridge, &methods, fixture);
-                    setup_lines.push(emission.setup_block);
+                    // Split multi-line setup_block into individual lines so the
+                    // Jinja template can indent each line uniformly with `        {{ line }}`.
+                    for line in emission.setup_block.lines() {
+                        setup_lines.push(line.to_string());
+                    }
                     parts.push(emission.arg_expr);
                     continue;
                 }
