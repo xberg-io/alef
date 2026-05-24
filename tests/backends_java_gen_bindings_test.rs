@@ -873,7 +873,7 @@ fn test_no_standalone_builder_java_file_emitted() {
         "factory must return Builder (not MyOptionsBuilder)"
     );
     assert!(
-        record.content.contains("@JsonPOJOBuilder(withPrefix = \"with\")"),
+        record.content.contains("@JsonPOJOBuilder(withPrefix = \"with\""),
         "nested Builder must carry @JsonPOJOBuilder"
     );
 }

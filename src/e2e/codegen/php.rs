@@ -1195,9 +1195,10 @@ fn render_test_method(
         std::collections::BTreeMap::new();
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
+            // Skip enum variant accessor paths (metadata.format.excel etc.)
+            let is_enum_variant_accessor = f.contains("metadata.format.") && f.matches('.').count() >= 2;
             if !f.is_empty()
-                // Skip enum variant accessor paths (metadata.format.excel etc.)
-                && !(f.contains("metadata.format.") && f.matches('.').count() >= 2)
+                && !is_enum_variant_accessor
                 && field_resolver.is_array(f)
                 // Only collect bindings for fields that are valid on the result type
                 && field_resolver.is_valid_for_result(f)
@@ -1748,6 +1749,7 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,

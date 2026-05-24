@@ -299,7 +299,6 @@ impl DartBackend {
     }
 }
 
-
 /// Emit streaming adapter methods (Stream<ItemType>) for adapters with owner_type set.
 fn emit_streaming_adapter_methods(config: &ResolvedCrateConfig, out: &mut String, imports: &mut BTreeSet<String>) {
     use crate::core::config::AdapterPattern;

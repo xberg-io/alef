@@ -280,6 +280,10 @@ impl StreamingFieldResolver {
                         "{chunks_var}.map {{ c in c.choices.first.flatMap {{ ch in ch.delta.content }} ?? \"\" }}.joined()"
                     )
                 }
+                // Ruby: choices returns Array<StreamChoice>, use .first with safe navigation
+                "ruby" => {
+                    format!("{chunks_var}.map {{ |c| c.choices.first&.delta&.content || '' }}.join")
+                }
                 // node/wasm/typescript
                 _ => {
                     format!("{chunks_var}.map((c: any) => c.choices?.[0]?.delta?.content ?? '').join('')")
