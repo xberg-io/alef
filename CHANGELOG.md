@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-core-config: `ResolvedCrateConfig::package_dir` now returns the package root (where the publish manifest lives) instead of the source sub-directory for Swift, Zig, Dart, and KotlinAndroid.** `[crates.output]` entries for these languages point at the codegen-source location (`packages/swift/Sources/<Module>/`, `packages/zig/src/`, `packages/dart/lib/`, `packages/kotlin-android/src/main/kotlin/.../`), but `publish validate` and the per-language packager helpers (`publish/package/{swift,zig,dart,kotlin}.rs`) need the package root (`packages/swift/`, `packages/zig/`, `packages/dart/`, `packages/kotlin-android/`) — that's where `Package.swift`, `build.zig`, `pubspec.yaml`, and `build.gradle.kts` live. Before this fix, calling `config.package_dir(Language::Swift)` for a liter-llm-style config returned `packages/swift/Sources/LiterLlm/`, and joining `"/Package.swift"` produced `packages/swift/Sources/LiterLlm//Package.swift` — a non-existent path with a double slash. `alef publish validate` then reported `swift: missing packages/swift/Sources/LiterLlm//Package.swift` and `zig: missing packages/zig/src//build.zig`, blocking the release pipeline. Extended the existing skip-list for `Node | Wasm | Elixir | Ruby | Java` (whose output_paths already pointed at source sub-dirs for the same reason) to include `Swift | Zig | Dart | KotlinAndroid` so these languages fall through to the hardcoded `packages/{lang}` defaults — which `publish/mod.rs::validate` and the packagers expect. Surfaced as the only blocker on `task publish:validate` in liter-llm after the v0.19.2 regen. (`src/core/config/resolved/lookups.rs`)
+
 ## [0.19.2] - 2026-05-24
 
 ### Fixed
