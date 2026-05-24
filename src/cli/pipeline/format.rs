@@ -72,13 +72,31 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             ],
             work_dir: ".".to_owned(),
         }),
-        Language::Ruby => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "rubocop".to_owned(),
-                args: vec!["-A".to_owned(), "--no-server".to_owned()],
-            }],
-            work_dir: "packages/ruby/".to_owned(),
-        }),
+        // Ruby's native crate (`packages/ruby/ext/<gem>/native/Cargo.toml`) is
+        // listed in the consumer workspace's `exclude` set, so `cargo sort -w`
+        // attached to the FFI formatter never visits it. Without an explicit
+        // pass, prek's `cargo-sort` hook rewrites the feature-array
+        // indentation after `finalize_hashes`, making `alef verify` report
+        // the file as stale on the next run. Run `cargo sort` against the
+        // native crate directly so the emitted Cargo.toml is already
+        // cargo-sort canonical at the moment its hash is finalised.
+        Language::Ruby => {
+            let gem_name = config.ruby_gem_name();
+            let native_subdir = format!("ext/{gem_name}/native");
+            Some(FormatterSpec {
+                commands: vec![
+                    FormatterCommand {
+                        command: "rubocop".to_owned(),
+                        args: vec!["-A".to_owned(), "--no-server".to_owned()],
+                    },
+                    FormatterCommand {
+                        command: "cargo".to_owned(),
+                        args: vec!["sort".to_owned(), native_subdir],
+                    },
+                ],
+                work_dir: "packages/ruby/".to_owned(),
+            })
+        }
         Language::Php => Some(FormatterSpec {
             commands: vec![FormatterCommand {
                 command: "php-cs-fixer".to_owned(),
@@ -86,13 +104,30 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             }],
             work_dir: "packages/php/".to_owned(),
         }),
-        Language::Elixir => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "mix".to_owned(),
-                args: vec!["format".to_owned()],
-            }],
-            work_dir: "packages/elixir/".to_owned(),
-        }),
+        // Elixir's native NIF crate lives at
+        // `packages/elixir/native/<app>_nif/Cargo.toml` and is `exclude`d from
+        // the consumer's cargo workspace, so `cargo sort -w` from the FFI
+        // formatter does not reach it. Run cargo sort directly against the NIF
+        // crate so prek's `cargo-sort` hook is a no-op on every regen instead
+        // of rewriting feature indentation post-finalize and breaking
+        // `alef verify`.
+        Language::Elixir => {
+            let app_name = config.elixir_app_name();
+            let native_subdir = format!("native/{app_name}_nif");
+            Some(FormatterSpec {
+                commands: vec![
+                    FormatterCommand {
+                        command: "mix".to_owned(),
+                        args: vec!["format".to_owned()],
+                    },
+                    FormatterCommand {
+                        command: "cargo".to_owned(),
+                        args: vec!["sort".to_owned(), native_subdir],
+                    },
+                ],
+                work_dir: "packages/elixir/".to_owned(),
+            })
+        }
         Language::Go => Some(FormatterSpec {
             commands: vec![FormatterCommand {
                 command: "gofmt".to_owned(),
@@ -203,11 +238,22 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             ],
             work_dir: String::new(),
         }),
+        // R's extendr rust crate lives at `packages/r/src/rust/Cargo.toml`
+        // and is `exclude`d from the consumer's cargo workspace, so the FFI
+        // formatter's `cargo sort -w` never visits it. Run cargo sort
+        // explicitly so prek's `cargo-sort` hook doesn't rewrite feature
+        // indentation after `finalize_hashes` and break `alef verify`.
         Language::R => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "Rscript".to_owned(),
-                args: vec!["-e".to_owned(), "styler::style_pkg('packages/r')".to_owned()],
-            }],
+            commands: vec![
+                FormatterCommand {
+                    command: "Rscript".to_owned(),
+                    args: vec!["-e".to_owned(), "styler::style_pkg('packages/r')".to_owned()],
+                },
+                FormatterCommand {
+                    command: "cargo".to_owned(),
+                    args: vec!["sort".to_owned(), "packages/r/src/rust".to_owned()],
+                },
+            ],
             work_dir: String::new(),
         }),
         Language::Kotlin => Some(FormatterSpec {
@@ -631,6 +677,58 @@ wasm = "crates/ts-pack-core-wasm/src/"
             "cargo sort must run workspace-wide so all binding crate Cargo.toml files are normalised"
         );
         assert!(spec.work_dir.is_empty(), "FFI formatter must run at workspace root");
+    }
+
+    // The Ruby native crate (`packages/ruby/ext/<gem>/native/`) lives outside the
+    // consumer cargo workspace, so the FFI formatter's `cargo sort -w` skips it.
+    // The Ruby formatter must therefore run cargo sort directly against the
+    // native crate, otherwise prek's `cargo-sort` hook rewrites feature-array
+    // indentation post-finalize and breaks `alef verify`.
+    #[test]
+    fn test_ruby_formatter_includes_cargo_sort_for_native_crate() {
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::Ruby).expect("should have formatter");
+        assert_eq!(spec.commands.len(), 2, "Ruby must have rubocop + cargo sort steps");
+        let sort_cmd = &spec.commands[1];
+        assert_eq!(sort_cmd.command, "cargo");
+        assert_eq!(sort_cmd.args[0], "sort");
+        assert!(
+            sort_cmd.args[1].contains("ext/") && sort_cmd.args[1].contains("/native"),
+            "cargo sort arg must target the native crate dir, got: {:?}",
+            sort_cmd.args
+        );
+        assert_eq!(spec.work_dir, "packages/ruby/");
+    }
+
+    // The Elixir NIF crate (`packages/elixir/native/<app>_nif/`) lives outside the
+    // cargo workspace, so cargo sort must be invoked directly.
+    #[test]
+    fn test_elixir_formatter_includes_cargo_sort_for_nif_crate() {
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::Elixir).expect("should have formatter");
+        assert_eq!(spec.commands.len(), 2, "Elixir must have mix format + cargo sort steps");
+        let sort_cmd = &spec.commands[1];
+        assert_eq!(sort_cmd.command, "cargo");
+        assert_eq!(sort_cmd.args[0], "sort");
+        assert!(
+            sort_cmd.args[1].starts_with("native/") && sort_cmd.args[1].ends_with("_nif"),
+            "cargo sort arg must target native/<app>_nif, got: {:?}",
+            sort_cmd.args
+        );
+        assert_eq!(spec.work_dir, "packages/elixir/");
+    }
+
+    // The extendr R crate (`packages/r/src/rust/`) is workspace-excluded and so
+    // needs its own cargo sort invocation.
+    #[test]
+    fn test_r_formatter_includes_cargo_sort_for_extendr_crate() {
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::R).expect("should have formatter");
+        assert_eq!(spec.commands.len(), 2, "R must have styler + cargo sort steps");
+        let sort_cmd = &spec.commands[1];
+        assert_eq!(sort_cmd.command, "cargo");
+        assert_eq!(sort_cmd.args, vec!["sort", "packages/r/src/rust"]);
+        assert!(spec.work_dir.is_empty(), "R formatter runs at project root");
     }
 
     // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.

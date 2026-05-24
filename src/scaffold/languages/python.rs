@@ -172,7 +172,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         String::new()
     } else {
         let entries: Vec<String> = meta.authors.iter().map(|a| format!("{{ name = \"{}\" }}", a)).collect();
-        format!("authors = {}\n", format_toml_array(&entries))
+        format!("authors = {}\n", format_toml_array_with_prefix(&entries, "authors = ".len()))
     };
 
     let keywords_toml = if meta.keywords.is_empty() {
@@ -181,7 +181,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         let mut sorted_keywords = meta.keywords.clone();
         sorted_keywords.sort();
         let entries: Vec<String> = sorted_keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!("keywords = {}\n", format_toml_array(&entries))
+        format!("keywords = {}\n", format_toml_array_with_prefix(&entries, "keywords = ".len()))
     };
 
     let homepage_toml = if meta.homepage.is_empty() {
@@ -193,29 +193,43 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let dependencies_toml = match config.python.as_ref().map(|p| &p.pip_dependencies) {
         Some(deps) if !deps.is_empty() => {
             let entries: Vec<String> = deps.iter().map(|d| format!("\"{}\"", d)).collect();
-            format!("dependencies = {}\n", format_toml_array(&entries))
+            format!(
+                "dependencies = {}\n",
+                format_toml_array_with_prefix(&entries, "dependencies = ".len())
+            )
         }
         _ => String::new(),
     };
 
     let urls_line = format!("urls.repository = \"{}\"\n", meta.repository);
 
-    let dev_group_array = format_toml_array(&[
+    let dev_group_entries = [
         format!("\"mypy{}\"", tv::pypi::MYPY),
         format!("\"ruff{}\"", tv::pypi::RUFF),
-    ]);
+    ];
+    let dev_group_array = format_toml_array_with_prefix(&dev_group_entries, "dev = ".len());
+
+    // The `disable_error_code` array lives inside an inline table inside the
+    // `overrides = [...]` array, so the on-disk prefix exceeds pyproject-fmt's
+    // 80-char column width and the array would always wrap. pyproject-fmt
+    // keeps the array inline regardless (matching its handling of nested
+    // inline tables), so render it inline with inner spaces directly.
+    let mypy_disable_codes = format!(
+        "[ {} ]",
+        ["\"call-arg\"", "\"arg-type\"", "\"return-value\"", "\"attr-defined\""].join(", ")
+    );
 
     let content = format!(
         r#"[build-system]
 build-backend = "maturin"
-requires = ["{maturin_build_requires}"]
+requires = [ "{maturin_build_requires}" ]
 
 [project]
 name = "{pip_name}"
 version = "{version}"
 description = "{description}"
 {keywords}license = "{license}"
-license-files = ["LICENSE"]
+license-files = [ "LICENSE" ]
 {authors}requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -233,15 +247,15 @@ module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 # abi3-py310 produces a single wheel per platform that loads on Python 3.10+,
 # avoiding a per-Python-version build matrix.
-features = ["pyo3/extension-module", "pyo3/abi3-py310"]
-python-packages = ["{python_package}"]
+features = [ "pyo3/extension-module", "pyo3/abi3-py310" ]
+python-packages = [ "{python_package}" ]
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
 format.docstring-code-format = true
 format.docstring-code-line-length = 120
-lint.select = ["ALL"]
+lint.select = [ "ALL" ]
 lint.ignore = [
   "ANN401",
   "ASYNC109",
@@ -268,16 +282,16 @@ lint.ignore = [
   "TRY",
 ]
 lint.mccabe.max-complexity = 15
-lint.per-file-ignores."tests/**" = ["ANN", "D103", "PLR2004", "S101"]
+lint.per-file-ignores."tests/**" = [ "ANN", "D103", "PLR2004", "S101" ]
 # The alef Python codegen still emits cosmetic warnings on the wrapper
 # modules: api.py keeps the legacy `from typing import AsyncIterator` and a
 # single-line import block, options.py carries # noqa: TC001 / F401 markers
 # that turn out unused on every regen, __init__.py star-imports re-sort with
 # a different convention. Silence these specific rules on the wrappers until
 # the codegen is updated to emit ruff-clean output.
-lint.per-file-ignores."{python_package}/api.py" = ["F401", "I001", "UP035"]
-lint.per-file-ignores."{python_package}/options.py" = ["F401", "RUF100"]
-lint.per-file-ignores."{python_package}/__init__.py" = ["I001"]
+lint.per-file-ignores."{python_package}/api.py" = [ "F401", "I001", "UP035" ]
+lint.per-file-ignores."{python_package}/options.py" = [ "F401", "RUF100" ]
+lint.per-file-ignores."{python_package}/__init__.py" = [ "I001" ]
 lint.pydocstyle.convention = "google"
 lint.pylint.max-args = 10
 lint.pylint.max-branches = 15
@@ -289,17 +303,16 @@ strict = true
 show_error_codes = true
 implicit_reexport = false
 namespace_packages = true
-
-# The alef-emitted `api.py` wrapper has a structural mismatch between its
-# `options.*` dataclass signatures and the `_internal_bindings.*` pyclass
-# types pyo3 accepts/returns at runtime. pyo3 reconciles them dynamically via
-# FromPyObject — the Python e2e suite exercises the runtime path — but mypy
-# sees only the static-type discrepancy. Disable the four error codes the
-# discrepancy raises until the codegen emits matching `_to_rust_*` calls and
-# casts the return values.
-[[tool.mypy.overrides]]
-module = "{python_package}.api"
-disable_error_code = ["call-arg", "arg-type", "return-value", "attr-defined"]
+overrides = [
+  # The alef-emitted `api.py` wrapper has a structural mismatch between its
+  # `options.*` dataclass signatures and the `_internal_bindings.*` pyclass
+  # types pyo3 accepts/returns at runtime. pyo3 reconciles them dynamically via
+  # FromPyObject — the Python e2e suite exercises the runtime path — but mypy
+  # sees only the static-type discrepancy. Disable the four error codes the
+  # discrepancy raises until the codegen emits matching `_to_rust_*` calls and
+  # casts the return values.
+  {{ module = "{python_package}.api", disable_error_code = {mypy_disable_codes} }},
+]
 "#,
         pip_name = pip_name,
         version = version,
@@ -315,6 +328,7 @@ disable_error_code = ["call-arg", "arg-type", "return-value", "attr-defined"]
         crate_dir = core_crate_dir,
         maturin_build_requires = tv::pypi::MATURIN_BUILD_REQUIRES,
         dev_group = dev_group_array,
+        mypy_disable_codes = mypy_disable_codes,
     );
 
     Ok(vec![

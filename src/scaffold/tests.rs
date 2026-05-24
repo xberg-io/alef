@@ -217,18 +217,21 @@ keywords = ["zebra", "apple", "banana"]
         "build-backend should come before requires in [build-system]"
     );
 
-    // Single-element arrays stay inline (pyproject-fmt canonical for len == 1).
+    // Short arrays stay inline with inner spaces (pyproject-fmt collapses any
+    // array whose total inline width fits in column_width=80, so emitting
+    // them inline natively keeps the file pyproject-fmt-clean across regens).
     assert!(
-        content.contains("requires = [\"maturin"),
-        "single-element requires array should stay inline"
+        content.contains("requires = [ \"maturin"),
+        "single-element requires array should stay inline with inner spaces. got:\n{content}",
     );
 
-    // Multi-item arrays emit one element per line with 2-space indent and a
-    // trailing comma to match pyproject-fmt's output (prek's hook otherwise
-    // rewrites the file on every regen).
+    // Multi-item arrays still inline-with-spaces when the total length fits
+    // within pyproject-fmt's 80-char column width (`keywords = [ "apple",
+    // "banana", "zebra" ]` is well under that), matching what prek's
+    // pyproject-fmt hook would otherwise rewrite on every regen.
     assert!(
-        content.contains("keywords = [\n  \"apple\",\n  \"banana\",\n  \"zebra\",\n]"),
-        "multi-item keywords array should be emitted one-element-per-line, alphabetised. got:\n{content}",
+        content.contains("keywords = [ \"apple\", \"banana\", \"zebra\" ]"),
+        "short multi-item keywords array should stay inline, alphabetised. got:\n{content}",
     );
 
     // Check dot-syntax for URLs: urls.repository instead of [project.urls]
@@ -253,6 +256,28 @@ keywords = ["zebra", "apple", "banana"]
     assert!(
         content.contains("lint.mccabe.max-complexity"),
         "should have lint.mccabe.max-complexity in dot-syntax"
+    );
+
+    // lint.ignore is a long alphabetised list whose inline form blows past
+    // pyproject-fmt's 80-char column width, so it must expand to one element
+    // per line with a trailing comma after the last entry.
+    assert!(
+        content.contains("lint.ignore = [\n  \"ANN401\","),
+        "long lint.ignore array should expand to multi-line. got:\n{content}"
+    );
+
+    // The mypy overrides table must be rendered as an array of inline tables
+    // (`overrides = [ { module = ..., disable_error_code = [...] } ]`) rather
+    // than the `[[tool.mypy.overrides]]` block form: pyproject-fmt rewrites
+    // every block-form override into the inline-array form, so emitting the
+    // block form ourselves triggers a rewrite on every regen.
+    assert!(
+        !content.contains("[[tool.mypy.overrides]]"),
+        "tool.mypy.overrides must be rendered inline, not as [[tool.mypy.overrides]]. got:\n{content}"
+    );
+    assert!(
+        content.contains("overrides = [\n") && content.contains("disable_error_code = ["),
+        "tool.mypy.overrides must be rendered as inline-table array with disable_error_code. got:\n{content}"
     );
 }
 
@@ -284,9 +309,10 @@ repository = "https://github.com/test/my-lib"
     let pyproject_content = &files[0].content;
 
     // Verify license-files field is present and correctly formatted
+    // (inline with inner spaces — pyproject-fmt canonical).
     assert!(
-        pyproject_content.contains("license-files = [\"LICENSE\"]"),
-        "pyproject.toml should declare license-files = [\"LICENSE\"]"
+        pyproject_content.contains("license-files = [ \"LICENSE\" ]"),
+        "pyproject.toml should declare license-files = [ \"LICENSE\" ] (with inner spaces)"
     );
 
     // Verify it appears in the [project] section after the license field
@@ -302,7 +328,7 @@ repository = "https://github.com/test/my-lib"
         .find("license = \"MIT\"")
         .expect("should find license field");
     let license_files_idx = project_section
-        .find("license-files = [\"LICENSE\"]")
+        .find("license-files = [ \"LICENSE\" ]")
         .expect("should find license-files field");
     assert!(
         license_idx < license_files_idx,
