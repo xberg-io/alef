@@ -74,6 +74,7 @@ fn build_interact_fixture() -> FixtureGroup {
             }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: Some("final_url".to_string()),

@@ -104,6 +104,7 @@ fn fixture_for(category: &str, id: &str) -> Fixture {
             headers: std::collections::BTreeMap::new(),
         }),
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,
@@ -131,6 +132,7 @@ fn fixture_for_file(category: &str, id: &str) -> Fixture {
         input: serde_json::json!({ "path": "pdf/sample.pdf" }),
         mock_response: None,
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,

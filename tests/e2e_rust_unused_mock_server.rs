@@ -45,6 +45,7 @@ fn error_fixture_with_mock() -> FixtureGroup {
                 headers: std::collections::BTreeMap::new(),
             }),
             visitor: None,
+        args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "error".to_string(),
                 field: None,

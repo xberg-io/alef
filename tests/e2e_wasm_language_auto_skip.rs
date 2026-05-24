@@ -50,6 +50,7 @@ fn fixture(id: &str, language: &str) -> Fixture {
         input: serde_json::json!({ "language": language }),
         mock_response: None,
         visitor: None,
+        args: Vec::new(),
         assertions: Vec::new(),
         source: format!("smoke/{id}.json"),
         http: None,

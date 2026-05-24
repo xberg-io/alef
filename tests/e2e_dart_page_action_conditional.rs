@@ -19,6 +19,7 @@ fn make_fixture(id: &str, input: serde_json::Value) -> Fixture {
         input,
         mock_response: None,
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,

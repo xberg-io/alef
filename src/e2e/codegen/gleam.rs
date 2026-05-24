@@ -367,11 +367,20 @@ fn render_test_file(
         let field_resolver = &call_field_resolver;
         let has_bytes_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "bytes");
         // Optional string args emit option.Some(...)/option.None — need option import.
-        let has_optional_string_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "string" && a.optional);
+        let has_optional_string_arg = fixture
+            .resolved_args(call_config)
+            .iter()
+            .any(|a| a.arg_type == "string" && a.optional);
         // json_object args emit option.None in ExtractionConfig and BatchItem constructors.
-        let has_json_object_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "json_object");
+        let has_json_object_arg = fixture
+            .resolved_args(call_config)
+            .iter()
+            .any(|a| a.arg_type == "json_object");
         // handle args emit create_engine(option.None) — needs option import.
-        let has_handle_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "handle");
+        let has_handle_arg = fixture
+            .resolved_args(call_config)
+            .iter()
+            .any(|a| a.arg_type == "handle");
         // client_factory always emits option.None / option.Some(base_url) — need option import.
         let has_client_factory = call_config
             .overrides

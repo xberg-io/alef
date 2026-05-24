@@ -20,6 +20,7 @@ fn make_fixture(id: &str, description: &str, assertions: Vec<Assertion>) -> Fixt
         input: serde_json::json!({}),
         mock_response: None,
         visitor: None,
+        args: Vec::new(),
         assertions,
         source: "language_detection.json".to_string(),
         http: None,

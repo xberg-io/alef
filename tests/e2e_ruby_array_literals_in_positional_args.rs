@@ -58,6 +58,7 @@ fn string_array_fixture_group() -> FixtureGroup {
             }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,

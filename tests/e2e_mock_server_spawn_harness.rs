@@ -30,10 +30,10 @@ fn make_http_fixture(id: &str) -> Fixture {
         skip: None,
         env: None,
         call: None,
-        args: Vec::new(),
         input: serde_json::json!({}),
         mock_response: None,
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "status_code".to_string(),
             field: None,

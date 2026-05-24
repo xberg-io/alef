@@ -78,6 +78,7 @@ fn build_fixture_with_assertions(id: &str, assertions: Vec<Assertion>) -> Fixtur
                 headers: std::collections::BTreeMap::new(),
             }),
             visitor: None,
+            args: Vec::new(),
             assertions,
             source: "test.json".to_string(),
             http: None,
@@ -151,6 +152,7 @@ fn build_fixture() -> FixtureGroup {
                 headers: std::collections::BTreeMap::new(),
             }),
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: Some("content".to_string()),

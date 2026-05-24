@@ -1,7 +1,7 @@
 //! Fixture loading, validation, and grouping for e2e test generation.
 
-use anyhow::{Context, Result, bail};
 use crate::core::config::e2e::ArgMapping;
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
