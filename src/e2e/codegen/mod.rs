@@ -324,6 +324,12 @@ pub struct TestBackendEmission {
     pub setup_block: String,
     /// Expression passed as the register_X arg: stub instance or Bridge-wrapped instance.
     pub arg_expr: String,
+    /// Short symbol names that must be imported at the file or function scope
+    /// for the generated stub to compile.  Rust backend populates this with
+    /// the trait name and any named return/parameter types so that callers can
+    /// emit the appropriate `use module::Symbol;` statements.  Other language
+    /// backends leave this empty — they manage imports internally.
+    pub type_imports: Vec<String>,
 }
 
 impl TestBackendEmission {
@@ -332,6 +338,7 @@ impl TestBackendEmission {
         Self {
             setup_block: String::new(),
             arg_expr: format!("/* test_backend unimplemented for {} */", language),
+            type_imports: Vec::new(),
         }
     }
 }

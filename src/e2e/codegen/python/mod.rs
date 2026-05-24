@@ -187,10 +187,32 @@ pub fn emit_test_backend(
 
     let arg_expr = format!("{stub_name}()");
 
+    // Indent the entire class definition by 4 spaces so it sits at function-body
+    // scope when the caller embeds it inside a `def test_*():` block.
+    let indented_setup = indent_block(&setup, 4);
+
     super::TestBackendEmission {
-        setup_block: setup,
+        setup_block: indented_setup,
         arg_expr,
+        type_imports: Vec::new(),
     }
+}
+
+/// Indent every non-empty line of `block` by `spaces` spaces.
+fn indent_block(block: &str, spaces: usize) -> String {
+    let prefix = " ".repeat(spaces);
+    block
+        .lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                line.to_string()
+            } else {
+                format!("{prefix}{line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + if block.ends_with('\n') { "\n" } else { "" }
 }
 
 /// Format a single Python stub method returning the language default for its return type.
@@ -209,7 +231,15 @@ fn emit_python_stub_method(
     let params_str = param_parts.join(", ");
 
     // Default return expression for the return type.
-    let default_val = defaults.emit_default(&method.return_type);
+    // Named types in e2e stubs must return JSON-serialisable values: the PyO3
+    // bridge calls the Python method and deserialises the return value from JSON.
+    // Returning `TypeName()` would reference a type that is not imported/defined
+    // in the generated test file and would cause a NameError at runtime. Return
+    // an empty dict `{}` instead — it round-trips cleanly through serde_json.
+    let default_val = match &method.return_type {
+        crate::core::ir::TypeRef::Named(_) => "{}".to_string(),
+        other => defaults.emit_default(other),
+    };
 
     let async_kw = if method.is_async { "async " } else { "" };
     let _ = writeln!(out, "    {async_kw}def {name}({params_str}):", name = method.name);
@@ -385,6 +415,25 @@ result_var = "result"
         assert_eq!(
             emission.arg_expr, "_TestStub_py_test_fixture()",
             "arg_expr should be a plain constructor call"
+        );
+
+        // setup_block must be indented 4 spaces for function-local scope.
+        assert!(
+            emission.setup_block.starts_with("    class "),
+            "setup_block should be 4-space indented, got: {}",
+            emission.setup_block
+        );
+
+        // Named return type must use {} not WorkResult().
+        assert!(
+            emission.setup_block.contains("return {}"),
+            "Named return type should emit {{}} not a constructor call, got: {}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("WorkResult()"),
+            "Named return type must not emit a constructor call, got: {}",
+            emission.setup_block
         );
     }
 
