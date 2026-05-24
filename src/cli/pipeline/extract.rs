@@ -1225,6 +1225,8 @@ mod tests {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 })
                 .collect(),
             return_type,

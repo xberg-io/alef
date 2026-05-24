@@ -169,6 +169,8 @@ fn test_generate_public_api_creates_all_files() {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "options".to_string(),
@@ -181,6 +183,8 @@ fn test_generate_public_api_creates_all_files() {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
             ],
             return_type: TypeRef::String,
@@ -315,6 +319,8 @@ fn test_native_ex_has_all_nif_stubs() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -770,6 +776,8 @@ fn test_generate_bindings_nif_init_uses_native_module() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -1019,6 +1027,8 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }
     }
 

@@ -41,6 +41,8 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }
 }
 
@@ -529,6 +531,8 @@ fn snapshot_trait_bridge_inbound() {
                                 is_mut: false,
                                 newtype_wrapper: None,
                                 original_type: None,
+                                map_is_ahash: false,
+                                map_key_is_cow: false,
                             },
                             ParamDef {
                                 name: "config".into(),
@@ -541,6 +545,8 @@ fn snapshot_trait_bridge_inbound() {
                                 is_mut: false,
                                 newtype_wrapper: None,
                                 original_type: None,
+                                map_is_ahash: false,
+                                map_key_is_cow: false,
                             },
                         ],
                         TypeRef::Named("ExtractionResult".to_string()),
@@ -560,6 +566,8 @@ fn snapshot_trait_bridge_inbound() {
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         }],
                         TypeRef::Primitive(PrimitiveType::Bool),
                         false,

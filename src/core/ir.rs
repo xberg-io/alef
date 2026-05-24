@@ -313,6 +313,35 @@ pub struct ParamDef {
     /// E.g. `"Vec<(PathBuf, Option<FileExtractionConfig>)>"` when sanitized to `Vec<String>`.
     #[serde(default)]
     pub original_type: Option<String>,
+    /// True when the original Rust map container was `AHashMap` (from the `ahash` crate)
+    /// rather than `std::collections::HashMap`. FFI codegen uses this to emit the correct
+    /// deserialization target type and runtime conversion.
+    #[serde(default)]
+    pub map_is_ahash: bool,
+    /// True when the map's key type in the original Rust source was `Cow<'_, str>` (resolved
+    /// to `TypeRef::String` in the IR). FFI codegen uses this to emit a `Cow::Owned(k)`
+    /// conversion when constructing the `AHashMap` expected by the core function.
+    #[serde(default)]
+    pub map_key_is_cow: bool,
+}
+
+impl Default for ParamDef {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            ty: TypeRef::Unit,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+        }
+    }
 }
 
 /// A public enum.

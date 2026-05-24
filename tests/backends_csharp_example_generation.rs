@@ -107,6 +107,8 @@ fn test_generated_code_example() {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "config".to_string(),
@@ -119,6 +121,8 @@ fn test_generated_code_example() {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
             ],
             return_type: TypeRef::String,

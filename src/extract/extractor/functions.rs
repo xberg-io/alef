@@ -594,6 +594,67 @@ pub(crate) fn detect_receiver(
     (None, true)
 }
 
+/// Returns `(map_is_ahash, map_key_is_cow)` for a parameter type.
+///
+/// Inspects the raw `syn::Type` to detect:
+/// - `map_is_ahash`: the outermost (possibly Option-wrapped, possibly &-wrapped) map container
+///   is `AHashMap` rather than `HashMap`/`BTreeMap`/etc.
+/// - `map_key_is_cow`: the map's first generic argument is `Cow<'_, str>` (or `Cow<'static, str>`).
+///
+/// Both flags default to `false` for non-map types.
+fn detect_map_metadata(ty: &syn::Type) -> (bool, bool) {
+    // Peel Option<...> and &... wrappers to get to the map segment.
+    let map_seg = find_map_segment(ty);
+    let Some(seg) = map_seg else {
+        return (false, false);
+    };
+    let ident = seg.ident.to_string();
+    let map_is_ahash = ident == "AHashMap";
+
+    // Check whether the key generic arg is `Cow<...>`.
+    let map_key_is_cow = if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+        args.args.iter().find_map(|a| {
+            if let syn::GenericArgument::Type(syn::Type::Path(tp)) = a {
+                tp.path.segments.last().map(|s| s.ident == "Cow")
+            } else {
+                None
+            }
+        }).unwrap_or(false)
+    } else {
+        false
+    };
+
+    (map_is_ahash, map_key_is_cow)
+}
+
+/// Recursively peel `Option<...>`, `&...`, and `Box<...>` wrappers until we reach a
+/// `HashMap`/`AHashMap`/`BTreeMap`/etc. segment, or return `None`.
+fn find_map_segment(ty: &syn::Type) -> Option<&syn::PathSegment> {
+    match ty {
+        syn::Type::Reference(r) => find_map_segment(&r.elem),
+        syn::Type::Path(tp) => {
+            let seg = tp.path.segments.last()?;
+            let name = seg.ident.to_string();
+            match name.as_str() {
+                "HashMap" | "BTreeMap" | "AHashMap" | "IndexMap" | "FxHashMap" => Some(seg),
+                "Option" | "Box" | "Arc" | "Rc" => {
+                    // Peel the single generic arg and recurse.
+                    if let syn::PathArguments::AngleBracketed(ab) = &seg.arguments {
+                        for arg in &ab.args {
+                            if let syn::GenericArgument::Type(inner) = arg {
+                                return find_map_segment(inner);
+                            }
+                        }
+                    }
+                    None
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Returns true when `ty` is `Option<&T>` — i.e., the outer type is `Option` and its
 /// single generic argument is a reference (`&str`, `&[u8]`, `&Path`, etc.).
 /// Used to set `is_ref = true` on optional params even though `&*pat_type.ty` is not a
@@ -658,6 +719,9 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                 let is_mut = is_mut_ref(&pat_type.ty);
                 let resolved = type_resolver::resolve_type(&pat_type.ty);
 
+                // Detect AHashMap container and Cow key before type erasure.
+                let (map_is_ahash, map_key_is_cow) = detect_map_metadata(&pat_type.ty);
+
                 // Check if the resolved type (before unwrapping optional) is a tuple type
                 let sanitized = is_tuple_type(&resolved);
 
@@ -680,6 +744,8 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     is_mut,
                     newtype_wrapper: None,
                     original_type,
+                    map_is_ahash,
+                    map_key_is_cow,
                 })
             } else {
                 None // Skip self receiver
