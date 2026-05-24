@@ -101,12 +101,22 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
 fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
     let mut checks = Vec::new();
 
-    // Python: pyproject.toml `version = "..."` — PEP 440 normalised.
+    // Python: pyproject.toml `version = "..."`. Both the canonical version and
+    // the version found in the manifest are PEP 440 normalised before comparison
+    // so the canonical pre-release form ("0.15.6-rc.2") and the normalised form
+    // sync-versions writes ("0.15.6rc2") compare equal regardless of which form
+    // the manifest happens to hold. `to_pep440` is idempotent on already-normalised
+    // input, so a final release ("1.2.3") round-trips unchanged.
+    //
+    // `package_dir` may return a configured output path with a trailing separator
+    // (e.g. `crates/{lib}-py/src/`); joining via `Path::join` avoids the doubled
+    // slash that `format!("{dir}/pyproject.toml")` would produce.
     let py_dir = config.package_dir(crate::core::config::extras::Language::Python);
-    push_check_with_transform(
+    let py_path = join_manifest(&py_dir, "pyproject.toml");
+    push_normalized_check(
         &mut checks,
         canonical,
-        &format!("{py_dir}/pyproject.toml"),
+        &py_path,
         workspace_root,
         read_pyproject_version,
         to_pep440,
@@ -280,6 +290,51 @@ fn push_check_with_transform(
     checks.push(VersionCheck {
         label: rel_path.to_string(),
         found,
+        matches,
+    });
+}
+
+/// Join a (possibly trailing-slash) manifest directory with a file name without
+/// producing a doubled separator. `package_dir` returns whatever path the
+/// `[crates.output]` config declares, which may end in `/` (e.g.
+/// `crates/{lib}-py/src/`); a naive `format!("{dir}/{file}")` would then yield
+/// `crates/{lib}-py/src//pyproject.toml`. Trimming trailing separators first
+/// keeps the relative label clean and the on-disk lookup correct.
+fn join_manifest(dir: &str, file: &str) -> String {
+    let trimmed = dir.trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() {
+        file.to_string()
+    } else {
+        format!("{trimmed}/{file}")
+    }
+}
+
+/// Variant of [`push_check_with_transform`] that applies `normalize` to BOTH
+/// the canonical version and the value found in the manifest before comparing.
+/// This makes two equivalent spellings of the same version (e.g. PEP 440
+/// `0.15.6-rc.2` and `0.15.6rc2`) compare equal as long as `normalize` maps
+/// them to the same canonical form and is idempotent. The reported `found`
+/// value preserves the raw manifest string so diagnostics show what is actually
+/// on disk.
+fn push_normalized_check(
+    checks: &mut Vec<VersionCheck>,
+    canonical: &str,
+    rel_path: &str,
+    workspace_root: &Path,
+    reader: fn(&Path) -> Option<String>,
+    normalize: fn(&str) -> String,
+) {
+    let full_path = workspace_root.join(rel_path);
+    if !full_path.exists() {
+        return;
+    }
+    let Some(found_value) = reader(&full_path) else {
+        return;
+    };
+    let matches = normalize(&found_value) == normalize(canonical);
+    checks.push(VersionCheck {
+        label: rel_path.to_string(),
+        found: Some(found_value),
         matches,
     });
 }
@@ -591,5 +646,122 @@ version_from = "{root_str}/Cargo.toml"
         let py = checks.iter().find(|c| c.label.contains("pyproject")).unwrap();
         assert!(!py.matches, "pyproject.toml should mismatch");
         assert_eq!(py.found.as_deref(), Some("9.9.9"));
+    }
+
+    /// Build a config whose Python output path is an explicit `[crates.output]`
+    /// directory — used to exercise the source-template layout where the
+    /// publish-adjacent pyproject lives under `crates/{lib}-py/src/`.
+    fn config_with_python_output(root: &Path, python_output: &str) -> ResolvedCrateConfig {
+        let root_str = root.display().to_string().replace('\\', "/");
+        let content = format!(
+            r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+version_from = "{root_str}/Cargo.toml"
+[crates.output]
+python = "{python_output}"
+"#,
+        );
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(&content).unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    #[test]
+    fn join_manifest_strips_trailing_separator() {
+        assert_eq!(
+            join_manifest("crates/mylib-py/src/", "pyproject.toml"),
+            "crates/mylib-py/src/pyproject.toml"
+        );
+        assert_eq!(
+            join_manifest("crates/mylib-py/src", "pyproject.toml"),
+            "crates/mylib-py/src/pyproject.toml"
+        );
+        assert_eq!(join_manifest("", "pyproject.toml"), "pyproject.toml");
+    }
+
+    #[test]
+    fn pep440_canonical_and_normalized_prerelease_compare_equal() {
+        // The canonical Cargo version is the semver pre-release form; the manifest
+        // holds the PEP 440 normalised form sync-versions writes. They must match.
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"0.15.6-rc.2\"\n\n[workspace]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("packages/python")).unwrap();
+        fs::write(
+            root.join("packages/python/pyproject.toml"),
+            "[project]\nname = \"mylib\"\nversion = \"0.15.6rc2\"\n",
+        )
+        .unwrap();
+
+        let config = minimal_config(root);
+        let checks = run(&config, root, false).unwrap();
+        let py = checks.iter().find(|c| c.label.contains("pyproject")).unwrap();
+        assert!(py.matches, "normalized rc form should match canonical: {py:?}");
+        assert_eq!(py.found.as_deref(), Some("0.15.6rc2"));
+    }
+
+    #[test]
+    fn pep440_manifest_in_canonical_prerelease_form_also_matches() {
+        // Reverse direction: a manifest still holding the canonical `-rc.N` form
+        // must also be considered consistent (round-trips both ways).
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"0.15.6-rc.2\"\n\n[workspace]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("packages/python")).unwrap();
+        fs::write(
+            root.join("packages/python/pyproject.toml"),
+            "[project]\nname = \"mylib\"\nversion = \"0.15.6-rc.2\"\n",
+        )
+        .unwrap();
+
+        let config = minimal_config(root);
+        let checks = run(&config, root, false).unwrap();
+        let py = checks.iter().find(|c| c.label.contains("pyproject")).unwrap();
+        assert!(py.matches, "canonical rc form in manifest should match: {py:?}");
+    }
+
+    #[test]
+    fn source_template_pyproject_with_trailing_slash_output_has_no_doubled_slash() {
+        // [crates.output] python pointing at the source-template dir with a
+        // trailing slash must not produce `.../src//pyproject.toml`, and the
+        // normalized prerelease comparison must pass.
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"0.15.6-rc.2\"\n\n[workspace]\nresolver = \"2\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("crates/mylib-py/src")).unwrap();
+        fs::write(
+            root.join("crates/mylib-py/src/pyproject.toml"),
+            "[project]\nname = \"mylib\"\nversion = \"0.15.6rc2\"\n",
+        )
+        .unwrap();
+
+        let config = config_with_python_output(root, "crates/mylib-py/src/");
+        let checks = run(&config, root, false).unwrap();
+        let py = checks.iter().find(|c| c.label.contains("pyproject")).unwrap();
+        assert_eq!(
+            py.label, "crates/mylib-py/src/pyproject.toml",
+            "label must not contain a doubled slash"
+        );
+        assert!(
+            !py.label.contains("//"),
+            "label must not contain a doubled slash: {}",
+            py.label
+        );
+        assert!(py.matches, "source-template pyproject should match: {py:?}");
     }
 }
