@@ -3525,10 +3525,31 @@ fn emit_async_free_function_forwarder(
     // swift-bridge 0.1.x cannot natively bridge async Rust functions, so async functions are
     // declared in the extern block as blocking sync functions. We wrap the blocking call in
     // Task.detached to prevent blocking the caller's async context.
+    //
+    // For first-class DTOs, convert RustBridge.T -> T inside the closure so Swift's type
+    // inference can correctly determine the closure's return type.
+    let (bridge_call, return_stmt) = match &func.return_type {
+        TypeRef::Named(name) if known_dto_names.contains(name) => {
+            let struct_name = swift_ident(name);
+            (format!("try RustBridge.{swift_name}({args})"),
+             format!("        return try {struct_name}(_rb_obj)"))
+        }
+        _ => (format!("try RustBridge.{swift_name}({args})"),
+              "        return result".to_string()),
+    };
+
     out.push_str(&format!(
         "    return {effective_try}await Task.detached(priority: .userInitiated) {{\n"
     ));
-    out.push_str(&format!("        try RustBridge.{swift_name}({args})\n"));
+
+    if matches!(&func.return_type, TypeRef::Named(name) if known_dto_names.contains(name)) {
+        out.push_str(&format!("        let _rb_obj = {bridge_call}\n"));
+        out.push_str(&format!("{return_stmt}\n"));
+    } else {
+        out.push_str(&format!("        let result = {bridge_call}\n"));
+        out.push_str(&format!("{return_stmt}\n"));
+    }
+
     out.push_str("    }.value\n}\n\n");
 }
 
