@@ -1454,7 +1454,7 @@ fn render_test_method(
         if let Some(var) = api_key_var.filter(|_| has_mock) {
             setup.push(format!("String apiKey = System.getenv(\"{var}\");"));
             setup.push(format!(
-                "String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
+                "String mockServerUrl = System.getProperty(\"mockServerUrl\"); if (mockServerUrl == null) {{ mockServerUrl = System.getenv(\"MOCK_SERVER_URL\"); }} String baseUrl = (apiKey != null && !apiKey.isEmpty()) ? null : (mockServerUrl != null ? mockServerUrl + \"/fixtures/{fixture_id}\" : \"http://localhost:8000/fixtures/{fixture_id}\");"
             ));
             setup.push(format!(
                 "System.out.println(\"{fixture_id}: \" + (baseUrl == null ? \"using real API ({var} is set)\" : \"using mock server ({var} not set)\"));"
@@ -1465,11 +1465,11 @@ fn render_test_method(
         } else if has_mock {
             if fixture.has_host_root_route() {
                 setup.push(format!(
-                    "String mockUrl = System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\");"
+                    "String mockServerUrl = System.getProperty(\"mockServerUrl\"); if (mockServerUrl == null) {{ mockServerUrl = System.getenv(\"MOCK_SERVER_URL\"); }} String defaultUrl = (mockServerUrl != null ? mockServerUrl : \"http://localhost:8000\") + \"/fixtures/{fixture_id}\"; String mockUrl = System.getProperty(\"mockServer.{fixture_id}\", defaultUrl);"
                 ));
             } else {
                 setup.push(format!(
-                    "String mockUrl = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
+                    "String mockServerUrl = System.getProperty(\"mockServerUrl\"); if (mockServerUrl == null) {{ mockServerUrl = System.getenv(\"MOCK_SERVER_URL\"); }} String mockUrl = (mockServerUrl != null ? mockServerUrl : \"http://localhost:8000\") + \"/fixtures/{fixture_id}\";"
                 ));
             }
             setup.push(format!(
@@ -1610,7 +1610,7 @@ fn build_args_and_setup(
             // host — which mock-server doesn't serve — and returned 404 for every
             // batch URL. Surfaced as 7 BatchTest failures on kreuzcrawl's Java e2e.
             setup_lines.push(format!(
-                "String {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"));"
+                "String {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", (System.getProperty(\"mockServerUrl\") != null ? System.getProperty(\"mockServerUrl\") : (System.getenv(\"MOCK_SERVER_URL\") != null ? System.getenv(\"MOCK_SERVER_URL\") : \"http://localhost:8000\")) + \"/fixtures/{fixture_id}\"));"
             ));
             setup_lines.push(format!(
                 "java.util.List<String> {name} = java.util.Arrays.stream(new String[]{{{paths_literal}}}).map(p -> p.startsWith(\"http\") ? p : {name}Base + p).collect(java.util.stream.Collectors.toList());"

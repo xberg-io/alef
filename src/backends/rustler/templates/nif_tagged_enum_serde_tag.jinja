@@ -1,1 +1,1 @@
-#[serde(tag = "{{ tag }}")]
+#[serde(tag = "{{ tag }}"{% if serde_rename_all %}, rename_all = "{{ serde_rename_all }}"{% endif %})]

@@ -857,7 +857,11 @@ pub(super) fn gen_tokio_runtime() -> String {
 }
 
 /// Emit a module-level wrapper function for an adapter (streaming method).
-pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, core_crate: &str, types: &[crate::core::ir::TypeDef]) -> String {
+pub(super) fn gen_adapter_wrapper(
+    adapter: &crate::core::config::AdapterConfig,
+    core_crate: &str,
+    types: &[crate::core::ir::TypeDef],
+) -> String {
     use crate::core::config::AdapterPattern;
 
     let adapter_name = &adapter.name;
@@ -872,8 +876,9 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
     // When adapter.request_type is set and there's a single param, decompose the request struct
     // into its first field and use that as the function parameter (for ergonomic JS API).
     // E.g. CrawlStreamRequest { url: String } → accept (url string), construct req, call method.
-    let (param_parts, param_conversions, core_params_list) =
-        if adapter.request_type.is_some() && adapter.params.len() == 1 {
+    let (param_parts, param_conversions, core_params_list) = if adapter.request_type.is_some()
+        && adapter.params.len() == 1
+    {
         // Single request param: decompose by inspecting the request type's first field in IR.
         let param = &adapter.params[0];
         let param_ty_name = &param.ty;
@@ -904,10 +909,10 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
                                     PrimitiveType::U8 => "Vec<u8>",
                                     _ => "Vec<String>", // Default fallback
                                 }
-                            },
+                            }
                             _ => "Vec<String>", // Default fallback
                         }
-                    },
+                    }
                     crate::core::ir::TypeRef::Primitive(p) => {
                         use crate::core::ir::PrimitiveType;
                         match p {
@@ -920,7 +925,7 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
                             PrimitiveType::Usize => "usize",
                             _ => "String", // Default fallback
                         }
-                    },
+                    }
                     _ => "String", // Fallback for complex types
                 };
 
@@ -936,21 +941,20 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
                 // 2. The struct has Default derive (ty_def.has_default)
                 // This matches the logic in napi/gen_bindings/types.rs line 120:
                 // let field_type = if (field.optional || typ.has_default) && !already_optional
-                let is_field_optional_in_js = (first_field.optional || ty_def.has_default) && !matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_));
+                let is_field_optional_in_js = (first_field.optional || ty_def.has_default)
+                    && !matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_));
                 let wrapped_field_value = if is_field_optional_in_js {
                     format!("Some({})", field_name)
                 } else {
                     field_name.clone()
                 };
-                let param_conversions = vec![
-                    format!(
-                        "    let core_{param_ty_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value} }}.into();",
-                        param_ty_name = param_ty_name,
-                        js_struct_name = js_struct_name,
-                        field_name = field_name,
-                        core_crate = core_crate,
-                    )
-                ];
+                let param_conversions = vec![format!(
+                    "    let core_{param_ty_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value} }}.into();",
+                    param_ty_name = param_ty_name,
+                    js_struct_name = js_struct_name,
+                    field_name = field_name,
+                    core_crate = core_crate,
+                )];
 
                 let core_params = format!("core_{}", param_ty_name);
 

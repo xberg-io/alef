@@ -327,7 +327,13 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 /// `bridge_cfg` is the trait bridge configuration entry.
 /// `trait_def` is the IR type definition for the trait (must have `is_trait = true`).
 /// `out` is the output buffer to append to.
-pub fn emit_trait_bridge(prefix: &str, error_type: &str, bridge_cfg: &TraitBridgeConfig, trait_def: &TypeDef, out: &mut String) {
+pub fn emit_trait_bridge(
+    prefix: &str,
+    error_type: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    out: &mut String,
+) {
     let trait_name = &trait_def.name;
     let snake = trait_snake(trait_name);
     let has_super_trait = bridge_cfg.super_trait.is_some();
