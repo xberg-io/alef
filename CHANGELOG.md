@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-05-24
+
 ### Fixed
 
 - **alef-e2e-codegen-{dart,elixir,r,c,kotlin,kotlin_android}: wire the `test_backend` arg-type dispatcher into each remaining language's `CallConfig::args` walker so generated trait-bridge fixtures emit per-language stub backends instead of literal input dicts.** Phase A wiring in commits `43609ec3` (python/go/typescript), `2eefdb2f` (ruby/php/java/csharp), and `cbbc6832` (csharp/swift plumbing) covered nine walkers; this commit completes the set by plumbing the new `config: &ResolvedCrateConfig` / `type_defs: &[TypeDef]` parameters through `render_test_file` → `render_test_case` (or `render_test_method`) → `build_args_and_setup` for Dart, Elixir, R, C, Kotlin, and Kotlin Android, and adds the matching `arg.arg_type == "test_backend"` arm that resolves the trait via `config.trait_bridges` and dispatches to `super::emit_test_backend`. Without this, those six languages still fell through to the literal-value path even after Phase A. (`src/e2e/codegen/{c,dart,elixir,kotlin,kotlin_android,r}.rs`)
