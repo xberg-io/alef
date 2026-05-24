@@ -567,6 +567,18 @@ fn render_test_file(
         }
     }
 
+    // First pass: collect module-level test stub class definitions BEFORE void main().
+    // Dart does not allow class definitions inside functions, so we must emit them
+    // at the module level before void main().
+    let mut test_stub_classes = String::new();
+    for fixture in fixtures {
+        collect_dart_test_stub_classes(&mut test_stub_classes, fixture, e2e_config, config, type_defs);
+    }
+    if !test_stub_classes.is_empty() {
+        out.push_str(&test_stub_classes);
+        let _ = writeln!(out);
+    }
+
     let _ = writeln!(out, "void main() {{");
 
     // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
@@ -614,13 +626,15 @@ fn render_test_file(
         render_test_case(
             &mut out,
             fixture,
-            e2e_config,
-            lang,
-            bridge_class,
-            dart_first_class_map,
-            adapters,
-            config,
-            type_defs,
+            DartTestCaseContext {
+                e2e_config,
+                lang,
+                bridge_class,
+                dart_first_class_map,
+                adapters,
+                config,
+                type_defs,
+            },
         );
     }
 
@@ -705,17 +719,64 @@ fn render_dart_mock_server_spawn(out: &mut String, parse_mock_servers: bool) {
     let _ = writeln!(out, "    }}");
 }
 
-fn render_test_case(
+/// Collect module-level test stub class definitions for Dart.
+/// Dart does not allow class definitions inside functions, so we must emit them
+/// at the module level before void main(). This function checks if the fixture
+/// uses a test_backend argument and if so, emits the class definition.
+fn collect_dart_test_stub_classes(
     out: &mut String,
     fixture: &Fixture,
-    e2e_config: &E2eConfig,
-    lang: &str,
-    bridge_class: &str,
-    dart_first_class_map: &crate::e2e::field_access::DartFirstClassMap,
-    adapters: &[crate::core::config::extras::AdapterConfig],
+    _e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
 ) {
+    // HTTP fixtures do not use test_backend.
+    if fixture.is_http_test() {
+        return;
+    }
+
+    // Check fixture.args directly (not call_config.args, which is empty for trait-bridge calls).
+    // The fixture JSON defines the actual arguments including test_backend definitions.
+    for arg_def in &fixture.args {
+        if arg_def.arg_type != "test_backend" {
+            continue;
+        }
+        if let Some(trait_name) = &arg_def.trait_name {
+            if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                    .iter()
+                    .find(|t| t.name == *trait_name)
+                    .map(|t| t.methods.iter().collect())
+                    .unwrap_or_default();
+                let emission = emit_test_backend(trait_bridge, &methods, fixture);
+                // Emit only the class definition at module-level.
+                let _ = writeln!(out, "{}", emission.setup_block);
+                let _ = writeln!(out);
+            }
+        }
+    }
+}
+
+struct DartTestCaseContext<'a> {
+    e2e_config: &'a E2eConfig,
+    lang: &'a str,
+    bridge_class: &'a str,
+    dart_first_class_map: &'a crate::e2e::field_access::DartFirstClassMap,
+    adapters: &'a [crate::core::config::extras::AdapterConfig],
+    config: &'a ResolvedCrateConfig,
+    type_defs: &'a [crate::core::ir::TypeDef],
+}
+
+fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseContext<'_>) {
+    let DartTestCaseContext {
+        e2e_config,
+        lang,
+        bridge_class,
+        dart_first_class_map,
+        adapters,
+        config,
+        type_defs,
+    } = context;
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
         render_http_test_case(out, fixture, http);
@@ -977,7 +1038,8 @@ fn render_test_case(
                             .map(|t| t.methods.iter().collect())
                             .unwrap_or_default();
                         let emission = crate::e2e::codegen::emit_test_backend("dart", trait_bridge, &methods, fixture);
-                        setup_lines.push(emission.setup_block);
+                        // Dart class definitions are emitted at module-level (before void main)
+                        // in collect_dart_test_stub_classes, so we only push the instantiation here.
                         args.push(emission.arg_expr);
                         continue;
                     }
@@ -1416,7 +1478,11 @@ fn render_test_case(
         // subtypes), so throwsException will not match. Use throwsA(anything) instead.
         let _ = writeln!(out, "    await expectLater(() async {{");
         for line in &setup_lines {
-            let _ = writeln!(out, "      {line}");
+            // Handle multi-line setup blocks (e.g., class definitions from emit_test_backend).
+            // Each embedded newline in `line` needs proper indentation.
+            for inner_line in line.lines() {
+                let _ = writeln!(out, "      {inner_line}");
+            }
         }
         if let Some(extra) = &extra_setup {
             for line in extra.lines() {
@@ -1449,7 +1515,11 @@ fn render_test_case(
         }
     } else {
         for line in &setup_lines {
-            let _ = writeln!(out, "    {line}");
+            // Handle multi-line setup blocks (e.g., class definitions from emit_test_backend).
+            // Each embedded newline in `line` needs proper indentation.
+            for inner_line in line.lines() {
+                let _ = writeln!(out, "    {inner_line}");
+            }
         }
         if let Some(extra) = &extra_setup {
             for line in extra.lines() {
@@ -2787,7 +2857,9 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
+    use crate::backends::dart::type_map::DartMapper;
     use crate::codegen::defaults::language_defaults;
+    use crate::codegen::type_mapper::TypeMapper as _;
     use heck::{ToLowerCamelCase, ToUpperCamelCase};
     use std::fmt::Write as _;
 
@@ -2795,6 +2867,8 @@ pub fn emit_test_backend(
     let class_name = format!("TestStub{pascal_id}");
     let trait_class = &trait_bridge.trait_name;
 
+    // Prefer the fixture's input "name" field (e.g. "test-extractor") over the
+    // fixture id, which is a snake_case internal identifier not a backend name.
     let plugin_name = fixture
         .input
         .get("name")
@@ -2803,50 +2877,83 @@ pub fn emit_test_backend(
         .to_string();
 
     let defaults = language_defaults("dart");
+    let mapper = DartMapper;
 
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name} extends {trait_class} {{");
 
-    // Plugin super-trait `name` getter.
+    // Plugin super-trait `name` getter — no @override on local class members.
     if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "  @override");
         let _ = writeln!(setup, "  String get name => '{plugin_name}';");
     }
 
-    // Required methods.
+    // Required methods — use concrete Dart types from the type mapper.
     for method in methods {
         if method.has_default_impl {
             continue;
         }
         let method_name = method.name.to_lower_camel_case();
 
-        // Build typed parameter list.
+        // Build typed parameter list using DartMapper for concrete type names.
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("dynamic {}", p.name.to_lower_camel_case()))
+            .map(|p| format!("{} {}", mapper.map_type(&p.ty), p.name.to_lower_camel_case()))
             .collect();
         let params_str = params.join(", ");
 
+        let return_type = mapper.map_type(&method.return_type);
         let default_val = defaults.emit_default(&method.return_type);
 
         if method.is_async {
-            let _ = writeln!(setup, "  @override");
             let _ = writeln!(
                 setup,
-                "  Future<dynamic> {method_name}({params_str}) async => {default_val};"
+                "  Future<{return_type}> {method_name}({params_str}) async => {default_val};"
             );
         } else {
-            let _ = writeln!(setup, "  @override");
-            let _ = writeln!(setup, "  dynamic {method_name}({params_str}) => {default_val};");
+            let _ = writeln!(setup, "  {return_type} {method_name}({params_str}) => {default_val};");
         }
     }
 
     let _ = writeln!(setup, "}}");
 
+    // Dart trait bridges require wrapping the implementation in a `create<Trait>DartImpl()` call.
+    // The wrapper requires pluginName, pluginVersion, and callbacks for all trait methods.
+    let create_fn = format!("create{}DartImpl", trait_bridge.trait_name);
+    let plugin_name = fixture
+        .input
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&fixture.id);
+
+    let instance_name = format!("_{class_name}_instance");
+    let wrapped_var = format!("_{class_name}_wrapped");
+
+    // Emit the instance creation and wrapper call in the setup block.
+    let _ = writeln!(setup, "final {instance_name} = {class_name}();");
+    let _ = writeln!(setup, "final {wrapped_var} = await {create_fn}(");
+    let _ = writeln!(setup, "  pluginName: '{plugin_name}',");
+    let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
+
+    // Emit method callbacks - required methods with implementations
+    for (i, method) in methods.iter().enumerate() {
+        let method_name = method.name.to_lower_camel_case();
+        let param_names: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
+        let params_str = param_names.join(", ");
+        let binding = if params_str.is_empty() {
+            format!("{method_name}: () => {instance_name}.{method_name}()")
+        } else {
+            format!("{method_name}: ({params_str}) => {instance_name}.{method_name}({params_str})")
+        };
+        let comma = if i < methods.len() - 1 { "," } else { "" };
+        let _ = writeln!(setup, "  {binding}{comma}");
+    }
+    let _ = writeln!(setup, ");");
+
     super::TestBackendEmission {
         setup_block: setup,
-        arg_expr: format!("{class_name}()"),
+        arg_expr: wrapped_var,
+        type_imports: Vec::new(),
     }
 }
 
@@ -2942,6 +3049,100 @@ mod test_backend_tests {
         assert!(
             output.contains("doWork"),
             "required method must be emitted, got:\n{output}"
+        );
+    }
+
+    fn make_param(name: &str, ty: TypeRef) -> crate::core::ir::ParamDef {
+        crate::core::ir::ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn make_method_with_params(name: &str, required: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![
+                make_param("content", TypeRef::Bytes),
+                make_param("mime_type", TypeRef::String),
+            ],
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: true,
+            is_static: false,
+            error_type: Some("anyhow::Error".to_string()),
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: !required,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Verify params use concrete Dart types (not `dynamic`) and no @override annotation.
+    #[test]
+    fn dart_stub_uses_typed_params_not_dynamic() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method_with_params("extract", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            !output.contains("dynamic content"),
+            "param must not use `dynamic`, got:\n{output}"
+        );
+        assert!(
+            output.contains("Uint8List content"),
+            "bytes param must map to Uint8List, got:\n{output}"
+        );
+        assert!(
+            output.contains("String mimeType"),
+            "string param must map to String, got:\n{output}"
+        );
+        assert!(
+            output.contains("Future<ExtractionResult>"),
+            "return type must be concrete not dynamic, got:\n{output}"
+        );
+        assert!(
+            !output.contains("@override"),
+            "local class members must not use @override annotation, got:\n{output}"
+        );
+    }
+
+    /// Verify that `fixture.input["name"]` is used as the plugin name when present.
+    #[test]
+    fn dart_stub_uses_fixture_input_name_for_plugin_name() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("doWork", true);
+        let methods = [&required_method];
+        let mut fixture = make_fixture("my_fixture_id");
+        fixture.input = serde_json::json!({ "name": "my-backend-name" });
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            output.contains("'my-backend-name'"),
+            "plugin name must come from fixture.input.name, got:\n{output}"
+        );
+        assert!(
+            !output.contains("my_fixture_id"),
+            "fixture id must not appear as plugin name when input.name is set, got:\n{output}"
         );
     }
 }
