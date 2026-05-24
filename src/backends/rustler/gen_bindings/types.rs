@@ -454,6 +454,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
                 "nif_tagged_enum_serde_tag.jinja",
                 minijinja::context! {
                     tag => tag,
+                    serde_rename_all => &enum_def.serde_rename_all,
                 },
             ));
         }
