@@ -1860,12 +1860,21 @@ fn gen_builder_nested_class(
         // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
         let resolved_field_ty = resolve_field_type(&field.ty, visible_type_names);
 
+        // For optional IR fields whose TypeRef does NOT carry the Optional wrapper
+        // (e.g. extractor recorded `ty: String, optional: true`), the record uses the
+        // `@Nullable T` convention rather than `Optional<T>`. The Builder field must
+        // match: boxed T with null default, NOT `String foo = Optional.empty();` which
+        // is a type/value mismatch (uncompilable).
+        let field_is_optional_in_binding = field.optional && !matches!(resolved_field_ty, TypeRef::Optional(_));
         let field_type = if is_visitor_field {
             "Optional<Visitor>".to_string()
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
         } else if matches!(resolved_field_ty, TypeRef::Optional(_)) {
             format!("Optional<{}>", java_boxed_type(&resolved_field_ty))
+        } else if field_is_optional_in_binding {
+            // Optional IR field whose type was already unwrapped: emit boxed T so null is valid.
+            java_boxed_type(&resolved_field_ty).to_string()
         } else if matches!(resolved_field_ty, TypeRef::Duration) {
             java_boxed_type(&resolved_field_ty).to_string()
         } else if has_serde_default {
@@ -1883,8 +1892,11 @@ fn gen_builder_nested_class(
             // Flatten field: live `HashMap` accumulator that the @JsonAnySetter
             // builder method (emitted later) writes into.
             "new java.util.HashMap<>()".to_string()
+        } else if field_is_optional_in_binding {
+            // Optional IR field stored as boxed @Nullable T: default to null (matches field_type).
+            "null".to_string()
         } else if field.optional {
-            // For Optional fields, always use Optional.empty() or Optional.of(value)
+            // For fields where the TypeRef itself wraps Optional, default Optional.empty() / Optional.of(value).
             // The "/* serde(default) */" placeholder is a signal value set by the
             // extractor when a field carries #[serde(default)] but no other explicit
             // default — it must NOT be emitted as a Java expression. Treat it as
