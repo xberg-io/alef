@@ -198,6 +198,8 @@ fn module_free_function_facade_carries_kdoc() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::String,
             is_async: false,

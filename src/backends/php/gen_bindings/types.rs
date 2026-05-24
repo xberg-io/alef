@@ -526,6 +526,8 @@ fn gen_struct_methods_impl(
                             sanitized: false,
                             original_type: None,
                             typed_default: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         }
                     })
                     .collect();
@@ -656,6 +658,8 @@ fn gen_struct_methods_impl(
                         sanitized: false,
                         original_type: None,
                         typed_default: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
                     })
                     .collect();
 

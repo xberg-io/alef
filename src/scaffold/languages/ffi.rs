@@ -125,7 +125,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // streaming) are appended only when the scaffold actually adds them to
     // `[dependencies]`, so cargo-machete doesn't flap on umbrellas whose API
     // surface doesn't exercise the trait-bridge / streaming codepath.
-    let mut machete_ignored: Vec<&str> = vec!["serde_json", "tokio"];
+    let mut machete_ignored: Vec<&str> = vec!["ahash", "serde_json", "tokio"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
     }
@@ -172,17 +172,18 @@ repository = "{repository}"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{core_dep_line_block}serde_json = "1"
+{core_dep_line_block}ahash = "0.8"
+serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
 {target_blocks_section}
-# `serde_json` and `tokio` are emitted unconditionally above so the manifest
-# is stable across regens (and so the C FFI codegen can pull them in when an
-# async / Result-typed function appears in the API surface), but for umbrella
-# crates with no async fns and no JSON-marshalled return types they are
-# genuinely unused. The conditional `async-trait` / `futures-util` deps are
-# similarly flagged when the umbrella has trait-bridge / streaming adapters
-# configured but no actual async-trait / async-stream callsite in the
-# generated FFI shim.
+# `serde_json`, `ahash`, and `tokio` are emitted unconditionally above so the
+# manifest is stable across regens (and so the C FFI codegen can pull them in
+# when an async / Result-typed function appears in the API surface), but for
+# umbrella crates with no async fns and no JSON-marshalled return types they
+# are genuinely unused. The conditional `async-trait` / `futures-util` deps
+# are similarly flagged when the umbrella has trait-bridge / streaming adapters
+# configured but no actual async-trait / async-stream callsite in the generated
+# FFI shim.
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 

@@ -764,9 +764,9 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         "override branch should emit android-target feature, got:\n{cargo_toml}"
     );
 
-    // The main [dependencies] table still exists for serde_json/tokio but
+    // The main [dependencies] table still exists for ahash/serde_json/tokio but
     // no longer contains the core-crate line.
-    assert!(cargo_toml.contains("[dependencies]\nserde_json = \"1\""));
+    assert!(cargo_toml.contains("[dependencies]\nahash = \"0.8\""));
     assert!(
         !cargo_toml.contains("\n[dependencies]\nmy-lib ="),
         "core-crate dep should have moved out of [dependencies], got:\n{cargo_toml}"

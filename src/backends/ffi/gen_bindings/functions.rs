@@ -728,15 +728,27 @@ pub(super) fn gen_method_wrapper(
                         rs
                     }
                 }
-                TypeRef::Vec(_) | TypeRef::Map(_, _) if p.optional => {
-                    // Optional Vec/Map: rs is Option<Vec<T>> or Option<HashMap<K, V>>
-                    // If is_ref=true, convert to Option<&[T]> with .as_deref()
+                TypeRef::Vec(_) if p.optional => {
+                    // Optional Vec: rs is Option<Vec<T>>.
+                    // Vec<T>: Deref<Target=[T]>, so .as_deref() gives Option<&[T]>.
                     // If is_mut=true, convert to Option<&mut Vec<T>> with .as_deref_mut()
                     // Otherwise pass owned Option
                     if p.is_mut {
                         format!("{rs}.as_deref_mut()")
                     } else if p.is_ref {
                         format!("{rs}.as_deref()")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Map(_, _) if p.optional => {
+                    // Optional Map: rs is Option<HashMap<K, V>> (or AHashMap if map_is_ahash).
+                    // HashMap/AHashMap does NOT implement Deref, so .as_deref() would fail.
+                    // Use .as_ref() to get Option<&Map<K, V>>.
+                    if p.is_mut {
+                        format!("{rs}.as_deref_mut()")
+                    } else if p.is_ref {
+                        format!("{rs}.as_ref()")
                     } else {
                         rs
                     }
@@ -1129,15 +1141,27 @@ pub(super) fn gen_free_function(
                         rs
                     }
                 }
-                TypeRef::Vec(_) | TypeRef::Map(_, _) if p.optional => {
-                    // Optional Vec/Map: rs is Option<Vec<T>> or Option<HashMap<K, V>>
-                    // If is_ref=true, convert to Option<&[T]> with .as_deref()
+                TypeRef::Vec(_) if p.optional => {
+                    // Optional Vec: rs is Option<Vec<T>>.
+                    // Vec<T>: Deref<Target=[T]>, so .as_deref() gives Option<&[T]>.
                     // If is_mut=true, convert to Option<&mut Vec<T>> with .as_deref_mut()
                     // Otherwise pass owned Option
                     if p.is_mut {
                         format!("{rs}.as_deref_mut()")
                     } else if p.is_ref {
                         format!("{rs}.as_deref()")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Map(_, _) if p.optional => {
+                    // Optional Map: rs is Option<HashMap<K, V>> (or AHashMap if map_is_ahash).
+                    // HashMap/AHashMap does NOT implement Deref, so .as_deref() would fail.
+                    // Use .as_ref() to get Option<&Map<K, V>>.
+                    if p.is_mut {
+                        format!("{rs}.as_deref_mut()")
+                    } else if p.is_ref {
+                        format!("{rs}.as_ref()")
                     } else {
                         rs
                     }
@@ -1417,7 +1441,21 @@ pub(super) fn gen_param_conversion(
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Optional Vec/Map: deserialize from JSON string
                 let type_hint = match &param.ty {
-                    TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    TypeRef::Vec(_) => {
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
+                    }
+                    TypeRef::Map(_, val_ty) if param.map_is_ahash => {
+                        // AHashMap target: deserialize directly into AHashMap with the correct
+                        // key type so no post-deserialization conversion is needed.
+                        let val_rust = type_ref_to_rust_type(val_ty, core_import);
+                        let key_rust = if param.map_key_is_cow {
+                            "std::borrow::Cow<'static, str>".to_string()
+                        } else {
+                            "String".to_string()
+                        };
+                        format!("::<ahash::AHashMap<{key_rust}, {val_rust}>>")
+                    }
+                    TypeRef::Map(_, _) => {
                         format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
@@ -1530,7 +1568,20 @@ pub(super) fn gen_param_conversion(
                 // Passed as JSON string
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
                 let type_hint = match &param.ty {
-                    TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    TypeRef::Vec(_) => {
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
+                    }
+                    TypeRef::Map(_, val_ty) if param.map_is_ahash => {
+                        // AHashMap target: deserialize directly.
+                        let val_rust = type_ref_to_rust_type(val_ty, core_import);
+                        let key_rust = if param.map_key_is_cow {
+                            "std::borrow::Cow<'static, str>".to_string()
+                        } else {
+                            "String".to_string()
+                        };
+                        format!("::<ahash::AHashMap<{key_rust}, {val_rust}>>")
+                    }
+                    TypeRef::Map(_, _) => {
                         format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),

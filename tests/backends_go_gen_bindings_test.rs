@@ -101,6 +101,8 @@ fn test_basic_generation() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -582,6 +584,8 @@ fn test_methods_generation() {
                         is_mut: false,
                         newtype_wrapper: None,
                         original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
                     }],
                     return_type: TypeRef::Unit,
                     is_async: false,
@@ -747,6 +751,8 @@ fn test_async_function() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::String,
             is_async: true,
@@ -960,6 +966,8 @@ fn test_optional_primitive_uses_cgo_types() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     let api = ApiSurface {
@@ -1046,6 +1054,8 @@ fn test_optional_return_type_no_double_pointer() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::Optional(Box::new(TypeRef::String)),
             is_async: false,
@@ -1149,6 +1159,8 @@ fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }
 }
 

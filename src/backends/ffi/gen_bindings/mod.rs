@@ -907,6 +907,8 @@ visitor_callbacks = true
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 }],
                 return_type: TypeRef::Named("ExtractionResult".to_string()),
                 is_async: false,
@@ -985,6 +987,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "text".to_string(),
@@ -997,6 +1001,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                     ],
                     return_type: TypeRef::Named("VisitResult".to_string()),
@@ -1027,6 +1033,8 @@ visitor_callbacks = true
                         is_mut: false,
                         newtype_wrapper: None,
                         original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
                     }],
                     return_type: TypeRef::Named("VisitResult".to_string()),
                     is_async: false,
@@ -1057,6 +1065,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "href".to_string(),
@@ -1069,6 +1079,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "title".to_string(),
@@ -1081,6 +1093,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                     ],
                     return_type: TypeRef::Named("VisitResult".to_string()),
@@ -1112,6 +1126,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "level".to_string(),
@@ -1124,6 +1140,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "text".to_string(),
@@ -1136,6 +1154,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                     ],
                     return_type: TypeRef::Named("VisitResult".to_string()),
@@ -1167,6 +1187,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "content".to_string(),
@@ -1179,6 +1201,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "depth".to_string(),
@@ -1191,6 +1215,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                     ],
                     return_type: TypeRef::Named("VisitResult".to_string()),
@@ -1222,6 +1248,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "ordered".to_string(),
@@ -1234,6 +1262,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "text".to_string(),
@@ -1246,6 +1276,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                     ],
                     return_type: TypeRef::Named("VisitResult".to_string()),
@@ -1277,6 +1309,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "cells".to_string(),
@@ -1289,6 +1323,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                         ParamDef {
                             name: "is_header".to_string(),
@@ -1301,6 +1337,8 @@ visitor_callbacks = true
                             is_mut: false,
                             newtype_wrapper: None,
                             original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
                         },
                     ],
                     return_type: TypeRef::Named("VisitResult".to_string()),
@@ -1564,6 +1602,8 @@ sources = ["src/lib.rs"]
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 }],
                 return_type: TypeRef::Primitive(PrimitiveType::U32),
                 is_async: false,
@@ -2454,6 +2494,8 @@ core_import = "my_custom_lib"
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 }],
                 return_type: TypeRef::Bytes,
                 is_async: false,
@@ -2743,6 +2785,159 @@ type = "*const std::ffi::c_char"
         assert!(
             lib.content.contains("Box::into_raw(Box::new(val))"),
             "should box the value on Ok path"
+        );
+    }
+
+    /// Build an `ApiSurface` with a free function whose `metadata` param is
+    /// `Option<&AHashMap<Cow<'static, str>, serde_json::Value>>` — the shape that
+    /// `kreuzberg::text::quality::calculate_quality_score` uses. The IR records
+    /// `map_is_ahash=true` and `map_key_is_cow=true` on the param.
+    fn ahashmap_cow_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "calculate_quality_score".to_string(),
+                rust_path: "my_lib::calculate_quality_score".to_string(),
+                original_rust_path: String::new(),
+                params: vec![
+                    ParamDef {
+                        name: "text".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: true,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
+                    },
+                    ParamDef {
+                        name: "metadata".to_string(),
+                        ty: TypeRef::Map(
+                            Box::new(TypeRef::String),
+                            Box::new(TypeRef::Json),
+                        ),
+                        optional: true,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: true,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: true,
+                        map_key_is_cow: true,
+                    },
+                ],
+                return_type: TypeRef::Primitive(PrimitiveType::F64),
+                is_async: false,
+                error_type: None,
+                doc: "Calculate quality score for text.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        }
+    }
+
+    /// The FFI wrapper for a function with `Option<&AHashMap<Cow<'static, str>, Value>>` must:
+    /// 1. Deserialize using `ahash::AHashMap<std::borrow::Cow<'static, str>, ...>` turbofish
+    /// 2. Pass `.as_ref()` to the core function (not `.as_deref()`, which fails for HashMap)
+    #[test]
+    fn test_optional_ahashmap_cow_key_uses_as_ref_not_as_deref() {
+        let api = ahashmap_cow_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The deserialization turbofish must target AHashMap with Cow key, not HashMap<String, _>
+        assert!(
+            lib.content.contains("ahash::AHashMap<std::borrow::Cow<'static, str>,"),
+            "should deserialize into AHashMap<Cow<'static, str>, ...>, got:\n{}",
+            if lib.content.len() > 3000 { &lib.content[lib.content.len() - 3000..] } else { &lib.content }
+        );
+
+        // The call must use .as_ref() not .as_deref() — HashMap doesn't impl Deref
+        assert!(
+            lib.content.contains("metadata_rs.as_ref()"),
+            "should pass metadata_rs.as_ref() (not .as_deref()), got:\n{}",
+            if lib.content.len() > 3000 { &lib.content[lib.content.len() - 3000..] } else { &lib.content }
+        );
+        assert!(
+            !lib.content.contains("metadata_rs.as_deref()"),
+            "must NOT use .as_deref() on HashMap — HashMap does not impl Deref"
+        );
+    }
+
+    /// Regression guard: `Option<Vec<String>>` with `is_ref=true` must still use
+    /// `.as_deref()` since `Vec<T>: Deref<Target=[T]>`.
+    #[test]
+    fn test_optional_vec_still_uses_as_deref() {
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "process_items".to_string(),
+                rust_path: "my_lib::process_items".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "items".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                }],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(
+            lib.content.contains("items_rs.as_deref()"),
+            "Optional Vec<String> with is_ref=true should still use .as_deref()"
         );
     }
 }

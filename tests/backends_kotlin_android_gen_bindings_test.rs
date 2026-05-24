@@ -274,6 +274,8 @@ fn make_opaque_factory_api() -> ApiSurface {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("DefaultClient".into()),
         is_async: false,
@@ -401,6 +403,8 @@ fn make_handle_only_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "url".into(),
@@ -413,6 +417,8 @@ fn make_handle_only_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
         ],
         return_type: TypeRef::String,
@@ -564,6 +570,8 @@ fn make_optional_params_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "base_url".into(),
@@ -576,6 +584,8 @@ fn make_optional_params_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             // timeout_secs: Option<u64> → mapped as Long in JNI, optional=true
             ParamDef {
@@ -589,6 +599,8 @@ fn make_optional_params_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             // max_retries: Option<u32> → mapped as Int in JNI, optional=true
             ParamDef {
@@ -602,6 +614,8 @@ fn make_optional_params_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             // model_hint: Option<String> → mapped as String in JNI, optional=true
             ParamDef {
@@ -615,6 +629,8 @@ fn make_optional_params_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
         ],
         return_type: TypeRef::Named("DefaultClient".into()),
@@ -722,6 +738,8 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "l".into(),
@@ -734,6 +752,8 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "i".into(),
@@ -746,6 +766,8 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "d".into(),
@@ -758,6 +780,8 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "b".into(),
@@ -770,6 +794,8 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
             ],
             return_type: TypeRef::String,
@@ -1272,6 +1298,8 @@ fn make_convert_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
                 ParamDef {
                     name: "options".into(),
@@ -1284,6 +1312,8 @@ fn make_convert_api() -> ApiSurface {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 },
             ],
             return_type: TypeRef::Named("ConversionResult".into()),
@@ -1442,6 +1472,8 @@ fn make_batch_function_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::Vec(Box::new(TypeRef::Named("DemoResult".into()))),
             is_async: false,
@@ -1970,6 +2002,8 @@ fn make_trait_api() -> ApiSurface {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             }],
             return_type: TypeRef::String,
             is_async: true,

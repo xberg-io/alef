@@ -146,6 +146,8 @@ fn simple_function_def() -> FunctionDef {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
         is_async: false,
@@ -389,6 +391,8 @@ fn test_gen_static_method_without_receiver() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -493,6 +497,8 @@ fn test_gen_method_with_multiple_params() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "b".to_string(),
@@ -505,6 +511,8 @@ fn test_gen_method_with_multiple_params() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "label".to_string(),
@@ -517,6 +525,8 @@ fn test_gen_method_with_multiple_params() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
         ],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
@@ -678,6 +688,8 @@ fn test_gen_method_with_optional_param() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -900,6 +912,8 @@ fn test_gen_call_args_string_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -920,6 +934,8 @@ fn test_gen_call_args_primitive_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -942,6 +958,8 @@ fn test_gen_call_args_opaque_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -962,6 +980,8 @@ fn test_gen_call_args_non_opaque_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -984,6 +1004,8 @@ fn test_gen_call_args_optional_non_opaque_ref_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -1003,6 +1025,8 @@ fn test_gen_call_args_path_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -1023,6 +1047,8 @@ fn test_gen_call_args_duration_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -1045,6 +1071,8 @@ fn test_gen_call_args_multiple_params() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         },
         ParamDef {
             name: "count".to_string(),
@@ -1057,6 +1085,8 @@ fn test_gen_call_args_multiple_params() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         },
     ];
 
@@ -1079,6 +1109,8 @@ fn test_gen_call_args_with_let_bindings_opaque() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1099,6 +1131,8 @@ fn test_gen_call_args_with_let_bindings_non_opaque() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1128,6 +1162,8 @@ fn test_gen_named_let_bindings_non_opaque_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -1150,6 +1186,8 @@ fn test_gen_named_let_bindings_optional_ref_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -1174,6 +1212,8 @@ fn test_gen_call_args_with_let_bindings_optional_ref_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1198,6 +1238,8 @@ fn test_gen_call_args_with_let_bindings_optional_ref_vec_named() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1220,6 +1262,8 @@ fn test_gen_named_let_bindings_opaque_skipped() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -1240,6 +1284,8 @@ fn test_has_named_params_returns_true() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     assert!(binding_helpers::has_named_params(&params, &opaque_types));
@@ -1260,6 +1306,8 @@ fn test_has_named_params_returns_false() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     assert!(!binding_helpers::has_named_params(&params, &opaque_types));
@@ -1370,6 +1418,8 @@ fn test_gen_unimplemented_body_with_error() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let empty_opaque = AHashSet::new();
@@ -1702,6 +1752,8 @@ fn test_gen_method_builder_pattern_opaque() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -1770,6 +1822,8 @@ fn test_gen_method_builder_pattern_non_opaque() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -1834,6 +1888,8 @@ fn test_gen_method_functional_ref_mut_unit_return() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -1904,6 +1960,8 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -1969,6 +2027,8 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -2837,6 +2897,8 @@ fn test_gen_function_named_ref_param_uses_from_conversion() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "config".to_string(),
@@ -2849,6 +2911,8 @@ fn test_gen_function_named_ref_param_uses_from_conversion() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
         ],
         return_type: TypeRef::Named("ProcessResult".to_string()),
@@ -2931,6 +2995,8 @@ fn test_gen_function_with_optional_param_wraps_in_option() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "limit".to_string(),
@@ -2943,6 +3009,8 @@ fn test_gen_function_with_optional_param_wraps_in_option() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
         ],
         return_type: TypeRef::Vec(Box::new(TypeRef::String)),
@@ -3168,6 +3236,8 @@ fn simple_trait_def() -> TypeDef {
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
                 }],
                 return_type: TypeRef::Primitive(PrimitiveType::U32),
                 is_async: false,
@@ -3563,6 +3633,8 @@ fn test_format_param_type_string_with_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&str");
@@ -3582,6 +3654,8 @@ fn test_format_param_type_bytes_with_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&[u8]");
@@ -3601,6 +3675,8 @@ fn test_format_param_type_path_with_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&std::path::Path");
@@ -3620,6 +3696,8 @@ fn test_format_param_type_vec_with_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&[u32]");
@@ -3641,6 +3719,8 @@ fn test_format_param_type_named_with_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&my_crate::Config");
@@ -3661,6 +3741,8 @@ fn test_format_param_type_primitive_with_is_ref_passes_by_value() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(
@@ -3684,6 +3766,8 @@ fn test_format_param_type_without_is_ref_passes_by_value() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     };
 
     assert_eq!(
@@ -3935,6 +4019,8 @@ fn test_gen_method_trait_method_name_suppresses_clippy_lint() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -4085,6 +4171,8 @@ fn test_gen_method_opaque_delegation_returns_opaque_self() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -4239,6 +4327,8 @@ fn test_gen_static_method_with_error_type_generates_result() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -4415,6 +4505,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "b".to_string(),
@@ -4427,6 +4519,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "c".to_string(),
@@ -4439,6 +4533,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "d".to_string(),
@@ -4451,6 +4547,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "e".to_string(),
@@ -4463,6 +4561,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "f".to_string(),
@@ -4475,6 +4575,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "g".to_string(),
@@ -4487,6 +4589,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
             ParamDef {
                 name: "h".to_string(),
@@ -4499,6 +4603,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
             },
         ],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
@@ -5320,6 +5426,8 @@ fn test_gen_call_args_json_param() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5343,6 +5451,8 @@ fn test_gen_call_args_json_param_optional() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5366,6 +5476,8 @@ fn test_gen_call_args_bytes_param_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5386,6 +5498,8 @@ fn test_gen_call_args_bytes_param_owned() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5406,6 +5520,8 @@ fn test_gen_call_args_bytes_optional_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5426,6 +5542,8 @@ fn test_gen_call_args_duration_optional() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5449,6 +5567,8 @@ fn test_gen_call_args_path_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5472,6 +5592,8 @@ fn test_gen_call_args_path_optional_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5495,6 +5617,8 @@ fn test_gen_call_args_path_optional_not_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5518,6 +5642,8 @@ fn test_gen_call_args_string_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5538,6 +5664,8 @@ fn test_gen_call_args_string_optional_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5561,6 +5689,8 @@ fn test_gen_call_args_vec_mut_ref() {
         is_mut: true,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5583,6 +5713,8 @@ fn test_gen_call_args_opaque_optional() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -5606,6 +5738,8 @@ fn test_gen_call_args_non_opaque_optional() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -5629,6 +5763,8 @@ fn test_gen_named_let_bindings_no_promote_non_opaque() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_no_promote(&params, &opaque_types, "my_crate");
@@ -5652,6 +5788,8 @@ fn test_gen_named_let_bindings_optional_without_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -5675,6 +5813,8 @@ fn test_gen_named_let_bindings_vec_named_non_opaque() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -5699,6 +5839,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -5726,6 +5868,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref_optional() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -5751,6 +5895,8 @@ fn test_gen_serde_let_bindings_non_opaque_named_required() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -5781,6 +5927,8 @@ fn test_gen_serde_let_bindings_non_opaque_named_optional() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -5808,6 +5956,8 @@ fn test_gen_serde_let_bindings_vec_named() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -5839,6 +5989,8 @@ fn test_gen_serde_let_bindings_opaque_type_skipped() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -6175,6 +6327,8 @@ fn test_gen_unimplemented_body_multiple_params_suppressed() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         },
         ParamDef {
             name: "b".to_string(),
@@ -6187,6 +6341,8 @@ fn test_gen_unimplemented_body_multiple_params_suppressed() {
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
         },
     ];
     let empty_opaque = AHashSet::new();
@@ -6735,6 +6891,8 @@ fn test_has_named_params_vec_string_with_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     assert!(
@@ -6758,6 +6916,8 @@ fn test_has_named_params_vec_string_without_is_ref() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     assert!(
@@ -6781,6 +6941,8 @@ fn test_has_named_params_vec_named_always_requires_binding() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     assert!(
@@ -6805,6 +6967,8 @@ fn test_has_named_params_vec_opaque_named_no_binding_needed() {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }];
 
     assert!(
@@ -6853,6 +7017,8 @@ fn simple_param(name: &str, ty: TypeRef) -> ParamDef {
         is_mut: false,
         newtype_wrapper: None,
         original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
     }
 }
 
