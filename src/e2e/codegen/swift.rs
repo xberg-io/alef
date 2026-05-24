@@ -3211,13 +3211,177 @@ mod tests {
     }
 }
 
-/// Emit a Swift test backend stub.
+/// Emit a Swift test backend stub class for a trait bridge.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Generates a class conforming to `Swift{TraitName}Bridge`. Required methods
+/// are overridden with Swift-idiomatic defaults. Async methods use `async throws`
+/// and return the default value directly. The `name` computed property is emitted
+/// when a Plugin super-trait is configured.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("Swift test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+    use heck::{ToLowerCamelCase, ToUpperCamelCase};
+    use std::fmt::Write as _;
+
+    let pascal_id = fixture.id.to_upper_camel_case();
+    let class_name = format!("TestStub{pascal_id}");
+    // The Swift bridge protocol/class name follows the pattern `Swift{TraitName}Bridge`.
+    let protocol_name = format!("Swift{}Bridge", trait_bridge.trait_name);
+
+    let plugin_name = fixture
+        .input
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&fixture.id)
+        .to_string();
+
+    let defaults = language_defaults("swift");
+
+    let mut setup = String::new();
+    let _ = writeln!(setup, "class {class_name}: {protocol_name} {{");
+
+    // Plugin super-trait `name` property.
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "    var name: String {{ \"{plugin_name}\" }}");
+    }
+
+    // Required methods.
+    for method in methods {
+        if method.has_default_impl {
+            continue;
+        }
+        let method_name = method.name.to_lower_camel_case();
+
+        // Build parameter list.
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| format!("_ {}: Any", p.name.to_lower_camel_case()))
+            .collect();
+        let params_str = params.join(", ");
+
+        let default_val = defaults.emit_default(&method.return_type);
+
+        if method.is_async && method.error_type.is_some() {
+            let _ = writeln!(
+                setup,
+                "    func {method_name}({params_str}) async throws -> Any {{ {default_val} }}"
+            );
+        } else if method.is_async {
+            let _ = writeln!(
+                setup,
+                "    func {method_name}({params_str}) async -> Any {{ {default_val} }}"
+            );
+        } else {
+            let _ = writeln!(
+                setup,
+                "    func {method_name}({params_str}) -> Any {{ {default_val} }}"
+            );
+        }
+    }
+
+    let _ = writeln!(setup, "}}");
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr: format!("{class_name}()"),
+    }
+}
+
+#[cfg(test)]
+mod test_backend_tests {
+    use super::emit_test_backend;
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{MethodDef, PrimitiveType, TypeRef};
+    use crate::e2e::fixture::Fixture;
+
+    fn make_trait_bridge(trait_name: &str) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+            ..Default::default()
+        }
+    }
+
+    fn make_method(name: &str, required: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: !required,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_fixture(id: &str) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    /// Verify that no kreuzberg-domain names leak into the generated output when
+    /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
+    #[test]
+    fn swift_stub_contains_no_kreuzberg_domain_names() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("do_work", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            !output.contains("Kreuzberg"),
+            "must not contain literal 'Kreuzberg', got:\n{output}"
+        );
+        assert!(
+            !output.contains("kreuzberg::"),
+            "must not contain 'kreuzberg::', got:\n{output}"
+        );
+        assert!(
+            !output.contains("KreuzbergBridge"),
+            "must not contain 'KreuzbergBridge', got:\n{output}"
+        );
+        assert!(
+            output.contains("TestStubMyTestFixture"),
+            "class name must be derived from fixture id, got:\n{output}"
+        );
+        assert!(
+            output.contains("SwiftTestTraitBridge"),
+            "class must conform to the Swift protocol derived from trait name, got:\n{output}"
+        );
+        assert!(
+            output.contains("doWork"),
+            "required method must be emitted in camelCase, got:\n{output}"
+        );
+    }
 }
