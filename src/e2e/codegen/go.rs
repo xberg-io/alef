@@ -26,7 +26,7 @@ impl E2eCodegen for GoCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[crate::core::ir::TypeDef],
+        type_defs: &[crate::core::ir::TypeDef],
         enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -213,6 +213,8 @@ impl E2eCodegen for GoCodegen {
                 e2e_config,
                 &config.adapters,
                 &data_enum_names,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -434,6 +436,8 @@ fn render_test_file(
     e2e_config: &crate::e2e::config::E2eConfig,
     adapters: &[crate::core::config::AdapterConfig],
     data_enum_names: &std::collections::HashSet<&str>,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     let emits_executable_test =
@@ -733,7 +737,7 @@ fn render_test_file(
         }
     }
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut body, fixture, import_alias, e2e_config, adapters, data_enum_names);
+        render_test_function(&mut body, fixture, import_alias, e2e_config, adapters, data_enum_names, config, type_defs);
         if i + 1 < fixtures.len() {
             let _ = writeln!(body);
         }
@@ -856,6 +860,8 @@ fn render_test_function(
     e2e_config: &crate::e2e::config::E2eConfig,
     adapters: &[crate::core::config::AdapterConfig],
     data_enum_names: &std::collections::HashSet<&str>,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -985,6 +991,8 @@ fn render_test_function(
         call_options_ptr,
         validation_creation_failure,
         data_enum_names,
+        config,
+        type_defs,
     );
 
     // Build visitor if present — integrate into options instead of separate parameter.
@@ -1785,6 +1793,8 @@ fn build_args_and_setup(
     options_ptr: bool,
     expects_error: bool,
     data_enum_names: &std::collections::HashSet<&str>,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     use heck::ToUpperCamelCase;
@@ -1840,6 +1850,26 @@ fn build_args_and_setup(
                 "var {var_name} []string\n\tfor _, p := range []string{{{paths_literal}}} {{\n\t\tif strings.HasPrefix(p, \"http\") {{\n\t\t\t{var_name} = append({var_name}, p)\n\t\t}} else {{\n\t\t\t{var_name} = append({var_name}, {var_name}Base + p)\n\t\t}}\n\t}}"
             ));
             parts.push(var_name.to_string());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("go", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("go");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("nil".to_string());
             continue;
         }
 

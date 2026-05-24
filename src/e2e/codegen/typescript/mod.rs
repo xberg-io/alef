@@ -164,6 +164,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 type_defs,
                 enums,
                 "",
+                config,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),

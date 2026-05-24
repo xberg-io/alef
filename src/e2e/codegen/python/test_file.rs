@@ -19,7 +19,13 @@ use super::http::render_http_test_function;
 use super::test_function::render_test_function;
 
 /// Render a complete Python test file for a single fixture category.
-pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfig) -> String {
+pub(super) fn render_test_file(
+    category: &str,
+    fixtures: &[&Fixture],
+    e2e_config: &E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> String {
     let module = resolve_module(e2e_config);
     let function_name = resolve_function_name(e2e_config);
     let options_type = resolve_options_type(e2e_config);
@@ -247,6 +253,8 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
                 &mut fixtures_body,
                 fixture,
                 e2e_config,
+                config,
+                type_defs,
                 effective_options_type.as_deref(),
                 effective_options_via,
                 enum_fields,

@@ -99,7 +99,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
             }
 
             let filename = format!("test_{}.py", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &fixtures, e2e_config);
+            let content = render_test_file(&group.category, &fixtures, e2e_config, config, _type_defs);
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
                 content,
