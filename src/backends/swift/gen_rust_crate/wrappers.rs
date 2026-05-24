@@ -1038,10 +1038,11 @@ pub(crate) fn emit_type_method_shims(
 ///
 /// ### Runtime ownership (SAFETY)
 ///
-/// Each handle owns its own `tokio::runtime::Runtime`. This is heavier than a
-/// shared OnceLock runtime but lets `next_json()` block irrespective of whether
-/// the calling Swift thread is on an executor. Streams are typically long-lived
-/// (one runtime per chat session), so per-stream runtime overhead is acceptable.
+/// Each handle clones a reference to the process-wide `__alef_tokio_runtime()`.
+/// This ensures that spawned tasks (registered via `tokio::spawn` in the core API)
+/// and `block_on` calls in `next()` operate on the same executor. A shared runtime
+/// avoids cross-runtime deadlocks where a receiver on one runtime cannot consume
+/// items spawned on a different runtime.
 pub(crate) fn emit_streaming_adapter_shims(
     adapters: &[crate::core::config::AdapterConfig],
     source_crate: &str,
@@ -1106,8 +1107,8 @@ pub(crate) fn emit_streaming_adapter_shims(
             format!("client.0.{}({call_args_str})", adapter.core_path)
         };
 
-        // Emit the handle struct. It owns a Runtime and a Mutex<Option<BoxStream>>
-        // so `next()` can drive polling and so we can drop the stream on Drop.
+        // Emit the handle struct. It holds a handle to the process-wide runtime context
+        // and a Mutex<Option<BoxStream>> so `next()` can drive polling.
         //
         // Error type erased to `Box<dyn Error + Send + Sync>` so the struct type
         // is stable across core error-type changes.
@@ -1118,7 +1119,8 @@ pub(crate) fn emit_streaming_adapter_shims(
         // guards `next()` so calls serialise even when Swift accidentally fans
         // out across tasks.
         out.push_str(&format!(
-            "/// Opaque handle owning a tokio runtime and a boxed `{item_type}` stream.\n\
+            "/// Opaque handle holding a reference to the process-wide tokio runtime\n\
+             /// and a boxed `{item_type}` stream.\n\
              ///\n\
              /// Created by `{fn_start}`, advanced via `next()`. Drop runs when the\n\
              /// Swift handle goes out of scope (swift-bridge generates the matching\n\
@@ -1130,7 +1132,7 @@ pub(crate) fn emit_streaming_adapter_shims(
              /// no valid JSON value is the empty string.\n\
              #[allow(clippy::type_complexity)]\n\
              pub struct {handle_name} {{\n\
-             \x20   rt: ::tokio::runtime::Runtime,\n\
+             \x20   _rt: ::tokio::runtime::Handle,\n\
              \x20   stream: ::std::sync::Mutex<\n\
              \x20       Option<\n\
              \x20           ::futures_util::stream::BoxStream<\n\
@@ -1144,6 +1146,11 @@ pub(crate) fn emit_streaming_adapter_shims(
 
         // _start: open the stream. HTTP-level errors (e.g. 401) surface as
         // Err(String) before any chunks arrive, so Swift `try` catches them.
+        //
+        // RUNTIME FIX: The core Rust API (e.g., client.crawl_stream) spawns
+        // work on tokio::spawn, which registers on the current task's runtime.
+        // We must use the same runtime context — the process-wide __alef_tokio_runtime() —
+        // so that spawned tasks and block_on calls operate on the same executor.
         out.push_str(&format!(
             "/// Start a streaming `{owner_type}::{adapter_name}` request.\n\
              ///\n\
@@ -1151,11 +1158,7 @@ pub(crate) fn emit_streaming_adapter_shims(
              /// Swift caller (swift-bridge boxes the handle internally).\n\
              pub fn {fn_start}({start_params_str}) -> Result<{handle_name}, String> {{\n\
              \x20   use ::futures_util::StreamExt;\n\
-             \x20   let rt = ::tokio::runtime::Builder::new_multi_thread()\n\
-             \x20       .worker_threads(1)\n\
-             \x20       .enable_all()\n\
-             \x20       .build()\n\
-             \x20       .map_err(|e| format!(\"build tokio runtime: {{e}}\"))?;\n\
+             \x20   let rt = crate::__alef_tokio_runtime();\n\
              \x20   let raw = rt.block_on(async {{\n\
              \x20       {core_call}\n\
              \x20           .await\n\
@@ -1168,7 +1171,7 @@ pub(crate) fn emit_streaming_adapter_shims(
              \x20       raw.map(|r| r.map_err(|e| Box::new(e) as Box<dyn ::std::error::Error + Send + Sync + 'static>)),\n\
              \x20   );\n\
              \x20   Ok({handle_name} {{\n\
-             \x20       rt,\n\
+             \x20       _rt: rt.handle().clone(),\n\
              \x20       stream: ::std::sync::Mutex::new(Some(erased)),\n\
              \x20   }})\n\
              }}\n\n",
@@ -1179,6 +1182,10 @@ pub(crate) fn emit_streaming_adapter_shims(
         // #[allow(clippy::should_implement_trait)] — the method name `next` deliberately
         // mirrors `Iterator::next` for ergonomic parity, but the signature is fallible
         // (`Result<String, String>`) so it cannot implement the trait directly.
+        //
+        // Uses the process-wide __alef_tokio_runtime() to block on the stream. This ensures
+        // the stream consumer is on the same runtime as the populator tasks spawned by the
+        // core Rust API.
         out.push_str(&format!(
             "#[allow(clippy::should_implement_trait)]\n\
              impl {handle_name} {{\n\
@@ -1194,7 +1201,7 @@ pub(crate) fn emit_streaming_adapter_shims(
              \x20           None => return Ok(String::new()),\n\
              \x20       }};\n\
              \x20       use ::futures_util::StreamExt;\n\
-             \x20       match self.rt.block_on(stream.next()) {{\n\
+             \x20       match crate::__alef_tokio_runtime().block_on(stream.next()) {{\n\
              \x20           Some(Ok(item)) => ::serde_json::to_string(&item).map_err(|e| e.to_string()),\n\
              \x20           Some(Err(e)) => {{\n\
              \x20               *guard = None;\n\
