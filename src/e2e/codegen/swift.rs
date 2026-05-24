@@ -2636,21 +2636,25 @@ fn json_to_swift(value: &serde_json::Value) -> String {
     }
 }
 
-/// When comparing numeric values in Swift, if the field expression uses method-call
-/// syntax (contains `()` indicating opaque swift-bridge types), we need to consider
-/// the numeric literal type. Integer literals may need wrapping in `UInt(...)` to
-/// match opaque methods that return UInt (like `metrics().totalLines()`). However,
-/// floating-point literals should NOT be wrapped, as they may compare against fields
-/// that return `Double` (like `relevanceScore()`). Type inference should handle the
-/// field type correctly based on the comparison operator and literal value.
-fn swift_numeric_literal_cast(field_expr: &str, numeric_literal: &str) -> String {
-    // Only wrap integer literals in UInt(...) for method-call expressions.
-    // Don't wrap floats, as the field type is unknown and may return Double.
-    if field_expr.contains("()") && !numeric_literal.contains('.') {
-        format!("UInt({})", numeric_literal)
-    } else {
-        numeric_literal.to_string()
+/// When comparing numeric values in Swift, integer and floating-point literals
+/// should not be wrapped in type constructors. Swift's type inference will infer
+/// the correct type based on the field expression's return type.
+///
+/// Booleans ("true"/"false") are never wrapped — they are Swift `Bool` literals
+/// and should never be cast to numeric types.
+///
+/// Floating-point literals should never be wrapped, as they may compare against
+/// fields that return `Double` or other floating-point types.
+fn swift_numeric_literal_cast(_field_expr: &str, numeric_literal: &str) -> String {
+    // Never wrap booleans.
+    if numeric_literal == "true" || numeric_literal == "false" {
+        return numeric_literal.to_string();
     }
+
+    // Don't wrap any numeric literals — Swift's type inference will handle it.
+    // This avoids type mismatches when fields return specific types like UInt16,
+    // UInt32, Int, etc. The comparison operator and field type will guide inference.
+    numeric_literal.to_string()
 }
 
 /// Escape a string for embedding in a Swift double-quoted string literal.
