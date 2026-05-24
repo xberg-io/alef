@@ -97,6 +97,12 @@ pub(crate) fn emit_bridge_fn(
         return;
     }
 
+    // Collect pre-call `let` bindings for params that require a two-step conversion
+    // (e.g. AHashMap<Cow, Value> params received from FRB as HashMap<String, String>).
+    // These must be bound before the call so the reference in the call arg can borrow
+    // the owned value rather than a temporary that would drop immediately.
+    let mut pre_call_bindings: Vec<String> = Vec::new();
+
     // Build call-site arguments. Named types (structs/enums declared with
     // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
     // expects source-crate `T`. For types without sanitized fields, transmute is sound
@@ -108,6 +114,26 @@ pub(crate) fn emit_bridge_fn(
         .params
         .iter()
         .map(|p| {
+            // AHashMap<Cow<'static, str>, Value> params: FRB bridges these as
+            // HashMap<String, String> (user-friendly types). We need a two-step conversion:
+            // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
+            // (2) pass the reference in the call arg.
+            if let TypeRef::Map(_, _) = &p.ty {
+                if p.map_is_ahash && p.map_key_is_cow {
+                    let bound_name = format!("__{}_ahash", p.name);
+                    pre_call_bindings.push(format!(
+                        "    let {bound_name} = {}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());",
+                        p.name
+                    ));
+                    return if p.optional && p.is_ref {
+                        format!("{bound_name}.as_ref()")
+                    } else if p.is_ref {
+                        format!("{bound_name}.as_ref().unwrap()")
+                    } else {
+                        bound_name
+                    };
+                }
+            }
             dart_call_arg_with_mirror_transmute(
                 p,
                 source_crate_name,
@@ -138,6 +164,13 @@ pub(crate) fn emit_bridge_fn(
 
     let body = build_body(&call, &result_cast, &ret_transmute, has_error, f.is_async);
 
+    // Emit pre-call bindings (if any) before the body expression.
+    if !pre_call_bindings.is_empty() {
+        for binding in &pre_call_bindings {
+            out.push_str(binding);
+            out.push('\n');
+        }
+    }
     out.push_str(&body);
     out.push_str("}\n");
 }
