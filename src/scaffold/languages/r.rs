@@ -114,11 +114,11 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     // Cargo.toml is cargo-sort canonical without a post-processing step.
     let features_str = core_dep_features(config, Language::R);
     let mut dep_lines: Vec<String> = vec![
-        format!(
-            "{crate_name} = {{ path = \"../../../../crates/{core_crate_dir}\"{features} }}",
-            crate_name = &config.name,
-            core_crate_dir = core_crate_dir,
-            features = features_str,
+        crate::scaffold::render_core_dep(
+            &config.name,
+            &format!("../../../../crates/{core_crate_dir}"),
+            &features_str,
+            version,
         ),
         format!("extendr-api = \"{}\"", tv::cargo::EXTENDR_API),
         "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),

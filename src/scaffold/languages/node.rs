@@ -147,7 +147,7 @@ pub(crate) fn scaffold_node_cargo(
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../{core_crate_dir}"{features} }}
+{core_dep}
 napi = {{ version = "{napi}", features = [{napi_features}] }}
 napi-derive = "{napi_derive}"
 serde = {{ version = "1", features = ["derive"] }}
@@ -166,9 +166,12 @@ napi-build = "{napi_build}"
 
 "#,
         pkg_header = pkg_header,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Node),
+        core_dep = crate::scaffold::render_core_dep(
+            &config.name,
+            &format!("../{core_crate_dir}"),
+            &core_dep_features(config, Language::Node),
+            version,
+        ),
         napi = tv::cargo::NAPI,
         napi_features = napi_features_str,
         napi_derive = tv::cargo::NAPI_DERIVE,

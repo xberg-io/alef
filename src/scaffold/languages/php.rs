@@ -75,7 +75,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../{core_crate_dir}"{features} }}
+{core_dep}
 ext-php-rs = "{ext_php_rs}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
@@ -95,9 +95,12 @@ extension-module = []
 
 "#,
         pkg_header = pkg_header,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Php),
+        core_dep = crate::scaffold::render_core_dep(
+            &config.name,
+            &format!("../{core_crate_dir}"),
+            &core_dep_features(config, Language::Php),
+            version,
+        ),
         ext_php_rs = tv::cargo::EXT_PHP_RS,
         extra_deps_section = extra_deps_section,
     );

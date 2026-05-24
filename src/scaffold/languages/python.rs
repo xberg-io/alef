@@ -123,7 +123,7 @@ name = "{module_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../{core_crate_dir}"{features} }}
+{core_dep}
 pyo3 = {{ version = "{pyo3}" }}
 pyo3-async-runtimes = {{ version = "{pyo3_async_runtimes}", features = ["tokio-runtime"] }}
 serde = {{ version = "1", features = ["derive"] }}
@@ -144,9 +144,12 @@ extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]
 "#,
         pkg_header = pkg_header,
         module_name = module_name,
-        crate_name = &config.name,
-        core_crate_dir = core_crate_dir,
-        features = core_dep_features(config, Language::Python),
+        core_dep = crate::scaffold::render_core_dep(
+            &config.name,
+            &format!("../{core_crate_dir}"),
+            &core_dep_features(config, Language::Python),
+            version,
+        ),
         pyo3 = tv::cargo::PYO3,
         pyo3_async_runtimes = tv::cargo::PYO3_ASYNC_RUNTIMES,
         extra_deps_section = extra_deps_section,

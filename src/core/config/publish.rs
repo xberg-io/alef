@@ -68,6 +68,8 @@ pub enum VendorMode {
     /// Run `cargo vendor` for all transitive dependencies.
     /// Used by R/CRAN packages.
     Full,
+    /// Rewrite workspace path-dependencies to registry version-dependencies; copy nothing.
+    Registry,
     /// No vendoring needed (default for most languages).
     #[default]
     None,
@@ -154,6 +156,10 @@ archive_format = "zip"
         assert_eq!(
             serde_json::from_str::<VendorMode>(r#""none""#).unwrap(),
             VendorMode::None
+        );
+        assert_eq!(
+            serde_json::from_str::<VendorMode>(r#""registry""#).unwrap(),
+            VendorMode::Registry
         );
     }
 

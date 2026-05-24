@@ -9,6 +9,7 @@ pub mod ffi_stage;
 pub mod package;
 pub mod platform;
 pub mod vendor;
+pub mod workspace;
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::config::extras::Language;
@@ -75,6 +76,10 @@ pub fn prepare(
                     )?;
                     eprintln!("  vendored to {}", result.vendor_dir.display());
                 }
+            }
+            VendorMode::Registry => {
+                // TODO(S3/S4): implemented in a later slice. For now this is a
+                // no-op (same as None) so the new variant compiles.
             }
             VendorMode::None => {}
         }
@@ -585,7 +590,12 @@ fn resolve_vendor_dest(config: &ResolvedCrateConfig, lang: Language) -> String {
 /// Return the default vendor mode for a language.
 fn default_vendor_mode(lang: Language) -> VendorMode {
     match lang {
-        Language::Ruby | Language::Elixir => VendorMode::CoreOnly,
+        // Source-build languages compile the Rust crate from source on the
+        // user's machine, so their path dependencies are rewritten to
+        // registry version-dependencies rather than vendored.
+        Language::Ruby | Language::Elixir | Language::Python | Language::Php | Language::Swift => {
+            VendorMode::Registry
+        }
         Language::R => VendorMode::Full,
         _ => VendorMode::None,
     }
@@ -704,6 +714,17 @@ mod tests {
 
         let content = fs::read_to_string(&marker).unwrap();
         assert!(content.contains("after"));
+    }
+
+    #[test]
+    fn default_vendor_mode_source_build_langs_use_registry() {
+        assert_eq!(default_vendor_mode(Language::Python), VendorMode::Registry);
+        assert_eq!(default_vendor_mode(Language::Ruby), VendorMode::Registry);
+        assert_eq!(default_vendor_mode(Language::Elixir), VendorMode::Registry);
+        assert_eq!(default_vendor_mode(Language::Php), VendorMode::Registry);
+        assert_eq!(default_vendor_mode(Language::Swift), VendorMode::Registry);
+        assert_eq!(default_vendor_mode(Language::R), VendorMode::Full);
+        assert_eq!(default_vendor_mode(Language::Zig), VendorMode::None);
     }
 
     #[test]
