@@ -299,11 +299,11 @@ pub fn field_conversion_from_core(
                 if matches!(inner.as_ref(), TypeRef::String) {
                     if optional {
                         return format!(
-                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect())"
+                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>())"
                         );
                     }
                     return format!(
-                        "{name}: val.{name}.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect()"
+                        "{name}: val.{name}.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>()>"
                     );
                 }
             }
@@ -314,7 +314,7 @@ pub fn field_conversion_from_core(
                 if let TypeRef::Vec(inner) = outer_inner.as_ref() {
                     if matches!(inner.as_ref(), TypeRef::String) {
                         return format!(
-                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect())"
+                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>())"
                         );
                     }
                 }
