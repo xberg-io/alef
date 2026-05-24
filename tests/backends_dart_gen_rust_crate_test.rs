@@ -2208,3 +2208,67 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
         "unit variant arm must be unchanged: {lib}"
     );
 }
+
+/// Regression test: a sanitized `Vec<Vec<String>>` enum variant field (emitted when the core
+/// type is `Vec<(String, String)>` — homogeneous tuple pairs) must use the tuple-pair form
+/// `vec![a.to_string(), b.to_string()]`, NOT `serde_json::to_string(&e)`.
+///
+/// Surfaced in h2m's `NodeContent::MetadataBlock { entries: Vec<Vec<String>> }` after alef
+/// v0.18.2 introduced the same fix for the Java backend but left the Dart backend broken.
+#[test]
+fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
+    // Build an enum that mimics NodeContent::MetadataBlock { entries: Vec<(String, String)> }
+    // as seen by alef after sanitization: ty = Vec<Vec<String>>, sanitized = true.
+    let mut entries_field = make_field(
+        "entries",
+        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+        false,
+    );
+    entries_field.sanitized = true;
+
+    let enum_def = EnumDef {
+        name: "NodeContent".into(),
+        rust_path: "demo_crate::NodeContent".into(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "MetadataBlock".into(),
+            fields: vec![entries_field],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            is_tuple: false,
+        }],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        is_copy: false,
+        has_serde: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![enum_def],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("vec![a.to_string(), b.to_string()]"),
+        "Vec<Vec<String>> sanitized field must use tuple-pair conversion, got:\n{lib}"
+    );
+    assert!(
+        !lib.contains("serde_json::to_string(&e)"),
+        "Vec<Vec<String>> sanitized field must NOT fall back to JSON serialization, got:\n{lib}"
+    );
+}

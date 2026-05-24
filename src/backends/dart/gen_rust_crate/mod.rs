@@ -1643,8 +1643,20 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
                 }
                 return format!("{binding} as _");
             }
-            TypeRef::Vec(_) => {
-                // Core has Vec<ComplexType>; mirror has Vec<String>.
+            TypeRef::Vec(inner) => {
+                // Vec<Vec<String>>: sanitized from Vec<(String, String)> (homogeneous tuple pairs).
+                // The Java backend uses the same pattern — mirror each pair as vec![a, b].
+                if matches!(inner.as_ref(), TypeRef::Vec(inner_inner) if matches!(inner_inner.as_ref(), TypeRef::String)) {
+                    if field.optional {
+                        return format!(
+                            "{binding}.map(|v| v.into_iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect()).unwrap_or_default()"
+                        );
+                    }
+                    return format!(
+                        "{binding}.into_iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect()"
+                    );
+                }
+                // Fallback: Core has Vec<ComplexType>; mirror has Vec<String>.
                 // Serialize each element to JSON string.
                 if field.optional {
                     return format!(

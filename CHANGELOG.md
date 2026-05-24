@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **alef-backend-dart: emit `vec![a.to_string(), b.to_string()]` for `Vec<Vec<String>>` sanitized enum variant fields.** The `enum_variant_field_conv` function in `src/backends/dart/gen_rust_crate/mod.rs` had a single `TypeRef::Vec(_)` catch-all that always serialized elements via `serde_json::to_string(&e)`, producing `String` items into a `Vec<Vec<String>>` target and causing an `E0277` compile error. Added a `Vec<Vec<String>>` special case (mirroring the Java backend fix from v0.18.2) that maps each pair via `|(a, b)| vec![a.to_string(), b.to_string()]`. (`src/backends/dart/gen_rust_crate/mod.rs`, `tests/backends_dart_gen_rust_crate_test.rs`)
+
 ## [0.18.3] - 2026-05-24
 
 ### Fixed
