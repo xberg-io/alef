@@ -2,6 +2,7 @@ mod dart_traits;
 mod errors;
 mod functions;
 mod render_type;
+mod trait_bridge;
 mod types;
 
 use crate::backends::dart::naming::dart_style;
@@ -10,7 +11,6 @@ use crate::core::backend::{
 };
 use crate::core::config::{DartStyle, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use crate::core::ir::{ApiSurface, FunctionDef};
-use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -19,6 +19,7 @@ use crate::backends::dart::gen_rust_crate;
 
 use dart_traits::emit_dart_traits;
 use functions::emit_function;
+use trait_bridge::emit_trait_bridge_methods;
 
 pub struct DartBackend;
 
@@ -298,54 +299,6 @@ impl DartBackend {
     }
 }
 
-/// Emit `static Future<void>` wrapper methods for a trait bridge in the Dart bridge class.
-///
-/// For each of `register_fn`, `unregister_fn`, and `clear_fn` that is set on the config,
-/// emits a corresponding Dart static method that delegates to the FRB-bridged free function:
-///
-/// - `register_fn`   → `static Future<void> registerXxx(XxxDartImpl impl_) async { ... }`
-/// - `unregister_fn` → `static Future<void> unregisterXxx(String name) async { ... }`
-/// - `clear_fn`      → `static Future<void> clearXxxs() async { ... }`
-///
-/// The names are converted to lowerCamelCase (matching FRB's Dart naming convention).
-fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mut String) {
-    let trait_name = &bridge_cfg.trait_name;
-    let impl_type = format!("{trait_name}DartImpl");
-
-    if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
-        let dart_name = register_fn.to_lower_camel_case();
-        out.push_str(&crate::backends::dart::template_env::render(
-            "dart_trait_register_method.jinja",
-            minijinja::context! {
-                trait_name => trait_name.as_str(),
-                dart_name => dart_name.as_str(),
-                impl_type => impl_type.as_str(),
-            },
-        ));
-    }
-
-    if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
-        let dart_name = unregister_fn.to_lower_camel_case();
-        out.push_str(&crate::backends::dart::template_env::render(
-            "dart_trait_unregister_method.jinja",
-            minijinja::context! {
-                trait_name => trait_name.as_str(),
-                dart_name => dart_name.as_str(),
-            },
-        ));
-    }
-
-    if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
-        let dart_name = clear_fn.to_lower_camel_case();
-        out.push_str(&crate::backends::dart::template_env::render(
-            "dart_trait_clear_method.jinja",
-            minijinja::context! {
-                trait_name => trait_name.as_str(),
-                dart_name => dart_name.as_str(),
-            },
-        ));
-    }
-}
 
 /// Emit streaming adapter methods (Stream<ItemType>) for adapters with owner_type set.
 fn emit_streaming_adapter_methods(config: &ResolvedCrateConfig, out: &mut String, imports: &mut BTreeSet<String>) {
