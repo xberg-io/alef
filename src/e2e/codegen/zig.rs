@@ -1959,8 +1959,15 @@ fn build_args_and_setup(
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
                     let emission = super::emit_test_backend("zig", trait_bridge, &methods, fixture);
-                    setup_lines.push(emission.setup_block);
-                    parts.push(emission.arg_expr);
+                    // emit_test_backend uses "lib." as a placeholder; substitute the real module.
+                    let setup_block = emission.setup_block.replace("lib.", &format!("{_module_name}."));
+                    let arg_expr = emission.arg_expr.replace("lib.", &format!("{_module_name}."));
+                    // setup_block lines already carry no indentation (the caller adds 4 spaces).
+                    // Push each logical line individually so the render loop adds uniform indent.
+                    for line in setup_block.lines() {
+                        setup_lines.push(line.to_string());
+                    }
+                    parts.push(arg_expr);
                     continue;
                 }
             }
@@ -2472,18 +2479,41 @@ pub fn emit_test_backend(
 
     let mut setup = String::new();
 
-    let _ = writeln!(setup, "    const {struct_name} = struct {{");
+    // No leading indent: caller splits by lines and adds 4 spaces per line (test body indent).
+    let _ = writeln!(setup, "const {struct_name} = struct {{");
 
     // Plugin super-trait: `name()` returns a sentinel C-string.
-    if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "        pub fn name() ?[*:0]const u8 {{ return \"test\"; }}");
-        let _ = writeln!(setup, "        pub fn version() ?[*:0]const u8 {{ return \"0.0.1\"; }}");
-        let _ = writeln!(setup, "        pub fn initialize(_: *{struct_name}) !void {{}}");
-        let _ = writeln!(setup, "        pub fn shutdown(_: *{struct_name}) !void {{}}");
+    // Driven from IR — no method names are hardcoded.
+    if let Some(super_trait) = trait_bridge.super_trait.as_deref() {
+        for method in methods
+            .iter()
+            .filter(|m| m.trait_source.as_deref() == Some(super_trait))
+        {
+            let method_snake = method.name.to_snake_case();
+            if method.name == "name" {
+                let _ = writeln!(setup, "    pub fn {method_snake}() ?[*:0]const u8 {{ return \"test\"; }}");
+            } else if method.name == "version" {
+                let _ = writeln!(setup, "    pub fn {method_snake}() ?[*:0]const u8 {{ return \"0.0.1\"; }}");
+            } else {
+                // Initialize/shutdown and other super-trait methods: emit a void stub.
+                let _ = writeln!(
+                    setup,
+                    "    pub fn {method_snake}(_: *{struct_name}) !void {{}}"
+                );
+            }
+        }
     }
 
-    // Required methods only.
+    // Required methods only (non-default, non-super-trait).
     for method in methods.iter().filter(|m| !m.has_default_impl) {
+        // Skip super-trait methods already emitted above.
+        if trait_bridge
+            .super_trait
+            .as_deref()
+            .is_some_and(|st| method.trait_source.as_deref() == Some(st))
+        {
+            continue;
+        }
         let method_snake = method.name.to_snake_case();
         let ret_ty = zig_type_for_stub(&method.return_type);
         let default_val = defaults.emit_default(&method.return_type);
@@ -2510,33 +2540,36 @@ pub fn emit_test_backend(
         };
 
         if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(setup, "        pub fn {method_snake}({param_list}) {ret_sig} {{}}");
+            let _ = writeln!(setup, "    pub fn {method_snake}({param_list}) {ret_sig} {{}}");
         } else {
             let _ = writeln!(
                 setup,
-                "        pub fn {method_snake}({param_list}) {ret_sig} {{ return {default_val}; }}"
+                "    pub fn {method_snake}({param_list}) {ret_sig} {{ return {default_val}; }}"
             );
         }
     }
 
-    let _ = writeln!(setup, "    }};");
-    let _ = writeln!(setup, "    var {var_name} = {struct_name}{{}};");
+    let _ = writeln!(setup, "}};");
+    let _ = writeln!(setup, "var {var_name} = {struct_name}{{}};");
+    // lib. is a placeholder; the caller replaces it with the real module name.
     let _ = writeln!(
         setup,
-        "    const {vtable_var} = lib.make_{trait_snake}_vtable({struct_name}, &{var_name});"
+        "const {vtable_var} = lib.make_{trait_snake}_vtable({struct_name}, &{var_name});"
     );
 
-    // Registration: register_fn snake_case, else default pattern.
-    let register_fn = trait_bridge.register_fn.as_deref().unwrap_or("register_backend");
-
     let out_err_var = format!("out_err_{id_snake}");
-    let _ = writeln!(setup, "    var {out_err_var}: ?[*:0]u8 = null;");
+    let _ = writeln!(setup, "var {out_err_var}: ?[*:0]u8 = null;");
 
-    let arg_expr = format!("_ = lib.{register_fn}(\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var}))");
+    // arg_expr expands into the argument list for the registration call site:
+    // `kreuzberg.register_fn("test", vtable, &stub, @ptrCast(&out_err))`
+    // The caller places arg_expr into args_str, which is used as the full argument list
+    // of the top-level `{module}.{register_fn}(args_str)` call.
+    let arg_expr = format!("\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var})");
 
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
+        type_imports: Vec::new(),
     }
 }
 
@@ -2620,10 +2653,16 @@ mod tests_trait_bridge {
             "setup_block should invoke make_test_trait_vtable, got:\n{}",
             emission.setup_block
         );
-        // The registration expression must use the provided register_fn.
+        // arg_expr expands into the argument list of the registration call.
+        // It must contain the vtable variable and @ptrCast for the out_err pointer.
         assert!(
-            emission.arg_expr.contains("register_test_trait"),
-            "arg_expr should invoke register_test_trait, got:\n{}",
+            emission.arg_expr.contains("vtable_my_fixture"),
+            "arg_expr should reference vtable_my_fixture, got:\n{}",
+            emission.arg_expr
+        );
+        assert!(
+            emission.arg_expr.contains("@ptrCast"),
+            "arg_expr should contain @ptrCast for out_err, got:\n{}",
             emission.arg_expr
         );
 
