@@ -3927,12 +3927,12 @@ mod tests {
             "expected the call to bind to `result`, not `_`; got:\n{out}"
         );
         assert!(
-            out.contains("strings.Contains(") && out.contains("fmt.Sprint("),
-            "expected `strings.Contains(fmt.Sprint(...))` rendering; got:\n{out}"
+            out.contains("strings.Contains(") && out.contains("string("),
+            "expected `strings.Contains(string(...))` cast rendering; got:\n{out}"
         );
         assert!(
-            out.contains("\t\"fmt\""),
-            "expected the `fmt` import to be emitted; got:\n{out}"
+            !out.contains("\t\"fmt\""),
+            "expected fmt import to NOT be emitted (uses string cast not fmt.Sprint); got:\n{out}"
         );
         assert!(
             out.contains("\t\"strings\""),
