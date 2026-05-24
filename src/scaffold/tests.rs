@@ -3187,3 +3187,56 @@ fn test_render_extra_deps_does_not_double_inject_version() {
         "must not overwrite or append a second version; got:\n{rendered}"
     );
 }
+
+#[test]
+fn test_render_extra_deps_swift_injects_version_for_workspace_member() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    // Build a real temp workspace whose root Cargo.toml declares a member
+    // `my-lib-http` at version 3.1.0 (via workspace inheritance).
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"
+[workspace]
+resolver = "2"
+members = ["crates/my-lib-http"]
+
+[workspace.package]
+version = "3.1.0"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("crates/my-lib-http/src")).unwrap();
+    fs::write(root.join("crates/my-lib-http/src/lib.rs"), "pub fn f() {}").unwrap();
+    fs::write(
+        root.join("crates/my-lib-http/Cargo.toml"),
+        "[package]\nname = \"my-lib-http\"\nversion.workspace = true\n",
+    )
+    .unwrap();
+
+    let mut config = test_config();
+    config.workspace_root = Some(root.to_path_buf());
+    // Path-only workspace-member dep configured under swift extra_dependencies.
+    config.extra_dependencies.insert(
+        "my-lib-http".to_string(),
+        toml::Value::Table(toml::map::Map::from_iter([(
+            "path".to_string(),
+            toml::Value::String("../my-lib-http".to_string()),
+        )])),
+    );
+
+    // Calling with Language::Swift exercises the same code path as the swift
+    // gen_rust_crate backend, which now delegates to this shared function.
+    let rendered = render_extra_deps(&config, Language::Swift);
+    assert!(
+        rendered.contains(r#"version = "3.1.0""#),
+        "swift backend: workspace member must get version injected; got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(r#"path = "../my-lib-http""#),
+        "swift backend: path must be preserved alongside injected version; got:\n{rendered}"
+    );
+}

@@ -99,7 +99,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
-    let extra_deps = render_extra_deps(config);
+    let extra_deps = crate::scaffold::render_extra_deps(config, Language::Swift);
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,
@@ -142,23 +142,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
             generated_header: false,
         },
     ])
-}
-
-fn render_extra_deps(config: &ResolvedCrateConfig) -> String {
-    let deps = config.extra_deps_for_language(Language::Swift);
-    if deps.is_empty() {
-        return String::new();
-    }
-
-    let mut lines: Vec<String> = deps
-        .iter()
-        .map(|(name, value)| match value {
-            toml::Value::String(version) => format!("{name} = \"{version}\""),
-            other => format!("{name} = {other}"),
-        })
-        .collect();
-    lines.sort();
-    lines.join("\n")
 }
 
 /// Check whether the umbrella source crate exposes the given feature name in its
