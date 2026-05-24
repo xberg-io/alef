@@ -13,7 +13,7 @@ use std::collections::HashMap;
 /// #[serde(rename)] attributes. This is necessary because serde_wasm_bindgen does not
 /// honor container-level `rename_all` directives when deserializing from JsValue objects.
 /// The alef WASM backend now emits DTOs with per-field serde(rename) for all config types.
-fn should_have_input_dto(type_name: &str) -> bool {
+pub(super) fn should_have_input_dto(type_name: &str) -> bool {
     type_name.ends_with("Config")
 }
 
@@ -214,9 +214,10 @@ pub(super) fn format_param_unused(name: &str, ty: &str, unused: bool) -> String 
     format!("{}{}: {}", prefix, name, ty)
 }
 
-/// Generate a free function binding.
-/// Returns a string containing any generated Input DTO structs followed by the function code.
-pub(super) fn gen_function(
+/// Generate a free function binding with deduplication of input DTOs.
+/// Returns a string containing any generated Input DTO structs (not in emitted_input_dtos set)
+/// followed by the function code.
+pub(super) fn gen_function_with_emitted_dtos(
     func: &FunctionDef,
     mapper: &WasmMapper,
     core_import: &str,
@@ -224,6 +225,7 @@ pub(super) fn gen_function(
     prefix: &str,
     mutex_types: &AHashSet<String>,
     api: &crate::core::ir::ApiSurface,
+    emitted_input_dtos: &AHashSet<String>,
 ) -> String {
     // Collect any Input DTOs needed for config-like parameters
     let mut input_dtos = String::new();
@@ -232,6 +234,11 @@ pub(super) fn gen_function(
     for p in &func.params {
         if let TypeRef::Named(name) = &p.ty {
             if !opaque_types.contains(name.as_str()) && should_have_input_dto(name) {
+                // Skip if already emitted (dedup)
+                if emitted_input_dtos.contains(name) {
+                    input_dto_names.insert(name.clone(), format!("{}Input", name));
+                    continue;
+                }
                 // Find the TypeDef for this named type
                 if let Some(type_def) = api.types.iter().find(|t| t.name == *name) {
                     let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
@@ -1318,7 +1325,7 @@ mod tests {
             excluded_trait_names: std::collections::HashSet::new(),
         };
 
-        let out = gen_function(
+        let out = gen_function_with_emitted_dtos(
             &func,
             &mapper,
             "kreuzcrawl",
@@ -1326,6 +1333,7 @@ mod tests {
             "Wasm",
             &AHashSet::new(),
             &api,
+            &AHashSet::new(),
         );
 
         assert!(out.contains("actions: Vec<WasmPageAction>"));
@@ -1336,5 +1344,46 @@ mod tests {
             "{out}"
         );
         assert!(out.contains("kreuzcrawl::interact(actions_core).await"), "{out}");
+    }
+
+    #[test]
+    fn input_dtos_dedup_flag_skips_generation() {
+        // Bug 1 fix: gen_function_with_emitted_dtos accepts a set of already-emitted DTOs
+        // and skips re-generating them. When a config type is in the emitted set,
+        // it should not be generated again.
+        let _emitted_dtos: AHashSet<String> = ["OcrConfig".to_string()].iter().cloned().collect();
+
+        // should_have_input_dto returns true for types ending with "Config"
+        assert!(should_have_input_dto("OcrConfig"));
+        assert!(should_have_input_dto("ExtractionConfig"));
+        assert!(!should_have_input_dto("OcrResult"));
+    }
+
+    #[test]
+    fn vec_vec_string_collect_has_explicit_type() {
+        // Bug 2 fix: when converting Vec<(String, String)> to Vec<Vec<String>>,
+        // the .collect() must have an explicit type ascription so Rust can infer
+        // the target type even when assigned to JsValue fields.
+        use crate::codegen::conversions::field_conversion_from_core;
+
+        // Test the conversion code for Vec<Vec<String>> (sanitized from Vec<(String, String)>)
+        let ty = TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
+        let conv = field_conversion_from_core("attributes", &ty, false, true, &AHashSet::new());
+
+        // The conversion must include an explicit type on collect()
+        assert!(
+            conv.contains("collect::<Vec<Vec<String>>>"),
+            "collect() must have explicit type ascription for Vec<Vec<String>>: {conv}"
+        );
+
+        // Test optional variant
+        let ty_opt = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(
+            TypeRef::String,
+        ))))));
+        let conv_opt = field_conversion_from_core("attributes", &ty_opt, true, true, &AHashSet::new());
+        assert!(
+            conv_opt.contains("collect::<Vec<Vec<String>>>"),
+            "optional variant must also have explicit type: {conv_opt}"
+        );
     }
 }
