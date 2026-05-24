@@ -30,7 +30,7 @@ impl E2eCodegen for ZigE2eCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[crate::core::ir::TypeDef],
+        type_defs: &[crate::core::ir::TypeDef],
         _enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -173,6 +173,8 @@ impl E2eCodegen for ZigE2eCodegen {
                 &e2e_config.call.args,
                 &module_name,
                 &ffi_prefix,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: output_base.join("src").join(filename),
@@ -623,6 +625,8 @@ fn render_test_file(
     args: &[crate::e2e::config::ArgMapping],
     module_name: &str,
     ffi_prefix: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -665,6 +669,8 @@ fn render_test_file(
                 args,
                 module_name,
                 ffi_prefix,
+                config,
+                type_defs,
             );
         }
         let _ = writeln!(out);
@@ -683,6 +689,8 @@ fn render_test_fn(
     _args: &[crate::e2e::config::ArgMapping],
     module_name: &str,
     ffi_prefix: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(
@@ -773,7 +781,15 @@ fn render_test_fn(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str, setup_needs_gpa) = build_args_and_setup(&fixture.input, args, &fixture.id, module_name);
+    let (setup_lines, args_str, setup_needs_gpa) = build_args_and_setup(
+        &fixture.input,
+        args,
+        &fixture.id,
+        module_name,
+        config,
+        type_defs,
+        fixture,
+    );
     // Append per-call zig extra_args (e.g. `["null"]` for the trailing
     // optional `query` parameter on `list_files` / `list_batches`). Mirrors
     // the same mechanism used by go/python/swift codegen — zig's method
@@ -1733,6 +1749,9 @@ fn build_args_and_setup(
     args: &[crate::e2e::config::ArgMapping],
     fixture_id: &str,
     _module_name: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    fixture: &Fixture,
 ) -> (Vec<String>, String, bool) {
     if args.is_empty() {
         return (Vec::new(), String::new(), false);
@@ -1764,6 +1783,26 @@ fn build_args_and_setup(
                 Some(v) => format!("\"{}\"", escape_zig(&serde_json::to_string(v).unwrap_or_default())),
             };
             parts.push(json_str);
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = super::emit_test_backend("zig", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("zig");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("null".to_string());
             continue;
         }
 

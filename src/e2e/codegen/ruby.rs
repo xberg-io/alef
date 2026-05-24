@@ -32,7 +32,7 @@ impl E2eCodegen for RubyCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[crate::core::ir::TypeDef],
+        type_defs: &[crate::core::ir::TypeDef],
         _enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -174,6 +174,8 @@ impl E2eCodegen for RubyCodegen {
                 e2e_config,
                 has_file_fixtures || has_http_fixtures,
                 &config.adapters,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: spec_base.join(filename),
@@ -309,6 +311,8 @@ fn render_spec_file(
     e2e_config: &E2eConfig,
     needs_spec_helper: bool,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     // Resolve client_factory from ruby override.
     let client_factory = e2e_config
@@ -452,6 +456,8 @@ fn render_spec_file(
                         fixture_client_factory,
                         &fixture_extra_args,
                         adapter_req_type_owned.as_deref(),
+                        config,
+                        type_defs,
                     )
                 } else {
                     render_example(
@@ -471,6 +477,8 @@ fn render_spec_file(
                         fixture_client_factory,
                         &fixture_extra_args,
                         adapter_req_type_owned.as_deref(),
+                        config,
+                        type_defs,
                     )
                 };
                 examples.push(example);
@@ -757,6 +765,8 @@ fn render_chat_stream_example(
     client_factory: Option<&str>,
     extra_args: &[String],
     adapter_request_type: Option<&str>,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -773,6 +783,8 @@ fn render_chat_stream_example(
         false,
         fixture,
         adapter_request_type,
+        config,
+        type_defs,
     );
 
     let mut final_args = args_str;
@@ -999,6 +1011,8 @@ fn render_example(
     client_factory: Option<&str>,
     extra_args: &[String],
     adapter_request_type: Option<&str>,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -1015,6 +1029,8 @@ fn render_example(
         result_is_simple,
         fixture,
         adapter_request_type,
+        config,
+        type_defs,
     );
 
     // Build visitor if present and add to setup
@@ -1188,6 +1204,8 @@ fn build_args_and_setup(
     result_is_simple: bool,
     fixture: &crate::e2e::fixture::Fixture,
     adapter_request_type: Option<&str>,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1340,6 +1358,31 @@ fn build_args_and_setup(
                 ));
             }
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            // Flush any pending nil placeholders for skipped optionals before this positional arg.
+            for _ in 0..skipped_optional_count {
+                parts.push("nil".to_string());
+            }
+            skipped_optional_count = 0;
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("ruby", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("ruby");
+            setup_lines.push(format!("# {}", emission.arg_expr));
+            parts.push("nil".to_string());
             continue;
         }
 
