@@ -485,7 +485,11 @@ pub(crate) fn gen_record_type(
         imports.push("java.util.Optional");
     }
     // JsonNode is needed when fields reference unknown/skipped types (mapped to Json/Object)
-    if fields_joined.contains("Object") || (will_emit_builder && record_block.contains("Object")) {
+    // JsonNode is needed only when the generated code actually references JsonNode.
+    // Some unknown/skipped types are emitted as plain `Object` (java.lang.Object — no
+    // import needed) rather than `JsonNode`; checking for the literal type name avoids
+    // emitting an unused import that fails maven-checkstyle's UnusedImports rule.
+    if fields_joined.contains("JsonNode") || record_block.contains("JsonNode") {
         imports.push("com.fasterxml.jackson.databind.JsonNode");
     }
     // @JsonProperty is needed if the record's fields use it OR the nested builder uses it.
