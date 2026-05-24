@@ -192,7 +192,9 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // packs everything listed here, and a populated `target/` can blow past
     // hex's `metadata.config` size limit. `checksum-*.exs` is included so
     // RustlerPrecompiled can verify dynamically-downloaded NIFs on the
-    // consumer side without forcing a source build.
+    // consumer side without forcing a source build. `build.rs` is conditional —
+    // include it only when the NIF crate actually has one, otherwise
+    // `mix hex.publish` fails with `Missing files: native/<nif>/build.rs`.
     let mut files_entries: Vec<String> = vec![
         ".formatter.exs".into(),
         "mix.exs".into(),
@@ -201,8 +203,16 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         format!("native/{nif_name}/Cargo.toml"),
         format!("native/{nif_name}/Cargo.lock"),
         format!("native/{nif_name}/src"),
-        format!("native/{nif_name}/build.rs"),
     ];
+    let native_crate_dir_rel = format!("{pkg_dir}/native/{nif_name}");
+    let build_rs_path = if let Some(ws_root) = config.workspace_root.as_deref() {
+        ws_root.join(&native_crate_dir_rel).join("build.rs")
+    } else {
+        PathBuf::from(&native_crate_dir_rel).join("build.rs")
+    };
+    if build_rs_path.exists() {
+        files_entries.push(format!("native/{nif_name}/build.rs"));
+    }
     if lib_populated {
         files_entries.insert(0, "lib".into());
     }
