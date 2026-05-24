@@ -2284,11 +2284,39 @@ fn is_base64(s: &str) -> bool {
     true
 }
 
+/// Extract the canonical backend name from fixture input JSON.
+///
+/// Mirrors the lookup strategy used by the Python, PHP, and Rust e2e emitters.
+/// Searches `input.name`, then any nested object's `name` field, then falls
+/// back to `fixture_id`.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    if let Some(obj) = input.as_object() {
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
 /// Emit a Ruby test backend stub.
 ///
 /// Ruby is duck-typed: define an anonymous class that responds to each required method
 /// and return a sensible default value. The Plugin super-trait `name` method returns the
-/// fixture id as a string. All other methods return their language-native defaults.
+/// backend name extracted from `fixture.input`. All other methods return their
+/// language-native defaults. Named return types return `'{}'` so the Magnus bridge can
+/// deserialise the return value via JSON.
 ///
 /// The returned `setup_block` defines a local variable `stub_<id>` holding the
 /// anonymous class instance. The `arg_expr` is the variable name; callers emit
@@ -2299,17 +2327,19 @@ pub fn emit_test_backend(
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
+    use crate::core::ir::TypeRef;
 
     let defaults = language_defaults("ruby");
     let safe_id = sanitize_ident(&fixture.id);
+    let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
     let var_name = format!("stub_{safe_id}");
 
     let mut setup = String::new();
     let _ = writeln!(setup, "{var_name} = Class.new do");
 
-    // Plugin super-trait: emit `name` returning the fixture id as a string identifier.
+    // Plugin super-trait: emit `name` returning the backend name from fixture input.
     if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "  def name = '{safe_id}'");
+        let _ = writeln!(setup, "  def name = '{backend_name}'");
     }
 
     // Emit stubs for all required methods (skip those with default implementations).
@@ -2318,7 +2348,13 @@ pub fn emit_test_backend(
         // Build a parameter list: positional param names only (Ruby is duck-typed).
         let params: Vec<String> = method.params.iter().map(|p| sanitize_ident(&p.name)).collect();
         let param_str = params.join(", ");
-        let default_val = defaults.emit_default(&method.return_type);
+        // Named types are not defined in the Ruby binding scope.  The Magnus bridge
+        // tries String#to_s then falls back to .to_json, so return a JSON-safe empty
+        // object string '{}'  that round-trips through serde_json.
+        let default_val = match &method.return_type {
+            TypeRef::Named(_) => "'{}'".to_string(),
+            other => defaults.emit_default(other),
+        };
         if param_str.is_empty() {
             let _ = writeln!(setup, "  def {ruby_name} = {default_val}");
         } else {
@@ -2447,6 +2483,126 @@ mod trait_bridge_tests {
             emission.arg_expr.contains("my_test_fixture"),
             "arg_expr must reference fixture id, got: {}",
             emission.arg_expr
+        );
+    }
+
+    /// Named return types must emit `'{}'` (JSON-safe string), not `TypeName.new`
+    /// which would reference an undefined Ruby constant.
+    #[test]
+    fn test_backend_named_return_emits_json_string() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let extract_bytes = make_method(
+            "extract_bytes",
+            vec![
+                ("content", TypeRef::Bytes),
+                ("mime_type", TypeRef::String),
+            ],
+            TypeRef::Named("InternalDocument".to_string()),
+            false,
+        );
+
+        let fixture = make_fixture("register_document_extractor_trait_bridge");
+        let methods = vec![&extract_bytes];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        assert!(
+            emission.setup_block.contains("'{}'"),
+            "Named return type must emit '{{}}' not a constructor call, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("InternalDocument.new"),
+            "setup_block must not reference undefined constant InternalDocument, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Backend name must be extracted from fixture.input, not fixture.id.
+    #[test]
+    fn test_backend_name_from_input() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let extract_bytes = make_method(
+            "extract_bytes",
+            vec![("content", TypeRef::Bytes)],
+            TypeRef::Named("InternalDocument".to_string()),
+            false,
+        );
+
+        let mut fixture = make_fixture("register_document_extractor_trait_bridge");
+        fixture.input = serde_json::json!({
+            "extractor": { "type": "test", "name": "test-extractor" }
+        });
+
+        let methods = vec![&extract_bytes];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        assert!(
+            emission.setup_block.contains("test-extractor"),
+            "setup_block must use input-derived name 'test-extractor', got:\n{}",
+            emission.setup_block
+        );
+        // The fixture id appears in the variable name (stub_register_...) but
+        // the name() method must return the input-derived name, not the fixture id.
+        assert!(
+            !emission.setup_block.contains("= 'register_document_extractor_trait_bridge'"),
+            "name() method must not return fixture id, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Snapshot: verify exact setup_block shape for a DocumentExtractor-like bridge.
+    #[test]
+    fn test_backend_snapshot() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let extract_bytes = make_method(
+            "extract_bytes",
+            vec![
+                ("content", TypeRef::Bytes),
+                ("mime_type", TypeRef::String),
+                ("config", TypeRef::Named("ExtractionConfig".to_string())),
+            ],
+            TypeRef::Named("InternalDocument".to_string()),
+            false,
+        );
+
+        let mut fixture = make_fixture("register_document_extractor_trait_bridge");
+        fixture.input = serde_json::json!({
+            "extractor": { "type": "test", "name": "test-extractor" }
+        });
+
+        let methods = vec![&extract_bytes];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        let expected_setup = concat!(
+            "stub_register_document_extractor_trait_bridge = Class.new do\n",
+            "  def name = 'test-extractor'\n",
+            "  def extract_bytes(content, mime_type, config) = '{}'\n",
+            "end.new\n",
+        );
+        assert_eq!(
+            emission.setup_block, expected_setup,
+            "setup_block snapshot mismatch"
+        );
+        assert_eq!(
+            emission.arg_expr, "stub_register_document_extractor_trait_bridge"
         );
     }
 }
