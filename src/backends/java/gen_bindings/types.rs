@@ -2607,10 +2607,11 @@ mod tests {
         }
     }
 
-    /// Single-word field names like `model` should NOT get `@JsonProperty`
-    /// — camelCase equals snake_case, so no annotation is needed.
+    /// Single-word builder fields like `model` MUST get `@JsonProperty`
+    /// Jackson's BuilderBasedDeserializer requires @JsonProperty on every setter
+    /// to correctly map JSON properties to setters.
     #[test]
-    fn single_word_field_has_no_json_property() {
+    fn single_word_builder_field_gets_json_property() {
         let typ = make_request_type_with_multiword_fields();
         let out = gen_record_type(
             "dev.kreuzberg",
@@ -2625,10 +2626,11 @@ mod tests {
             &AHashSet::default(),
             &HashSet::default(),
         );
-        // `model` is single-word: camelCase == snake_case, so no annotation needed.
+        // `model` is single-word: Jackson still requires @JsonProperty on the builder setter
+        // to map JSON fields to setters correctly.
         assert!(
-            !out.contains("@JsonProperty(\"model\")"),
-            "single-word field must not get @JsonProperty"
+            out.contains("@JsonProperty(\"model\")"),
+            "single-word builder field must get @JsonProperty; got:\n{out}"
         );
     }
 
