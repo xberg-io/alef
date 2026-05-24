@@ -734,6 +734,13 @@ pub struct ArgMapping {
     /// prefix where needed, e.g. `"kreuzberg.BatchBytesItem"` or `"string"`.
     #[serde(default)]
     pub go_type: Option<String>,
+    /// Trait name for `test_backend` arg type (e.g., `"DocumentExtractor"`, `"OcrBackend"`).
+    ///
+    /// When `arg_type = "test_backend"`, this field specifies which trait's bridge
+    /// codegen should be used to create the test stub instance. Only used when
+    /// `arg_type = "test_backend"`.
+    #[serde(default)]
+    pub trait_name: Option<String>,
 }
 
 fn default_arg_type() -> String {

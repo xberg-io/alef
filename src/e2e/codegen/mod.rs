@@ -44,7 +44,7 @@ mod zig_visitors;
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::TypeDef;
+use crate::core::ir::{MethodDef, TypeDef};
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::{Fixture, FixtureGroup};
 use anyhow::Result;
@@ -315,4 +315,59 @@ pub(crate) fn resolve_urls_field<'a>(input: &'a serde_json::Value, field_path: &
 
     // Nothing found; return null
     &serde_json::Value::Null
+}
+
+/// Emission result for a test backend stub.
+#[derive(Debug, Clone)]
+pub struct TestBackendEmission {
+    /// Code emitted at the top of the test function: stub class/struct definition.
+    pub setup_block: String,
+    /// Expression passed as the register_X arg: stub instance or Bridge-wrapped instance.
+    pub arg_expr: String,
+}
+
+impl TestBackendEmission {
+    /// Placeholder for unimplemented backends.
+    pub fn unimplemented(language: &str) -> Self {
+        Self {
+            setup_block: String::new(),
+            arg_expr: format!("/* test_backend unimplemented for {} */", language),
+        }
+    }
+}
+
+/// Dispatch test backend emission to per-language implementations.
+///
+/// When a fixture argument has `arg_type = "test_backend"`, this dispatcher
+/// resolves the trait bridge config and calls the language-specific emitter.
+/// Backends that haven't implemented test backend emission yet return
+/// `TestBackendEmission::unimplemented(...)`.
+pub fn emit_test_backend(
+    language: &str,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&MethodDef],
+    fixture: &Fixture,
+) -> TestBackendEmission {
+    match language {
+        "rust" => rust::emit_test_backend(trait_bridge, methods, fixture),
+        "python" => python::emit_test_backend(trait_bridge, methods, fixture),
+        "typescript" | "wasm" => typescript::emit_test_backend(trait_bridge, methods, fixture),
+        "node" => typescript::emit_test_backend(trait_bridge, methods, fixture), // node uses typescript codegen
+        "go" => go::emit_test_backend(trait_bridge, methods, fixture),
+        "java" => java::emit_test_backend(trait_bridge, methods, fixture),
+        "kotlin" => kotlin::emit_test_backend(trait_bridge, methods, fixture),
+        "kotlin_android" => kotlin_android::emit_test_backend(trait_bridge, methods, fixture),
+        "csharp" => csharp::emit_test_backend(trait_bridge, methods, fixture),
+        "php" => php::emit_test_backend(trait_bridge, methods, fixture),
+        "ruby" => ruby::emit_test_backend(trait_bridge, methods, fixture),
+        "elixir" => elixir::emit_test_backend(trait_bridge, methods, fixture),
+        "gleam" => gleam::emit_test_backend(trait_bridge, methods, fixture),
+        "r" => r::emit_test_backend(trait_bridge, methods, fixture),
+        "c" => c::emit_test_backend(trait_bridge, methods, fixture),
+        "zig" => zig::emit_test_backend(trait_bridge, methods, fixture),
+        "dart" => dart::emit_test_backend(trait_bridge, methods, fixture),
+        "swift" => swift::emit_test_backend(trait_bridge, methods, fixture),
+        "brew" => brew::emit_test_backend(trait_bridge, methods, fixture),
+        _ => TestBackendEmission::unimplemented(language),
+    }
 }

@@ -1,3 +1,4 @@
+use crate::core::ir::{ApiSurface, MethodDef};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for generating trait bridge code that allows foreign language
@@ -137,6 +138,19 @@ impl TraitBridgeConfig {
             names.push(s);
         }
         names
+    }
+
+    /// Resolve the trait's methods from the API surface.
+    ///
+    /// Searches `api.types` for a type matching this bridge's `trait_name`,
+    /// then returns the methods from that type. Returns an empty vector if
+    /// the trait is not found (e.g., excluded from public API).
+    pub fn resolve_methods<'a>(&self, api: &'a ApiSurface) -> Vec<&'a MethodDef> {
+        api.types
+            .iter()
+            .find(|t| t.name == self.trait_name)
+            .map(|t| t.methods.iter().collect())
+            .unwrap_or_default()
     }
 }
 

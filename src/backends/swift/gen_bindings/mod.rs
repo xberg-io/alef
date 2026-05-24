@@ -1251,11 +1251,15 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
     out.push_str("    private enum CodingKeys: String, CodingKey {\n");
     out.push_str(&format!("        case {}\n", tag_key));
 
-    // Collect all unique field names across all variants
+    // Collect all unique field names across all variants. Use swift_associated_label
+    // so positional tuple-variant fields (named "0", "1", … or "_0", "_1", …) become
+    // `field0`, `field1`, … — bare digits are invalid Swift identifiers, and the
+    // init(from:)/encode(to:) bodies below already use the label-synthesized form
+    // via swift_associated_label, so the CodingKeys cases must match.
     let mut field_keys = std::collections::BTreeSet::new();
     for variant in &en.variants {
-        for field in &variant.fields {
-            let swift_name = swift_case_ident(&field.name.to_lower_camel_case());
+        for (idx, field) in variant.fields.iter().enumerate() {
+            let swift_name = swift_associated_label(&field.name, idx);
             let rust_name = field.serde_rename.as_deref().unwrap_or(&field.name);
             field_keys.insert((swift_name, rust_name.to_string()));
         }
