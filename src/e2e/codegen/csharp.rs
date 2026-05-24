@@ -200,6 +200,8 @@ impl E2eCodegen for CSharpCodegen {
                 assert_enum_fields,
                 &effective_nested_types,
                 &config.adapters,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -458,6 +460,8 @@ fn render_test_file(
     assert_enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     // Collect using imports
     let mut using_imports = String::new();
@@ -501,6 +505,8 @@ fn render_test_file(
             assert_enum_fields,
             nested_types,
             adapters,
+            config,
+            type_defs,
         );
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
@@ -807,6 +813,8 @@ fn render_test_method(
     assert_enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -885,6 +893,8 @@ fn render_test_method(
             nested_types,
             exception_class,
             adapters,
+            config,
+            type_defs,
         );
         return;
     }
@@ -969,6 +979,8 @@ fn render_test_method(
         &effective_call_nested_types,
         fixture,
         adapter_request_type_owned.as_deref(),
+        config,
+        type_defs,
     );
 
     // For streaming methods with mock_url_list (batch_crawl_stream), wrap the URL list
@@ -1231,6 +1243,8 @@ fn render_chat_stream_test_method(
     nested_types: &HashMap<String, String>,
     exception_class: &str,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -1284,6 +1298,8 @@ fn render_chat_stream_test_method(
         nested_types,
         fixture,
         adapter_request_type_cs.as_deref(),
+        config,
+        type_defs,
     );
 
     let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
@@ -1597,6 +1613,8 @@ fn build_args_and_setup(
     nested_types: &HashMap<String, String>,
     fixture: &crate::e2e::fixture::Fixture,
     adapter_request_type: Option<&str>,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1728,6 +1746,26 @@ fn build_args_and_setup(
                 ));
             }
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("csharp", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("csharp");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("null".to_string());
             continue;
         }
 

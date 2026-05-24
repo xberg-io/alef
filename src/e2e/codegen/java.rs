@@ -208,6 +208,8 @@ impl E2eCodegen for JavaCodegen {
                 &effective_nested_types,
                 nested_types_optional,
                 &config.adapters,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -539,6 +541,8 @@ fn render_test_file(
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
@@ -769,6 +773,8 @@ fn render_test_file(
             nested_types,
             nested_types_optional,
             adapters,
+            config,
+            type_defs,
         );
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
@@ -1127,6 +1133,8 @@ fn render_test_method(
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -1330,6 +1338,8 @@ fn render_test_method(
         fixture,
         adapter_request_type.as_deref(),
         streaming_owner_handle.is_some(),
+        config,
+        type_defs,
     );
 
     // Per-language `extra_args` from call overrides — verbatim trailing
@@ -1546,6 +1556,8 @@ fn build_args_and_setup(
     fixture: &crate::e2e::fixture::Fixture,
     adapter_request_type: Option<&str>,
     owner_handle_is_receiver: bool,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1655,6 +1667,26 @@ fn build_args_and_setup(
                 continue;
             }
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("java", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("java");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("null".to_string());
             continue;
         }
 

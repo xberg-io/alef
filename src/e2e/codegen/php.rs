@@ -221,6 +221,7 @@ impl E2eCodegen for PhpCodegen {
                 options_via,
                 &config.adapters,
                 php_lang_rename_all,
+                config,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -530,6 +531,7 @@ fn render_test_file(
     options_via: &str,
     adapters: &[crate::core::config::extras::AdapterConfig],
     php_lang_rename_all: String,
+    config: &ResolvedCrateConfig,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
 
@@ -616,6 +618,7 @@ fn render_test_file(
                 options_via,
                 adapters,
                 &php_lang_rename_all,
+                config,
             );
         }
         if i + 1 < fixtures.len() {
@@ -948,6 +951,7 @@ fn render_test_method(
     options_via: &str,
     adapters: &[crate::core::config::extras::AdapterConfig],
     php_lang_rename_all: &str,
+    config: &ResolvedCrateConfig,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let mut call_config = e2e_config.resolve_call_for_fixture(
@@ -1045,6 +1049,7 @@ fn render_test_method(
         streaming_owner_handle.is_some(),
         type_defs,
         php_lang_rename_all,
+        config,
     );
 
     // Check for skip_languages early
@@ -1348,6 +1353,7 @@ fn build_args_and_setup(
     owner_handle_is_receiver: bool,
     type_defs: &[crate::core::ir::TypeDef],
     php_lang_rename_all: &str,
+    config: &ResolvedCrateConfig,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1510,6 +1516,26 @@ fn build_args_and_setup(
                 continue;
             }
             parts.push(format!("${}", arg.name));
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("php", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("php");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("null".to_string());
             continue;
         }
 
