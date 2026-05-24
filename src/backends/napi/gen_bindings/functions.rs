@@ -6,7 +6,7 @@ use crate::codegen::shared::function_params;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
 use ahash::AHashSet;
-use heck::ToPascalCase;
+use heck::{ToPascalCase, ToSnakeCase};
 
 use crate::backends::napi::type_map::NapiMapper;
 
@@ -951,15 +951,17 @@ pub(super) fn gen_adapter_wrapper(
                     };
                     // Use ..Default::default() to fill remaining fields — only safe because
                     // ty_def.has_default is true, which guarantees the JS struct derives Default.
+                    let core_var_name = format!("core_{}", param_ty_name.to_snake_case());
                     let param_conversions = vec![format!(
-                        "    let core_{param_ty_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value}, ..Default::default() }}.into();",
+                        "    let {core_var_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value}, ..Default::default() }}.into();",
+                        core_var_name = core_var_name,
                         param_ty_name = param_ty_name,
                         js_struct_name = js_struct_name,
                         field_name = field_name,
                         core_crate = core_crate,
                     )];
 
-                    let core_params = format!("core_{}", param_ty_name);
+                    let core_params = core_var_name;
 
                     (param_parts, param_conversions, core_params)
                 } else {
