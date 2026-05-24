@@ -56,7 +56,12 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // umbrella dep is named after `config.name` which is consumer-dependent,
     // so the sort must run at codegen time rather than baking a static order.
     let mut dep_lines: Vec<String> = vec![
-        format!("{umbrella_dep_name} = {{ path = \"../{core_crate_dir}\"{features_str} }}"),
+        crate::scaffold::render_core_dep(
+            umbrella_dep_name,
+            &format!("../{core_crate_dir}"),
+            &features_str,
+            &api.version,
+        ),
         "futures-util = \"0.3\"".to_owned(),
         "jni = \"0.22\"".to_owned(),
         "serde_json = \"1\"".to_owned(),
