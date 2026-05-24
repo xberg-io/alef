@@ -981,6 +981,7 @@ fn render_test_method(
         adapter_request_type_owned.as_deref(),
         config,
         type_defs,
+        visitor_class_decls,
     );
 
     // For streaming methods with mock_url_list (batch_crawl_stream), wrap the URL list
@@ -1288,6 +1289,7 @@ fn render_chat_stream_test_method(
         .find(|a| a.name == call_config.function.as_str())
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+    let mut _chat_stream_class_decls: Vec<String> = Vec::new();
     let (setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1300,6 +1302,7 @@ fn render_chat_stream_test_method(
         adapter_request_type_cs.as_deref(),
         config,
         type_defs,
+        &mut _chat_stream_class_decls,
     );
 
     let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
@@ -1615,6 +1618,7 @@ fn build_args_and_setup(
     adapter_request_type: Option<&str>,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    class_decls: &mut Vec<String>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1758,7 +1762,9 @@ fn build_args_and_setup(
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
                     let emission = crate::e2e::codegen::emit_test_backend("csharp", trait_bridge, &methods, fixture);
-                    setup_lines.push(emission.setup_block);
+                    // setup_block is a private nested class declaration — must be at class
+                    // scope in C#, not inside the method body.
+                    class_decls.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
                 }
@@ -3607,31 +3613,34 @@ fn emit_csharp_stub_method(
         .collect();
     let param_list = params.join(", ");
 
+    // 8-space indent for method declarations (class body level); the caller's
+    // class declaration is at 4-space, and the emitter adds 4 more — giving 8+4=12
+    // for methods and 4+4=8 for the class line in the final file.
     if method.is_async {
         // async Task<RetType> or async Task for Unit.
         if matches!(method.return_type, TypeRef::Unit) {
             let _ = writeln!(
                 out,
-                "            public async System.Threading.Tasks.Task {method_cs}({param_list})"
+                "        public async System.Threading.Tasks.Task {method_cs}({param_list})"
             );
-            let _ = writeln!(out, "            {{");
-            let _ = writeln!(out, "                await System.Threading.Tasks.Task.CompletedTask;");
-            let _ = writeln!(out, "            }}");
+            let _ = writeln!(out, "        {{");
+            let _ = writeln!(out, "            await System.Threading.Tasks.Task.CompletedTask;");
+            let _ = writeln!(out, "        }}");
         } else {
             let _ = writeln!(
                 out,
-                "            public async System.Threading.Tasks.Task<{ret_ty}> {method_cs}({param_list})"
+                "        public async System.Threading.Tasks.Task<{ret_ty}> {method_cs}({param_list})"
             );
-            let _ = writeln!(out, "            {{");
-            let _ = writeln!(out, "                await System.Threading.Tasks.Task.CompletedTask;");
-            let _ = writeln!(out, "                return {default_val};");
-            let _ = writeln!(out, "            }}");
+            let _ = writeln!(out, "        {{");
+            let _ = writeln!(out, "            await System.Threading.Tasks.Task.CompletedTask;");
+            let _ = writeln!(out, "            return {default_val};");
+            let _ = writeln!(out, "        }}");
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
-        let _ = writeln!(out, "            public void {method_cs}({param_list}) {{ }}");
+        let _ = writeln!(out, "        public void {method_cs}({param_list}) {{ }}");
     } else {
-        let _ = writeln!(out, "            public {ret_ty} {method_cs}({param_list})");
-        let _ = writeln!(out, "                => {default_val};");
+        let _ = writeln!(out, "        public {ret_ty} {method_cs}({param_list})");
+        let _ = writeln!(out, "            => {default_val};");
     }
 }
 
@@ -3679,9 +3688,11 @@ pub fn emit_test_backend(
 
     let mut setup = String::new();
 
-    // Emit the stub class inline inside the test method body.
-    let _ = writeln!(setup, "        private class {stub_class} : {iface_name}");
-    let _ = writeln!(setup, "        {{");
+    // Emit a private nested class declaration. This block will be placed at class scope
+    // (not inside any method body) by the caller — the emitter adds 4 more spaces of
+    // indentation, so each line here carries a 4-space prefix matching the visitor pattern.
+    let _ = writeln!(setup, "    private class {stub_class} : {iface_name}");
+    let _ = writeln!(setup, "    {{");
 
     // Super-trait methods: filter by trait_source matching the configured super_trait.
     // Driven from IR — no method names are hardcoded. The `name` method returns the
@@ -3693,7 +3704,7 @@ pub fn emit_test_backend(
         {
             let method_cs = method.name.to_upper_camel_case();
             if method.name == "name" {
-                let _ = writeln!(setup, "            public string {method_cs} => \"{plugin_name}\";");
+                let _ = writeln!(setup, "        public string {method_cs}() => \"{plugin_name}\";");
             } else {
                 emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
             }
@@ -3714,7 +3725,7 @@ pub fn emit_test_backend(
         emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
     }
 
-    let _ = writeln!(setup, "        }}");
+    let _ = writeln!(setup, "    }}");
 
     // Registration expression.
     let arg_expr = if let Some(reg_fn) = trait_bridge.register_fn.as_deref() {
@@ -3731,6 +3742,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
+        type_imports: Vec::new(),
     }
 }
 
