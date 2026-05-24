@@ -26,6 +26,7 @@ use crate::core::ir::{ApiSurface, TypeDef};
 use crate::core::jni::bridge_class_name;
 
 use crate::backends::kotlin_android::naming::kotlin_package;
+use crate::backends::kotlin_android::trait_bridge;
 
 /// Emit all Kotlin source files for the AAR module.
 ///
@@ -304,6 +305,17 @@ fn emit_trait_interfaces(
             content,
             generated_header: false,
         });
+
+        // Emit the bridge object (registration/unregistration wrapper)
+        if let Some((filename, bridge_content)) =
+            trait_bridge::gen_trait_bridge_object(package, &trait_def.name, bridge, trait_def)
+        {
+            files.push(GeneratedFile {
+                path: kotlin_source_dir.join(filename),
+                content: bridge_content,
+                generated_header: false,
+            });
+        }
     }
 }
 
