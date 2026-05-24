@@ -2541,19 +2541,30 @@ pub fn emit_test_backend(
     let pascal_id = fixture.id.to_upper_camel_case();
     let module_name = format!("TestStub{pascal_id}");
 
-    // Derive the plugin name from the fixture input's "name" field, falling back to the
-    // fixture id so the stub always has a distinct, deterministic name.
+    // Derive the plugin name from the first argument's input field structure.
+    // For "register_document_extractor_trait_bridge" with input { extractor: { name: "test-extractor" } },
+    // we need to extract input.extractor.name.
+    // Pattern: fixture.input has a single key (the argument name), which is an object containing "name".
     let plugin_name = fixture
         .input
-        .get("name")
+        .as_object()
+        .and_then(|obj| obj.values().next()) // Get the first value (should be the argument object)
+        .and_then(|arg_obj| arg_obj.get("name"))
         .and_then(|v| v.as_str())
         .unwrap_or(&fixture.id)
         .to_string();
 
     let defaults = language_defaults("elixir");
 
+    // Use a fully-qualified E2e.TestStubs namespace so the module name is unique
+    // and well-scoped. Guard the definition with Code.ensure_loaded?/1 so that
+    // re-running the same compiled test file does not trigger a redefinition
+    // warning (which becomes an error under --warnings-as-errors).
+    let qualified_module = format!("E2e.TestStubs.{module_name}");
+
     let mut setup = String::new();
-    let _ = writeln!(setup, "defmodule {module_name} do");
+    let _ = writeln!(setup, "unless Code.ensure_loaded?({qualified_module}) do");
+    let _ = writeln!(setup, "defmodule {qualified_module} do");
 
     // If there is a Plugin super-trait, emit `name/0`.
     if trait_bridge.super_trait.is_some() {
@@ -2585,10 +2596,12 @@ pub fn emit_test_backend(
     }
 
     let _ = writeln!(setup, "end");
+    let _ = writeln!(setup, "end");
 
     super::TestBackendEmission {
         setup_block: setup,
-        arg_expr: module_name,
+        arg_expr: qualified_module,
+        type_imports: Vec::new(),
     }
 }
 
@@ -2680,6 +2693,68 @@ mod test_backend_tests {
         assert!(
             output.contains("def process"),
             "required method 'process' must be emitted, got:\n{output}"
+        );
+    }
+
+    /// Verify that the defmodule is guarded with `Code.ensure_loaded?` to prevent
+    /// redefinition warnings when the same compiled test file is loaded multiple times.
+    #[test]
+    fn elixir_stub_defmodule_guarded_against_redefinition() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("process", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            output.contains("unless Code.ensure_loaded?"),
+            "defmodule must be guarded with `unless Code.ensure_loaded?` to prevent redefine warnings, got:\n{output}"
+        );
+        // The module atom in the `unless` guard must match the arg_expr.
+        assert!(
+            emission.setup_block.contains(&emission.arg_expr),
+            "setup_block must reference the same module atom as arg_expr, got:\narg_expr={}\nsetup_block={}",
+            emission.arg_expr,
+            emission.setup_block
+        );
+    }
+
+    /// Verify that `fixture.input.<arg>.name` is used as the plugin name when present.
+    /// Fixture structure: { "backend": { "name": "my-backend-name" } }
+    #[test]
+    fn elixir_stub_uses_fixture_input_name_for_plugin_name() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("process", true);
+        let methods = [&required_method];
+        let mut fixture = make_fixture("my_fixture_id");
+        fixture.input = serde_json::json!({ "backend": { "name": "my-backend-name" } });
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            output.contains("\"my-backend-name\""),
+            "plugin name must come from fixture.input.<arg>.name, got:\n{output}"
+        );
+    }
+
+    /// Verify that the module is emitted under the E2e.TestStubs namespace so it is
+    /// well-scoped and does not pollute the top-level Elixir module namespace.
+    #[test]
+    fn elixir_stub_uses_scoped_namespace() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("process", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(
+            emission.arg_expr.starts_with("E2e.TestStubs."),
+            "arg_expr must be namespaced under E2e.TestStubs, got:\n{}",
+            emission.arg_expr
         );
     }
 }
