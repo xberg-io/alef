@@ -61,6 +61,7 @@ fn smoke_fixture() -> FixtureGroup {
             input: serde_json::json!({ "path": "pdf/fake_memo.pdf" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: Some("content".to_string()),

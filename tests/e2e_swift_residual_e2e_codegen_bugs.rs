@@ -121,6 +121,7 @@ fn make_fixture(id: &str, assertion: Assertion) -> Fixture {
             headers: std::collections::BTreeMap::new(),
         }),
         visitor: None,
+        args: Vec::new(),
         assertions: vec![assertion],
         source: "smoke.json".to_string(),
         http: None,

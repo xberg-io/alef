@@ -32,6 +32,7 @@ fn make_chat_fixture(id: &str) -> Fixture {
             headers: BTreeMap::new(),
         }),
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,
@@ -67,6 +68,7 @@ fn make_chat_fixture_with_field_assertion(id: &str, field: &str, expected: &str)
             headers: BTreeMap::new(),
         }),
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "equals".to_string(),
             field: Some(field.to_string()),
@@ -258,6 +260,7 @@ fn make_streaming_fixture(id: &str) -> Fixture {
             headers: BTreeMap::new(),
         }),
         visitor: None,
+        args: Vec::new(),
         assertions: vec![
             Assertion {
                 assertion_type: "equals".to_string(),

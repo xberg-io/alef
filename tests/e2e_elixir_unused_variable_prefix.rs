@@ -53,6 +53,7 @@ fn fixture_with_no_assertions() -> FixtureGroup {
             input: serde_json::json!({ "input": "test" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![], // Empty: no assertions
             source: "smoke/smoke_no_assertions.json".to_string(),
             http: None,
@@ -74,6 +75,7 @@ fn fixture_with_assertions() -> FixtureGroup {
             input: serde_json::json!({ "input": "test" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: Some("output".to_string()),

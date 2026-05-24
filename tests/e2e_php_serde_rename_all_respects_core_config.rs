@@ -56,6 +56,7 @@ fn test_fixture(input: serde_json::Value) -> Fixture {
         }],
         mock_response: None,
         visitor: None,
+        args: Vec::new(),
         source: String::new(),
         http: None,
     }

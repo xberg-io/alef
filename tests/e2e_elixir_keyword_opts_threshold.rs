@@ -55,6 +55,7 @@ fn fixture_with_input(input: serde_json::Value) -> FixtureGroup {
             input,
             mock_response: None,
             visitor: None,
+        args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: Some("output".to_string()),

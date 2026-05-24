@@ -70,6 +70,7 @@ fn build_simple_fixture() -> FixtureGroup {
             input: serde_json::json!({ "html": "<p>hi</p>" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: None,

@@ -31,6 +31,7 @@ fn make_fixture(id: &str) -> Fixture {
             headers: std::collections::BTreeMap::new(),
         }),
         visitor: None,
+        args: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,

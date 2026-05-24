@@ -54,6 +54,7 @@ fn not_error_only_fixture_group() -> FixtureGroup {
             input: serde_json::json!({ "url": "https://example.com" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,

@@ -90,6 +90,7 @@ fn build_function_call_fixture(id: &str) -> FixtureGroup {
             input: serde_json::json!({ "path": "test.pdf" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -181,6 +182,7 @@ result_is_simple = true
             input: serde_json::json!({ "data": "pdf/fake_memo.pdf" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -269,6 +271,7 @@ result_is_simple = true
             input: serde_json::json!({ "data": "images/hello.png" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -354,6 +357,7 @@ result_is_simple = true
             input: serde_json::json!({ "path": "doc.pdf", "check_exists": false }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -481,6 +485,7 @@ function = "process"
             input: serde_json::json!({ "source_code": "fn x() {}" }),
             mock_response: None,
             visitor: None,
+            args: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "count_min".to_string(),
                 field: Some("chunks".to_string()),
