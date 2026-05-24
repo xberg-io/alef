@@ -126,6 +126,32 @@ pub(crate) fn to_pep440(version: &str) -> String {
     }
 }
 
+/// Render a workspace-member core-facade dependency line in DUAL FORM.
+///
+/// Emits `crate_name = { version = "<version>", path = "<rel_path>"<features> }`.
+/// The dual form keeps in-repo dev path builds working (the `path` is always
+/// honored when the member crate is present on disk) while letting cargo's
+/// package/publish flows (e.g. `maturin sdist`, `cargo package`) strip the
+/// `path` and resolve the crate from the registry at `version`.
+///
+/// `features` is the already-formatted suffix as produced by
+/// [`core_dep_features`] — either empty or `, features = ["a", "b"]`. It is
+/// appended verbatim so callers control feature selection.
+///
+/// `version` is the resolved workspace version (the same value used for the
+/// generated crate's `[package].version` and by version-sync). The `path` is
+/// never altered, so dev builds against the local workspace continue to work.
+/// When `version` is empty (no resolvable workspace version, e.g. some unit
+/// fixtures), the line falls back to the path-only form so no invalid
+/// `version = ""` is emitted.
+pub(crate) fn render_core_dep(crate_name: &str, rel_path: &str, features: &str, version: &str) -> String {
+    if version.is_empty() {
+        format!("{crate_name} = {{ path = \"{rel_path}\"{features} }}")
+    } else {
+        format!("{crate_name} = {{ version = \"{version}\", path = \"{rel_path}\"{features} }}")
+    }
+}
+
 ///
 /// Merges crate-level `extra_dependencies` with per-language overrides via
 /// `extra_deps_for_language`, then serializes each entry as a TOML line suitable
@@ -135,26 +161,62 @@ pub(crate) fn to_pep440(version: &str) -> String {
 /// - A string (version only): `cratename = "1.0"`
 /// - A TOML table (with path/features/etc.): `cratename = { path = "../foo", features = ["bar"] }`
 ///
+/// Workspace members: when an entry is a path-only table (a `path` key, no
+/// `version` key) whose crate name resolves to a workspace member, the resolved
+/// workspace version is injected so the table becomes
+/// `{ path = "../foo", version = "<v>" }` (dual form). This mirrors
+/// [`render_core_dep`] for the core facade and lets cargo-package flows strip
+/// the path to a registry version-dependency. `alef.toml` entries stay
+/// path-only — the version is injected here at scaffold time. Non-member
+/// external deps (e.g. `anyhow = "1.0"`) are emitted unchanged.
+///
 /// Returns an empty string if no extra dependencies are configured.
 pub(crate) fn render_extra_deps(config: &ResolvedCrateConfig, lang: Language) -> String {
     let deps = config.extra_deps_for_language(lang);
     if deps.is_empty() {
         return String::new();
     }
+    let member_versions = workspace_member_versions(config);
     let mut lines: Vec<String> = deps
         .iter()
         .map(|(name, value)| match value {
             toml::Value::String(version) => format!("{name} = \"{version}\""),
-            other => {
-                // Serialize as inline TOML table. toml::to_string wraps in a [table] header,
-                // so we use the Display of the Value directly which gives the inline form.
-                format!("{name} = {other}")
+            toml::Value::Table(table) => {
+                // Inject the resolved workspace version into path-only member
+                // tables so cargo-package flows can resolve them from the
+                // registry. Leave non-members and already-versioned tables as-is.
+                let needs_version = table.contains_key("path") && !table.contains_key("version");
+                if let (true, Some(member_version)) = (needs_version, member_versions.get(name)) {
+                    let mut injected = table.clone();
+                    injected.insert("version".to_string(), toml::Value::String(member_version.clone()));
+                    format!("{name} = {}", toml::Value::Table(injected))
+                } else {
+                    format!("{name} = {value}")
+                }
             }
+            other => format!("{name} = {other}"),
         })
         .collect();
     // Sort for deterministic output.
     lines.sort();
     lines.join("\n")
+}
+
+/// Resolve the workspace-member crate name → version map for the crate's
+/// workspace root.
+///
+/// Returns an empty map when no workspace root is configured or the root
+/// `Cargo.toml` cannot be discovered/parsed — in that case no version is
+/// injected and path-only deps are emitted unchanged (matching dev behavior
+/// outside a resolvable workspace, e.g. unit tests).
+fn workspace_member_versions(config: &ResolvedCrateConfig) -> std::collections::BTreeMap<String, String> {
+    let Some(root) = config.workspace_root.as_deref() else {
+        return std::collections::BTreeMap::new();
+    };
+    match crate::publish::workspace::workspace_member_crates(root) {
+        Ok(members) => members.versions,
+        Err(_) => std::collections::BTreeMap::new(),
+    }
 }
 
 ///
