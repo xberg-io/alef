@@ -236,7 +236,7 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     // Trait-bridge shims (Java_*_nativeRegister<Trait> / nativeUnregister<Trait> /
     // nativeClear<Trait>s).  Bridges with `kotlin_android` in `exclude_languages`
     // are skipped.
-    emit_trait_bridge_shims(&mut out, config, &package, &bridge);
+    emit_trait_bridge_shims(&mut out, config, api, &package, &bridge);
 
     out
 }
@@ -246,16 +246,12 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
 /// For each bridge whose `exclude_languages` does not contain `kotlin_android`,
 /// emits up to three `Java_*` symbols:
 ///
+/// - `nativeRegister<Trait>(impl: I<Trait>)` — creates a global JNI reference,
+///   calls the host crate's `register_fn`, and manages bridge lifetime.
 /// - `nativeUnregister<Trait>(name: String)` — calls the host crate's
 ///   `unregister_fn(&name)` and surfaces any `Err(_)` as a thrown JNI exception.
 /// - `nativeClear<Trait>s()` — calls the host crate's `clear_fn()` similarly.
-/// - `nativeRegister<Trait>(impl: I<Trait>)` — placeholder that throws a
-///   `not yet implemented` exception.  Full JNI upcall-stub register support
-///   requires global JVM references + per-method trampolines and is tracked as
-///   a follow-up; declaring the symbol here preserves binding-surface parity
-///   with the JVM Panama backend so the API contract is the same across both
-///   targets.
-fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, package: &str, bridge: &str) {
+fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, api: &ApiSurface, package: &str, bridge: &str) {
     let bridges: Vec<_> = config
         .trait_bridges
         .iter()
@@ -270,11 +266,16 @@ fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, packa
     for bridge_cfg in &bridges {
         use heck::ToUpperCamelCase;
         let trait_pascal = bridge_cfg.trait_name.to_upper_camel_case();
+
+        // Find the trait definition for method iteration
+        let trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
+
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
-            let _ = register_fn; // host-side function name reserved for full upcall impl
             let native_name = format!("nativeRegister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
-            emit_trait_register_stub(out, &symbol, &trait_pascal);
+            if let Some(trait_def) = trait_def {
+                emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def);
+            }
         }
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             let native_name = format!("nativeUnregister{trait_pascal}");
@@ -289,16 +290,38 @@ fn emit_trait_bridge_shims(out: &mut String, config: &ResolvedCrateConfig, packa
     }
 }
 
-/// Emit a placeholder `Java_*_nativeRegister<Trait>` shim that throws a
-/// `not yet implemented` JNI exception.  Surfaces parity at the symbol level
-/// without committing to a specific upcall-stub strategy.
-fn emit_trait_register_stub(out: &mut String, symbol: &str, trait_pascal: &str) {
+/// Emit `Java_*_nativeRegister<Trait>(impl: I<Trait>)` shim that creates a global JNI
+/// reference, calls the host crate's configured `register_fn`, and manages bridge lifetime.
+fn emit_trait_register_shim(out: &mut String, symbol: &str, _trait_pascal: &str, register_fn: &str, _trait_def: &TypeDef) {
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    _impl_obj: JObject,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    impl_obj: JObject,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
     ));
+
+    // Extract the name from the impl object by calling its name() method
+    out.push_str("    let name = match jni_call_string_method(env, impl_obj, \"name\", \"()Ljava/lang/String;\") {\n");
+    out.push_str("        Ok(n) => n,\n");
+    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"Failed to get implementation name: {e}\")); return; }\n");
+    out.push_str("    };\n\n");
+
+    // Create a global reference to keep the Kotlin impl alive
+    out.push_str("    let global_impl = match env.new_global_ref(impl_obj) {\n");
+    out.push_str("        Ok(g) => g,\n");
+    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"Failed to create global reference: {e}\")); return; }\n");
+    out.push_str("    };\n\n");
+
+    // Wrap the global ref in a bridge handle (Arc<JObject> for lifetime management)
+    out.push_str("    let bridge_handle = std::sync::Arc::new(global_impl.clone());\n\n");
+
+    // Call the host crate's register function
     out.push_str(&format!(
-        "    throw_jni_error(env, \"register{trait_pascal}: JNI upcall trait registration is not yet implemented on Android\");\n"
+        "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| core_crate::{register_fn}(&name, bridge_handle))) else {{\n"
     ));
+    out.push_str("        return;\n");
+    out.push_str("    };\n");
+    out.push_str("    if let Err(e) = result {\n");
+    out.push_str("        // On registration failure, the global ref is cleaned up when bridge_handle is dropped\n");
+    out.push_str("        throw_jni_error(env, &format!(\"{e}\"));\n");
+    out.push_str("    }\n");
     out.push_str("}\n\n");
 }
 
@@ -369,6 +392,15 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("        Ok(o) => o.into_raw(),\n");
     out.push_str("        Err(_) => std::ptr::null_mut(),\n");
     out.push_str("    }\n");
+    out.push_str("}\n");
+    out.push('\n');
+
+    out.push_str("fn jni_call_string_method(env: &mut Env<'_>, obj: JObject, method_name: &str, method_sig: &str) -> std::result::Result<String, jni::errors::Error> {\n");
+    out.push_str("    let class = env.get_object_class(obj)?;\n");
+    out.push_str("    let method_id = env.get_method_id(&class, method_name, method_sig)?;\n");
+    out.push_str("    let result = env.call_method_unchecked(obj, method_id, jni::objects::ReturnType::Object, &[])?\n");
+    out.push_str("        .l()?;\n");
+    out.push_str("    jstring_to_string(env, JString::from(result))\n");
     out.push_str("}\n");
     out.push('\n');
 

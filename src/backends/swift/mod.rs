@@ -5,7 +5,7 @@
 //! with a separate CI matrix; no platform-specific codegen is needed here.
 //! Real codegen (swift-bridge wiring, type generation) lands in Phase 2B.
 
-mod gen_bindings;
+pub mod gen_bindings;
 pub mod gen_rust_crate;
 pub mod naming;
 mod template_env;

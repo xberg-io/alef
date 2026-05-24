@@ -3,10 +3,10 @@ use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use crate::core::config::{
-    AdapterConfig, AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir,
+    AdapterConfig, AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir,
 };
 use crate::core::ir::{
-    ApiSurface, DefaultValue, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef,
 };
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 use crate::backends::swift::gen_rust_crate;
 use crate::backends::swift::type_map::SwiftMapper;
+
+pub mod trait_bridge;
 
 pub struct SwiftBackend;
 
@@ -454,6 +456,34 @@ impl Backend for SwiftBackend {
         let rust_bridge_sources = package_root.join("Sources").join("RustBridge");
         for box_file in emit_inbound_box_files(api, config, &rust_bridge_sources) {
             files.push(box_file);
+        }
+
+        // Emit trait bridge protocol and adapter files for outbound plugins.
+        // Swift{Trait}Bridge.swift files are emitted into Sources/<Module>/ alongside the main binding file.
+        let trait_bridge_configs: Vec<(String, &TraitBridgeConfig, &TypeDef)> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| {
+                api.types
+                    .iter()
+                    .find(|t| t.is_trait && t.name == b.trait_name)
+                    .map(|t| (b.trait_name.clone(), b, t))
+            })
+            .collect();
+
+        let module_dir = if config.explicit_output.swift.is_some() {
+            base_path.clone()
+        } else {
+            base_path.join("Sources").join(&module_name)
+        };
+
+        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs) {
+            let path = module_dir.join(&filename);
+            files.push(GeneratedFile {
+                path,
+                content,
+                generated_header: false,
+            });
         }
 
         Ok(files)
