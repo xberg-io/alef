@@ -249,6 +249,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
+        type_imports: Vec::new(),
     }
 }
 
@@ -273,7 +274,17 @@ fn emit_ts_stub_method(
         .collect();
     let params_str = params.join(", ");
 
-    let default_val = defaults.emit_default(&method.return_type);
+    // Named types in e2e stubs must return JSON-serialisable strings: the NAPI-RS
+    // bridge calls the JS method, coerces the return value to a string via
+    // `coerce_to_string()`, then parses it as JSON into the Rust type.  Returning
+    // `new TypeName()` would produce a JS object whose `.toString()` yields
+    // `"[object Object]"` — not valid JSON — causing a deserialization error in the
+    // bridge.  Return the string literal `"{}"` instead; it round-trips cleanly
+    // through `serde_json` as an empty object.
+    let default_val = match &method.return_type {
+        crate::core::ir::TypeRef::Named(_) => "\"{}\"".to_string(),
+        other => defaults.emit_default(other),
+    };
 
     if method.is_async {
         let _ = writeln!(
@@ -449,6 +460,18 @@ result_var = "result"
         assert_eq!(
             emission.arg_expr, "new _TestStub_ts_test_fixture()",
             "arg_expr should use new constructor"
+        );
+
+        // Named return type must use "{}" not new WorkResult().
+        assert!(
+            emission.setup_block.contains("return \"{}\";"),
+            "Named return type should emit \"{{}}\" not a constructor call, got: {}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("new WorkResult()"),
+            "Named return type must not emit a constructor call, got: {}",
+            emission.setup_block
         );
     }
 
