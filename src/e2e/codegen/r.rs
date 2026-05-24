@@ -364,6 +364,8 @@ fn render_test_case(
             .filter_map(|o| o.options_type.as_deref())
             .find(|name| !name.starts_with("Js"))
     });
+    // Build visitor setup and args if present
+    let mut setup_lines = Vec::new();
     let args_str = build_args_string(
         &fixture.input,
         fixture.resolved_args(call_config),
@@ -372,6 +374,7 @@ fn render_test_case(
         fixture,
         config,
         type_defs,
+        &mut setup_lines,
     );
 
     // Per-call R extra_args: positional trailing arguments appended verbatim.
@@ -390,9 +393,6 @@ fn render_test_case(
             format!("{args_str}, {extra}")
         }
     };
-
-    // Build visitor setup and args if present
-    let mut setup_lines = Vec::new();
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
         build_r_visitor(&mut setup_lines, visitor_spec);
         // R rejects duplicated named arguments ("matched by multiple actual arguments"), so
@@ -520,6 +520,7 @@ fn build_args_string(
     fixture: &Fixture,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    setup_lines: &mut Vec<String>,
 ) -> String {
     if args.is_empty() {
         // No declared args means the wrapper takes zero parameters. Always
@@ -648,6 +649,10 @@ fn build_args_string(
                             .map(|t| t.methods.iter().collect())
                             .unwrap_or_default();
                         let emission = crate::e2e::codegen::emit_test_backend("r", trait_bridge, &methods, fixture);
+                        // Emit the backend list definition before the call site.
+                        if !emission.setup_block.is_empty() {
+                            setup_lines.push(emission.setup_block.trim_end().to_string());
+                        }
                         return Some(format!("{arg_name} = {}", emission.arg_expr));
                     }
                 }
@@ -1459,14 +1464,13 @@ pub fn emit_test_backend(
 
     let _ = writeln!(setup, "  )");
 
-    // Registration expression.
-    let register_fn = trait_bridge.register_fn.as_deref().unwrap_or("register_backend");
-
-    let arg_expr = format!("{register_fn}({var_name})");
-
+    // The arg_expr is just the variable name — the outer call (the fixture's
+    // configured function) supplies the registration wrapper.  The setup_block
+    // containing the list definition must be emitted before the call site.
     super::TestBackendEmission {
         setup_block: setup,
-        arg_expr,
+        arg_expr: var_name,
+        type_imports: Vec::new(),
     }
 }
 
@@ -1544,10 +1548,10 @@ mod tests {
             "setup_block should contain the method 'do_work', got:\n{}",
             emission.setup_block
         );
-        // The register expression must use the provided register_fn.
+        // The arg_expr is just the variable name — the outer fixture call handles registration.
         assert!(
-            emission.arg_expr.contains("register_test_trait"),
-            "arg_expr should invoke register_test_trait, got:\n{}",
+            emission.arg_expr.contains("r_backend_"),
+            "arg_expr should be the variable name (r_backend_*), got:\n{}",
             emission.arg_expr
         );
         // The super-trait name entry must be present.
