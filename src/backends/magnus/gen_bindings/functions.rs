@@ -4,7 +4,7 @@ use crate::codegen::generators;
 use crate::codegen::shared::{binding_fields, function_params};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::{Language, ResolvedCrateConfig};
-use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ReceiverKind, TypeRef};
+use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, ReceiverKind, TypeRef};
 use ahash::AHashSet;
 
 use crate::backends::magnus::type_map::MagnusMapper;
@@ -227,6 +227,68 @@ fn gen_scan_args_prologue_with_defaults(
     lines.join("\n    ")
 }
 
+/// Build pre-call `let` bindings for AHashMap<Cow, Value> params.
+///
+/// When a Rust core function takes `Option<&AHashMap<Cow<'static, str>, Value>>`,
+/// the Magnus wrapper receives `Option<HashMap<String, String>>` (Ruby Hash decoded
+/// to Rust). A two-step conversion is needed:
+/// (1) Bind an owned AHashMap to a named `let __<name>_ahash` before the call so
+///     the borrow in the call arg lives long enough.
+/// (2) Return the bound variable name for use in the call arg.
+fn magnus_ahash_pre_call_bindings(params: &[ParamDef]) -> Vec<String> {
+    let mut bindings = Vec::new();
+    for p in params {
+        if let TypeRef::Map(_, _) = &p.ty {
+            if p.map_is_ahash && p.map_key_is_cow {
+                let bound_name = format!("__{}_ahash", p.name);
+                bindings.push(format!(
+                    "    let {bound_name} = {}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>()); ",
+                    p.name
+                ));
+            }
+        }
+    }
+    bindings
+}
+
+/// Build call argument string, substituting AHashMap pre-bound variables for
+/// any AHashMap<Cow, Value> params (which were re-bound in magnus_ahash_pre_call_bindings).
+fn magnus_call_args_with_ahash(
+    params: &[ParamDef],
+    _opaque_types: &AHashSet<String>,
+    base_call_args: &str,
+) -> String {
+    // If no AHashMap params, return as-is.
+    if !params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Map(_, _)) && p.map_is_ahash && p.map_key_is_cow)
+    {
+        return base_call_args.to_string();
+    }
+    // Split the comma-separated call_args and zip with params to substitute.
+    let terms: Vec<&str> = base_call_args.split(", ").collect();
+    let result: Vec<String> = terms
+        .into_iter()
+        .zip(params.iter())
+        .map(|(term, p)| {
+            if let TypeRef::Map(_, _) = &p.ty {
+                if p.map_is_ahash && p.map_key_is_cow {
+                    let bound_name = format!("__{}_ahash", p.name);
+                    return if p.optional && p.is_ref {
+                        format!("{bound_name}.as_ref()")
+                    } else if p.is_ref {
+                        format!("{bound_name}.as_ref().unwrap()")
+                    } else {
+                        bound_name
+                    };
+                }
+            }
+            term.to_string()
+        })
+        .collect();
+    result.join(", ")
+}
+
 /// Generate a free function binding.
 pub(super) fn gen_function(
     func: &FunctionDef,
@@ -332,6 +394,12 @@ pub(super) fn gen_function(
             }
         }
     }
+    // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
+    // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
+    // call site can borrow a properly-typed AHashMap.
+    let ahash_bindings = magnus_ahash_pre_call_bindings(&func.params);
+    deser_lines.extend(ahash_bindings);
+
     // When variadic, prepend scan_args prologue to unpack individual bindings from args slice.
     let scan_args_prologue = if variadic {
         format!(
@@ -358,11 +426,12 @@ pub(super) fn gen_function(
     });
 
     let body = if can_delegate || serde_recoverable {
-        let call_args = if serde_recoverable || needs_vec_named_let_binding {
+        let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
             generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
         } else {
             generators::gen_call_args(&func.params, opaque_types)
         };
+        let call_args = magnus_call_args_with_ahash(&func.params, opaque_types, &base_call_args);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {
@@ -745,6 +814,12 @@ pub(super) fn gen_async_function(
             }
         }
     }
+    // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
+    // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
+    // call site can borrow a properly-typed AHashMap.
+    let ahash_bindings = magnus_ahash_pre_call_bindings(&func.params);
+    deser_lines.extend(ahash_bindings);
+
     let scan_args_prologue = if variadic {
         format!(
             "{}\n    ",
@@ -769,11 +844,12 @@ pub(super) fn gen_async_function(
     });
 
     let body = if can_delegate || serde_recoverable {
-        let call_args = if serde_recoverable || needs_vec_named_let_binding {
+        let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
             generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
         } else {
             generators::gen_call_args(&func.params, opaque_types)
         };
+        let call_args = magnus_call_args_with_ahash(&func.params, opaque_types, &base_call_args);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {

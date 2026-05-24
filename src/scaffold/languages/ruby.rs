@@ -39,6 +39,12 @@ pub(crate) fn scaffold_ruby_cargo(
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
+    // Magnus wrapper emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
+    let needs_ahash = api
+        .functions
+        .iter()
+        .any(|f| f.params.iter().any(|p| p.map_is_ahash));
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
 
     // Collect all [dependencies] entries then sort alphabetically so the emitted
@@ -57,6 +63,9 @@ pub(crate) fn scaffold_ruby_cargo(
     ];
     if has_async || has_trait_bridges {
         dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }".to_owned());
+    }
+    if needs_ahash && !dep_lines.iter().any(|l| l.starts_with("ahash")) {
+        dep_lines.push("ahash = \"0.8\"".to_owned());
     }
     if has_trait_bridges && !dep_lines.iter().any(|l| l.starts_with("async-trait")) {
         dep_lines.push("async-trait = \"0.1\"".to_owned());
