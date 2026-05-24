@@ -41,6 +41,7 @@ pub fn render_test_file(
     type_defs: &[TypeDef],
     enums: &[EnumDef],
     wasm_type_prefix: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
 ) -> String {
     // `lang` is used for wasm visitor arg placement and override routing
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
@@ -378,6 +379,7 @@ pub fn render_test_file(
                 type_defs,
                 enums,
                 wasm_type_prefix,
+                config,
             );
         }
         if i + 1 < fixtures.len() {
@@ -592,6 +594,7 @@ fn render_test_case(
     type_defs: &[TypeDef],
     enums: &[EnumDef],
     wasm_type_prefix: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
 ) {
     let mut call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
@@ -684,6 +687,7 @@ fn render_test_case(
         type_defs,
         enums,
         wasm_type_prefix,
+        config,
     );
 
     if !extra_args.is_empty() {
@@ -1400,6 +1404,7 @@ fn build_args_and_setup(
     type_defs: &[TypeDef],
     enums: &[EnumDef],
     wasm_type_prefix: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1481,6 +1486,26 @@ fn build_args_and_setup(
                 "const {name} = [{paths_literal}].map((p) => p.startsWith(\"http\") ? p : {name}Base + p);"
             ));
             parts.push(name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend(lang, trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented(lang);
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("null".to_string());
             continue;
         }
 

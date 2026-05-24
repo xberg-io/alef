@@ -26,6 +26,8 @@ pub(super) fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
     e2e_config: &E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
@@ -133,6 +135,8 @@ pub(super) fn render_test_function(
         enum_fields,
         handle_nested_types,
         handle_dict_types,
+        config,
+        type_defs,
     );
 
     // Build visitor class if present
@@ -592,6 +596,8 @@ fn build_args_and_setup(
     enum_fields: &HashMap<String, String>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, Vec<String>) {
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
@@ -610,6 +616,27 @@ fn build_args_and_setup(
                 handle_nested_types,
                 handle_dict_types,
             );
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = super::emit_test_backend(trait_bridge, &methods, fixture);
+                    arg_bindings.push(emission.setup_block);
+                    kwarg_exprs.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            // Fall back to unimplemented if trait not found
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("python");
+            arg_bindings.push(format!("    # {}", emission.arg_expr));
+            kwarg_exprs.push("None".to_string());
             continue;
         }
 
