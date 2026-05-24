@@ -1113,7 +1113,7 @@ fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() 
     assert!(
         mix_exs
             .content
-            .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src native/my_lib_nif/build.rs)"),
+            .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src)"),
         "content: {}",
         mix_exs.content
     );
@@ -1138,7 +1138,7 @@ elixir = "crates/my-lib-elixir/src/"
     assert!(
         mix_exs
             .content
-            .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src native/my_lib_nif/build.rs ../../crates/my-lib-elixir/src/*.ex)"),
+            .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src ../../crates/my-lib-elixir/src/*.ex)"),
         "content: {}",
         mix_exs.content
     );

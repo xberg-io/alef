@@ -1397,9 +1397,15 @@ fn build_args_and_setup(
                         for (i, json_str) in json_strs.iter().enumerate() {
                             let escaped = escape_swift(json_str);
                             let item_var = format!("_item_{var_name}_{i}");
-                            // Call RustBridge.{Type}FromJson, which delegates to Rust's serde deserializer.
-                            // The RustBridge function understands the serde(tag = "type") format.
-                            setup_lines.push(format!("let {item_var} = try RustBridge.{from_json_fn}(\"{escaped}\")"));
+                            // Call the wrapper-module's `{type}FromJson` helper rather than the
+                            // raw `RustBridge` one so the resulting element is the
+                            // wrapper-module's `PageAction` (etc.), matching the type the
+                            // function signature expects. The wrapper internally delegates to
+                            // `RustBridge.{type}FromJson` which understands the
+                            // serde(tag = "type") format.
+                            setup_lines.push(format!(
+                                "let {item_var} = try {module_name}.{from_json_fn}(\"{escaped}\")"
+                            ));
                             item_vars.push(item_var);
                         }
 
