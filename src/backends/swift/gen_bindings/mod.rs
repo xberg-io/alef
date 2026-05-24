@@ -1396,6 +1396,56 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
     out.push_str("    }\n");
 }
 
+/// Emits a custom Codable conformance for a `#[serde(untagged)]` enum so
+/// Swift round-trips the same wire shape as serde — i.e. a bare value
+/// (`"foo"`, `[1,2,3]`, `{...}`) rather than the externally-tagged
+/// `{"variant": payload}` shape that `Codable`'s auto-synthesised
+/// implementation produces for enum data variants.
+///
+/// Each variant must have exactly one positional payload (the `field0`
+/// label emitted by `swift_associated_label`). The init tries each variant
+/// in declaration order via `singleValueContainer().decode(T.self)` until
+/// one succeeds, mirroring serde's untagged deserialiser; if none match,
+/// throws `DecodingError.dataCorruptedError`. Encoder writes the payload
+/// value directly into a single-value container.
+fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
+    // init(from:)
+    out.push_str("    public init(from decoder: Decoder) throws {\n");
+    out.push_str("        let container = try decoder.singleValueContainer()\n");
+    for variant in &en.variants {
+        if variant.fields.len() != 1 {
+            continue;
+        }
+        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+        let payload_ty = mapper.map_type(&variant.fields[0].ty);
+        let label = swift_associated_label(&variant.fields[0].name, 0);
+        out.push_str(&format!(
+            "        if let value = try? container.decode({payload_ty}.self) {{\n            self = .{case_name}({label}: value)\n            return\n        }}\n"
+        ));
+    }
+    out.push_str(
+        "        throw DecodingError.dataCorruptedError(in: container, debugDescription: \"no matching untagged variant\")\n",
+    );
+    out.push_str("    }\n\n");
+
+    // encode(to:)
+    out.push_str("    public func encode(to encoder: Encoder) throws {\n");
+    out.push_str("        var container = encoder.singleValueContainer()\n");
+    out.push_str("        switch self {\n");
+    for variant in &en.variants {
+        if variant.fields.len() != 1 {
+            continue;
+        }
+        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+        let label = swift_associated_label(&variant.fields[0].name, 0);
+        out.push_str(&format!(
+            "        case .{case_name}(let {label}):\n            try container.encode({label})\n"
+        ));
+    }
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+}
+
 /// Emits a Swift enum or typealias for the given `EnumDef`.
 /// Non-Codable enums (`has_serde: false`) become typealiases to RustBridge.X.
 /// Codable enums (`has_serde: true`) are emitted as native Swift enums.
@@ -1477,8 +1527,15 @@ fn emit_enum(
         return;
     }
 
-    // Check if this enum uses serde tagging (internally-tagged)
+    // Check if this enum uses serde tagging (internally-tagged) or untagged.
     let has_serde_tag = en.serde_tag.is_some() && !en.serde_untagged;
+    let is_serde_untagged = en.serde_untagged
+        && en.variants.iter().any(|v| !v.fields.is_empty())
+        && en
+            .variants
+            .iter()
+            .filter(|v| !v.fields.is_empty())
+            .all(|v| v.fields.len() == 1);
 
     if has_serde_tag {
         // Emit as enum with custom Codable for internally-tagged format
@@ -1488,6 +1545,16 @@ fn emit_enum(
         }
         out.push('\n');
         emit_serde_tagged_codable(en, out, mapper);
+        out.push_str("}\n");
+    } else if is_serde_untagged {
+        // Emit as enum with custom Codable that matches serde's untagged
+        // wire format (bare value, no `{"variant": ...}` wrapper).
+        out.push_str(&format!("public enum {}: Codable, Sendable, Hashable {{\n", en.name));
+        for variant in &en.variants {
+            emit_variant_with_data(variant, out, mapper);
+        }
+        out.push('\n');
+        emit_serde_untagged_codable(en, out, mapper);
         out.push_str("}\n");
     } else {
         // Emit as enum with auto-synthesized Codable (externally-tagged)
