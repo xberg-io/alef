@@ -1,0 +1,11 @@
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn {{ register_fn }}(env: rustler::Env<'_>, pid: rustler::LocalPid) -> Result<rustler::Atom, rustler::Error> {
+    let wrapper = {{ wrapper_name }}::new(pid);
+    let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(wrapper);
+
+    {{ registry_getter }}()
+        .write()
+        .register(arc{{ extra_args }})
+        .map_err(|e| rustler::Error::term(format!("Failed to register trait backend: {}", e)))
+        .map(|_| rustler::atoms::ok())
+}

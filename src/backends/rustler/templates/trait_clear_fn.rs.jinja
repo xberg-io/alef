@@ -1,0 +1,6 @@
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn {{ clear_fn }}(_env: rustler::Env<'_>) -> Result<rustler::Atom, rustler::Error> {
+    {{ host_path }}()
+        .map_err(|e| rustler::Error::term(format!("{}", e)))
+        .map(|_| rustler::atoms::ok())
+}

@@ -1,0 +1,9 @@
+impl {{ wrapper_name }} {
+    /// Create a new bridge wrapping an Elixir PID.
+    ///
+    /// The PID is stored directly (it is Copy + Send + Sync).
+    /// Messages are dispatched via the trait methods using channels for sync/async dispatch.
+    pub fn new(pid: rustler::LocalPid) -> Self {
+        Self { inner: pid }
+    }
+}

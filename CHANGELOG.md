@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-backend-rustler: complete trait bridge code generation for Elixir NIF bindings.** The Rustler backend now generates all missing trait-bridge templates: `trait_constructor.rs.jinja` (builds wrapper from Elixir PID), `trait_registration_fn.rs.jinja` (registers trait impl in Rust registry via `#[rustler::nif(schedule = "DirtyCpu")]`), `trait_unregistration_fn.rs.jinja` (removes plugin by name), and `trait_clear_fn.rs.jinja` (clears all plugins). These templates parallel PyO3, Magnus, and other backends, enabling Elixir modules to implement Rust traits (e.g., `OcrBackend`, `DocumentExtractor`) via message-passing to GenServer-backed Elixir implementations. The codegen uses Rustler's `LocalPid` (Copy + Send + Sync) for message dispatch and provides comprehensive unit + snapshot tests verifying wrapper struct generation, trait impl bodies (sync via `send_and_clear`, async via `spawn_blocking`), and registration lifecycle. (`src/backends/rustler/templates/trait_*.rs.jinja`, `tests/backends_rustler_trait_bridge_snapshot.rs`)
+
 ## [0.19.0] - 2026-05-24
 
 ### Added
