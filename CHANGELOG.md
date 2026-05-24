@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-scaffold: emit a root-level `.gitattributes` marking all generated output directories as `linguist-generated=true`.** Running `alef scaffold` now produces a `.gitattributes` (create-once seed; not overwritten on re-scaffold unless `--clean` is passed) that collapses generated files in GitHub PR diffs. Coverage: `packages/{lang}/**` for language-native packages; `crates/{name}-py/**`, `crates/{name}-php/**`, `crates/{name}-ffi/**`, `crates/{name}-jni/**` for Rust binding crates that sit alongside their package directories; `crates/{name}-node/**` (resolves `crate_dir` override, bypasses `scaffold_output`); `packages/kotlin-native/**` or `packages/kotlin-mpp/**` for non-JVM Kotlin targets; and the configured `[e2e] output` directory (default `e2e/`). (`src/scaffold/mod.rs`)
+
 ## [0.19.1] - 2026-05-24
 
 ### Fixed
