@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-cli/pipeline: `{python_version}` placeholder in `[[workspace.sync.text_replacements]]`.** Consumers can now reference the PEP 440-normalized form of the canonical version inside text replacements that target PyPI metadata. `{version}` continues to emit the raw Cargo.toml form (`1.4.0-rc.30`); `{python_version}` emits the normalized form (`1.4.0rc30`) using the same `to_pep440` helper that already drives `packages/python/pyproject.toml`'s `version =` line. Surfaced in liter-llm where `test_apps/python/pyproject.toml`'s pinned `liter-llm==<v>` dep needed the PEP 440 form to match what PyPI actually serves — uv accepts the dashed form too, but the canonical form avoids ambiguity in retry/verify flows. (`src/cli/pipeline/version.rs`)
+
 ### Fixed
 
 - **alef-backend-java: fix NullPointerException on record constructor call for non-optional fields with `#[serde(default)]`.** When a field has `#[serde(default)]` (e.g., `use_cache: bool` with `#[serde(default = "default_true")]`), the Java code generator was boxing the **Builder field** to `Boolean useCache = null` (so null represents "not set"), but the **record parameter** remained primitive `boolean useCache`. Jackson's build() method then passed the boxed `null` to the record constructor expecting primitive `boolean`, causing auto-unbox of null → `NullPointerException`. The fix boxes **both** the record parameter and the Builder field when a field has `#[serde(default)]` or is a Duration. The @Nullable annotation is also added to these boxed parameters. The compact constructor (which applies Rust defaults) now checks for null instead of 0 when the field is boxed, and adds the "L" suffix only for actual 64-bit Long targets (Duration or u64/i64 with serde(default)), not for Integer or other boxed types. This fixes 48 cascading `Cannot construct instance of ExtractionConfig$Builder: Cannot invoke "java.lang.Boolean.booleanValue()" because "this.useCache" is null` errors across e2e tests. (`src/backends/java/gen_bindings/types.rs`)

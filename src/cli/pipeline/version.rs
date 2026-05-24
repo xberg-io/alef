@@ -934,8 +934,15 @@ pub fn sync_versions(
                                 // substitution is a no-op.
                                 text_replacement_paths.insert(path.clone());
                                 if let Ok(content) = std::fs::read_to_string(&path) {
-                                    let search = replacement.search.replace("{version}", &version);
-                                    let replace = replacement.replace.replace("{version}", &version);
+                                    let pep440 = to_pep440(&version);
+                                    let search = replacement
+                                        .search
+                                        .replace("{python_version}", &pep440)
+                                        .replace("{version}", &version);
+                                    let replace = replacement
+                                        .replace
+                                        .replace("{python_version}", &pep440)
+                                        .replace("{version}", &version);
                                     if let Ok(re) = regex::Regex::new(&search) {
                                         let new_content = re.replace_all(&content, replace.as_str()).to_string();
                                         if new_content != content {
