@@ -26,13 +26,18 @@ impl ResolvedCrateConfig {
     /// For Node and Wasm, checks `crate_dir` override before the default formula.
     pub fn package_dir(&self, lang: Language) -> String {
         // First priority: use resolved output_paths from [crates.output] config.
-        // Skip for Node and Wasm — their per-crate default is `crates/{name}-{lang}`
-        // (the live binding-crate directory), which the workspace OutputTemplate
-        // default `packages/{lang}` does not match. The Node/Wasm match arms below
-        // already honour `crate_dir` overrides and the live default, so falling
-        // through preserves the explicit-input-wins-over-template contract.
-        if !matches!(lang, Language::Node | Language::Wasm)
-            && let Some(output_path) = self.output_paths.get(&lang.to_string())
+        // Skip for Node, Wasm, Elixir, and Ruby — their per-crate default points
+        // to the live binding-source directory (Node/Wasm: `crates/{name}-{lang}`,
+        // Elixir: `packages/elixir/native/<nif>/src/`, Ruby:
+        // `packages/ruby/ext/<ext>/src/`), which is NOT the same as the language's
+        // package_dir (`packages/elixir`, `packages/ruby`, etc.). The match arms
+        // below already honour `crate_dir`/`scaffold_output` overrides and the
+        // live default, so falling through preserves the
+        // explicit-input-wins-over-template contract.
+        if !matches!(
+            lang,
+            Language::Node | Language::Wasm | Language::Elixir | Language::Ruby
+        ) && let Some(output_path) = self.output_paths.get(&lang.to_string())
         {
             return output_path.to_string_lossy().to_string();
         }
