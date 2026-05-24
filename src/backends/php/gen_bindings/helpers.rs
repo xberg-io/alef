@@ -3,7 +3,7 @@ use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::naming::to_php_name;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{EnumDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, EnumDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
 use minijinja::context;
 
@@ -768,7 +768,14 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                             format!("std::time::Duration::from_millis(self.{name} as u64)")
                         }
                     }
-                    TypeRef::String | TypeRef::Char => format!("self.{name}.clone()"),
+                    TypeRef::String | TypeRef::Char => {
+                        let into_suffix = if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
+                            ".into()"
+                        } else {
+                            ""
+                        };
+                        format!("self.{name}.clone(){into_suffix}")
+                    }
                     TypeRef::Bytes => format!("self.{name}.clone().into()"),
                     TypeRef::Path => {
                         if field.optional {

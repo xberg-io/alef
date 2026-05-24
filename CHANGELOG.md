@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3] - 2026-05-24
+
+### Fixed
+
+- **alef-backend-php: emit `.into()` on `self.<field>.clone()` for `TypeRef::String` fields whose core wrapper is `Cow<str>` or `Box<str>`.** The PHP lossy binding→core struct literal was emitting `self.field.clone()` for `TypeRef::String` fields without checking `field.core_wrapper`, so core types like `tree_sitter_language_pack::ProcessConfig { language: Cow<'static, str>, … }` got 3 `mismatched types: expected Cow<'static, str>, found String` compile errors at every method that round-trips through `let core_self = … { language: self.language.clone(), … }` (`with_chunking`, `all`, `minimal`). The fix appends `.into()` when `field.core_wrapper` is `CoreWrapper::Cow` or `CoreWrapper::Box`, matching the `TypeRef::Named` arm's existing `.into()` behavior. Surfaced regenerating tslp v1.9.0-rc.3 against alef 0.18.2. (`src/backends/php/gen_bindings/helpers.rs`)
+
 ## [0.18.2] - 2026-05-24
 
 ### Added
