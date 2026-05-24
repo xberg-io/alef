@@ -875,9 +875,9 @@ fn has_event_variant_accessor(
         "swift" => Some(format!(
             "{chunks_var}.contains(where: {{ e in if case .{tag} = e {{ return true }} else {{ return false }} }})"
         )),
-        // Elixir: each event is a map with a `:type` atom discriminator.
+        // Elixir: each event is a map with a `:type` key whose value is a string (from JSON).
         "elixir" => Some(format!(
-            "Enum.any?({chunks_var}, fn e -> Map.get(e, :type) == :{tag} end)"
+            "Enum.any?({chunks_var}, fn e -> Map.get(e, :type) == \"{tag}\" end)"
         )),
         // Kotlin (Java records via typealias): same shape as Java.
         "kotlin" => Some(format!("{chunks_var}.any {{ it is {item_type}.{camel} }}")),
