@@ -628,11 +628,10 @@ fn render_test_file(
             || cc.overrides.get("rust").map(|o| o.result_is_simple).unwrap_or(false)
     };
 
-    // Determine if we need the "fmt" import (CustomTemplate visitor actions
-    // with placeholders, string assertions rendered through fmt.Sprint, or
-    // optional field variable bindings using fmt.Sprintf).
-    // Note: jsonString is now in helpers_test.go (uses encoding/json, not fmt),
-    // so individual test files do NOT need fmt just for calling jsonString.
+    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
+    // Note: Assertion rendering uses string() for type conversions instead of fmt.Sprint/fmt.Sprintf,
+    // and optional field variable bindings also use string() instead of fmt.Sprintf.
+    // jsonString is in helpers_test.go (uses encoding/json, not fmt).
     let needs_fmt = fixtures.iter().any(|f| {
         // Check CustomTemplate visitor actions
         if f.visitor.as_ref().is_some_and(|v| {
@@ -647,81 +646,7 @@ fn render_test_file(
             return true;
         }
 
-        if !emits_executable_test(f) {
-            return false;
-        }
-
-        // Check if any assertion uses fmt.Sprint (contains assertions with non-array fields)
-        if f.assertions.iter().any(|a| {
-            matches!(
-                a.assertion_type.as_str(),
-                "contains" | "contains_all" | "contains_any" | "not_contains"
-            ) && {
-                if a.field.as_ref().is_none_or(|f| f.is_empty()) {
-                    // No field: fmt.Sprint only if result is not an array
-                    !e2e_config
-                        .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
-                        .result_is_array
-                } else {
-                    // Field specified: fmt.Sprint only if that field is not an array
-                    // and the field is actually valid for the result type.
-                    let field = a.field.as_deref().unwrap_or("");
-                    let cc = e2e_config.resolve_call_for_fixture(
-                        f.call.as_deref(),
-                        &f.id,
-                        &f.resolved_category(),
-                        &f.tags,
-                        &f.input,
-                    );
-                    let per_call_resolver = FieldResolver::new(
-                        e2e_config.effective_fields(cc),
-                        e2e_config.effective_fields_optional(cc),
-                        e2e_config.effective_result_fields(cc),
-                        e2e_config.effective_fields_array(cc),
-                        &std::collections::HashSet::new(),
-                    );
-                    let resolved_name = per_call_resolver.resolve(field);
-                    // For result_is_simple calls the renderer emits `fmt.Sprint(result)`
-                    // ignoring the field, so the field need not be valid on the result type.
-                    !per_call_resolver.is_array(resolved_name)
-                        && (call_result_is_simple(cc) || per_call_resolver.is_valid_for_result(field))
-                }
-            }
-        }) {
-            return true;
-        }
-
-        // Check if any assertion has an optional string field (triggers fmt.Sprintf in variable binding)
-        f.assertions.iter().any(|a| {
-            if let Some(field) = &a.field {
-                if !field.is_empty() && a.value.as_ref().is_some_and(|v| v.is_string()) {
-                    let cc = e2e_config.resolve_call_for_fixture(
-                        f.call.as_deref(),
-                        &f.id,
-                        &f.resolved_category(),
-                        &f.tags,
-                        &f.input,
-                    );
-                    let per_call_resolver = FieldResolver::new(
-                        e2e_config.effective_fields(cc),
-                        e2e_config.effective_fields_optional(cc),
-                        e2e_config.effective_result_fields(cc),
-                        e2e_config.effective_fields_array(cc),
-                        &std::collections::HashSet::new(),
-                    );
-                    let resolved = per_call_resolver.resolve(field);
-                    // Need fmt if field is optional, not an array, not a map, and valid for result
-                    per_call_resolver.is_optional(resolved)
-                        && !per_call_resolver.is_array(resolved)
-                        && !per_call_resolver.has_map_access(field)
-                        && per_call_resolver.is_valid_for_result(field)
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        })
+        false
     });
 
     // Determine if we need the "strings" import.
@@ -2636,7 +2561,7 @@ fn render_assertion(
                 } else if field_is_array {
                     format!("jsonString({field_expr})")
                 } else {
-                    format!("fmt.Sprint({field_expr})")
+                    format!("string({field_expr})")
                 };
                 if is_opt {
                     let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -2674,7 +2599,7 @@ fn render_assertion(
                     } else if field_is_array {
                         format!("jsonString({field_expr})")
                     } else {
-                        format!("fmt.Sprint({field_expr})")
+                        format!("string({field_expr})")
                     };
                     if is_opt {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -2706,7 +2631,7 @@ fn render_assertion(
                 } else if field_is_array {
                     format!("jsonString({field_expr})")
                 } else {
-                    format!("fmt.Sprint({field_expr})")
+                    format!("string({field_expr})")
                 };
                 let _ = writeln!(out_ref, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(
@@ -2783,7 +2708,7 @@ fn render_assertion(
                 } else if field_is_array {
                     format!("jsonString({field_expr})")
                 } else {
-                    format!("fmt.Sprint({field_expr})")
+                    format!("string({field_expr})")
                 };
                 let _ = writeln!(out_ref, "\t{{");
                 let _ = writeln!(out_ref, "\t\tfound := false");
