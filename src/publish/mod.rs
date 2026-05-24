@@ -126,11 +126,7 @@ pub fn prepare(
                                     // In require_registry (CI/release) mode, regenerate the
                                     // lock and fail hard if a member version is not yet on the
                                     // registry. Otherwise, delete the lock (lenient default).
-                                    vendor::scrub_or_regenerate_lock(
-                                        manifest_dir,
-                                        require_registry,
-                                        require_registry,
-                                    )?;
+                                    vendor::scrub_or_regenerate_lock(manifest_dir, require_registry, require_registry)?;
                                 }
                                 eprintln!("  rewrote {}", manifest_abs.display());
                             }
@@ -669,7 +665,13 @@ fn resolve_binding_manifest(config: &ResolvedCrateConfig, lang: Language) -> Opt
         // ext dir is `{core_crate_dir}_rb` (matching scaffold_ruby_cargo).
         Language::Ruby => {
             let ext = format!("{}_rb", config.core_crate_dir().replace('-', "_"));
-            Some(Path::new(&pkg_dir).join("ext").join(ext).join("native").join("Cargo.toml"))
+            Some(
+                Path::new(&pkg_dir)
+                    .join("ext")
+                    .join(ext)
+                    .join("native")
+                    .join("Cargo.toml"),
+            )
         }
         // Elixir: the rustler NIF crate at `{pkg}/native/{app}_nif/Cargo.toml`.
         Language::Elixir => {
@@ -772,9 +774,7 @@ fn default_vendor_mode(lang: Language) -> VendorMode {
         // Source-build languages compile the Rust crate from source on the
         // user's machine, so their path dependencies are rewritten to
         // registry version-dependencies rather than vendored.
-        Language::Ruby | Language::Elixir | Language::Python | Language::Php | Language::Swift => {
-            VendorMode::Registry
-        }
+        Language::Ruby | Language::Elixir | Language::Python | Language::Php | Language::Swift => VendorMode::Registry,
         Language::R => VendorMode::Full,
         _ => VendorMode::None,
     }

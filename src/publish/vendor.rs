@@ -368,8 +368,7 @@ pub fn rewrite_path_deps_to_registry(
     members: &crate::publish::workspace::WorkspaceMembers,
     version: &str,
 ) -> Result<()> {
-    let content =
-        fs::read_to_string(manifest_path).with_context(|| format!("reading {}", manifest_path.display()))?;
+    let content = fs::read_to_string(manifest_path).with_context(|| format!("reading {}", manifest_path.display()))?;
     let mut doc: DocumentMut = content
         .parse()
         .with_context(|| format!("parsing {}", manifest_path.display()))?;
@@ -906,7 +905,11 @@ my-lib = "1"
         let deps = doc["dependencies"].as_table().unwrap();
         // Non-member path dep retains its path.
         assert_eq!(
-            deps["external"].as_inline_table().unwrap().get("path").and_then(|v| v.as_str()),
+            deps["external"]
+                .as_inline_table()
+                .unwrap()
+                .get("path")
+                .and_then(|v| v.as_str()),
             Some("../external")
         );
         // Plain-string member is unchanged.
@@ -972,7 +975,10 @@ my-lib = "1"
             .arg(crate_dir.join("Cargo.toml"))
             .status()
             .expect("running cargo generate-lockfile");
-        assert!(status.success(), "registry version-dep must resolve without a workspace");
+        assert!(
+            status.success(),
+            "registry version-dep must resolve without a workspace"
+        );
         assert!(crate_dir.join("Cargo.lock").exists(), "lockfile should be produced");
     }
 
@@ -1053,8 +1059,7 @@ my-lib = "1"
         let lock = crate_dir.join("Cargo.lock");
         fs::write(&lock, "# stale lock").unwrap();
 
-        scrub_regenerate(&crate_dir, false)
-            .expect("lenient mode must return Ok and fall back to deleting the lock");
+        scrub_regenerate(&crate_dir, false).expect("lenient mode must return Ok and fall back to deleting the lock");
         assert!(!lock.exists(), "lenient fallback must delete the unresolved Cargo.lock");
     }
 }

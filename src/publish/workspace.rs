@@ -29,8 +29,8 @@ pub struct WorkspaceMembers {
 /// tolerated and skipped (matching the previous inline behavior).
 pub fn workspace_member_crates(workspace_root: &Path) -> Result<WorkspaceMembers> {
     let root_manifest = workspace_root.join("Cargo.toml");
-    let root_content = std::fs::read_to_string(&root_manifest)
-        .with_context(|| format!("reading {}", root_manifest.display()))?;
+    let root_content =
+        std::fs::read_to_string(&root_manifest).with_context(|| format!("reading {}", root_manifest.display()))?;
     let root_doc: DocumentMut = root_content
         .parse()
         .with_context(|| format!("parsing {}", root_manifest.display()))?;
@@ -194,10 +194,7 @@ edition = "2024"
 
         let members = workspace_member_crates(root).unwrap();
 
-        let expected_names: BTreeSet<String> = ["my-lib", "my-lib-py"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let expected_names: BTreeSet<String> = ["my-lib", "my-lib-py"].iter().map(|s| s.to_string()).collect();
         assert_eq!(members.names, expected_names);
 
         // my-lib inherits the workspace version 1.2.3.

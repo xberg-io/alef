@@ -2917,7 +2917,10 @@ fn test_scaffold_python_core_dep_is_dual_form() {
         "python core dep must be dual form with version + path + features; content:\n{content}"
     );
     // External deps unchanged.
-    assert!(content.contains(r#"serde_json = "1""#), "external serde_json unchanged; content:\n{content}");
+    assert!(
+        content.contains(r#"serde_json = "1""#),
+        "external serde_json unchanged; content:\n{content}"
+    );
 }
 
 #[test]
@@ -2937,10 +2940,15 @@ fn test_scaffold_node_core_dep_is_dual_form() {
 fn test_scaffold_ruby_core_dep_is_dual_form() {
     let content = core_cargo_toml_for(Language::Ruby);
     assert!(
-        content.contains(r#"my-lib = { version = "0.1.0", path = "../../../../../crates/my-lib", features = ["full", "ocr"] }"#),
+        content.contains(
+            r#"my-lib = { version = "0.1.0", path = "../../../../../crates/my-lib", features = ["full", "ocr"] }"#
+        ),
         "ruby core dep must be dual form with the deep crates path preserved; content:\n{content}"
     );
-    assert!(content.contains("magnus = "), "external magnus unchanged; content:\n{content}");
+    assert!(
+        content.contains("magnus = "),
+        "external magnus unchanged; content:\n{content}"
+    );
 }
 
 #[test]
@@ -2950,27 +2958,40 @@ fn test_scaffold_php_core_dep_is_dual_form() {
         content.contains(r#"my-lib = { version = "0.1.0", path = "../my-lib", features = ["full", "ocr"] }"#),
         "php core dep must be dual form; content:\n{content}"
     );
-    assert!(content.contains("ext-php-rs = "), "external ext-php-rs unchanged; content:\n{content}");
+    assert!(
+        content.contains("ext-php-rs = "),
+        "external ext-php-rs unchanged; content:\n{content}"
+    );
 }
 
 #[test]
 fn test_scaffold_elixir_core_dep_is_dual_form() {
     let content = core_cargo_toml_for(Language::Elixir);
     assert!(
-        content.contains(r#"my-lib = { version = "0.1.0", path = "../../../../crates/my-lib", features = ["full", "ocr"] }"#),
+        content.contains(
+            r#"my-lib = { version = "0.1.0", path = "../../../../crates/my-lib", features = ["full", "ocr"] }"#
+        ),
         "elixir core dep must be dual form with the deep crates path preserved; content:\n{content}"
     );
-    assert!(content.contains("rustler = "), "external rustler unchanged; content:\n{content}");
+    assert!(
+        content.contains("rustler = "),
+        "external rustler unchanged; content:\n{content}"
+    );
 }
 
 #[test]
 fn test_scaffold_r_core_dep_is_dual_form() {
     let content = core_cargo_toml_for(Language::R);
     assert!(
-        content.contains(r#"my-lib = { version = "0.1.0", path = "../../../../crates/my-lib", features = ["full", "ocr"] }"#),
+        content.contains(
+            r#"my-lib = { version = "0.1.0", path = "../../../../crates/my-lib", features = ["full", "ocr"] }"#
+        ),
         "r core dep must be dual form; content:\n{content}"
     );
-    assert!(content.contains("extendr-api = "), "external extendr-api unchanged; content:\n{content}");
+    assert!(
+        content.contains("extendr-api = "),
+        "external extendr-api unchanged; content:\n{content}"
+    );
 }
 
 #[test]
@@ -2990,7 +3011,9 @@ fn test_scaffold_swift_core_dep_is_dual_form() {
     // cargo package name (`my-lib`) a `package = "..."` rename is appended after
     // the version + path. `core_path` is `../../..` for the same-as-workspace case.
     assert!(
-        cargo.content.contains(r#"my_lib = { version = "0.1.0", path = "../../..", package = "my-lib" }"#),
+        cargo
+            .content
+            .contains(r#"my_lib = { version = "0.1.0", path = "../../..", package = "my-lib" }"#),
         "swift core dep must be dual form (version + path) with package rename; content:\n{}",
         cargo.content
     );
@@ -3007,14 +3030,27 @@ fn test_scaffold_dev_path_build_form_preserved() {
     // The whole point of dual form: the `path` is still present (so in-repo dev
     // builds resolve the local member crate) AND a `version` is added (so
     // cargo-package can strip the path to a registry dep).
-    for lang in [Language::Python, Language::Node, Language::Ruby, Language::Php, Language::Elixir, Language::R] {
+    for lang in [
+        Language::Python,
+        Language::Node,
+        Language::Ruby,
+        Language::Php,
+        Language::Elixir,
+        Language::R,
+    ] {
         let content = core_cargo_toml_for(lang);
         let dep_line = content
             .lines()
             .find(|l| l.trim_start().starts_with("my-lib = {"))
             .unwrap_or_else(|| panic!("no my-lib dep line for {lang:?}"));
-        assert!(dep_line.contains("path = "), "{lang:?}: dev-path-build path must be preserved: {dep_line}");
-        assert!(dep_line.contains(r#"version = "0.1.0""#), "{lang:?}: version must be injected: {dep_line}");
+        assert!(
+            dep_line.contains("path = "),
+            "{lang:?}: dev-path-build path must be preserved: {dep_line}"
+        );
+        assert!(
+            dep_line.contains(r#"version = "0.1.0""#),
+            "{lang:?}: version must be injected: {dep_line}"
+        );
     }
 }
 
