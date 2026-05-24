@@ -424,6 +424,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "data_enum_dict_coerce_no_guard.jinja",
         include_str!("templates/data_enum_dict_coerce_no_guard.jinja"),
     ),
+    (
+        "data_enum_dict_coerce_optional_default.jinja",
+        include_str!("templates/data_enum_dict_coerce_optional_default.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
