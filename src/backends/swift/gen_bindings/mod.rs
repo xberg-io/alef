@@ -8,7 +8,7 @@ use crate::core::config::{
 use crate::core::ir::{
     ApiSurface, DefaultValue, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef,
 };
-use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use heck::{AsSnakeCase, ToKebabCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -1285,6 +1285,10 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 Some("camelCase") => variant.name.to_lower_camel_case(),
                 Some("snake_case") => variant.name.to_snake_case(),
                 Some("SCREAMING_SNAKE_CASE") => variant.name.to_snake_case().to_uppercase(),
+                Some("PascalCase") => variant.name.to_upper_camel_case(),
+                Some("kebab-case") => variant.name.to_kebab_case(),
+                Some("lowercase") => variant.name.to_lowercase(),
+                Some("UPPERCASE") => variant.name.to_uppercase(),
                 _ => variant.name.clone(),
             }
         };
@@ -1348,6 +1352,10 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 Some("camelCase") => variant.name.to_lower_camel_case(),
                 Some("snake_case") => variant.name.to_snake_case(),
                 Some("SCREAMING_SNAKE_CASE") => variant.name.to_snake_case().to_uppercase(),
+                Some("PascalCase") => variant.name.to_upper_camel_case(),
+                Some("kebab-case") => variant.name.to_kebab_case(),
+                Some("lowercase") => variant.name.to_lowercase(),
+                Some("UPPERCASE") => variant.name.to_uppercase(),
                 _ => variant.name.clone(),
             }
         };
@@ -1715,6 +1723,8 @@ fn unit_enum_raw_value(variant: &crate::core::ir::EnumVariant, rename_all: Optio
         Some("SCREAMING_SNAKE_CASE") | Some("SCREAMING-KEBAB-CASE") => variant.name.to_snake_case().to_uppercase(),
         Some("PascalCase") => variant.name.to_upper_camel_case(),
         Some("kebab-case") | Some("train-case") => variant.name.to_kebab_case(),
+        Some("lowercase") => variant.name.to_lowercase(),
+        Some("UPPERCASE") => variant.name.to_uppercase(),
         _ => variant.name.clone(),
     }
 }
