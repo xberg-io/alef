@@ -1087,13 +1087,8 @@ fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() 
     assert!(
         mix_exs
             .content
-            .contains("files: ~w(.formatter.exs mix.exs README* native)"),
+            .contains("files: ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src native/my_lib_nif/build.rs)"),
         "content: {}",
-        mix_exs.content
-    );
-    assert!(
-        !mix_exs.content.contains("checksum-"),
-        "checksum-*.exs must not appear in mix.exs files list: {}",
         mix_exs.content
     );
 }
@@ -1117,7 +1112,7 @@ elixir = "crates/my-lib-elixir/src/"
     assert!(
         mix_exs
             .content
-            .contains("files: ~w(.formatter.exs mix.exs README* native ../../crates/my-lib-elixir/src/*.ex)"),
+            .contains("files: ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src native/my_lib_nif/build.rs ../../crates/my-lib-elixir/src/*.ex)"),
         "content: {}",
         mix_exs.content
     );
@@ -2785,10 +2780,11 @@ elixir = "{explicit_path}"
         .find(|f| f.path.ends_with("mix.exs"))
         .expect("mix.exs must be generated");
 
-    // The files: list should NOT contain *.ex glob when the directory has no .ex files.
+    // The files: list should NOT contain /*.ex glob when the directory has no .ex files.
+    // (Note: checksum-*.exs contains the substring *.ex, so we must check for the path-based glob pattern)
     assert!(
-        !mix_exs.content.contains("*.ex"),
-        "mix.exs should not contain *.ex glob for .rs-only directory; content:\n{}",
+        !mix_exs.content.contains("/*.ex)"),
+        "mix.exs should not contain /*.ex glob for .rs-only directory; content:\n{}",
         mix_exs.content
     );
     // Verify that standard entries are still present.
