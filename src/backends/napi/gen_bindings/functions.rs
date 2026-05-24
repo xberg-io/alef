@@ -885,82 +885,113 @@ pub(super) fn gen_adapter_wrapper(
         let ir_type = types.iter().find(|t| &t.name == param_ty_name);
 
         if let Some(ty_def) = ir_type {
-            if let Some(first_field) = ty_def.fields.first() {
-                let field_name = &first_field.name;
-                // Handle Optional<T> by unwrapping to get T
-                let unwrapped_type = match &first_field.ty {
-                    crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
-                    other => other,
-                };
-                let field_js_type = match unwrapped_type {
-                    crate::core::ir::TypeRef::String => "String",
-                    crate::core::ir::TypeRef::Bytes => "JsBytes",
-                    crate::core::ir::TypeRef::Vec(inner) => {
-                        // Vec<T> — determine T's type
-                        match inner.as_ref() {
-                            crate::core::ir::TypeRef::String => "Vec<String>",
-                            crate::core::ir::TypeRef::Primitive(p) => {
-                                use crate::core::ir::PrimitiveType;
-                                match p {
-                                    PrimitiveType::I32 => "Vec<i32>",
-                                    PrimitiveType::I64 => "Vec<i64>",
-                                    PrimitiveType::F64 => "Vec<f64>",
-                                    PrimitiveType::Bool => "Vec<bool>",
-                                    PrimitiveType::U8 => "Vec<u8>",
-                                    _ => "Vec<String>", // Default fallback
+            if ty_def.has_default {
+                if let Some(first_field) = ty_def.fields.first() {
+                    let field_name = &first_field.name;
+                    // Handle Optional<T> by unwrapping to get T
+                    let unwrapped_type = match &first_field.ty {
+                        crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
+                        other => other,
+                    };
+                    let field_js_type = match unwrapped_type {
+                        crate::core::ir::TypeRef::String => "String",
+                        crate::core::ir::TypeRef::Bytes => "JsBytes",
+                        crate::core::ir::TypeRef::Vec(inner) => {
+                            // Vec<T> — determine T's type
+                            match inner.as_ref() {
+                                crate::core::ir::TypeRef::String => "Vec<String>",
+                                crate::core::ir::TypeRef::Primitive(p) => {
+                                    use crate::core::ir::PrimitiveType;
+                                    match p {
+                                        PrimitiveType::I32 => "Vec<i32>",
+                                        PrimitiveType::I64 => "Vec<i64>",
+                                        PrimitiveType::F64 => "Vec<f64>",
+                                        PrimitiveType::Bool => "Vec<bool>",
+                                        PrimitiveType::U8 => "Vec<u8>",
+                                        _ => "Vec<String>", // Default fallback
+                                    }
                                 }
+                                _ => "Vec<String>", // Default fallback
                             }
-                            _ => "Vec<String>", // Default fallback
                         }
-                    }
-                    crate::core::ir::TypeRef::Primitive(p) => {
-                        use crate::core::ir::PrimitiveType;
-                        match p {
-                            PrimitiveType::I32 => "i32",
-                            PrimitiveType::I64 => "i64",
-                            PrimitiveType::F64 => "f64",
-                            PrimitiveType::Bool => "bool",
-                            PrimitiveType::U8 => "u8",
-                            PrimitiveType::U32 => "u32",
-                            PrimitiveType::Usize => "usize",
-                            _ => "String", // Default fallback
+                        crate::core::ir::TypeRef::Primitive(p) => {
+                            use crate::core::ir::PrimitiveType;
+                            match p {
+                                PrimitiveType::I32 => "i32",
+                                PrimitiveType::I64 => "i64",
+                                PrimitiveType::F64 => "f64",
+                                PrimitiveType::Bool => "bool",
+                                PrimitiveType::U8 => "u8",
+                                PrimitiveType::U32 => "u32",
+                                PrimitiveType::Usize => "usize",
+                                _ => "String", // Default fallback
+                            }
                         }
-                    }
-                    _ => "String", // Fallback for complex types
-                };
+                        _ => "String", // Fallback for complex types
+                    };
 
-                let param_parts = vec![
-                    format!("engine: &{js_owner_type}"),
-                    format!("{field_name}: {field_js_type}"),
-                ];
+                    let param_parts = vec![
+                        format!("engine: &{js_owner_type}"),
+                        format!("{field_name}: {field_js_type}"),
+                    ];
 
-                let js_struct_name = format!("Js{param_ty_name}");
-                // Check if the field will become optional in the NAPI binding.
-                // Fields become optional when:
-                // 1. The field is already optional in the Rust IR, OR
-                // 2. The struct has Default derive (ty_def.has_default)
-                // This matches the logic in napi/gen_bindings/types.rs line 120:
-                // let field_type = if (field.optional || typ.has_default) && !already_optional
-                let is_field_optional_in_js = (first_field.optional || ty_def.has_default)
-                    && !matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_));
-                let wrapped_field_value = if is_field_optional_in_js {
-                    format!("Some({})", field_name)
+                    let js_struct_name = format!("Js{param_ty_name}");
+                    // Check if the field will become optional in the NAPI binding.
+                    // Fields become optional when:
+                    // 1. The field is already optional in the Rust IR, OR
+                    // 2. The struct has Default derive (ty_def.has_default)
+                    // This matches the logic in napi/gen_bindings/types.rs line 120:
+                    // let field_type = if (field.optional || typ.has_default) && !already_optional
+                    let is_field_optional_in_js = (first_field.optional || ty_def.has_default)
+                        && !matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_));
+                    let wrapped_field_value = if is_field_optional_in_js {
+                        format!("Some({})", field_name)
+                    } else {
+                        field_name.clone()
+                    };
+                    // Use ..Default::default() to fill remaining fields — only safe because
+                    // ty_def.has_default is true, which guarantees the JS struct derives Default.
+                    let param_conversions = vec![format!(
+                        "    let core_{param_ty_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value}, ..Default::default() }}.into();",
+                        param_ty_name = param_ty_name,
+                        js_struct_name = js_struct_name,
+                        field_name = field_name,
+                        core_crate = core_crate,
+                    )];
+
+                    let core_params = format!("core_{}", param_ty_name);
+
+                    (param_parts, param_conversions, core_params)
                 } else {
-                    field_name.clone()
-                };
-                let param_conversions = vec![format!(
-                    "    let core_{param_ty_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value} }}.into();",
-                    param_ty_name = param_ty_name,
-                    js_struct_name = js_struct_name,
-                    field_name = field_name,
-                    core_crate = core_crate,
-                )];
-
-                let core_params = format!("core_{}", param_ty_name);
-
-                (param_parts, param_conversions, core_params)
+                    // has_default but no fields: fallback to original behavior
+                    let mut param_parts = vec![format!("engine: &{js_owner_type}")];
+                    let mut param_conversions = Vec::new();
+                    for param in &adapter.params {
+                        let param_name = &param.name;
+                        let param_type = &param.ty;
+                        let js_type = format!("Js{param_type}");
+                        param_parts.push(format!("{param_name}: {js_type}"));
+                        let core_type = if param_type.contains("::") {
+                            param_type.clone()
+                        } else {
+                            format!("{core_crate}::{param_type}")
+                        };
+                        param_conversions.push(format!(
+                            "    let core_{}: {} = {}.into();",
+                            param_name, core_type, param_name
+                        ));
+                    }
+                    let core_params_list = adapter
+                        .params
+                        .iter()
+                        .map(|p| format!("core_{}", p.name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    (param_parts, param_conversions, core_params_list)
+                }
             } else {
-                // No fields: fallback to original behavior
+                // has_default is false: struct has required fields, cannot safely decompose.
+                // Fall through to the standard multi-param path.
                 let mut param_parts = vec![format!("engine: &{js_owner_type}")];
                 let mut param_conversions = Vec::new();
                 for param in &adapter.params {
@@ -987,7 +1018,7 @@ pub(super) fn gen_adapter_wrapper(
                 (param_parts, param_conversions, core_params_list)
             }
         } else {
-            // Type not found: fallback to original behavior
+            // Type not found in IR: fallback to original behavior
             let mut param_parts = vec![format!("engine: &{js_owner_type}")];
             let mut param_conversions = Vec::new();
             for param in &adapter.params {

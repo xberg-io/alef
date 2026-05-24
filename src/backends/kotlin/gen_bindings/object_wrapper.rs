@@ -207,8 +207,7 @@ pub(crate) fn emit_type_with_imports(
                 out.push_str(annotation);
                 out.push('\n');
             }
-            let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
-            out.push_str(&format!("    {field_str}{comma}\n"));
+            out.push_str(&format!("    {field_str},\n"));
         }
         out.push_str(")\n");
     }
@@ -461,10 +460,8 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                     ));
                 } else {
                     out.push_str(&format!("    {variant_prefix}(\n"));
-                    let last_idx = variant_field_strings.len().saturating_sub(1);
-                    for (i, field_str) in variant_field_strings.iter().enumerate() {
-                        let comma = if i < last_idx { "," } else { "" };
-                        out.push_str(&format!("        {field_str}{comma}\n"));
+                    for field_str in &variant_field_strings {
+                        out.push_str(&format!("        {field_str},\n"));
                     }
                     out.push_str(&format!("    ){variant_suffix}\n"));
                 }
@@ -1093,10 +1090,8 @@ pub(crate) fn emit_error_type_with_imports(
                 ));
             } else {
                 out.push_str(&format!("    {err_prefix}(\n"));
-                let last_idx = err_field_strings.len().saturating_sub(1);
-                for (i, field_str) in err_field_strings.iter().enumerate() {
-                    let comma = if i < last_idx { "," } else { "" };
-                    out.push_str(&format!("        {field_str}{comma}\n"));
+                for field_str in &err_field_strings {
+                    out.push_str(&format!("        {field_str},\n"));
                 }
                 out.push_str(&format!("    ){err_suffix}\n"));
             }

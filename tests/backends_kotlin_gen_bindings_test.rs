@@ -1193,8 +1193,13 @@ fn long_data_class_emits_multi_line() {
         "long data class must be multi-line: {out:?}"
     );
     assert!(
-        out.contains("    val totalRequestCount: Long"),
-        "multi-line field must be indented: {out:?}"
+        out.contains("    val totalRequestCount: Long,"),
+        "multi-line field must have trailing comma: {out:?}"
+    );
+    // Last field must also have a trailing comma (ktfmt idempotency).
+    assert!(
+        out.contains("    val expiredRequestCount: Long,\n)"),
+        "last multi-line field must have trailing comma: {out:?}"
     );
 }
 
@@ -1290,8 +1295,13 @@ fn long_sealed_class_variant_emits_multi_line() {
         "long sealed-class variant must be multi-line: {out:?}"
     );
     assert!(
-        out.contains("        val providerName: String"),
-        "multi-line variant fields must be indented: {out:?}"
+        out.contains("        val providerName: String,"),
+        "multi-line variant fields must have trailing comma: {out:?}"
+    );
+    // Last field (requestId) must also have a trailing comma.
+    assert!(
+        out.contains("        val requestId: String?,\n    ) : LiterLlmError()"),
+        "last multi-line variant field must have trailing comma: {out:?}"
     );
 }
 
@@ -1353,7 +1363,12 @@ fn long_error_variant_emits_multi_line() {
         "long error variant must be multi-line: {out:?}"
     );
     assert!(
-        out.contains("        val providerName: String"),
-        "multi-line error variant fields must be indented: {out:?}"
+        out.contains("        val providerName: String,"),
+        "multi-line error variant fields must have trailing comma: {out:?}"
+    );
+    // Last field (requestId) must also have a trailing comma.
+    assert!(
+        out.contains("        val requestId: String?,\n    ) : LiterLlmException("),
+        "last multi-line error variant field must have trailing comma: {out:?}"
     );
 }
