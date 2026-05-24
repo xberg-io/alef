@@ -3474,12 +3474,9 @@ fn emit_async_free_function_forwarder(
         format!(" -> {return_ty}")
     };
 
-    // Check if any parameter is Vec<Named(DTO)>, which will constrain the generic type to RustString.
-    // If so, we need to wrap all String parameters in RustString() for type compatibility.
-    let has_vec_dto_param = func
-        .params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(n) if known_dto_names.contains(n))));
+    // Note: We used to only wrap String parameters when there was a Vec<Named(DTO)> parameter.
+    // Now we always wrap String parameters to ensure type inference works correctly inside
+    // the Task.detached closure, where generic inference is weaker.
 
     // Signature: collect each param as `name: SwiftType`.
     let mut sig_params: Vec<String> = Vec::with_capacity(func.params.len());
@@ -3494,9 +3491,11 @@ fn emit_async_free_function_forwarder(
         if let Some(line) = local_expr.setup_line.clone() {
             conversion_lines.push(line);
         }
-        // If we have a Vec<DTO> parameter and this is a String parameter,
-        // wrap it in RustString() to match the inferred generic type.
-        let arg_expr = if has_vec_dto_param && matches!(&param.ty, TypeRef::String) && !param.optional {
+        // When we have a Vec<DTO> parameter, the generic type is constrained to RustString,
+        // so we must wrap all String parameters in RustString() for type compatibility.
+        // Additionally, wrap ANY String parameter to give Swift's type inference a hand
+        // inside the Task.detached closure, where generic inference is weaker.
+        let arg_expr = if matches!(&param.ty, TypeRef::String) && !param.optional {
             format!("RustString({swift_param_name})")
         } else {
             local_expr.arg_expr
