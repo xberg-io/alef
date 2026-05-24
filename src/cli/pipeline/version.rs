@@ -2067,6 +2067,78 @@ BUNDLED WITH
         );
     }
 
+    /// `sync_versions` must bump BOTH the consumer pyproject
+    /// (`packages/python/pyproject.toml`) and the source-template pyproject that
+    /// lives alongside the PyO3 crate (`crates/{lib}-py/src/pyproject.toml`,
+    /// selected via `[crates.output] python`) to the PEP 440 normalised
+    /// prerelease form. Regression test for the source-template version drift
+    /// that made `alef validate versions` fail on a tagged prerelease.
+    #[test]
+    fn sync_versions_bumps_both_python_pyprojects_to_pep440_prerelease() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"0.15.6-rc.2\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Consumer publish manifest, stale.
+        std::fs::create_dir_all(root.join("packages/python")).expect("mkdir packages/python");
+        std::fs::write(
+            root.join("packages/python/pyproject.toml"),
+            "[project]\nname = \"mylib\"\nversion = \"0.15.5\"\n",
+        )
+        .expect("write packages/python/pyproject.toml");
+
+        // Source-template manifest alongside the PyO3 crate, stale.
+        std::fs::create_dir_all(root.join("crates/mylib-py/src")).expect("mkdir crates/mylib-py/src");
+        std::fs::write(
+            root.join("crates/mylib-py/src/pyproject.toml"),
+            "[project]\nname = \"mylib\"\nversion = \"0.15.5\"\n",
+        )
+        .expect("write crates/mylib-py/src/pyproject.toml");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"python\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n[crates.output]\npython = \"crates/mylib-py/src/\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let consumer =
+            std::fs::read_to_string(root.join("packages/python/pyproject.toml")).expect("read consumer pyproject");
+        assert!(
+            consumer.contains(r#"version = "0.15.6rc2""#),
+            "consumer pyproject must be PEP 440 normalised, got:\n{consumer}"
+        );
+
+        let source = std::fs::read_to_string(root.join("crates/mylib-py/src/pyproject.toml"))
+            .expect("read source-template pyproject");
+        assert!(
+            source.contains(r#"version = "0.15.6rc2""#),
+            "source-template pyproject must be PEP 440 normalised, got:\n{source}"
+        );
+        assert!(
+            !source.contains("0.15.5") && !source.contains("0.15.6-rc.2"),
+            "source-template must hold only the normalised version, got:\n{source}"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // patch_workspace_dep_versions unit tests
     // -----------------------------------------------------------------------
