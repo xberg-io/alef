@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-scaffold-ffi: version-inject every internal workspace dependency in the generated FFI/umbrella `Cargo.toml`, not just the core dep.** The FFI scaffold built its `[dependencies]` extra-deps block with a bespoke loop that emitted auto-detected internal workspace members (e.g. `{lib}-core`, `{lib}-http`, `{lib}-graphql` from `[crate.extra_dependencies]`) as path-only tables (`{lib}-core = { path = "../{lib}-core" }`). `cargo publish` rejects that with "all dependencies must have a version requirement specified when publishing", breaking crates.io publish of the FFI crate. The scaffold now delegates to the shared `render_extra_deps`, which injects the resolved workspace version into path-only member tables (`{ path = "../{lib}-core", version = "X" }`) — consistent with how the core dep and the swift/dart bridge crates are handled — while leaving external deps (e.g. `anyhow = "1.0"`) and already-versioned tables untouched. Path-only output is preserved when no workspace version resolves (e.g. unit fixtures). (`src/scaffold/languages/ffi.rs`)
+
 ## [0.19.4] - 2026-05-24
 
 ### Fixed

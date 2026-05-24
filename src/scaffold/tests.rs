@@ -638,6 +638,77 @@ fn test_scaffold_ffi_merges_extra_dependencies() {
 }
 
 #[test]
+fn test_scaffold_ffi_injects_version_for_workspace_member_deps() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    // `cargo publish` rejects path-only deps: "all dependencies must have a
+    // version requirement specified when publishing". Every internal workspace
+    // dep the FFI/umbrella manifest pulls in (auto-detected from the public
+    // surface via `[crate.extra_dependencies]`) must therefore carry the
+    // resolved workspace version alongside its path, mirroring the core dep.
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"
+[workspace]
+resolver = "2"
+members = ["crates/my-lib-core", "crates/my-lib-http"]
+
+[workspace.package]
+version = "4.2.0"
+"#,
+    )
+    .unwrap();
+    for member in ["my-lib-core", "my-lib-http"] {
+        fs::create_dir_all(root.join(format!("crates/{member}/src"))).unwrap();
+        fs::write(root.join(format!("crates/{member}/src/lib.rs")), "pub fn f() {}").unwrap();
+        fs::write(
+            root.join(format!("crates/{member}/Cargo.toml")),
+            format!("[package]\nname = \"{member}\"\nversion.workspace = true\n"),
+        )
+        .unwrap();
+    }
+
+    let mut config = test_config();
+    config.workspace_root = Some(root.to_path_buf());
+    let mut deps: std::collections::HashMap<String, toml::Value> = Default::default();
+    // Path-only internal workspace member deps (as auto-detected and emitted
+    // into [crate.extra_dependencies]).
+    for member in ["my-lib-core", "my-lib-http"] {
+        deps.insert(
+            member.to_string(),
+            toml::Value::Table(toml::map::Map::from_iter([(
+                "path".to_string(),
+                toml::Value::String(format!("../{member}")),
+            )])),
+        );
+    }
+    // A genuinely external dep must stay untouched (no spurious version inject).
+    deps.insert("anyhow".to_string(), toml::Value::String("1.0".to_string()));
+    config.extra_dependencies = deps;
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = &files[0].content;
+
+    for member in ["my-lib-core", "my-lib-http"] {
+        // Each internal member dep must carry the injected workspace version.
+        assert!(
+            cargo_toml.contains(&format!("{member} = {{ path = \"../{member}\", version = \"4.2.0\" }}")),
+            "FFI manifest must version-inject internal workspace dep {member}; got:\n{cargo_toml}"
+        );
+    }
+    // External dep unchanged.
+    assert!(
+        cargo_toml.contains("anyhow = \"1.0\""),
+        "external dep must be emitted unchanged, got:\n{cargo_toml}"
+    );
+}
+
+#[test]
 fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
     // When FfiConfig.target_dep_overrides is configured, the core-crate
     // dependency moves out of the main [dependencies] table into per-cfg

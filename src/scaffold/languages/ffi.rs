@@ -4,7 +4,7 @@ use crate::core::ir::ApiSurface;
 use crate::core::template_versions as tv;
 use crate::{
     scaffold::cargo_package_header, scaffold::core_dep_features, scaffold::detect_workspace_inheritance,
-    scaffold::scaffold_meta,
+    scaffold::render_extra_deps, scaffold::scaffold_meta,
 };
 use std::path::PathBuf;
 
@@ -88,17 +88,19 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     //   mylib-core, mylib-http, mylib-extra) — the FFI bindings codegen
     //   emits qualified paths like `mylib_http::ServerConfig` and needs each
     //   referenced crate as a direct dependency.
-    let extra_deps = config.extra_deps_for_language(Language::Ffi);
-    let mut extra_dep_lines: Vec<String> = extra_deps
-        .iter()
-        .map(|(name, value)| {
-            if let Some(s) = value.as_str() {
-                format!("{name} = \"{s}\"")
-            } else {
-                format!("{name} = {value}")
-            }
-        })
-        .collect();
+    // `render_extra_deps` injects the resolved workspace version into path-only
+    // member tables (`{ path = "../<lib>-core", version = "X" }`) so the
+    // generated FFI/umbrella manifest publishes cleanly — `cargo publish`
+    // rejects path-only deps with "all dependencies must have a version
+    // requirement specified when publishing". External deps (e.g. `anyhow =
+    // "1.0"`) and already-versioned tables pass through unchanged. This mirrors
+    // how the core-crate dep and the swift/dart bridge crates are handled.
+    let rendered_extra_deps = render_extra_deps(config, Language::Ffi);
+    let mut extra_dep_lines: Vec<String> = if rendered_extra_deps.is_empty() {
+        Vec::new()
+    } else {
+        rendered_extra_deps.lines().map(str::to_string).collect()
+    };
     let has_trait_bridges = !config.trait_bridges.is_empty();
     if has_trait_bridges && !extra_dep_lines.iter().any(|l| l.starts_with("async-trait")) {
         extra_dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
