@@ -22,7 +22,7 @@ impl E2eCodegen for RCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[crate::core::ir::TypeDef],
+        type_defs: &[crate::core::ir::TypeDef],
         _enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -102,7 +102,15 @@ impl E2eCodegen for RCodegen {
             }
 
             let filename = format!("test_{}.R", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, result_is_simple, result_is_r_list, e2e_config);
+            let content = render_test_file(
+                &group.category,
+                &active,
+                result_is_simple,
+                result_is_r_list,
+                e2e_config,
+                config,
+                type_defs,
+            );
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
                 content,
@@ -237,6 +245,8 @@ fn render_test_file(
     result_is_simple: bool,
     result_is_r_list: bool,
     e2e_config: &E2eConfig,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -244,7 +254,15 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(&mut out, fixture, e2e_config, result_is_simple, result_is_r_list);
+        render_test_case(
+            &mut out,
+            fixture,
+            e2e_config,
+            result_is_simple,
+            result_is_r_list,
+            config,
+            type_defs,
+        );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -266,6 +284,8 @@ fn render_test_case(
     e2e_config: &E2eConfig,
     default_result_is_simple: bool,
     default_result_is_r_list: bool,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     let call_config = e2e_config.resolve_call_for_fixture(
         fixture.call.as_deref(),
@@ -344,7 +364,15 @@ fn render_test_case(
             .filter_map(|o| o.options_type.as_deref())
             .find(|name| !name.starts_with("Js"))
     });
-    let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map, options_type);
+    let args_str = build_args_string(
+        &fixture.input,
+        &call_config.args,
+        arg_name_map,
+        options_type,
+        fixture,
+        config,
+        type_defs,
+    );
 
     // Per-call R extra_args: positional trailing arguments appended verbatim.
     // Used when the extendr wrapper has more parameters than the fixture
@@ -489,6 +517,9 @@ fn build_args_string(
     args: &[crate::e2e::config::ArgMapping],
     arg_name_map: Option<&std::collections::HashMap<String, String>>,
     options_type: Option<&str>,
+    fixture: &Fixture,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     if args.is_empty() {
         // No declared args means the wrapper takes zero parameters. Always
@@ -606,6 +637,22 @@ fn build_args_string(
                         return Some(format!("{arg_name} = .resolve_fixture(\"{escaped}\")"));
                     }
                 }
+            }
+            // `test_backend` arg type: emit a test stub for trait implementations.
+            if arg.arg_type == "test_backend" {
+                if let Some(trait_name) = &arg.trait_name {
+                    if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                        let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                            .iter()
+                            .find(|t| t.name == *trait_name)
+                            .map(|t| t.methods.iter().collect())
+                            .unwrap_or_default();
+                        let emission = crate::e2e::codegen::emit_test_backend("r", trait_bridge, &methods, fixture);
+                        return Some(format!("{arg_name} = {}", emission.arg_expr));
+                    }
+                }
+                let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("r");
+                return Some(format!("{arg_name} = NULL # {}", emission.arg_expr));
             }
             Some(format!("{arg_name} = {}", json_to_r(val, true)))
         })

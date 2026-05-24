@@ -211,6 +211,8 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
                 result_is_simple,
                 e2e_config,
                 &type_enum_fields,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: test_base.join(&class_file_name),

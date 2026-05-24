@@ -537,7 +537,9 @@ mod tests {
     fn render_test_file_no_fixtures_produces_header_only() {
         let fixtures: Vec<&crate::e2e::fixture::Fixture> = Vec::new();
         let e2e_config = crate::e2e::config::E2eConfig::default();
-        let out = render_test_file("basic", &fixtures, &e2e_config);
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let out = render_test_file("basic", &fixtures, &e2e_config, &config, &type_defs);
         assert!(out.contains("E2e tests for category: basic"), "got: {out}");
     }
 }

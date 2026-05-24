@@ -178,6 +178,8 @@ impl E2eCodegen for KotlinE2eCodegen {
                 result_is_simple,
                 e2e_config,
                 &type_enum_fields,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -475,6 +477,8 @@ pub(crate) fn render_test_file(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     render_test_file_inner(
         category,
@@ -489,6 +493,8 @@ pub(crate) fn render_test_file(
         e2e_config,
         type_enum_fields,
         false,
+        config,
+        type_defs,
     )
 }
 
@@ -519,6 +525,8 @@ pub(crate) fn render_test_file_android(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     render_test_file_inner(
         category,
@@ -533,6 +541,8 @@ pub(crate) fn render_test_file_android(
         e2e_config,
         type_enum_fields,
         true,
+        config,
+        type_defs,
     )
 }
 
@@ -550,6 +560,8 @@ fn render_test_file_inner(
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
     kotlin_android_style: bool,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -778,6 +790,8 @@ fn render_test_file_inner(
             e2e_config,
             type_enum_fields,
             kotlin_android_style,
+            config,
+            type_defs,
         );
         let _ = writeln!(out);
     }
@@ -1038,6 +1052,8 @@ fn render_test_method(
     e2e_config: &E2eConfig,
     type_enum_fields: &std::collections::HashMap<String, HashSet<String>>,
     kotlin_android_style: bool,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     // Delegate HTTP fixtures to the HTTP-specific renderer.
     if let Some(http) = &fixture.http {
@@ -1310,6 +1326,8 @@ fn render_test_method(
         options_type,
         &fixture.id,
         kotlin_android_style,
+        config,
+        type_defs,
     );
 
     // When client_factory is set, emit client-object instantiation + instance method call.
@@ -1467,6 +1485,8 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     fixture_id: &str,
     kotlin_android_style: bool,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1514,6 +1534,26 @@ fn build_args_and_setup(
                 ));
             }
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = super::emit_test_backend("kotlin", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("kotlin");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push("null".to_string());
             continue;
         }
 
@@ -2598,6 +2638,8 @@ mod tests {
             ..E2eConfig::default()
         };
         // kotlin_android_style=true must emit the import.
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         let out_android = render_test_file_inner(
             "streaming",
             &[&streaming_fixture],
@@ -2611,6 +2653,8 @@ mod tests {
             &e2e_config,
             &HashMap::new(),
             true,
+            &config,
+            &type_defs,
         );
         assert!(
             out_android.contains("import kotlinx.coroutines.flow.toList"),
@@ -2631,6 +2675,8 @@ mod tests {
             &e2e_config,
             &HashMap::new(),
             false,
+            &config,
+            &type_defs,
         );
         assert!(
             !out_jvm.contains("import kotlinx.coroutines.flow.toList"),
@@ -2693,6 +2739,8 @@ mod tests {
             ..E2eConfig::default()
         };
         // kotlin_android_style=true must emit registerKotlinModule import and call.
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         let out_android = render_test_file_inner(
             "configuration",
             &[&http_fixture],
@@ -2706,6 +2754,8 @@ mod tests {
             &e2e_config,
             &HashMap::new(),
             true,
+            &config,
+            &type_defs,
         );
         assert!(
             out_android.contains("import com.fasterxml.jackson.module.kotlin.registerKotlinModule"),
@@ -2730,6 +2780,8 @@ mod tests {
             &e2e_config,
             &HashMap::new(),
             false,
+            &config,
+            &type_defs,
         );
         assert!(
             !out_jvm.contains("registerKotlinModule"),

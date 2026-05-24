@@ -1068,6 +1068,8 @@ mod tests {
             tags: Vec::new(),
         };
         let call_config = crate::e2e::config::CallConfig::default();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         let (bindings, exprs) = build_args_and_setup(
             &fixture,
             &call_config,
@@ -1076,6 +1078,8 @@ mod tests {
             &HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &config,
+            &type_defs,
         );
         assert!(bindings.is_empty());
         assert!(exprs.is_empty());
@@ -1141,11 +1145,15 @@ mod tests {
             tags: Vec::new(),
         };
         let e2e_config = crate::e2e::config::E2eConfig::default();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         let mut out = String::new();
         render_test_function(
             &mut out,
             &fixture,
             &e2e_config,
+            &config,
+            &type_defs,
             None,
             "kwargs",
             &HashMap::new(),

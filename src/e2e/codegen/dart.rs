@@ -142,6 +142,8 @@ impl E2eCodegen for DartE2eCodegen {
                 &bridge_class,
                 &dart_first_class_map,
                 &config.adapters,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: test_base.join(filename),
@@ -221,6 +223,8 @@ fn render_test_file(
     bridge_class: &str,
     dart_first_class_map: &crate::e2e::field_access::DartFirstClassMap,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -547,6 +551,8 @@ fn render_test_file(
             bridge_class,
             dart_first_class_map,
             adapters,
+            config,
+            type_defs,
         );
     }
 
@@ -562,6 +568,8 @@ fn render_test_case(
     bridge_class: &str,
     dart_first_class_map: &crate::e2e::field_access::DartFirstClassMap,
     adapters: &[crate::core::config::extras::AdapterConfig],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
@@ -810,6 +818,25 @@ fn render_test_case(
                 } else {
                     args.push(var_name.to_string());
                 }
+                continue;
+            }
+            "test_backend" => {
+                if let Some(trait_name) = &arg_def.trait_name {
+                    if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                        let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                            .iter()
+                            .find(|t| t.name == *trait_name)
+                            .map(|t| t.methods.iter().collect())
+                            .unwrap_or_default();
+                        let emission = crate::e2e::codegen::emit_test_backend("dart", trait_bridge, &methods, fixture);
+                        setup_lines.push(emission.setup_block);
+                        args.push(emission.arg_expr);
+                        continue;
+                    }
+                }
+                let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("dart");
+                setup_lines.push(format!("// {}", emission.arg_expr));
+                args.push("null".to_string());
                 continue;
             }
             _ => {}

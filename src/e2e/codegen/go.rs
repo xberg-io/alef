@@ -737,7 +737,16 @@ fn render_test_file(
         }
     }
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut body, fixture, import_alias, e2e_config, adapters, data_enum_names, config, type_defs);
+        render_test_function(
+            &mut body,
+            fixture,
+            import_alias,
+            e2e_config,
+            adapters,
+            data_enum_names,
+            config,
+            type_defs,
+        );
         if i + 1 < fixtures.len() {
             let _ = writeln!(body);
         }
@@ -4017,6 +4026,8 @@ mod tests {
 
         let fixture = make_fixture("basic_text");
         let mut out = String::new();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         render_test_function(
             &mut out,
             &fixture,
@@ -4024,6 +4035,8 @@ mod tests {
             &e2e_config,
             &[],
             &std::collections::HashSet::new(),
+            &config,
+            &type_defs,
         );
 
         assert!(
@@ -4068,6 +4081,8 @@ mod tests {
         };
 
         let mut out = String::new();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         render_test_function(
             &mut out,
             &fixture,
@@ -4075,6 +4090,8 @@ mod tests {
             &e2e_config,
             &[],
             &std::collections::HashSet::new(),
+            &config,
+            &type_defs,
         );
 
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
@@ -4145,6 +4162,8 @@ mod tests {
             &e2e_config,
             &[],
             &std::collections::HashSet::new(),
+            &crate::core::config::ResolvedCrateConfig::default(),
+            &[],
         );
 
         eprintln!("generated:\n{out}");
@@ -4211,6 +4230,8 @@ mod tests {
         };
 
         let mut out = String::new();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         render_test_function(
             &mut out,
             &fixture,
@@ -4218,6 +4239,8 @@ mod tests {
             &e2e_config,
             &[],
             &std::collections::HashSet::new(),
+            &config,
+            &type_defs,
         );
 
         eprintln!("generated:\n{out}");
@@ -4289,6 +4312,8 @@ mod tests {
             visitor: None,
         };
 
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
         let out = render_test_file(
             "mime_utilities",
             &[&fixture],
@@ -4297,6 +4322,8 @@ mod tests {
             &e2e_config,
             &[],
             &std::collections::HashSet::new(),
+            &config,
+            &type_defs,
         );
 
         assert!(

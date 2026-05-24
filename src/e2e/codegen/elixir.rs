@@ -26,7 +26,7 @@ impl E2eCodegen for ElixirCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[crate::core::ir::TypeDef],
+        type_defs: &[crate::core::ir::TypeDef],
         enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -180,6 +180,8 @@ impl E2eCodegen for ElixirCodegen {
                 handle_atom_list_fields,
                 &config.adapters,
                 enums,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: output_base.join("test").join(filename),
@@ -336,6 +338,8 @@ fn render_test_file(
     handle_atom_list_fields: &std::collections::HashSet<String>,
     adapters: &[crate::core::config::extras::AdapterConfig],
     enums: &[crate::core::ir::EnumDef],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -455,6 +459,8 @@ fn render_test_file(
                 handle_atom_list_fields,
                 adapters,
                 enums,
+                config,
+                type_defs,
             );
         }
         if i + 1 < fixtures.len() {
@@ -728,6 +734,8 @@ fn render_test_case(
     _handle_atom_list_fields: &std::collections::HashSet<String>,
     adapters: &[crate::core::config::extras::AdapterConfig],
     enums: &[crate::core::ir::EnumDef],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let test_label = fixture.id.replace('"', "\\\"");
@@ -867,6 +875,8 @@ fn render_test_case(
         &test_documents_path,
         adapter_request_type.as_deref(),
         enums,
+        config,
+        type_defs,
     );
 
     // Build visitor if present — it will be injected into the options map.
@@ -1213,6 +1223,8 @@ fn build_args_and_setup(
     test_documents_path: &str,
     adapter_request_type: Option<&str>,
     enums: &[crate::core::ir::EnumDef],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1340,6 +1352,26 @@ fn build_args_and_setup(
                 ));
             }
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("elixir", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push(emission.arg_expr);
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("elixir");
+            setup_lines.push(format!("# {}", emission.arg_expr));
+            parts.push("nil".to_string());
             continue;
         }
 

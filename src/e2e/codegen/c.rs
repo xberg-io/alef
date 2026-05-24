@@ -156,7 +156,7 @@ impl E2eCodegen for CCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[crate::core::ir::TypeDef],
+        type_defs: &[crate::core::ir::TypeDef],
         _enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
@@ -291,6 +291,8 @@ impl E2eCodegen for CCodegen {
                 e2e_config,
                 lang,
                 &field_resolver,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -1004,6 +1006,8 @@ fn render_test_file(
     e2e_config: &E2eConfig,
     lang: &str,
     field_resolver: &FieldResolver,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Block));
@@ -1083,6 +1087,8 @@ fn render_test_file(
             call_info.result_is_option,
             call_info.result_is_bytes,
             &call_info.extra_args,
+            config,
+            type_defs,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -1112,6 +1118,8 @@ fn render_test_function(
     result_is_option: bool,
     result_is_bytes: bool,
     extra_args: &[String],
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -1741,7 +1749,7 @@ fn render_test_function(
         }
     }
 
-    let args_str = build_args_string_c(&fixture.input, args, has_options_handle);
+    let args_str = build_args_string_c(&fixture.input, args, has_options_handle, config, type_defs, fixture);
 
     if expects_error {
         let _ = writeln!(
@@ -3137,35 +3145,56 @@ fn build_args_string_c(
     input: &serde_json::Value,
     args: &[crate::e2e::config::ArgMapping],
     has_options_handle: bool,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    fixture: &Fixture,
 ) -> String {
     if args.is_empty() {
         return json_to_c(input);
     }
 
-    let parts: Vec<String> = args
-        .iter()
-        .filter_map(|arg| {
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field);
-            match val {
-                // Field missing entirely and optional → pass NULL.
-                None if arg.optional => Some("NULL".to_string()),
-                // Field missing and required → skip (caller error, but don't crash).
-                None => None,
-                // Explicit null on optional arg → pass NULL.
-                Some(v) if v.is_null() && arg.optional => Some("NULL".to_string()),
-                Some(v) => {
-                    // For json_object args, use the options_handle pointer
-                    // instead of the raw JSON string.
-                    if arg.arg_type == "json_object" && has_options_handle && !v.is_null() {
-                        Some("options_handle".to_string())
-                    } else {
-                        Some(json_to_c(v))
-                    }
+    let mut parts: Vec<String> = Vec::new();
+
+    for arg in args {
+        // Handle test_backend args: emit the stub and use it.
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = super::emit_test_backend("c", trait_bridge, &methods, fixture);
+                    parts.push(emission.arg_expr);
+                    continue;
                 }
             }
-        })
-        .collect();
+            // Unimplemented trait fallback
+            parts.push("NULL".to_string());
+            continue;
+        }
+
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = input.get(field);
+        match val {
+            // Field missing entirely and optional → pass NULL.
+            None if arg.optional => parts.push("NULL".to_string()),
+            // Field missing and required → skip (caller error, but don't crash).
+            None => {}
+            // Explicit null on optional arg → pass NULL.
+            Some(v) if v.is_null() && arg.optional => parts.push("NULL".to_string()),
+            Some(v) => {
+                // For json_object args, use the options_handle pointer
+                // instead of the raw JSON string.
+                if arg.arg_type == "json_object" && has_options_handle && !v.is_null() {
+                    parts.push("options_handle".to_string())
+                } else {
+                    parts.push(json_to_c(v))
+                }
+            }
+        }
+    }
 
     parts.join(", ")
 }

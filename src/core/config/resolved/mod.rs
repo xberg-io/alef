@@ -49,7 +49,7 @@ use crate::core::config::{FormatConfig, GenerateConfig};
 /// `output_paths` is precomputed: for every language this crate targets, the
 /// map holds the resolved output directory (with `{crate}` and `{lang}`
 /// placeholders substituted).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResolvedCrateConfig {
     // -----------------------------------------------------------------
     // Identity
