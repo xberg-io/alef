@@ -1,6 +1,5 @@
 //! Workspace-member discovery — globs the root `Cargo.toml` `[workspace]`
-//! `members` / `exclude` patterns and reads each member crate's name and
-//! version.
+//! `members` patterns and reads each member crate's name and version.
 //!
 //! Used to identify which path dependencies in a manifest refer to other
 //! crates in the same workspace (so they can be rewritten to registry
@@ -22,8 +21,8 @@ pub struct WorkspaceMembers {
     pub versions: BTreeMap<String, String>,
 }
 
-/// Glob the root `Cargo.toml` `[workspace]` `members` + `exclude` patterns and
-/// collect each member crate's `[package].name` and resolved `[package].version`.
+/// Glob the root `Cargo.toml` `[workspace]` `members` patterns and collect each
+/// member crate's `[package].name` and resolved `[package].version`.
 ///
 /// `version.workspace = true` is resolved against the root
 /// `[workspace.package].version`. Missing or unparseable member manifests are
@@ -46,7 +45,7 @@ pub fn workspace_member_crates(workspace_root: &Path) -> Result<WorkspaceMembers
 
     let mut members = WorkspaceMembers::default();
 
-    for pattern in member_and_exclude_patterns(&root_doc) {
+    for pattern in member_patterns(&root_doc) {
         let glob_pattern = workspace_root.join(&pattern).join("Cargo.toml");
         let glob_str = glob_pattern.to_string_lossy();
         let paths = match glob::glob(&glob_str) {
@@ -79,19 +78,18 @@ pub fn workspace_member_crates(workspace_root: &Path) -> Result<WorkspaceMembers
     Ok(members)
 }
 
-/// Collect the string patterns from the workspace `members` and `exclude` arrays.
-fn member_and_exclude_patterns(root_doc: &DocumentMut) -> Vec<String> {
-    let workspace = root_doc.get("workspace");
-    let collect = |key: &str| -> Vec<String> {
-        workspace
-            .and_then(|w| w.get(key))
-            .and_then(|m| m.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
-            .unwrap_or_default()
-    };
-    let mut patterns = collect("members");
-    patterns.extend(collect("exclude"));
-    patterns
+/// Collect the string patterns from the workspace `members` array.
+///
+/// The `exclude` array is intentionally NOT consulted: excluded crates are not
+/// part of the workspace and are not published to the registry, so they must
+/// not be treated as members (and therefore not as path-dep rewrite targets).
+fn member_patterns(root_doc: &DocumentMut) -> Vec<String> {
+    root_doc
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
 }
 
 /// Resolve a member's `[package].version`, following `version.workspace = true`.
@@ -172,7 +170,7 @@ edition = "2024"
         )
         .unwrap();
 
-        // Excluded crate: still discovered via the `exclude` pattern.
+        // Exclude-listed crate: must NOT be discovered (exclude != member).
         let tool_src = root.join("crates/excluded-tool/src");
         fs::create_dir_all(&tool_src).unwrap();
         fs::write(tool_src.join("main.rs"), "fn main() {}").unwrap();
@@ -196,7 +194,7 @@ edition = "2024"
 
         let members = workspace_member_crates(root).unwrap();
 
-        let expected_names: BTreeSet<String> = ["my-lib", "my-lib-py", "excluded-tool"]
+        let expected_names: BTreeSet<String> = ["my-lib", "my-lib-py"]
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -206,8 +204,10 @@ edition = "2024"
         assert_eq!(members.versions.get("my-lib").map(String::as_str), Some("1.2.3"));
         // my-lib-py pins its own version.
         assert_eq!(members.versions.get("my-lib-py").map(String::as_str), Some("0.9.0"));
-        // excluded crate is discovered with its own version.
-        assert_eq!(members.versions.get("excluded-tool").map(String::as_str), Some("2.0.0"));
+        // exclude-listed crates are NOT workspace members (not published), so
+        // they must not be discovered or treated as rewrite targets.
+        assert!(!members.names.contains("excluded-tool"));
+        assert!(!members.versions.contains_key("excluded-tool"));
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::core::config::extras::Language;
 use crate::core::config::publish::{PublishLanguageConfig, VendorMode};
 use anyhow::{Context, Result};
 use platform::RustTarget;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Prepare a language package for publishing: vendor dependencies, stage FFI artifacts.
 pub fn prepare(
@@ -78,8 +78,53 @@ pub fn prepare(
                 }
             }
             VendorMode::Registry => {
-                // TODO(S3/S4): implemented in a later slice. For now this is a
-                // no-op (same as None) so the new variant compiles.
+                // Rewrite the shipped binding manifest's workspace-member path
+                // deps to registry version-deps so the crate builds from source
+                // on the consumer's machine (no workspace present).
+                match resolve_binding_manifest(config, lang) {
+                    Some(manifest) => {
+                        let workspace_root = resolve_workspace_root(config);
+                        let ws_root = Path::new(&workspace_root);
+                        let manifest_abs = if manifest.is_absolute() {
+                            manifest.clone()
+                        } else {
+                            ws_root.join(&manifest)
+                        };
+
+                        if !manifest_abs.exists() {
+                            eprintln!(
+                                "Skipping Registry rewrite for {lang}: binding manifest not found at {}",
+                                manifest_abs.display()
+                            );
+                        } else {
+                            let members = workspace::workspace_member_crates(ws_root)?;
+                            let version = config
+                                .resolved_version()
+                                .context("cannot resolve crate version for Registry vendor mode")?;
+                            if dry_run {
+                                eprintln!(
+                                    "[dry-run] Would rewrite workspace-member path deps to registry \
+                                     version-deps (v{version}) in {} for {lang}",
+                                    manifest_abs.display()
+                                );
+                            } else {
+                                eprintln!(
+                                    "Rewriting workspace-member path deps to registry version-deps \
+                                     (v{version}) in {} for {lang}...",
+                                    manifest_abs.display()
+                                );
+                                vendor::rewrite_path_deps_to_registry(&manifest_abs, &members, &version)?;
+                                if let Some(manifest_dir) = manifest_abs.parent() {
+                                    vendor::scrub_or_regenerate_lock(manifest_dir, false)?;
+                                }
+                                eprintln!("  rewrote {}", manifest_abs.display());
+                            }
+                        }
+                    }
+                    None => {
+                        eprintln!("Skipping Registry rewrite for {lang}: no shipped binding manifest");
+                    }
+                }
             }
             VendorMode::None => {}
         }
@@ -372,6 +417,26 @@ pub fn package(
 
         eprintln!("Packaging {lang} for platform {platform}...");
 
+        // Defense-in-depth: if this language vendors in Registry mode, re-scan
+        // the shipped binding manifest and bail if any workspace-member dep still
+        // has a `path` (catches a skipped `prepare`). Cheap — a single read+parse.
+        let pkg_vendor_mode = lang_config
+            .vendor_mode
+            .as_ref()
+            .unwrap_or(&default_vendor_mode(lang))
+            .clone();
+        if matches!(pkg_vendor_mode, VendorMode::Registry) {
+            if let Some(manifest) = resolve_binding_manifest(config, lang) {
+                let manifest_abs = if manifest.is_absolute() {
+                    manifest
+                } else {
+                    ws_root.join(&manifest)
+                };
+                let members = workspace::workspace_member_crates(ws_root)?;
+                assert_no_member_path_deps(&manifest_abs, &members, lang)?;
+            }
+        }
+
         let result = match lang {
             Language::Ffi => {
                 let t = target.context("--target required for FFI packaging")?;
@@ -573,6 +638,105 @@ fn resolve_workspace_root(config: &ResolvedCrateConfig) -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
+/// Resolve the path of the binding `Cargo.toml` that SHIPS for a source-build
+/// language — the manifest a consumer compiles on their own machine.
+///
+/// These are the manifests whose workspace-member `path` dependencies must be
+/// rewritten to registry version-dependencies (since the workspace is not
+/// shipped alongside the package). Crate/directory names are derived from config
+/// accessors, never hardcoded.
+///
+/// Returns `None` for languages that ship no compilable manifest (e.g. Zig).
+fn resolve_binding_manifest(config: &ResolvedCrateConfig, lang: Language) -> Option<PathBuf> {
+    let pkg_dir = config.package_dir(lang);
+    match lang {
+        // Ruby: rb-sys compiles `{pkg}/ext/{ext}/native/Cargo.toml`, where the
+        // ext dir is `{core_crate_dir}_rb` (matching scaffold_ruby_cargo).
+        Language::Ruby => {
+            let ext = format!("{}_rb", config.core_crate_dir().replace('-', "_"));
+            Some(Path::new(&pkg_dir).join("ext").join(ext).join("native").join("Cargo.toml"))
+        }
+        // Elixir: the rustler NIF crate at `{pkg}/native/{app}_nif/Cargo.toml`.
+        Language::Elixir => {
+            let nif = format!("{}_nif", config.elixir_app_name());
+            Some(Path::new(&pkg_dir).join("native").join(nif).join("Cargo.toml"))
+        }
+        // Python: the maturin source build uses the binding crate manifest at
+        // `crates/{py_crate}/Cargo.toml` (same crate the python packager uses).
+        Language::Python => {
+            let py_crate =
+                crate_name_from_output(config, Language::Python).unwrap_or_else(|| format!("{}-py", config.name));
+            Some(Path::new("crates").join(py_crate).join("Cargo.toml"))
+        }
+        // PHP: the ext-php-rs binding crate at `crates/{php_crate}/Cargo.toml`.
+        Language::Php => {
+            let php_crate =
+                crate_name_from_output(config, Language::Php).unwrap_or_else(|| format!("{}-php", config.name));
+            Some(Path::new("crates").join(php_crate).join("Cargo.toml"))
+        }
+        // Swift: the swift-bridge crate ships at `{pkg}/rust/Cargo.toml`.
+        Language::Swift => Some(Path::new(&pkg_dir).join("rust").join("Cargo.toml")),
+        _ => None,
+    }
+}
+
+/// Re-scan a shipped binding manifest and bail if any workspace-member dep still
+/// carries a `path` (a cheap defense-in-depth check that `prepare()` ran).
+fn assert_no_member_path_deps(
+    manifest_path: &Path,
+    members: &workspace::WorkspaceMembers,
+    lang: Language,
+) -> Result<()> {
+    let content = match std::fs::read_to_string(manifest_path) {
+        Ok(c) => c,
+        // A missing manifest → nothing to assert (matches prepare()'s skip).
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        // Any other IO error (permissions, dangling symlink) is a real failure.
+        Err(e) => return Err(e).with_context(|| format!("reading {}", manifest_path.display())),
+    };
+    let doc: toml_edit::DocumentMut = content
+        .parse()
+        .with_context(|| format!("parsing {}", manifest_path.display()))?;
+
+    let section_has_member_path = |table: Option<&toml_edit::Item>| -> Option<String> {
+        let table = table?.as_table_like()?;
+        for (key, item) in table.iter() {
+            if members.names.contains(key) && item.as_table_like().is_some_and(|t| t.contains_key("path")) {
+                return Some(key.to_string());
+            }
+        }
+        None
+    };
+
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        if let Some(dep) = section_has_member_path(doc.get(section)) {
+            anyhow::bail!(
+                "{lang}: workspace-member dependency '{dep}' in [{section}] of {} still has a `path` — \
+                 did `alef publish prepare` run for Registry vendor mode?",
+                manifest_path.display()
+            );
+        }
+    }
+    if let Some(targets) = doc.get("target").and_then(|t| t.as_table_like()) {
+        for (cfg, cfg_item) in targets.iter() {
+            let Some(cfg_tbl) = cfg_item.as_table_like() else {
+                continue;
+            };
+            for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+                if let Some(dep) = section_has_member_path(cfg_tbl.get(section)) {
+                    anyhow::bail!(
+                        "{lang}: workspace-member dependency '{dep}' in \
+                         [target.{cfg}.{section}] of {} still has a `path` — \
+                         did `alef publish prepare` run for Registry vendor mode?",
+                        manifest_path.display()
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Resolve the vendor destination directory for a language.
 fn resolve_vendor_dest(config: &ResolvedCrateConfig, lang: Language) -> String {
     let pkg_dir = config.package_dir(lang);
@@ -735,7 +899,6 @@ mod tests {
         assert!(result.is_ok(), "after hooks should succeed when not specified");
     }
     #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
-    #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
     #[test]
     fn test_run_publish_after_hooks_multiple_commands() {
         let temp_dir = TempDir::new().unwrap();
@@ -797,5 +960,141 @@ mod tests {
         let after_result = run_publish_after_hooks(Language::Python, &config);
         assert!(after_result.is_ok());
         assert!(after_marker.exists(), "after hook should run on success");
+    }
+
+    // ---------------------------------------------------------------------
+    // S4: Registry vendor mode wired into prepare()
+    // ---------------------------------------------------------------------
+
+    /// Build a temp workspace with a core crate `my-lib` and a Python binding
+    /// crate `my-lib-py` whose manifest carries a workspace-member path dep.
+    /// Returns (TempDir, resolved config wired to the temp root).
+    fn setup_registry_workspace() -> (TempDir, ResolvedCrateConfig) {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"
+[workspace]
+resolver = "2"
+members = ["crates/my-lib", "crates/my-lib-py"]
+
+[workspace.package]
+version = "3.1.4"
+"#,
+        )
+        .unwrap();
+
+        // Core member crate.
+        std::fs::create_dir_all(root.join("crates/my-lib/src")).unwrap();
+        std::fs::write(root.join("crates/my-lib/src/lib.rs"), "pub fn hi() {}").unwrap();
+        std::fs::write(
+            root.join("crates/my-lib/Cargo.toml"),
+            "[package]\nname = \"my-lib\"\nversion = \"3.1.4\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+
+        // Python binding crate with a workspace-member path dep + a registry dep.
+        std::fs::create_dir_all(root.join("crates/my-lib-py/src")).unwrap();
+        std::fs::write(root.join("crates/my-lib-py/src/lib.rs"), "pub fn hi() {}").unwrap();
+        std::fs::write(
+            root.join("crates/my-lib-py/Cargo.toml"),
+            r#"
+[package]
+name = "my-lib-py"
+version = "3.1.4"
+edition = "2021"
+
+[dependencies]
+my-lib = { path = "../my-lib", features = ["x"] }
+anyhow = "1"
+"#,
+        )
+        .unwrap();
+
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "my-lib"
+sources = ["crates/my-lib/src/lib.rs"]
+"#,
+        )
+        .unwrap();
+        let mut config = cfg.resolve().unwrap().remove(0);
+        config.workspace_root = Some(root.to_path_buf());
+        // resolved_version() reads version_from as a path; point it at the temp root.
+        config.version_from = root.join("Cargo.toml").to_string_lossy().to_string();
+
+        (tmp, config)
+    }
+
+    fn read_py_manifest(root: &Path) -> toml_edit::DocumentMut {
+        let manifest = root.join("crates/my-lib-py/Cargo.toml");
+        std::fs::read_to_string(manifest).unwrap().parse().unwrap()
+    }
+
+    #[test]
+    fn resolve_binding_manifest_python_path() {
+        let (_tmp, config) = setup_registry_workspace();
+        let path = resolve_binding_manifest(&config, Language::Python).unwrap();
+        assert_eq!(path, Path::new("crates").join("my-lib-py").join("Cargo.toml"));
+    }
+
+    #[test]
+    fn resolve_binding_manifest_zig_is_none() {
+        let (_tmp, config) = setup_registry_workspace();
+        assert!(resolve_binding_manifest(&config, Language::Zig).is_none());
+    }
+
+    #[test]
+    fn prepare_registry_rewrites_member_path_deps() {
+        let (tmp, config) = setup_registry_workspace();
+        let root = tmp.path();
+
+        prepare(&config, &[Language::Python], None, false).unwrap();
+
+        let doc = read_py_manifest(root);
+        let deps = doc["dependencies"].as_table().unwrap();
+        let my_lib = deps["my-lib"].as_inline_table().unwrap();
+        assert_eq!(my_lib.get("version").and_then(|v| v.as_str()), Some("3.1.4"));
+        assert!(my_lib.get("path").is_none(), "path must be stripped");
+        assert!(my_lib.get("features").is_some(), "features preserved");
+        // Registry dep untouched.
+        assert_eq!(deps["anyhow"].as_str(), Some("1"));
+    }
+
+    #[test]
+    fn prepare_registry_dry_run_mutates_nothing() {
+        let (tmp, config) = setup_registry_workspace();
+        let root = tmp.path();
+
+        let before = std::fs::read_to_string(root.join("crates/my-lib-py/Cargo.toml")).unwrap();
+        prepare(&config, &[Language::Python], None, true).unwrap();
+        let after = std::fs::read_to_string(root.join("crates/my-lib-py/Cargo.toml")).unwrap();
+
+        assert_eq!(before, after, "dry-run must not modify the manifest");
+        // The path dep must still be present.
+        let doc: toml_edit::DocumentMut = after.parse().unwrap();
+        let my_lib = doc["dependencies"]["my-lib"].as_inline_table().unwrap();
+        assert!(my_lib.get("path").is_some(), "dry-run leaves path intact");
+    }
+
+    #[test]
+    fn assert_no_member_path_deps_detects_skipped_prepare() {
+        let (_tmp, config) = setup_registry_workspace();
+        let ws_root = config.workspace_root.clone().unwrap();
+        let manifest = ws_root.join(resolve_binding_manifest(&config, Language::Python).unwrap());
+        let members = workspace::workspace_member_crates(&ws_root).unwrap();
+
+        // Before prepare: the member path dep is present → must bail.
+        let err = assert_no_member_path_deps(&manifest, &members, Language::Python).unwrap_err();
+        assert!(err.to_string().contains("still has a `path`"), "got: {err}");
+
+        // After prepare: clean.
+        vendor::rewrite_path_deps_to_registry(&manifest, &members, "3.1.4").unwrap();
+        assert_no_member_path_deps(&manifest, &members, Language::Python).unwrap();
     }
 }
