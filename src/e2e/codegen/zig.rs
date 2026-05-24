@@ -2491,15 +2491,18 @@ pub fn emit_test_backend(
         {
             let method_snake = method.name.to_snake_case();
             if method.name == "name" {
-                let _ = writeln!(setup, "    pub fn {method_snake}() ?[*:0]const u8 {{ return \"test\"; }}");
-            } else if method.name == "version" {
-                let _ = writeln!(setup, "    pub fn {method_snake}() ?[*:0]const u8 {{ return \"0.0.1\"; }}");
-            } else {
-                // Initialize/shutdown and other super-trait methods: emit a void stub.
                 let _ = writeln!(
                     setup,
-                    "    pub fn {method_snake}(_: *{struct_name}) !void {{}}"
+                    "    pub fn {method_snake}() ?[*:0]const u8 {{ return \"test\"; }}"
                 );
+            } else if method.name == "version" {
+                let _ = writeln!(
+                    setup,
+                    "    pub fn {method_snake}() ?[*:0]const u8 {{ return \"0.0.1\"; }}"
+                );
+            } else {
+                // Initialize/shutdown and other super-trait methods: emit a void stub.
+                let _ = writeln!(setup, "    pub fn {method_snake}(_: *{struct_name}) !void {{}}");
             }
         }
     }

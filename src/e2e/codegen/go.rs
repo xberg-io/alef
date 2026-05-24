@@ -208,13 +208,15 @@ impl E2eCodegen for GoCodegen {
             let content = render_test_file(
                 &group.category,
                 &active,
-                &module_path,
-                &import_alias,
-                e2e_config,
-                &config.adapters,
-                &data_enum_names,
-                config,
-                type_defs,
+                GoTestFileContext {
+                    go_module_path: &module_path,
+                    import_alias: &import_alias,
+                    e2e_config,
+                    adapters: &config.adapters,
+                    data_enum_names: &data_enum_names,
+                    config,
+                    type_defs,
+                },
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -428,17 +430,26 @@ fn render_helpers_test_go() -> String {
     out
 }
 
-fn render_test_file(
-    category: &str,
-    fixtures: &[&Fixture],
-    go_module_path: &str,
-    import_alias: &str,
-    e2e_config: &crate::e2e::config::E2eConfig,
-    adapters: &[crate::core::config::AdapterConfig],
-    data_enum_names: &std::collections::HashSet<&str>,
-    config: &crate::core::config::ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-) -> String {
+struct GoTestFileContext<'a> {
+    go_module_path: &'a str,
+    import_alias: &'a str,
+    e2e_config: &'a crate::e2e::config::E2eConfig,
+    adapters: &'a [crate::core::config::AdapterConfig],
+    data_enum_names: &'a std::collections::HashSet<&'a str>,
+    config: &'a crate::core::config::ResolvedCrateConfig,
+    type_defs: &'a [crate::core::ir::TypeDef],
+}
+
+fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileContext<'_>) -> String {
+    let GoTestFileContext {
+        go_module_path,
+        import_alias,
+        e2e_config,
+        adapters,
+        data_enum_names,
+        config,
+        type_defs,
+    } = context;
     let mut out = String::new();
     let emits_executable_test =
         |fixture: &Fixture| fixture.is_http_test() || fixture_has_go_callable(fixture, e2e_config);
@@ -740,12 +751,14 @@ fn render_test_file(
         render_test_function(
             &mut body,
             fixture,
-            import_alias,
-            e2e_config,
-            adapters,
-            data_enum_names,
-            config,
-            type_defs,
+            GoTestFunctionContext {
+                import_alias,
+                e2e_config,
+                adapters,
+                data_enum_names,
+                config,
+                type_defs,
+            },
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(body);
@@ -862,16 +875,24 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::e2e::config::E
     !fn_name.is_empty()
 }
 
-fn render_test_function(
-    out: &mut String,
-    fixture: &Fixture,
-    import_alias: &str,
-    e2e_config: &crate::e2e::config::E2eConfig,
-    adapters: &[crate::core::config::AdapterConfig],
-    data_enum_names: &std::collections::HashSet<&str>,
-    config: &crate::core::config::ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-) {
+struct GoTestFunctionContext<'a> {
+    import_alias: &'a str,
+    e2e_config: &'a crate::e2e::config::E2eConfig,
+    adapters: &'a [crate::core::config::AdapterConfig],
+    data_enum_names: &'a std::collections::HashSet<&'a str>,
+    config: &'a crate::core::config::ResolvedCrateConfig,
+    type_defs: &'a [crate::core::ir::TypeDef],
+}
+
+fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunctionContext<'_>) {
+    let GoTestFunctionContext {
+        import_alias,
+        e2e_config,
+        adapters,
+        data_enum_names,
+        config,
+        type_defs,
+    } = context;
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
 
@@ -4113,12 +4134,14 @@ mod tests {
         render_test_function(
             &mut out,
             &fixture,
-            "kreuzberg",
-            &e2e_config,
-            &[],
-            &std::collections::HashSet::new(),
-            &config,
-            &type_defs,
+            GoTestFunctionContext {
+                import_alias: "kreuzberg",
+                e2e_config: &e2e_config,
+                adapters: &[],
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &config,
+                type_defs: &type_defs,
+            },
         );
 
         assert!(
@@ -4168,12 +4191,14 @@ mod tests {
         render_test_function(
             &mut out,
             &fixture,
-            "pkg",
-            &e2e_config,
-            &[],
-            &std::collections::HashSet::new(),
-            &config,
-            &type_defs,
+            GoTestFunctionContext {
+                import_alias: "pkg",
+                e2e_config: &e2e_config,
+                adapters: &[],
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &config,
+                type_defs: &type_defs,
+            },
         );
 
         assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
@@ -4240,12 +4265,14 @@ mod tests {
         render_test_function(
             &mut out,
             &fixture,
-            "pkg",
-            &e2e_config,
-            &[],
-            &std::collections::HashSet::new(),
-            &crate::core::config::ResolvedCrateConfig::default(),
-            &[],
+            GoTestFunctionContext {
+                import_alias: "pkg",
+                e2e_config: &e2e_config,
+                adapters: &[],
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &crate::core::config::ResolvedCrateConfig::default(),
+                type_defs: &[],
+            },
         );
 
         eprintln!("generated:\n{out}");
@@ -4318,12 +4345,14 @@ mod tests {
         render_test_function(
             &mut out,
             &fixture,
-            "pkg",
-            &e2e_config,
-            &[],
-            &std::collections::HashSet::new(),
-            &config,
-            &type_defs,
+            GoTestFunctionContext {
+                import_alias: "pkg",
+                e2e_config: &e2e_config,
+                adapters: &[],
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &config,
+                type_defs: &type_defs,
+            },
         );
 
         eprintln!("generated:\n{out}");
@@ -4401,13 +4430,15 @@ mod tests {
         let out = render_test_file(
             "mime_utilities",
             &[&fixture],
-            "github.com/example/mylib",
-            "kreuzberg",
-            &e2e_config,
-            &[],
-            &std::collections::HashSet::new(),
-            &config,
-            &type_defs,
+            GoTestFileContext {
+                go_module_path: "github.com/example/mylib",
+                import_alias: "kreuzberg",
+                e2e_config: &e2e_config,
+                adapters: &[],
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &config,
+                type_defs: &type_defs,
+            },
         );
 
         assert!(
