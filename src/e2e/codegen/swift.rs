@@ -3256,7 +3256,9 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
+    use crate::backends::swift::type_map::SwiftMapper;
     use crate::codegen::defaults::language_defaults;
+    use crate::codegen::type_mapper::TypeMapper as _;
     use heck::{ToLowerCamelCase, ToUpperCamelCase};
     use std::fmt::Write as _;
 
@@ -3266,6 +3268,8 @@ pub fn emit_test_backend(
     // codegen in `src/backends/swift/gen_bindings/trait_bridge.rs`.
     let protocol_name = crate::backends::swift::naming::bridge_protocol_name(&trait_bridge.trait_name);
 
+    // Prefer the fixture's input "name" field (e.g. "test-extractor") over the
+    // fixture id, which is an internal snake_case identifier, not a backend name.
     let plugin_name = fixture
         .input
         .get("name")
@@ -3274,44 +3278,49 @@ pub fn emit_test_backend(
         .to_string();
 
     let defaults = language_defaults("swift");
+    let mapper = SwiftMapper;
 
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name}: {protocol_name} {{");
 
-    // Plugin super-trait `name` property.
+    // Plugin super-trait `name` computed property.
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(setup, "    var name: String {{ \"{plugin_name}\" }}");
     }
 
-    // Required methods.
+    // Required methods — use concrete Swift types from SwiftMapper.
     for method in methods {
         if method.has_default_impl {
             continue;
         }
         let method_name = method.name.to_lower_camel_case();
 
-        // Build parameter list.
+        // Build parameter list with concrete Swift types.
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("_ {}: Any", p.name.to_lower_camel_case()))
+            .map(|p| format!("_ {}: {}", p.name.to_lower_camel_case(), mapper.map_type(&p.ty)))
             .collect();
         let params_str = params.join(", ");
 
+        let return_type = mapper.map_type(&method.return_type);
         let default_val = defaults.emit_default(&method.return_type);
 
         if method.is_async && method.error_type.is_some() {
             let _ = writeln!(
                 setup,
-                "    func {method_name}({params_str}) async throws -> Any {{ {default_val} }}"
+                "    func {method_name}({params_str}) async throws -> {return_type} {{ {default_val} }}"
             );
         } else if method.is_async {
             let _ = writeln!(
                 setup,
-                "    func {method_name}({params_str}) async -> Any {{ {default_val} }}"
+                "    func {method_name}({params_str}) async -> {return_type} {{ {default_val} }}"
             );
         } else {
-            let _ = writeln!(setup, "    func {method_name}({params_str}) -> Any {{ {default_val} }}");
+            let _ = writeln!(
+                setup,
+                "    func {method_name}({params_str}) -> {return_type} {{ {default_val} }}"
+            );
         }
     }
 
@@ -3320,6 +3329,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("{class_name}()"),
+        type_imports: Vec::new(),
     }
 }
 
@@ -3415,6 +3425,92 @@ mod test_backend_tests {
         assert!(
             output.contains("doWork"),
             "required method must be emitted in camelCase, got:\n{output}"
+        );
+    }
+
+    fn make_param(name: &str, ty: TypeRef) -> crate::core::ir::ParamDef {
+        crate::core::ir::ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn make_method_with_params(name: &str, required: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![
+                make_param("image_bytes", TypeRef::Bytes),
+                make_param("mime_type", TypeRef::String),
+            ],
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: true,
+            is_static: false,
+            error_type: Some("anyhow::Error".to_string()),
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: !required,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Verify params use concrete Swift types (not `Any`) and return type is concrete.
+    #[test]
+    fn swift_stub_uses_typed_params_not_any() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method_with_params("processImage", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            !output.contains(": Any"),
+            "param type must not be `Any`, got:\n{output}"
+        );
+        assert!(
+            output.contains("imageBytes: Data"),
+            "bytes param must map to Data, got:\n{output}"
+        );
+        assert!(
+            output.contains("mimeType: String"),
+            "string param must map to String, got:\n{output}"
+        );
+        assert!(
+            output.contains("-> ExtractionResult"),
+            "return type must be concrete not Any, got:\n{output}"
+        );
+    }
+
+    /// Verify that `fixture.input["name"]` is used as the plugin name when present.
+    #[test]
+    fn swift_stub_uses_fixture_input_name_for_plugin_name() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("do_work", true);
+        let methods = [&required_method];
+        let mut fixture = make_fixture("my_fixture_id");
+        fixture.input = serde_json::json!({ "name": "my-backend-name" });
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
+
+        assert!(
+            output.contains("\"my-backend-name\""),
+            "plugin name must come from fixture.input.name, got:\n{output}"
         );
     }
 }
