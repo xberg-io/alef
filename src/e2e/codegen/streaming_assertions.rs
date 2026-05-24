@@ -713,8 +713,10 @@ impl StreamingFieldResolver {
                 // so consumers drain it with `for try await chunk in stream { ... }`. The
                 // chunk type is decoded from the bridge-boundary JSON inside the wrapper —
                 // here we just collect the typed Swift values.
+                // When item_type is provided (e.g., "CrawlEvent" from kreuzcrawl adapters),
+                // use it; otherwise default to "ChatCompletionChunk" for backward compatibility.
                 Some(format!(
-                    "var {chunks_var}: [ChatCompletionChunk] = []\n        for try await _chunk in {stream_var} {{ {chunks_var}.append(_chunk) }}"
+                    "var {chunks_var}: [{item_type}] = []\n        for try await _chunk in {stream_var} {{ {chunks_var}.append(_chunk) }}"
                 ))
             }
             "zig" => Some(Self::collect_snippet_zig(stream_var, chunks_var, "module", "ffi")),

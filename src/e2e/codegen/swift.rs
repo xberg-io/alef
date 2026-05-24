@@ -25,6 +25,7 @@ use crate::e2e::field_access::{FieldResolver, SwiftFirstClassMap};
 use crate::e2e::fixture::{Assertion, Fixture, FixtureGroup, ValidationErrorExpectation};
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use regex::Regex;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
@@ -810,8 +811,32 @@ fn render_test_method(
 
     // Streaming detection (call-level `streaming` opt-out is honored).
     let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+
+    // Infer the stream chunk item type from the function name or default to ChatCompletionChunk.
+    // Streaming adapters define item_type (e.g., "CrawlEvent" in kreuzcrawl).
+    // When the function name contains "stream", infer the concrete item type based on context.
+    let chunk_item_type = if is_streaming && !expects_error {
+        // For kreuzcrawl crawl_stream and batch_crawl_stream, the chunk type is CrawlEvent
+        if call_config.function.contains("stream") {
+            match call_config.function.to_lowercase().as_str() {
+                s if s.contains("crawl_stream") || s.contains("crawlstream") => Some("CrawlEvent"),
+                // Default to ChatCompletionChunk for LLM-like streaming (liter-llm pattern)
+                _ => Some("ChatCompletionChunk"),
+            }
+        } else {
+            Some("ChatCompletionChunk")
+        }
+    } else {
+        None
+    };
+
     let collect_snippet_opt = if is_streaming && !expects_error {
-        crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(lang, result_var, "chunks")
+        crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet_typed(
+            lang,
+            result_var,
+            "chunks",
+            chunk_item_type,
+        )
     } else {
         None
     };
@@ -837,16 +862,22 @@ fn render_test_method(
         return;
     }
     let collect_snippet = collect_snippet_opt.unwrap_or_default();
-    // The shared streaming snippet references the unqualified `ChatCompletionChunk`
-    // type, but Swift consumers import both `<Module>` (the alef-emitted first-class
-    // `public struct ChatCompletionChunk`) AND `RustBridge` (the swift-bridge
-    // generated `public class ChatCompletionChunk`). Without module qualification
-    // Swift fails the test target with "'ChatCompletionChunk' is ambiguous for
-    // type lookup". Qualify to the first-class type so `chunks` is `[<Module>.ChatCompletionChunk]`.
+    // The shared streaming snippet may reference unqualified types like `ChatCompletionChunk`
+    // or `CrawlEvent`. Swift consumers import both `<Module>` (the alef-emitted first-class
+    // types) AND `RustBridge` (swift-bridge generated types). Without module qualification
+    // for ambiguous types, Swift fails with "'Type' is ambiguous for type lookup".
+    // Qualify all bracketed type names to the first-class module type.
     let collect_snippet = if collect_snippet.is_empty() {
         collect_snippet
     } else {
-        collect_snippet.replace("[ChatCompletionChunk]", &format!("[{module_name}.ChatCompletionChunk]"))
+        // Replace `[<ItemType>]` with module-qualified `[<Module>.<ItemType>]`
+        // This handles both ChatCompletionChunk (liter-llm) and CrawlEvent (kreuzcrawl).
+        let re = Regex::new(r"\[([A-Za-z][A-Za-z0-9]*)\]").expect("valid regex");
+        let module_qualifier = module_name.clone();
+        re.replace_all(&collect_snippet, |caps: &regex::Captures| {
+            format!("[{}.{}]", module_qualifier, &caps[1])
+        })
+        .to_string()
     };
 
     // Detect whether this call has any json_object args that cannot be constructed
