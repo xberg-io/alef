@@ -202,8 +202,27 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         "checksum-*.exs".into(),
         format!("native/{nif_name}/Cargo.toml"),
         format!("native/{nif_name}/Cargo.lock"),
-        format!("native/{nif_name}/src"),
     ];
+
+    // The NIF crate's `[lib] path` (see `scaffold_elixir_cargo`) determines
+    // where the Rust source lives:
+    // - Default / native output: `[lib] path` defaults to `src/lib.rs` next to
+    //   the NIF `Cargo.toml`, so the source is `native/<nif>/src`. That dir is
+    //   listed directly and the tarball is self-contained.
+    // - External output (`[crate.output] elixir = "crates/<lib>-elixir/src/"`):
+    //   `[lib] path` points at the external source dir and `native/<nif>/src`
+    //   does NOT exist on disk. Listing it makes `mix hex.build` hard-fail with
+    //   `Missing files: native/<nif>/src`, and shipping only `*.ex` from the
+    //   external dir leaves the Rust NIF source out of the tarball so
+    //   RustlerPrecompiled's source-compile fallback cannot build standalone.
+    //   In that case list the external source dir itself: it holds both the
+    //   Rust `lib.rs` (and any sibling `*.rs`) and the generated `*.ex` modules,
+    //   so the path the `[lib] path` resolves to ships in the tarball.
+    match external_elixir_src.as_deref() {
+        Some(relative) => files_entries.push(relative.to_string()),
+        None => files_entries.push(format!("native/{nif_name}/src")),
+    }
+
     let native_crate_dir_rel = format!("{pkg_dir}/native/{nif_name}");
     let build_rs_path = if let Some(ws_root) = config.workspace_root.as_deref() {
         ws_root.join(&native_crate_dir_rel).join("build.rs")
@@ -215,45 +234,6 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     }
     if lib_populated {
         files_entries.insert(0, "lib".into());
-    }
-    if let Some(relative) = external_elixir_src.as_deref() {
-        // Probe the directory to see if it actually contains .ex or .exs files.
-        // - If the directory exists and contains Elixir sources: emit the glob
-        // - If the directory exists but contains no .ex/.exs files (e.g., Rust NIF source dir):
-        //   omit the glob to avoid "Missing files" errors from `mix hex.publish`
-        // - If the directory does not exist (e.g., generated bindings target): emit the glob
-        //   (consumer expectations remain; the files will be generated later)
-        let should_emit_glob = config
-            .explicit_output
-            .elixir
-            .as_ref()
-            .map(|elixir_out| {
-                // If the directory doesn't exist, assume it will be generated and emit the glob.
-                if !elixir_out.exists() {
-                    return true;
-                }
-                // Directory exists: check if it contains .ex or .exs files.
-                std::fs::read_dir(elixir_out)
-                    .ok()
-                    .map(|entries| {
-                        entries.filter_map(|e| e.ok()).any(|entry| {
-                            if let Ok(meta) = entry.metadata() {
-                                if meta.is_file() {
-                                    if let Some(name) = entry.file_name().to_str() {
-                                        return name.ends_with(".ex") || name.ends_with(".exs");
-                                    }
-                                }
-                            }
-                            false
-                        })
-                    })
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-
-        if should_emit_glob {
-            files_entries.push(format!("{relative}/*.ex"));
-        }
     }
     let files_line = files_entries.join(" ");
 

@@ -1393,10 +1393,14 @@ fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() 
 }
 
 #[test]
-fn test_scaffold_elixir_mix_exs_files_list_includes_external_source_glob() {
-    // When the Elixir source lives outside packages/elixir/lib/, the relative
-    // path must be appended to `files:` so `mix hex.publish` actually ships
-    // the source. The same path is added to `elixirc_paths` for local compilation.
+fn test_scaffold_elixir_mix_exs_files_list_includes_external_source_dir() {
+    // When the Elixir output lives outside packages/elixir/ (the NIF crate's
+    // `[lib] path` points there), the NIF Rust `lib.rs` AND the generated `*.ex`
+    // modules both live in that external dir — NOT in `native/<nif>/src`. The
+    // `files:` list must therefore (a) NOT advertise the nonexistent
+    // `native/<nif>/src` (else `mix hex.build` fails with "Missing files") and
+    // (b) list the external source dir itself so the Rust NIF source ships in
+    // the tarball for RustlerPrecompiled's source-compile fallback.
     let config = test_config_from_toml(
         r#"
 [crates.output]
@@ -1409,10 +1413,23 @@ elixir = "crates/my-lib-elixir/src/"
     let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
 
     assert!(
-        mix_exs
-            .content
-            .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src ../../crates/my-lib-elixir/src/*.ex)"),
+        mix_exs.content.contains(
+            "files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock ../../crates/my-lib-elixir/src)"
+        ),
         "content: {}",
+        mix_exs.content
+    );
+    // The nonexistent native src dir must NOT be listed (it would hard-fail mix hex.build).
+    assert!(
+        !mix_exs.content.contains("native/my_lib_nif/src"),
+        "external-output mix.exs must not list the nonexistent native/<nif>/src dir; content: {}",
+        mix_exs.content
+    );
+    // The Rust NIF source dir must ship (not just a *.ex glob), so the
+    // source-compile fallback can build standalone from the tarball.
+    assert!(
+        !mix_exs.content.contains("/*.ex)") && !mix_exs.content.contains("/*.ex "),
+        "external-output mix.exs must ship the whole source dir, not just *.ex; content: {}",
         mix_exs.content
     );
 }
@@ -3048,12 +3065,13 @@ fn test_scaffold_license_files_deduplicates_same_package_dir() {
     );
 }
 
-/// BLK-9 regression: When explicit_output.elixir points to a .rs-only directory
-/// (e.g., the Rust NIF source root), the generated mix.exs should NOT include
-/// the {relative}/*.ex glob in the `files:` list, as `mix hex.publish` will reject
-/// it with "Missing files" error.
+/// When explicit_output.elixir points at an external source directory (where the
+/// NIF crate's `[lib] path` resolves), the generated mix.exs `files:` list must
+/// list that directory as a self-contained dir entry — shipping the Rust NIF
+/// `lib.rs` and any `*.rs`/`*.ex` together — instead of a bare `/*.ex` glob that
+/// leaves the Rust source out of the tarball.
 #[test]
-fn test_scaffold_elixir_mix_exs_omits_ex_glob_for_rs_only_directory() {
+fn test_scaffold_elixir_mix_exs_external_dir_is_listed_as_whole_dir() {
     let tmp = tempfile::tempdir().expect("tempdir must be created");
     let rs_dir = tmp.path();
 
@@ -3082,11 +3100,17 @@ elixir = '{explicit_path}'
         .find(|f| f.path.ends_with("mix.exs"))
         .expect("mix.exs must be generated");
 
-    // The files: list should NOT contain /*.ex glob when the directory has no .ex files.
-    // (Note: checksum-*.exs contains the substring *.ex, so we must check for the path-based glob pattern)
+    // No bare `/*.ex` glob — the whole dir is shipped so the Rust source travels too.
+    // (Note: checksum-*.exs contains the substring *.ex, so check the path-glob form.)
     assert!(
-        !mix_exs.content.contains("/*.ex)"),
-        "mix.exs should not contain /*.ex glob for .rs-only directory; content:\n{}",
+        !mix_exs.content.contains("/*.ex)") && !mix_exs.content.contains("/*.ex "),
+        "external-output mix.exs must list the whole source dir, not a /*.ex glob; content:\n{}",
+        mix_exs.content
+    );
+    // The nonexistent native src dir must not be advertised (else mix hex.build fails).
+    assert!(
+        !mix_exs.content.contains("native/my_lib_nif/src"),
+        "external-output mix.exs must not list native/<nif>/src; content:\n{}",
         mix_exs.content
     );
     // Verify that standard entries are still present.
@@ -3094,20 +3118,24 @@ elixir = '{explicit_path}'
         mix_exs.content.contains(".formatter.exs"),
         "mix.exs should contain .formatter.exs"
     );
-    assert!(mix_exs.content.contains("native"), "mix.exs should contain native");
+    assert!(
+        mix_exs.content.contains("native/my_lib_nif/Cargo.toml"),
+        "mix.exs should still ship the NIF Cargo.toml"
+    );
 }
 
-/// BLK-9 regression: When explicit_output.elixir points to a directory containing
-/// .ex or .exs files, the generated mix.exs should include the {relative}/*.ex glob
-/// in the `files:` list for `mix hex.publish`.
+/// Even when the external Elixir output directory contains `.ex`/`.exs` modules,
+/// it is still listed as a single self-contained directory entry (covering both
+/// the Elixir modules and the co-located Rust NIF source), not a `/*.ex` glob.
 #[test]
-fn test_scaffold_elixir_mix_exs_includes_ex_glob_for_elixir_sources() {
+fn test_scaffold_elixir_mix_exs_external_dir_with_ex_sources_listed_as_dir() {
     let tmp = tempfile::tempdir().expect("tempdir must be created");
     let ex_dir = tmp.path();
 
-    // Create a directory with Elixir source files.
+    // Create a directory with both Elixir source files and the Rust NIF source.
     std::fs::write(ex_dir.join("module.ex"), "defmodule Test do\nend\n").expect("write module.ex");
     std::fs::write(ex_dir.join("helper.exs"), "# helper\n").expect("write helper.exs");
+    std::fs::write(ex_dir.join("lib.rs"), "// Rust NIF source\n").expect("write lib.rs");
 
     // Build config pointing explicit_output.elixir at the .ex-containing directory.
     // Single-quoted TOML literal string keeps Windows `\U`/`\R`/`\T` path segments
@@ -3129,10 +3157,15 @@ elixir = '{explicit_path}'
         .find(|f| f.path.ends_with("mix.exs"))
         .expect("mix.exs must be generated");
 
-    // The files: list SHOULD contain *.ex glob when the directory has .ex/.exs files.
+    // Listed as a whole directory, not a `/*.ex` glob (which would drop lib.rs).
     assert!(
-        mix_exs.content.contains("*.ex"),
-        "mix.exs should contain *.ex glob for directory with .ex/.exs files; content:\n{}",
+        !mix_exs.content.contains("/*.ex)") && !mix_exs.content.contains("/*.ex "),
+        "external-output mix.exs must list the whole source dir, not a /*.ex glob; content:\n{}",
+        mix_exs.content
+    );
+    assert!(
+        !mix_exs.content.contains("native/my_lib_nif/src"),
+        "external-output mix.exs must not list native/<nif>/src; content:\n{}",
         mix_exs.content
     );
 }
