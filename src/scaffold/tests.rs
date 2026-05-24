@@ -56,6 +56,7 @@ fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
                 && !p.ends_with(".typos.toml")
                 && !p.ends_with("rust-toolchain.toml")
                 && !p.ends_with(".cargo/config.toml")
+                && p != ".gitattributes"
                 // LICENSE files are synced from the workspace root; the consolidated
                 // single-crate layout runs tests from the repo root which has a LICENSE
                 // file, causing scaffold_license_files() to emit per-package LICENSE
@@ -158,6 +159,61 @@ fn test_scaffold_multiple() {
     // (crate package.json + crate index.js + Cargo.toml — the dead `packages/node/`
     // scaffold was removed).
     assert_eq!(files.len(), 6);
+}
+
+#[test]
+fn test_scaffold_gitattributes_covers_all_generated_dirs() {
+    // Test that .gitattributes is emitted and covers: language package dirs,
+    // binding crate dirs (py/php/ffi/jni are separate from package_dir), and e2e/.
+    let config = test_config();
+    let api = test_api();
+
+    // Python + Node: the default test_config languages.
+    let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
+    let ga = all_files
+        .iter()
+        .find(|f| f.path == std::path::Path::new(".gitattributes"))
+        .expect(".gitattributes must be emitted by scaffold");
+
+    assert!(
+        !ga.generated_header,
+        "generated_header must be false — create-once seed"
+    );
+
+    let content = &ga.content;
+    // Package directories
+    assert!(content.contains("packages/python/**"), "must cover Python package dir");
+    assert!(content.contains("crates/my-lib-node/**"), "must cover Node crate dir");
+    // Binding crate separate from package_dir
+    assert!(content.contains("crates/my-lib-py/**"), "must cover PyO3 binding crate");
+    // e2e is always included regardless of language selection
+    assert!(content.contains("e2e/**"), "must cover e2e test output");
+    // All entries carry the linguist attribute
+    for line in content.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+        assert!(
+            line.ends_with("linguist-generated=true"),
+            "every non-comment line must set linguist-generated=true, got: {line}"
+        );
+    }
+}
+
+#[test]
+fn test_scaffold_gitattributes_ffi_and_jni_use_crate_dirs() {
+    // FFI and JNI don't have packages/ dirs — their output is the binding crate itself.
+    let config = test_config();
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Ffi, Language::Jni]).unwrap();
+    let ga = all_files
+        .iter()
+        .find(|f| f.path == std::path::Path::new(".gitattributes"))
+        .expect(".gitattributes must be emitted");
+
+    let content = &ga.content;
+    assert!(content.contains("crates/my-lib-ffi/**"), "must cover FFI crate dir");
+    assert!(content.contains("crates/my-lib-jni/**"), "must cover JNI crate dir");
+    assert!(!content.contains("packages/ffi"), "must not emit bogus packages/ffi");
+    assert!(!content.contains("packages/jni"), "must not emit bogus packages/jni");
 }
 
 #[test]
