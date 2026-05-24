@@ -2491,3 +2491,14 @@ fn emit_tagged_enum_array(
     }
     format!("[{}]", elements.join(", "))
 }
+
+/// Emit a elixir test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("elixir test_backend emission not yet implemented")
+}

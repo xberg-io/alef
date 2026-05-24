@@ -2384,3 +2384,14 @@ fn is_php_reserved_type(name: &str) -> bool {
             | "mixed"
     )
 }
+
+/// Emit a PHP test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("PHP test_backend emission not yet implemented")
+}

@@ -2234,3 +2234,14 @@ fn is_base64(s: &str) -> bool {
 
     true
 }
+
+/// Emit a Ruby test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("Ruby test_backend emission not yet implemented")
+}

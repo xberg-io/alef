@@ -3511,6 +3511,17 @@ fn classify_bytes_value_csharp(s: &str) -> String {
     format!("System.Convert.FromBase64String(\"{}\")", s)
 }
 
+/// Emit a C# test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("C# test_backend emission not yet implemented")
+}
+
 #[cfg(test)]
 mod tests {
     use crate::e2e::config::{CallConfig, E2eConfig, SelectWhen};

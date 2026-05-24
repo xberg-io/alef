@@ -2002,6 +2002,17 @@ fn json_to_gleam(value: &serde_json::Value) -> String {
     }
 }
 
+/// Emit a Gleam test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("Gleam test_backend emission not yet implemented")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2098,6 +2109,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            trait_name: None,
         };
         let input = serde_json::json!({
             "config": { "use_cache": true, "force_ocr": false }
@@ -2139,6 +2151,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            trait_name: None,
         };
         let input = serde_json::json!({ "config": { "x": 1 } });
         // No recipe, no wrapper, no from_json — must return None for skip.

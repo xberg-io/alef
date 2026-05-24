@@ -3592,6 +3592,17 @@ fn method_to_camel(snake: &str) -> String {
     snake.to_upper_camel_case()
 }
 
+/// Emit a Go test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("Go test_backend emission not yet implemented")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3754,6 +3765,7 @@ mod tests {
                     owned: true,
                     element_type: None,
                     go_type: None,
+                    trait_name: None,
                 }],
                 overrides: call_overrides,
                 ..CallConfig::default()
@@ -3885,6 +3897,7 @@ mod tests {
                     owned: false,
                     element_type: None,
                     go_type: None,
+                    trait_name: None,
                 }],
                 ..CallConfig::default()
             },

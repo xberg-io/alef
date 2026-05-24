@@ -4183,3 +4183,14 @@ fn c_visitor_placeholder_to_arg(method: &str, name: &str) -> String {
     // Guard against NULL to avoid UB in printf (some implementations crash on NULL %s).
     format!("(_{name} ? _{name} : \"\")")
 }
+
+/// Emit a test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("test_backend emission not yet implemented")
+}

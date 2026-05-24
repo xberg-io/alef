@@ -2730,6 +2730,17 @@ fn method_to_camel(snake: &str) -> String {
     snake.to_lower_camel_case()
 }
 
+/// Emit a Java test backend stub.
+///
+/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    unimplemented!("Java test_backend emission not yet implemented")
+}
+
 #[cfg(test)]
 mod tests {
     use crate::e2e::config::{CallConfig, E2eConfig, SelectWhen};

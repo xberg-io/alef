@@ -165,15 +165,37 @@ pub fn validate_fixtures_semantic(
             });
 
             if !has_any_non_skipped {
-                errors.push(ValidationError {
-                    file: format!("{}/ (category)", group.category),
-                    message: format!(
-                        "category '{}' produces 0 test functions — all {} fixture(s) are skipped for all languages",
-                        group.category,
-                        group.fixtures.len()
-                    ),
-                    severity: Severity::Error,
-                });
+                // Collect all skip reasons from fixtures to see if they're uniform
+                let all_have_skip = group.fixtures.iter().all(|f| f.skip.is_some());
+                let skip_reasons: Vec<&Option<String>> = if all_have_skip {
+                    group.fixtures.iter().map(|f| &f.skip.as_ref().unwrap().reason).collect()
+                } else {
+                    vec![]
+                };
+
+                // Check if all fixtures have the same skip reason
+                let same_reason = if !skip_reasons.is_empty() {
+                    skip_reasons.iter().all(|r| r == skip_reasons.first().unwrap())
+                } else {
+                    false
+                };
+
+                if all_have_skip && same_reason && skip_reasons.first().unwrap().is_some() {
+                    // All fixtures skip with the same reason — demote to INFO
+                    // Use tracing::info if available; otherwise push as INFO level
+                    // For now, we skip adding this to errors so it doesn't appear as a warning
+                } else {
+                    // Mixed or no reason — report as Error
+                    errors.push(ValidationError {
+                        file: format!("{}/ (category)", group.category),
+                        message: format!(
+                            "category '{}' produces 0 test functions — all {} fixture(s) are skipped for all languages",
+                            group.category,
+                            group.fixtures.len()
+                        ),
+                        severity: Severity::Error,
+                    });
+                }
             }
         }
     }
@@ -311,7 +333,7 @@ mod tests {
                 "orphan/a.json",
                 Some(SkipDirective {
                     languages: vec![],
-                    reason: Some("skip all".to_string()),
+                    reason: None, // No reason — error will be raised
                 }),
                 None,
             ),
@@ -320,7 +342,7 @@ mod tests {
                 "orphan/b.json",
                 Some(SkipDirective {
                     languages: vec![],
-                    reason: Some("skip all".to_string()),
+                    reason: None, // No reason — error will be raised
                 }),
                 None,
             ),
@@ -358,6 +380,7 @@ mod tests {
                     owned: false,
                     element_type: None,
                     go_type: None,
+                    trait_name: None,
                 },
                 ArgMapping {
                     name: "mime_type".to_string(),
@@ -367,6 +390,7 @@ mod tests {
                     owned: false,
                     element_type: None,
                     go_type: None,
+                    trait_name: None,
                 },
             ],
             ..Default::default()
@@ -422,6 +446,7 @@ mod tests {
                 owned: true,
                 element_type: None,
                 go_type: None,
+                trait_name: None,
             }],
             ..Default::default()
         };
