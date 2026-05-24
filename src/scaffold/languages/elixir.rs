@@ -247,6 +247,16 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     }
     let files_line = files_entries.join(" ");
 
+    // When the files: line would exceed mix format's default 98-char limit,
+    // emit a wrapped form that mix format is stable with.
+    let files_keyword = if files_line.len() > 85 {
+        // Wrap: emit ~w() on a new line with indentation
+        let files_entries_str = files_entries.join(" ");
+        format!("\n        ~w({})", files_entries_str)
+    } else {
+        format!("~w({})", files_line)
+    };
+
     let content = format!(
         r#"defmodule {module}.MixProject do
   use Mix.Project
@@ -267,7 +277,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     [
       licenses: ["{license}"],
       links: %{{"GitHub" => "{repository}"}},
-      files: ~w({files_line})
+      files:{files_keyword}
     ]
   end
 
@@ -286,7 +296,7 @@ end
         nif_atom = format_args!("{app_name}_nif"),
         version = version,
         elixirc_paths = elixirc_paths_line,
-        files_line = files_line,
+        files_keyword = files_keyword,
         jason_dep = jason_dep,
         description = meta.description,
         license = meta.license,

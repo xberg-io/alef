@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-scaffold-elixir: wrap mix.exs `files:` list to satisfy `mix format --check-formatted`.** The Elixir scaffold was emitting `files: ~w(...)` as a single line on the `package()` keyword. When the file list exceeded mix format's 98-character line limit (152 chars for the standard set of Cargo/build artifacts), `mix format` would wrap it onto a new line with indentation. Calling `mix format --check-formatted` immediately after generation would fail. The fix detects when `files_line.len() > 85` and emits the wrapped form: `files:\n        ~w(...)` on a new line with 8-space indentation, matching mix format's stable output. Both test assertions in `test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum` and `test_scaffold_elixir_mix_exs_files_list_includes_external_source_glob` have been updated to expect the wrapped form. (`src/scaffold/languages/elixir.rs`, `src/scaffold/tests.rs`)
+
 - **alef-backend-dart: emit `vec![a.to_string(), b.to_string()]` for `Vec<Vec<String>>` sanitized enum variant fields.** The `enum_variant_field_conv` function in `src/backends/dart/gen_rust_crate/mod.rs` had a single `TypeRef::Vec(_)` catch-all that always serialized elements via `serde_json::to_string(&e)`, producing `String` items into a `Vec<Vec<String>>` target and causing an `E0277` compile error. Added a `Vec<Vec<String>>` special case (mirroring the Java backend fix from v0.18.2) that maps each pair via `|(a, b)| vec![a.to_string(), b.to_string()]`. (`src/backends/dart/gen_rust_crate/mod.rs`, `tests/backends_dart_gen_rust_crate_test.rs`)
 
 ## [0.18.3] - 2026-05-24
