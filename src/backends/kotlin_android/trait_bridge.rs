@@ -9,7 +9,7 @@
 
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::TypeDef;
-use heck::{ToSnakeCase, ToUpperCamelCase};
+use heck::ToUpperCamelCase;
 use std::collections::BTreeSet;
 
 /// Generate the complete trait bridge (interface + bridge object) for Kotlin Android.
@@ -101,6 +101,7 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use heck::ToSnakeCase;
 
     fn make_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {
         TraitBridgeConfig {

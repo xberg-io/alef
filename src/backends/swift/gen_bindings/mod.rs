@@ -112,39 +112,31 @@ impl Backend for SwiftBackend {
             .filter(|t| !t.fields.is_empty())
             .collect();
 
-        // Collect tagged serde enums (non-unit enums with serde, NOT untagged).
-        // They are Codable via internal/external tagging and can appear in struct fields.
-        // Untagged enums are excluded here because they are JSON-bridged at the FFI
-        // boundary (the swift-bridge getter returns RustString, not RustBridge.{Name}Ref),
-        // so the `init(_ rb: RustBridge.{Name}Ref)` path must not be emitted for them.
-        let tagged_enum_names: std::collections::HashSet<String> = api
-            .enums
-            .iter()
-            .filter(|e| !exclude_types.contains(&e.name))
-            .filter(|e| e.has_serde && !e.serde_untagged && e.variants.iter().any(|v| !v.fields.is_empty()))
-            .map(|e| e.name.clone())
-            .collect();
-
-        // Collect untagged serde enums (`#[serde(untagged)]` with data variants).
-        // These are Codable (serde derives) but are serialized as plain JSON at the FFI
-        // boundary — the swift-bridge getter returns RustString, not an opaque Ref type.
-        // Struct fields of these types must be decoded via JSONDecoder, not via
-        // `init(_ rb: RustBridge.{Name}Ref)`.
+        // Collect every serde data-variant enum (both untagged AND tagged) that bridges
+        // as a JSON `RustString` at the FFI boundary rather than as an opaque
+        // `RustBridge.{Name}Ref`. swift-bridge does not emit an `init(_ rb:Ref)` for
+        // either form — untagged enums (`#[serde(untagged)]`) are emitted directly as
+        // JSON, and tagged enums (default external tagging or `#[serde(tag = "…")]`)
+        // are also returned as JSON strings from the bridge accessor. Containing structs
+        // must decode these via JSONDecoder rather than via the broken `try {Name}(rb.field())`
+        // path. The set name is kept as `untagged_enum_names` for legacy continuity; it
+        // captures any Codable enum with data variants whose bridge accessor returns
+        // RustString and whose Swift target type only has `init(from: Decoder)`.
         let untagged_enum_names: std::collections::HashSet<String> = api
             .enums
             .iter()
             .filter(|e| !exclude_types.contains(&e.name))
-            .filter(|e| e.has_serde && e.serde_untagged && e.variants.iter().any(|v| !v.fields.is_empty()))
+            .filter(|e| e.has_serde && e.variants.iter().any(|v| !v.fields.is_empty()))
             .map(|e| e.name.clone())
             .collect();
 
-        // Seed with unit serde enum names + tagged enum names + untagged enum names
-        // (all are Codable and can appear as struct fields). Untagged enums are included
-        // so that `first_class_field_supported` accepts them as valid field types, allowing
-        // containing structs to be emitted as first-class Swift structs. The init code
-        // then routes untagged Named fields through JSONDecoder rather than the Ref path.
+        // Seed with unit serde enum names + every data-variant Codable enum name (tagged +
+        // untagged, all collected above). All are Codable and can appear as struct fields.
+        // They are included so that `first_class_field_supported` accepts them as valid
+        // field types, allowing containing structs to be emitted as first-class Swift
+        // structs. The init code then routes Named fields of these types through
+        // JSONDecoder rather than the Ref path.
         let mut known_dto_names: std::collections::HashSet<String> = unit_serde_enum_names.clone();
-        known_dto_names.extend(tagged_enum_names);
         known_dto_names.extend(untagged_enum_names.iter().cloned());
         loop {
             let prev_len = known_dto_names.len();
@@ -1164,8 +1156,8 @@ fn swift_ffi_read_expr(
                 // Decode each element via JSONDecoder in the map closure.
                 TypeRef::Named(name) if untagged_enum_names.contains(name) => {
                     format!(
-                        "try rb.{accessor}()?.map {{ (s: RustString) -> {name} in \
-                         let d = s.toString().data(using: .utf8) ?? Data(); \
+                        "try rb.{accessor}()?.map {{ (s: RustStringRef) -> {name} in \
+                         let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
                          return try JSONDecoder().decode({name}.self, from: d) }}"
                     )
                 }
@@ -1185,8 +1177,8 @@ fn swift_ffi_read_expr(
             // Decode each element via JSONDecoder in the map closure.
             TypeRef::Named(name) if untagged_enum_names.contains(name) => {
                 format!(
-                    "try rb.{accessor}().map {{ (s: RustString) -> {name} in \
-                     let d = s.toString().data(using: .utf8) ?? Data(); \
+                    "try rb.{accessor}().map {{ (s: RustStringRef) -> {name} in \
+                     let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
                      return try JSONDecoder().decode({name}.self, from: d) }}"
                 )
             }
