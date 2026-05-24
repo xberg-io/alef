@@ -871,13 +871,14 @@ fn has_event_variant_accessor(
         // C#: abstract record {item_type} with nested sealed records.
         // The qualifier is the project's C# namespace (e.g. `Kreuzcrawl`).
         "csharp" => module_qualifier.map(|ns| format!("{chunks_var}.Any(e => e is global::{ns}.{item_type}.{camel})")),
-        // Swift: CrawlEvent is an opaque swift-bridge reference type exposing only
-        // `to_string()` for the Debug representation. Check if the variant name
-        // appears in the stringified version (e.g., "Page(...)", "Error(...)", "Complete(...)").
-        // The variant name derives from `camel` (Pascal-case). `to_string()` returns
-        // `RustString`, so convert to `String` via `.toString()` before calling `.contains()`.
+        // Swift: the swift-bridge `to_string()` impl on the bridge enum returns the
+        // serde-serialized variant name (i.e. the same wire tag the JSON discriminator
+        // uses). Match on `tag` (e.g. "page", "error", "complete") rather than the raw
+        // Rust identifier so the comparison aligns with whatever `rename_all` the source
+        // enum declares. `to_string()` returns `RustString`; convert via `.toString()`
+        // before calling `.contains()`.
         "swift" => Some(format!(
-            "{chunks_var}.contains(where: {{ e in e.to_string().toString().contains(\"{camel}\") }})"
+            "{chunks_var}.contains(where: {{ e in e.to_string().toString().contains(\"{tag}\") }})"
         )),
         // Elixir: each event is a map with a `:type` key whose value is a string (from JSON).
         "elixir" => Some(format!(

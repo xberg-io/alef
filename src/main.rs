@@ -701,6 +701,13 @@ fn main() -> Result<()> {
                     tracing::warn!("could not update alef.toml version pin: {e}");
                 }
 
+                // Warn if [e2e] is configured but not regenerated
+                if resolved_cfg.e2e.is_some() {
+                    tracing::warn!(
+                        "[e2e] block detected — run 'alef e2e generate' to regenerate e2e test suites"
+                    );
+                }
+
                 grand_total_written += total_written;
             } // end for resolved_cfg in crates_to_process
             println!("Generated {grand_total_written} files");
