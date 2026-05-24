@@ -26,19 +26,32 @@ impl ResolvedCrateConfig {
     /// For Node and Wasm, checks `crate_dir` override before the default formula.
     pub fn package_dir(&self, lang: Language) -> String {
         // First priority: use resolved output_paths from [crates.output] config.
-        // Skip for Node, Wasm, Elixir, Ruby, and Java — their per-crate default
-        // points to the live binding-source directory (Node/Wasm:
-        // `crates/{name}-{lang}`, Elixir: `packages/elixir/native/<nif>/src/`,
-        // Ruby: `packages/ruby/ext/<ext>/src/`, Java:
-        // `packages/java/src/main/java/`), which is NOT the same as the
-        // language's package_dir (`packages/elixir`, `packages/ruby`,
-        // `packages/java`, etc. — where pom.xml/mix.exs/Gemfile live). The
-        // match arms below already honour `crate_dir`/`scaffold_output`
-        // overrides and the live default, so falling through preserves the
-        // explicit-input-wins-over-template contract.
+        // Skip for languages whose [crates.output] entry points to a source
+        // sub-directory rather than the package root (where the publish
+        // manifest — pyproject.toml, package.json, Package.swift, build.zig,
+        // pubspec.yaml, build.gradle.kts, mix.exs, gemspec, pom.xml — lives):
+        //   - Node/Wasm:     `crates/{name}-{lang}/src/`
+        //   - Elixir:        `packages/elixir/native/<nif>/src/`
+        //   - Ruby:          `packages/ruby/ext/<ext>/src/`
+        //   - Java:          `packages/java/src/main/java/`
+        //   - Swift:         `packages/swift/Sources/<Module>/`
+        //   - Zig:           `packages/zig/src/`
+        //   - Dart:          `packages/dart/lib/` (when overridden) or root
+        //   - KotlinAndroid: `packages/kotlin-android/src/main/kotlin/.../`
+        // These languages fall through to the hardcoded defaults below, which
+        // return the package root that `publish validate` and packager helpers
+        // expect.
         if !matches!(
             lang,
-            Language::Node | Language::Wasm | Language::Elixir | Language::Ruby | Language::Java
+            Language::Node
+                | Language::Wasm
+                | Language::Elixir
+                | Language::Ruby
+                | Language::Java
+                | Language::Swift
+                | Language::Zig
+                | Language::Dart
+                | Language::KotlinAndroid
         ) && let Some(output_path) = self.output_paths.get(&lang.to_string())
         {
             return output_path.to_string_lossy().to_string();
