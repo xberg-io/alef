@@ -2695,3 +2695,70 @@ fn function_doc_emitted_as_rustdoc_single_and_multiline() {
         "multi-line function rustdoc must emit each line; content:\n{content}"
     );
 }
+
+#[test]
+fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
+    // Regression test: non-optional Vec<Vec<String>> sanitized field previously emitted a stray `>`
+    // after the `.collect::<Vec<Vec<String>>>()` type ascription, producing `...collect::<Vec<Vec<String>>>()>`
+    // which is a syntax error. This test verifies the emitted From impl is syntactically clean.
+    let backend = NapiBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "LinkMetadata".to_string(),
+            rust_path: "test_lib::LinkMetadata".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("href", TypeRef::String, false),
+                {
+                    let mut f = make_field(
+                        "attributes",
+                        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+                        false,
+                    );
+                    f.sanitized = true;
+                    f
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Link metadata.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap();
+    let content = lib_rs.content.as_str();
+
+    // The collect type ascription must end with `>()` and never `>()>`
+    assert!(
+        content.contains(".collect::<Vec<Vec<String>>>()"),
+        "non-optional Vec<Vec<String>> collect must end with `>()`; content:\n{content}"
+    );
+    assert!(
+        !content.contains(".collect::<Vec<Vec<String>>>()>"),
+        "stray `>` after collect type ascription must not appear; content:\n{content}"
+    );
+}

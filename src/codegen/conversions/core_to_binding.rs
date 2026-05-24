@@ -303,7 +303,7 @@ pub fn field_conversion_from_core(
                         );
                     }
                     return format!(
-                        "{name}: val.{name}.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>()>"
+                        "{name}: val.{name}.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>()"
                     );
                 }
             }
