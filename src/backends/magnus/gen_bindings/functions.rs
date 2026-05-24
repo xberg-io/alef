@@ -895,6 +895,7 @@ pub(super) fn gen_module_init(
     streaming_methods_by_owner: &std::collections::HashMap<String, Vec<String>>,
     streaming_iterator_registrations: &[String],
     streaming_method_registrations: &std::collections::HashMap<String, Vec<String>>,
+    streaming_adapters: &[super::streaming::StreamingAdapter<'_>],
 ) -> String {
     let mut lines = vec![
         "#[magnus::init]".to_string(),
@@ -1156,6 +1157,20 @@ pub(super) fn gen_module_init(
                 },
             ));
         }
+    }
+
+    // Register module-level wrapper functions for streaming adapters.
+    // These allow calling `Kreuzcrawl.crawl_stream(engine, request)` at module level,
+    // mirroring the pattern of non-streaming functions like `crawl`.
+    for adapter in streaming_adapters {
+        lines.push(crate::backends::magnus::template_env::render(
+            "module_function_register.rs.jinja",
+            minijinja::context! {
+                ruby_name => adapter.name,
+                function_name => adapter.name,
+                arity => 2,
+            },
+        ));
     }
 
     // Register error info classes for errors with introspection methods.

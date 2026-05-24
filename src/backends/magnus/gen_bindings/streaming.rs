@@ -223,6 +223,22 @@ pub(super) fn gen_streaming_method_registration(adapter: &StreamingAdapter<'_>) 
     format!(r#"    class.define_method("{name}", method!({owner}::{name}, 1))?;"#)
 }
 
+/// Generate a module-level wrapper function for streaming adapters with an owner type.
+/// This allows calling `Kreuzcrawl.crawl_stream(engine, request)` at module level,
+/// mirroring the pattern of non-streaming functions like `crawl`.
+pub(super) fn gen_streaming_module_function(adapter: &StreamingAdapter<'_>) -> String {
+    let func_name = adapter.name;
+    let owner_type = adapter.owner_type;
+    let request_binding = adapter.request_binding_type;
+
+    format!(
+        r#"fn {func_name}(engine: {owner_type}, req: {request_binding}) -> Result<magnus::Value, Error> {{
+    engine.{func_name}(req)
+}}
+"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

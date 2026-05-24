@@ -376,6 +376,13 @@ impl Backend for MagnusBackend {
             }
         }
 
+        // Generate module-level wrapper functions for streaming adapters that have an owner type.
+        // These allow calling `Kreuzcrawl.crawl_stream(engine, request)` at module level,
+        // mirroring the pattern of non-streaming functions like `crawl`.
+        for adapter in &streaming_adapters {
+            builder.add_item(&streaming::gen_streaming_module_function(adapter));
+        }
+
         // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects.
         // Pass the host crate's canonical error type/constructor so generated `impl Plugin`
         // and `impl {Trait}` blocks match the trait signatures (e.g. `Result<T, KreuzbergError>`).
@@ -532,6 +539,7 @@ impl Backend for MagnusBackend {
             &streaming_methods_by_owner,
             &streaming_iterator_registrations,
             &streaming_method_registrations,
+            &streaming_adapters,
         ));
 
         let content = builder.build();
