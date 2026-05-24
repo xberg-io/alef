@@ -454,27 +454,13 @@ pub fn sync_versions(
 
             // Collect all workspace-member crate names so we can identify
             // which dep entries to bump. A crate name is the `name` field in
-            // its [package] table; we derive it from the Cargo.toml path.
-            let mut workspace_member_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for pattern_val in members.iter().chain(excludes.iter()) {
-                if let Some(pattern) = pattern_val.as_str() {
-                    if let Ok(paths) = glob::glob(&format!("{pattern}/Cargo.toml")) {
-                        for entry in paths.flatten() {
-                            if let Ok(member_content) = std::fs::read_to_string(&entry) {
-                                if let Ok(member_toml) = member_content.parse::<toml::Table>() {
-                                    if let Some(name) = member_toml
-                                        .get("package")
-                                        .and_then(|p| p.get("name"))
-                                        .and_then(|n| n.as_str())
-                                    {
-                                        workspace_member_names.insert(name.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // its [package] table. Delegated to the shared discovery helper
+            // (globs the same members + exclude patterns relative to the
+            // workspace root, which is the current working directory here).
+            let workspace_member_names: std::collections::HashSet<String> =
+                crate::publish::workspace::workspace_member_crates(std::path::Path::new("."))
+                    .map(|m| m.names.into_iter().collect())
+                    .unwrap_or_default();
 
             // Collect all matching Cargo.toml paths for the member/exclude update pass.
             let mut cargo_toml_paths: Vec<String> = vec![];
