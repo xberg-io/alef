@@ -1,7 +1,7 @@
 use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::ir::{MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::AsSnakeCase;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
 use super::errors::resolve_zig_error_type;
@@ -161,11 +161,18 @@ pub(crate) fn emit_opaque_handle(
 ) {
     // First, emit streaming struct types for any streaming methods on this type.
     // These must be declared before the opaque handle type that returns them.
+    // Track emitted struct names to avoid duplicates when multiple methods return
+    // the same stream type (e.g., crawl_stream and batch_crawl_stream both return CrawlEventStream).
     let type_snake = AsSnakeCase(&ty.name).to_string();
+    let mut emitted_stream_structs: HashSet<String> = HashSet::new();
     for method in ty.methods.iter().filter(|m| !m.is_static) {
         if let Some(item_type) = streaming_item_types.get(&method.name) {
-            emit_streaming_struct(method, ty, prefix, &type_snake, item_type, declared_errors, out);
-            let _ = writeln!(out);
+            let struct_name = format!("{}Stream", item_type);
+            if !emitted_stream_structs.contains(&struct_name) {
+                emit_streaming_struct(method, ty, prefix, &type_snake, item_type, declared_errors, out);
+                let _ = writeln!(out);
+                emitted_stream_structs.insert(struct_name);
+            }
         }
     }
 
