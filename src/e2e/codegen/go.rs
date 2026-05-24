@@ -1434,10 +1434,10 @@ fn render_test_function(
                     } else {
                         let _ = writeln!(out, "\tvar {local_var} string");
                         let _ = writeln!(out, "\tif {field_expr} != nil {{");
-                        // Use fmt.Sprintf to safely convert any type (named string types, structs, etc.)
-                        // to string. This handles both *FinishReason (named type) and *FormatMetadata
-                        // (struct types) without compile errors.
-                        let _ = writeln!(out, "\t\t{local_var} = fmt.Sprintf(\"%v\", *{field_expr})");
+                        // Use string() to convert pointer fields (including json.RawMessage which is []byte)
+                        // to string. This properly converts the []byte to a string representation instead
+                        // of printing the byte array values with fmt.Sprintf.
+                        let _ = writeln!(out, "\t\t{local_var} = string(*{field_expr})");
                         let _ = writeln!(out, "\t}}");
                     }
                     optional_locals.insert(f.clone(), local_var);
@@ -2589,22 +2589,9 @@ fn render_assertion(
                 // For string equality, trim whitespace to handle trailing newlines from the converter.
                 if expected.is_string() {
                     // Wrap field expression with strings.TrimSpace() for string comparisons.
-                    // Use string() cast to handle named string types (e.g. BatchStatus, FinishReason).
-                    // For complex types like FormatMetadata, use fmt.Sprintf to convert.
-                    let resolved_name = assertion
-                        .field
-                        .as_ref()
-                        .map(|f| field_resolver.resolve(f))
-                        .unwrap_or_default();
-                    let is_struct = resolved_name.contains("FormatMetadata");
-                    let trimmed_field = if is_struct {
-                        // Use fmt.Sprintf for struct types instead of string cast
-                        if is_optional && !field_expr.starts_with("len(") {
-                            format!("strings.TrimSpace(fmt.Sprintf(\"%v\", *{field_expr}))")
-                        } else {
-                            format!("strings.TrimSpace(fmt.Sprintf(\"%v\", {field_expr}))")
-                        }
-                    } else if is_optional && !field_expr.starts_with("len(") {
+                    // Use string() cast to convert any pointer type to string (includes json.RawMessage,
+                    // named string types, and struct types through their String() methods).
+                    let trimmed_field = if is_optional && !field_expr.starts_with("len(") {
                         format!("strings.TrimSpace(string(*{field_expr}))")
                     } else {
                         format!("strings.TrimSpace(string({field_expr}))")
@@ -2629,6 +2616,7 @@ fn render_assertion(
                 // Determine the "string view" of the field expression.
                 // - []string (optional) → jsonString(field_expr) — Go slices are nil-able, no `*` needed
                 // - *string → string(*field_expr)
+                // - *[]byte/*json.RawMessage → string(*field_expr) — special case for binary types
                 // - string → string(field_expr) (or just field_expr for plain strings)
                 // - result_is_array (result_is_simple + array result) → jsonString(field_expr)
                 let resolved_field = assertion.field.as_deref().unwrap_or("");
@@ -2640,7 +2628,11 @@ fn render_assertion(
                     // Go slices are nil-able directly — no pointer dereference needed.
                     format!("jsonString({field_expr})")
                 } else if is_opt {
-                    format!("fmt.Sprint(*{field_expr})")
+                    // For optional pointer fields, use string() cast instead of fmt.Sprint()
+                    // to handle json.RawMessage ([]byte alias) correctly. fmt.Sprint(*rawmsg)
+                    // prints the byte array as [34 74...], whereas string(*rawmsg) treats
+                    // it as a JSON string value like "JS Test Page".
+                    format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("jsonString({field_expr})")
                 } else {
@@ -2678,7 +2670,7 @@ fn render_assertion(
                         // Go slices are nil-able directly — no pointer dereference needed.
                         format!("jsonString({field_expr})")
                     } else if is_opt {
-                        format!("fmt.Sprint(*{field_expr})")
+                        format!("string(*{field_expr})")
                     } else if field_is_array {
                         format!("jsonString({field_expr})")
                     } else {
@@ -2710,7 +2702,7 @@ fn render_assertion(
                     // Go slices are nil-able directly — no pointer dereference needed.
                     format!("jsonString({field_expr})")
                 } else if is_opt {
-                    format!("fmt.Sprint(*{field_expr})")
+                    format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("jsonString({field_expr})")
                 } else {
@@ -2787,7 +2779,7 @@ fn render_assertion(
                     // Go slices are nil-able directly — no pointer dereference needed.
                     format!("jsonString({field_expr})")
                 } else if is_opt {
-                    format!("fmt.Sprint(*{field_expr})")
+                    format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("jsonString({field_expr})")
                 } else {

@@ -468,22 +468,22 @@ fn render_test_file(
             out,
             "      return PageAction.click(selector: json['selector'] as String);"
         );
-        let _ = writeln!(out, "    case 'type_text':");
+        let _ = writeln!(out, "    case 'type':");
         let _ = writeln!(out, "      return PageAction.typeText(");
         let _ = writeln!(out, "        selector: json['selector'] as String,");
         let _ = writeln!(out, "        text: json['text'] as String,");
         let _ = writeln!(out, "      );");
-        let _ = writeln!(out, "    case 'press_key':");
+        let _ = writeln!(out, "    case 'press':");
         let _ = writeln!(out, "      return PageAction.press(");
         let _ = writeln!(out, "        key: json['key'] as String,");
         let _ = writeln!(out, "      );");
-        let _ = writeln!(out, "    case 'scroll_down':");
+        let _ = writeln!(out, "    case 'scroll':");
         let _ = writeln!(out, "      return PageAction.scroll(");
         let _ = writeln!(out, "        direction: ScrollDirection.down,");
         let _ = writeln!(out, "        selector: json['selector'] as String? ?? '',");
         let _ = writeln!(out, "        amount: json['amount'] as int? ?? 0,");
         let _ = writeln!(out, "      );");
-        let _ = writeln!(out, "    case 'wait_selector':");
+        let _ = writeln!(out, "    case 'wait':");
         let _ = writeln!(out, "      return PageAction.wait(");
         let _ = writeln!(out, "        milliseconds: json['timeout_ms'] as int? ?? 0,");
         let _ = writeln!(out, "        selector: json['selector'] as String,");
@@ -493,7 +493,7 @@ fn render_test_file(
             out,
             "      return PageAction.screenshot(fullPage: json['full_page'] as bool? ?? false);"
         );
-        let _ = writeln!(out, "    case 'execute_js':");
+        let _ = writeln!(out, "    case 'executeJs':");
         let _ = writeln!(
             out,
             "      return PageAction.executeJs(script: json['script'] as String);"

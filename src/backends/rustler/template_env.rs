@@ -741,6 +741,10 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         include_str!("templates/nif_tagged_enum_variant_field_line.jinja"),
     ),
     (
+        "nif_tagged_enum_variant_field_attr.jinja",
+        include_str!("templates/nif_tagged_enum_variant_field_attr.jinja"),
+    ),
+    (
         "nif_tagged_enum_variant_struct_footer.jinja",
         include_str!("templates/nif_tagged_enum_variant_struct_footer.jinja"),
     ),

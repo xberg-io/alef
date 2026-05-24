@@ -313,7 +313,10 @@ disable_error_code = ["call-arg", "arg-type", "return-value", "attr-defined"]
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/{python_package}/py.typed")),
-            content: "\n".to_string(),
+            // Empty (0 bytes): end-of-file-fixer leaves a 0-byte file alone, but strips a
+            // file whose sole content is a trailing newline back to empty — emitting "\n"
+            // here causes churn on every regen. py.typed is a PEP 561 marker; empty is correct.
+            content: String::new(),
             generated_header: false,
         },
     ])

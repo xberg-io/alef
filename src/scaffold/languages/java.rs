@@ -550,7 +550,10 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 </module>
 "#;
 
-    let checkstyle_properties = "\n";
+    // Empty (0 bytes): end-of-file-fixer leaves a 0-byte file alone, but strips a file whose
+    // sole content is a trailing newline back to empty — emitting "\n" causes churn every regen.
+    // An empty checkstyle properties file is valid (no property overrides).
+    let checkstyle_properties = "";
 
     let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>
 <!DOCTYPE suppressions PUBLIC

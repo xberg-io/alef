@@ -141,17 +141,20 @@ pub(crate) fn gen_record_type(
         // default Jackson behaviour for this field only.
         let needs_bytes_int_serialize = !f.optional && matches!(&resolved_ty, TypeRef::Bytes);
 
-        // Emit `@JsonProperty` in two cases:
+        // Emit `@JsonProperty` in three cases:
         // 1. The field has an explicit `#[serde(rename = "...")]` attribute.
         // 2. The Java camelCase name differs from the snake_case wire name — e.g. `max_tokens`
         //    serialises as `"max_tokens"` on the wire (Rust serde default) but Java converts it
         //    to `maxTokens`. Without `@JsonProperty("max_tokens")`, Jackson serialises using the
         //    Java field name and Rust's serde rejects the camelCase key as unrecognised.
+        // 3. A builder is emitted for this type. Jackson's builder-based deserialization requires
+        //    @JsonProperty on record fields to correctly map JSON properties to builder setters.
         //
         // The wire name is the explicit serde rename if set, otherwise the original Rust field
         // name (already snake_case per project convention).
         let json_property_name = f.serde_rename.clone().unwrap_or_else(|| f.name.clone());
-        let has_json_property = f.serde_rename.is_some() || jname != json_property_name;
+        let needs_builder = should_emit_builder(typ, builder_mode);
+        let has_json_property = f.serde_rename.is_some() || jname != json_property_name || (needs_builder && !is_visitor_field);
         // Emit @Nullable for optional fields and for non-optional fields with #[serde(default)]
         // or Duration (which are boxed to allow null = "not set").
         let has_nullable = f.optional || has_serde_default || matches!(resolved_ty, TypeRef::Duration);
@@ -844,25 +847,27 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                     let ftype = if f.optional {
                         let inner = java_boxed_type(&f.ty);
                         let inner_str = inner.as_ref();
-                        // Replace "List"/"Map" with fully qualified if conflicting
-                        let inner_qualified = if inner_str.starts_with("List<") && variant_names.contains("List") {
-                            inner_str.replacen("List<", "java.util.List<", 1)
-                        } else if inner_str.starts_with("Map<") && variant_names.contains("Map") {
-                            inner_str.replacen("Map<", "java.util.Map<", 1)
-                        } else {
-                            inner_str.to_string()
-                        };
+                        // Replace "List"/"Map" with fully qualified if conflicting. Use
+                        // `replace` (all occurrences) so nested `List<List<T>>` also resolves
+                        // the inner `List` to `java.util.List`, not the shadowing variant.
+                        let mut inner_qualified = inner_str.to_string();
+                        if variant_names.contains("List") {
+                            inner_qualified = inner_qualified.replace("List<", "java.util.List<");
+                        }
+                        if variant_names.contains("Map") {
+                            inner_qualified = inner_qualified.replace("Map<", "java.util.Map<");
+                        }
                         format!("{optional_type}<{inner_qualified}>")
                     } else {
                         let t = java_type(&f.ty);
-                        let t_str = t.as_ref();
-                        if t_str.starts_with("List<") && variant_names.contains("List") {
-                            t_str.replacen("List<", "java.util.List<", 1)
-                        } else if t_str.starts_with("Map<") && variant_names.contains("Map") {
-                            t_str.replacen("Map<", "java.util.Map<", 1)
-                        } else {
-                            t_str.to_string()
+                        let mut t_str = t.into_owned();
+                        if variant_names.contains("List") {
+                            t_str = t_str.replace("List<", "java.util.List<");
                         }
+                        if variant_names.contains("Map") {
+                            t_str = t_str.replace("Map<", "java.util.Map<");
+                        }
+                        t_str
                     };
                     // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
                     // These are not real JSON keys — serde flattens the inner type's fields
@@ -2133,13 +2138,19 @@ fn gen_builder_nested_class(
             // from picking it up; the matching `@JsonAnySetter` below
             // intercepts every flattened sibling field instead.
             body.push_str("        @com.fasterxml.jackson.annotation.JsonIgnore\n");
-        } else if let Some(wire) = &setter_wire_name {
-            // Jackson's BuilderBasedDeserializer reads property names from the `with*`
-            // setter methods, not the private fields — always emit @JsonProperty so the
-            // wire key maps deterministically regardless of Jackson's naming strategy
-            // quirks (e.g. `withXRobotsTag` → `xrobots_tag` instead of `x_robots_tag`).
+        } else {
+            // Jackson's BuilderBasedDeserializer requires @JsonProperty on every
+            // setter method to map JSON fields to setters. Without it, Jackson will
+            // not call the setter, leaving the builder field at its default value.
+            // Always emit the wire name (which may be identical to the field name
+            // if there's no serde rename) so Jackson can match it deterministically.
+            let wire = if let Some(w) = &setter_wire_name {
+                w.clone()
+            } else {
+                field.serde_rename.clone().unwrap_or_else(|| field.name.clone())
+            };
             body.push_str("        @JsonProperty(\"");
-            body.push_str(wire);
+            body.push_str(&wire);
             body.push_str("\")\n");
         }
         body.push_str("        public Builder with");

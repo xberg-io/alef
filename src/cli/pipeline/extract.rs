@@ -587,6 +587,11 @@ fn parse_homogeneous_tuple(name: &str) -> Option<TypeRef> {
     if !parts.iter().all(|p| *p == first) {
         return None;
     }
+    // Homogeneous String tuples (e.g. `(String, String)`) serialize as JSON arrays of strings,
+    // so map them to Vec<String> like numeric homogeneous tuples.
+    if first == "String" {
+        return Some(TypeRef::String);
+    }
     let prim = match first {
         "u8" => PrimitiveType::U8,
         "u16" => PrimitiveType::U16,

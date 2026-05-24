@@ -478,16 +478,30 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
                         variant_name => &variant.name,
                     },
                 ));
-                let fields: Vec<String> = variant
-                    .fields
-                    .iter()
-                    .map(|f| format!("{}: {},", f.name, field_type_for_rustler(f)))
-                    .collect();
-                for field_line in &fields {
+                for field in &variant.fields {
+                    // Optional fields need #[serde(default)] so Rustler's decoder doesn't fail
+                    // when the field is missing from the map.
+                    if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+                        out.push_str(&template_env::render(
+                            "nif_tagged_enum_variant_field_attr.jinja",
+                            minijinja::context! {
+                                attr => "serde(default)",
+                            },
+                        ));
+                    } else if matches!(field.ty, TypeRef::Optional(_)) && field.optional {
+                        // Double-optional: outer Optional wrapper also needs default
+                        out.push_str(&template_env::render(
+                            "nif_tagged_enum_variant_field_attr.jinja",
+                            minijinja::context! {
+                                attr => "serde(default)",
+                            },
+                        ));
+                    }
+                    let field_type = field_type_for_rustler(field);
                     out.push_str(&template_env::render(
                         "nif_tagged_enum_variant_field_line.jinja",
                         minijinja::context! {
-                            field_line => field_line,
+                            field_line => format!("{}: {},", field.name, field_type),
                         },
                     ));
                 }

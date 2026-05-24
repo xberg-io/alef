@@ -871,9 +871,17 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
                 continue;
             }
             let field_go_name = to_go_name(&field.name);
-            let field_type = go_type(&field.ty);
+            let field_type = if field.optional {
+                go_optional_type(&field.ty)
+            } else {
+                go_type(&field.ty)
+            };
             let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
-            let json_tag = format!("json:\"{}\"", json_name);
+            let json_tag = if field.optional {
+                format!("json:\"{},omitempty\"", json_name)
+            } else {
+                format!("json:\"{}\"", json_name)
+            };
 
             let doc_lines: Vec<&str> = if !field.doc.is_empty() {
                 field.doc.lines().map(|l| l.trim()).collect()
@@ -936,9 +944,18 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
                     continue;
                 }
                 let field_go_name = to_go_name(&field.name);
-                let field_type = go_type(&field.ty);
+                let field_type = if field.optional {
+                    go_optional_type(&field.ty)
+                } else {
+                    go_type(&field.ty)
+                };
                 let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
-                out.push_str(&format!("\t\t{field_go_name} {field_type} `json:\"{json_name}\"`\n"));
+                let json_tag = if field.optional {
+                    format!("json:\"{json_name},omitempty\"")
+                } else {
+                    format!("json:\"{json_name}\"")
+                };
+                out.push_str(&format!("\t\t{field_go_name} {field_type} `{json_tag}`\n"));
             }
             out.push_str("\t}\n");
             out.push_str("\treturn json.Marshal(aux{\n");
