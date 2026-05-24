@@ -17,7 +17,7 @@
     /** {{ description }} */
     public function test_{{ method_name }}(): void
     {
-{%- if client_factory %}
+{% if client_factory %}
         {{ client_factory }}
 {% endif %}
 {%- if expects_error %}
