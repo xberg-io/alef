@@ -2477,6 +2477,7 @@ mod tests {
     use super::*;
     use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeRef};
     use ahash::AHashSet;
+    use std::collections::HashSet;
 
     fn make_config_type_with_duration_default() -> TypeDef {
         TypeDef {
@@ -2772,7 +2773,7 @@ mod tests {
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
-            &AHashSet::default(),
+            &HashSet::default(),
         );
         // Builder must be emitted so @JsonAnySetter can absorb unknown sibling fields.
         assert!(

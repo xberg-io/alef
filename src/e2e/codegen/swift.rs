@@ -873,7 +873,7 @@ fn render_test_method(
         // Replace `[<ItemType>]` with module-qualified `[<Module>.<ItemType>]`
         // This handles both ChatCompletionChunk (liter-llm) and CrawlEvent (kreuzcrawl).
         let re = Regex::new(r"\[([A-Za-z][A-Za-z0-9]*)\]").expect("valid regex");
-        let module_qualifier = module_name.clone();
+        let module_qualifier = module_name;
         re.replace_all(&collect_snippet, |caps: &regex::Captures| {
             format!("[{}.{}]", module_qualifier, &caps[1])
         })
@@ -1220,10 +1220,7 @@ fn build_args_and_setup(
                     "CrawlStreamRequest"
                 };
                 let request_var = format!("{}Request", arg.name.to_lower_camel_case());
-                setup_lines.push(format!(
-                    "let {request_var} = {request_type}(url: {})",
-                    arg.name
-                ));
+                setup_lines.push(format!("let {request_var} = {request_type}(url: {})", arg.name));
                 parts.push((idx, request_var));
             } else {
                 parts.push((idx, arg.name.clone()));

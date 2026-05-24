@@ -1322,6 +1322,7 @@ gem_name = "test_lib"
             &Default::default(),
             &[],
             &Default::default(),
+            &[],
         );
         assert!(code.contains("#[magnus::init]"), "must emit #[magnus::init]");
         assert!(code.contains("fn ruby_init(ruby: &Ruby)"), "must emit init fn");
