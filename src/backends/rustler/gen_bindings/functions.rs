@@ -277,6 +277,26 @@ pub(super) fn gen_nif_function(
                         }
                     }
                 }
+                // AHashMap<Cow<'static, str>, Value> params: Rustler receives these as
+                // HashMap<String, String> (BEAM maps decoded to Rust). We need a two-step conversion:
+                // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
+                // (2) pass the reference in the call arg.
+                if let TypeRef::Map(_, _) = &p.ty {
+                    if p.map_is_ahash && p.map_key_is_cow {
+                        let bound_name = format!("__{}_ahash", p.name);
+                        deser_lines.push(format!(
+                            "let {bound_name} = {}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());",
+                            p.name
+                        ));
+                        return if p.optional && p.is_ref {
+                            format!("{bound_name}.as_ref()")
+                        } else if p.is_ref {
+                            format!("{bound_name}.as_ref().unwrap()")
+                        } else {
+                            bound_name
+                        };
+                    }
+                }
                 // Fall back to the standard call-arg logic for all other types.
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -594,6 +614,26 @@ pub(super) fn gen_nif_async_function(
                             // Core expects T → unwrap or use default
                             return format!("{}_core.unwrap_or_default()", p.name);
                         }
+                    }
+                }
+                // AHashMap<Cow<'static, str>, Value> params: Rustler receives these as
+                // HashMap<String, String> (BEAM maps decoded to Rust). We need a two-step conversion:
+                // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
+                // (2) pass the reference in the call arg.
+                if let TypeRef::Map(_, _) = &p.ty {
+                    if p.map_is_ahash && p.map_key_is_cow {
+                        let bound_name = format!("__{}_ahash", p.name);
+                        deser_lines.push(format!(
+                            "let {bound_name} = {}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());",
+                            p.name
+                        ));
+                        return if p.optional && p.is_ref {
+                            format!("{bound_name}.as_ref()")
+                        } else if p.is_ref {
+                            format!("{bound_name}.as_ref().unwrap()")
+                        } else {
+                            bound_name
+                        };
                     }
                 }
                 match &p.ty {
