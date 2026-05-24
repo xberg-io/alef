@@ -9,20 +9,32 @@ use crate::{
 };
 use std::path::PathBuf;
 
-/// Format a list of pre-quoted TOML entries as an inline array when there is at
-/// most one element, and as a multi-line array (2-space indent, trailing comma
-/// after the final element) when there is more than one. This matches
-/// `pyproject-fmt`'s canonical output so prek's `pyproject-fmt` hook does not
-/// rewrite the file on every regen.
-fn format_toml_array(entries: &[String]) -> String {
-    match entries.len() {
-        0 => "[]".to_string(),
-        1 => format!("[{}]", entries[0]),
-        _ => {
-            let inner = entries.iter().map(|e| format!("  {e},")).collect::<Vec<_>>().join("\n");
-            format!("[\n{inner}\n]")
-        }
+/// pyproject-fmt's default `column_width` is 80 chars. Arrays whose inline
+/// rendering (`prefix_len + "[ a, b ]".len()`) fits within this width are
+/// emitted inline-with-inner-spaces (`[ "a", "b" ]`); otherwise they are
+/// expanded to one-element-per-line with a trailing comma. Matching this rule
+/// at emission time keeps prek's `pyproject-fmt` hook a no-op on every regen.
+const PYPROJECT_FMT_COLUMN_WIDTH: usize = 80;
+
+/// Format a list of pre-quoted TOML entries to match `pyproject-fmt`'s canonical
+/// output. `prefix_len` is the on-screen column where the array opens (e.g.
+/// `"keywords = ".len() == 11`); it is needed because pyproject-fmt picks
+/// inline vs multi-line based on the total line length including the prefix.
+///
+/// - Empty: `[]`
+/// - Inline form (`[ a, b, c ]`, inner spaces) when total length ≤
+///   [`PYPROJECT_FMT_COLUMN_WIDTH`].
+/// - Multi-line otherwise: 2-space indent, trailing comma after every element.
+fn format_toml_array_with_prefix(entries: &[String], prefix_len: usize) -> String {
+    if entries.is_empty() {
+        return "[]".to_string();
     }
+    let inline = format!("[ {} ]", entries.join(", "));
+    if prefix_len + inline.len() <= PYPROJECT_FMT_COLUMN_WIDTH {
+        return inline;
+    }
+    let inner = entries.iter().map(|e| format!("  {e},")).collect::<Vec<_>>().join("\n");
+    format!("[\n{inner}\n]")
 }
 
 pub(crate) fn scaffold_python_cargo(

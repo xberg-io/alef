@@ -11,12 +11,9 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     let mut out = String::new();
     let source_path = resolve_type_path(&en.name, source_crate, type_paths);
 
-    // Only emit unit variants. Variants with data fields (tuple or struct variants)
-    // cannot be matched as unit patterns in the From impl below, so we expose only
-    // the unit variants here. Data variants are bridged as JSON (String) by the
-    // JSON-bridge fallback on containing types.
-    let unit_variants: Vec<&crate::core::ir::EnumVariant> =
-        en.variants.iter().filter(|v| v.fields.is_empty()).collect();
+    // Emit all variants (both unit and data-bearing) as unit-only variants in the bridge enum.
+    // This preserves the variant tag for all source enum variants, allowing consumers to
+    // distinguish them without collapsing data-bearing variants to Unknown.
 
     // Bridge enum variant names: use the raw Rust identifier from the IR (which is
     // the actual identifier from the kreuzberg source, e.g. "EasyOCR", "RDFa").
@@ -30,8 +27,7 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
             name => &en.name,
         },
     ));
-    for variant in &unit_variants {
-        // Use the raw variant name from the IR — it is already a valid Rust identifier.
+    for variant in &en.variants {
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_unit_variant.jinja",
             minijinja::context! {
@@ -39,17 +35,10 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
             },
         ));
     }
-    // Add a catch-all variant to absorb any data variants from the source enum
-    // that we don't model explicitly. This prevents exhaustiveness failures in the
-    // From impl when the source enum has more variants than our bridge enum.
-    let has_data_variants = en.variants.len() > unit_variants.len();
-    if has_data_variants {
-        out.push_str("    /// Data variants not directly bridgeable — represented as Unknown.\n");
-        out.push_str("    Unknown,\n");
-    }
+
     out.push_str("}\n\n");
 
-    // From conversion: map unit variants; data variants fall through to Unknown.
+    // From conversion: match all source variants and map to the corresponding bridge variant.
     out.push_str(&crate::backends::swift::template_env::render(
         "enum_from_impl_header.jinja",
         minijinja::context! {
@@ -58,22 +47,26 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
         },
     ));
     out.push_str("        match val {\n");
-    for variant in &unit_variants {
-        // Use raw variant name on both sides — source variant name == bridge variant name.
+
+    for variant in &en.variants {
+        let pattern = if variant.fields.is_empty() {
+            variant.name.clone()
+        } else if variant.is_tuple {
+            format!("{}(..)", variant.name)
+        } else {
+            format!("{} {{ .. }}", variant.name)
+        };
+
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_from_variant.jinja",
             minijinja::context! {
                 source_path => &source_path,
                 variant_name => &variant.name,
+                pattern => pattern,
             },
         ));
     }
-    if has_data_variants {
-        out.push_str(&crate::backends::swift::template_env::render(
-            "enum_from_wildcard.jinja",
-            minijinja::context! {},
-        ));
-    }
+
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
@@ -85,16 +78,15 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     out.push_str(&format!("impl {} {{\n", en.name));
     out.push_str("    pub fn to_string(&self) -> String {\n");
     out.push_str("        match self {\n");
-    for variant in &unit_variants {
+
+    for variant in &en.variants {
         let serde_name = serde_variant_name(variant, en.serde_rename_all.as_deref());
         out.push_str(&format!(
             "            Self::{} => \"{}\".to_string(),\n",
             variant.name, serde_name
         ));
     }
-    if has_data_variants {
-        out.push_str("            Self::Unknown => \"unknown\".to_string(),\n");
-    }
+
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("}\n");
