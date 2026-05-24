@@ -2159,7 +2159,11 @@ fn gen_builder_nested_class(
             body.push_str(&field_type);
         }
         body.push_str(" value) {\n");
-        if is_visitor_field || field.optional {
+        // Match the Builder field's actual type: if it is stored as Optional<T>, wrap;
+        // if it is stored as plain @Nullable T (field_is_optional_in_binding), assign directly.
+        let field_stored_as_optional = is_visitor_field
+            || (field.optional && matches!(resolve_field_type(&field.ty, visible_type_names), TypeRef::Optional(_)));
+        if field_stored_as_optional {
             // Builder stores optional fields as Optional<T> (see field declaration above);
             // the setter accepts a plain @Nullable T for ergonomics, so wrap here.
             body.push_str("            this.");
@@ -2215,7 +2219,12 @@ fn gen_builder_nested_class(
         let field_name = safe_java_field_name(&field.name);
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
         let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
-        if field.optional || is_visitor_field {
+        // Match the Builder field's actual type: call .orElse(null) only when the
+        // backing field is stored as Optional<T>; for plain @Nullable T storage
+        // (field_is_optional_in_binding) the field IS already nullable T.
+        let field_stored_as_optional = is_visitor_field
+            || (field.optional && matches!(resolve_field_type(&field.ty, visible_type_names), TypeRef::Optional(_)));
+        if field_stored_as_optional {
             body.push_str("                ");
             body.push_str(&field_name);
             body.push_str(".orElse(null)");
