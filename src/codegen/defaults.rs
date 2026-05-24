@@ -7,6 +7,8 @@
 //! The `LanguageDefaults` trait abstracts this to allow each language backend to
 //! specify how to construct defaults for all TypeRef variants.
 
+use crate::backends::go::type_map::GoMapper;
+use crate::codegen::type_mapper::TypeMapper as _;
 use crate::core::ir::{PrimitiveType, TypeRef};
 
 /// Trait for emitting language-native default values given a type reference.
@@ -140,12 +142,17 @@ impl LanguageDefaults for GoDefaults {
             TypeRef::Primitive(_) => "0".to_string(),
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes => "[]byte{}".to_string(),
-            TypeRef::Vec(_) => "[]interface{}{}".to_string(),
-            TypeRef::Map(..) => "map[string]interface{}{}".to_string(),
+            // Typed nil slice — avoids the untyped `[]interface{}{}` which does
+            // not satisfy interfaces that declare typed slices like `[]string`.
+            TypeRef::Vec(inner) => format!("([]{})(nil)", GoMapper.map_type(inner)),
+            TypeRef::Map(..) => "nil".to_string(),
             TypeRef::Optional(_) => "nil".to_string(),
-            TypeRef::Named(name) => format!("&{}{{}}", name),
+            // Named types: value (not pointer) zero literal without &.
+            // Pointer syntax `&TypeName{}` is wrong when the interface return
+            // type is a value — use a value literal instead.
+            TypeRef::Named(name) => format!("{}{{}}", name),
             TypeRef::Unit => "nil".to_string(),
-            TypeRef::Json => "map[string]interface{}{}".to_string(),
+            TypeRef::Json => "json.RawMessage(nil)".to_string(),
             TypeRef::Duration => "0".to_string(), // nanoseconds as int64
             TypeRef::Char => "rune(0)".to_string(),
             TypeRef::Path => "nil".to_string(),
