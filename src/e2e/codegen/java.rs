@@ -2761,6 +2761,85 @@ fn method_to_camel(snake: &str) -> String {
     snake.to_lower_camel_case()
 }
 
+/// Emit a single Java stub method into `out`.
+///
+/// Uses proper Java types from `JavaMapper` for params and return type.
+/// Async methods return `CompletableFuture<T>` completed with the default value.
+fn emit_java_stub_method(
+    out: &mut String,
+    method_java: &str,
+    method: &crate::core::ir::MethodDef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) {
+    use crate::backends::java::type_map::java_type;
+    use std::fmt::Write as _;
+
+    let ret_java = java_stub_type(&method.return_type);
+    let default_val = defaults.emit_default(&method.return_type);
+
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| format!("{} {}", java_type(&p.ty), p.name.to_lower_camel_case()))
+        .collect();
+    let params_str = params.join(", ");
+
+    let _ = writeln!(out, "    @Override");
+    if method.is_async {
+        let ret_boxed = java_boxed_stub_type(&method.return_type);
+        let _ = writeln!(
+            out,
+            "    public java.util.concurrent.CompletableFuture<{ret_boxed}> {method_java}({params_str}) {{"
+        );
+        let _ = writeln!(
+            out,
+            "        return java.util.concurrent.CompletableFuture.completedFuture({default_val});"
+        );
+        let _ = writeln!(out, "    }}");
+    } else if ret_java == "void" {
+        let _ = writeln!(out, "    public void {method_java}({params_str}) {{}}");
+    } else {
+        let _ = writeln!(out, "    public {ret_java} {method_java}({params_str}) {{");
+        let _ = writeln!(out, "        return {default_val};");
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+/// Map a TypeRef to its Java type, substituting `Object` for opaque named types
+/// (which cross the JNI/Panama boundary as opaque handles, not classes available in tests).
+fn java_stub_type(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::backends::java::type_map::java_type;
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(_) => "Object".to_string(),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "Object".to_string(),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "java.util.List<Object>".to_string(),
+        _ => java_type(ty).into_owned(),
+    }
+}
+
+/// Boxed version of java_stub_type for use as a CompletableFuture generic parameter.
+fn java_boxed_stub_type(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Unit => "Void".to_string(),
+        _ => {
+            let t = java_stub_type(ty);
+            // Box primitives for use as generic type parameters.
+            match t.as_str() {
+                "boolean" => "Boolean".to_string(),
+                "byte" => "Byte".to_string(),
+                "short" => "Short".to_string(),
+                "int" => "Integer".to_string(),
+                "long" => "Long".to_string(),
+                "float" => "Float".to_string(),
+                "double" => "Double".to_string(),
+                _ => t,
+            }
+        }
+    }
+}
+
 /// Emit a Java test backend stub class for a trait bridge.
 ///
 /// Generates a class implementing `I{TraitName}` (the Panama FFM interface). Required
@@ -2792,45 +2871,38 @@ pub fn emit_test_backend(
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name} implements {interface_name} {{");
 
-    // Plugin super-trait `name()` method.
-    if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "    @Override");
-        let _ = writeln!(setup, "    public String name() {{ return \"{plugin_name}\"; }}");
+    // Super-trait methods — driven from IR, no names hardcoded.
+    // The `name` method returns the fixture's plugin name; all others use defaults.
+    if let Some(super_trait) = trait_bridge.super_trait.as_deref() {
+        for method in methods
+            .iter()
+            .filter(|m| m.trait_source.as_deref() == Some(super_trait))
+        {
+            let method_java = method.name.to_lower_camel_case();
+            if method.name == "name" {
+                let _ = writeln!(setup, "    @Override");
+                let _ = writeln!(setup, "    public String {method_java}() {{ return \"{plugin_name}\"; }}");
+            } else {
+                emit_java_stub_method(&mut setup, &method_java, method, &*defaults);
+            }
+        }
     }
 
-    // Required methods.
+    // Required methods (non-default, non-super-trait).
     for method in methods {
         if method.has_default_impl {
             continue;
         }
-        let method_name = method.name.to_lower_camel_case();
-
-        // Build parameter list.
-        let params: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| format!("Object {}", p.name.to_lower_camel_case()))
-            .collect();
-        let params_str = params.join(", ");
-
-        let default_val = defaults.emit_default(&method.return_type);
-
-        let _ = writeln!(setup, "    @Override");
-        if method.is_async {
-            let _ = writeln!(
-                setup,
-                "    public java.util.concurrent.CompletableFuture<Object> {method_name}({params_str}) {{"
-            );
-            let _ = writeln!(
-                setup,
-                "        return java.util.concurrent.CompletableFuture.completedFuture({default_val});"
-            );
-            let _ = writeln!(setup, "    }}");
-        } else {
-            let _ = writeln!(setup, "    public Object {method_name}({params_str}) {{");
-            let _ = writeln!(setup, "        return {default_val};");
-            let _ = writeln!(setup, "    }}");
+        // Skip super-trait methods already emitted above.
+        if trait_bridge
+            .super_trait
+            .as_deref()
+            .is_some_and(|st| method.trait_source.as_deref() == Some(st))
+        {
+            continue;
         }
+        let method_java = method.name.to_lower_camel_case();
+        emit_java_stub_method(&mut setup, &method_java, method, &*defaults);
     }
 
     let _ = writeln!(setup, "}}");
@@ -2838,6 +2910,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("new {class_name}()"),
+        type_imports: Vec::new(),
     }
 }
 
