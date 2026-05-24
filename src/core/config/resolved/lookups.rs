@@ -25,8 +25,15 @@ impl ResolvedCrateConfig {
     /// otherwise falls back to scaffold_output overrides and hardcoded defaults.
     /// For Node and Wasm, checks `crate_dir` override before the default formula.
     pub fn package_dir(&self, lang: Language) -> String {
-        // First priority: use resolved output_paths from [crates.output] config
-        if let Some(output_path) = self.output_paths.get(&lang.to_string()) {
+        // First priority: use resolved output_paths from [crates.output] config.
+        // Skip for Node and Wasm — their per-crate default is `crates/{name}-{lang}`
+        // (the live binding-crate directory), which the workspace OutputTemplate
+        // default `packages/{lang}` does not match. The Node/Wasm match arms below
+        // already honour `crate_dir` overrides and the live default, so falling
+        // through preserves the explicit-input-wins-over-template contract.
+        if !matches!(lang, Language::Node | Language::Wasm)
+            && let Some(output_path) = self.output_paths.get(&lang.to_string())
+        {
             return output_path.to_string_lossy().to_string();
         }
 
