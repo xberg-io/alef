@@ -419,7 +419,9 @@ fn render_spec_file(
                     raw_function_name
                 };
                 let fixture_result_var = &fixture_call.result_var;
-                let fixture_args = &fixture_call.args;
+                // Use fixture.resolved_args() so per-fixture args (e.g. trait-bridge
+                // test_backend stubs) take precedence over the call-config default.
+                let fixture_args = fixture.resolved_args(fixture_call);
                 let fixture_client_factory = fixture_call_overrides
                     .and_then(|o| o.client_factory.as_deref())
                     .or(client_factory);
@@ -1375,7 +1377,11 @@ fn build_args_and_setup(
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
                     let emission = crate::e2e::codegen::emit_test_backend("ruby", trait_bridge, &methods, fixture);
-                    setup_lines.push(emission.setup_block);
+                    // Split multi-line setup_block into individual lines so the
+                    // Jinja template can indent each line uniformly with `    {{ line }}`.
+                    for line in emission.setup_block.lines() {
+                        setup_lines.push(line.to_string());
+                    }
                     parts.push(emission.arg_expr);
                     continue;
                 }
@@ -2325,6 +2331,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: var_name,
+        type_imports: Vec::new(),
     }
 }
 
