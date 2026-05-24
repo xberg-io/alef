@@ -3594,13 +3594,227 @@ fn method_to_camel(snake: &str) -> String {
 
 /// Emit a Go test backend stub.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Go is interface-based: define a package-level struct type + methods that satisfy
+/// the trait's Go interface. The Plugin super-trait `Name()` method returns the fixture id.
+///
+/// Because Go does not allow method declarations inside function bodies, the `setup_block`
+/// contains package-level type and method declarations. The `arg_expr` is the struct
+/// literal `testStub_<id>{}` that callers pass to `Register<Trait>`.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("Go test_backend emission not yet implemented")
+    use crate::backends::go::type_map::go_type;
+    use crate::codegen::defaults::language_defaults;
+    use crate::core::ir::TypeRef;
+    use crate::e2e::escape::sanitize_ident;
+
+    let defaults = language_defaults("go");
+    let safe_id = sanitize_ident(&fixture.id);
+    let struct_name = format!("testStub_{safe_id}");
+
+    let mut setup = String::new();
+
+    // Package-level struct declaration.
+    let _ = writeln!(setup, "type {struct_name} struct{{}}");
+    setup.push('\n');
+
+    // Plugin super-trait: Name() returns the fixture id; other lifecycle methods are no-ops.
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "func ({struct_name}) Name() string {{ return \"{safe_id}\" }}");
+        let _ = writeln!(setup, "func ({struct_name}) Version() string {{ return \"0.0.1\" }}");
+        let _ = writeln!(setup, "func ({struct_name}) Initialize() error {{ return nil }}");
+        let _ = writeln!(setup, "func ({struct_name}) Shutdown() error {{ return nil }}");
+        setup.push('\n');
+    }
+
+    // Emit method stubs for all required methods (skip those with default implementations).
+    for method in methods.iter().filter(|m| !m.has_default_impl) {
+        let go_method = method_to_camel(&method.name);
+
+        // Build parameter list: `name GoType` pairs.
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let go_param = go_param_name(&p.name);
+                let type_str = go_type(&p.ty).into_owned();
+                format!("{go_param} {type_str}")
+            })
+            .collect();
+        let param_str = params.join(", ");
+
+        // Build return type.
+        let return_type_str = if method.error_type.is_some() {
+            match &method.return_type {
+                TypeRef::Unit => "error".to_string(),
+                _ => {
+                    let ret = go_type(&method.return_type).into_owned();
+                    format!("({ret}, error)")
+                }
+            }
+        } else {
+            go_type(&method.return_type).into_owned()
+        };
+
+        // Build return expression.
+        let return_expr = if method.error_type.is_some() {
+            match &method.return_type {
+                TypeRef::Unit => "return nil".to_string(),
+                _ => {
+                    let default_val = defaults.emit_default(&method.return_type);
+                    format!("return {default_val}, nil")
+                }
+            }
+        } else if matches!(method.return_type, TypeRef::Unit) {
+            String::new()
+        } else {
+            let default_val = defaults.emit_default(&method.return_type);
+            format!("return {default_val}")
+        };
+
+        let _ = writeln!(
+            setup,
+            "func ({struct_name}) {go_method}({param_str}) {return_type_str} {{ {return_expr} }}"
+        );
+    }
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr: format!("{struct_name}{{}}"),
+    }
+}
+
+#[cfg(test)]
+mod trait_bridge_tests {
+    use super::emit_test_backend;
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{MethodDef, ParamDef, TypeRef};
+    use crate::e2e::fixture::Fixture;
+
+    fn make_fixture(id: &str) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: Some(crate::e2e::fixture::MockResponse {
+                status: 200,
+                body: Some(serde_json::Value::Null),
+                stream_chunks: None,
+                headers: std::collections::BTreeMap::new(),
+            }),
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    fn make_param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn make_method(name: &str, params: Vec<(&str, TypeRef)>, ret: TypeRef, is_async: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: params.into_iter().map(|(n, ty)| make_param(n, ty)).collect(),
+            return_type: ret,
+            is_async,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait
+    /// must not reference any kreuzberg-domain names in setup_block or arg_expr.
+    #[test]
+    fn test_backend_emission_is_generic() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("SomeSuperTrait".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let do_thing = make_method(
+            "do_thing",
+            vec![("x", TypeRef::Primitive(crate::core::ir::PrimitiveType::I32))],
+            TypeRef::String,
+            false,
+        );
+
+        let fixture = make_fixture("my_test_fixture");
+        let methods = vec![&do_thing];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // setup_block must not reference any kreuzberg-domain trait or method names.
+        assert!(
+            !emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode domain trait names, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("ProcessImage"),
+            "setup_block must not hardcode domain method names, got:\n{}",
+            emission.setup_block
+        );
+        // Must emit the method name from MethodDef (Go PascalCase).
+        assert!(
+            emission.setup_block.contains("DoThing"),
+            "setup_block must contain Go PascalCase method 'DoThing', got:\n{}",
+            emission.setup_block
+        );
+        // Must emit struct declaration.
+        assert!(
+            emission.setup_block.contains("type testStub_my_test_fixture struct"),
+            "setup_block must contain struct declaration, got:\n{}",
+            emission.setup_block
+        );
+        // Must emit Name() when super_trait is set.
+        assert!(
+            emission.setup_block.contains("Name()"),
+            "setup_block must emit Name() for super_trait, got:\n{}",
+            emission.setup_block
+        );
+        // arg_expr is the struct literal.
+        assert!(
+            emission.arg_expr.contains("testStub_my_test_fixture"),
+            "arg_expr must reference struct name, got: {}",
+            emission.arg_expr
+        );
+        assert!(
+            emission.arg_expr.ends_with("{}"),
+            "arg_expr must be a struct literal, got: {}",
+            emission.arg_expr
+        );
+    }
 }
 
 #[cfg(test)]

@@ -2237,11 +2237,169 @@ fn is_base64(s: &str) -> bool {
 
 /// Emit a Ruby test backend stub.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// Ruby is duck-typed: define an anonymous class that responds to each required method
+/// and return a sensible default value. The Plugin super-trait `name` method returns the
+/// fixture id as a string. All other methods return their language-native defaults.
+///
+/// The returned `setup_block` defines a local variable `stub_<id>` holding the
+/// anonymous class instance. The `arg_expr` is the variable name; callers emit
+/// `<Module>.<register_fn>(arg_expr, "<fixture_id>")`.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("Ruby test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+
+    let defaults = language_defaults("ruby");
+    let safe_id = sanitize_ident(&fixture.id);
+    let var_name = format!("stub_{safe_id}");
+
+    let mut setup = String::new();
+    let _ = writeln!(setup, "{var_name} = Class.new do");
+
+    // Plugin super-trait: emit `name` returning the fixture id as a string identifier.
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(setup, "  def name = '{safe_id}'");
+    }
+
+    // Emit stubs for all required methods (skip those with default implementations).
+    for method in methods.iter().filter(|m| !m.has_default_impl) {
+        let ruby_name = method.name.to_snake_case();
+        // Build a parameter list: positional param names only (Ruby is duck-typed).
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| sanitize_ident(&p.name))
+            .collect();
+        let param_str = params.join(", ");
+        let default_val = defaults.emit_default(&method.return_type);
+        if param_str.is_empty() {
+            let _ = writeln!(setup, "  def {ruby_name} = {default_val}");
+        } else {
+            let _ = writeln!(setup, "  def {ruby_name}({param_str}) = {default_val}");
+        }
+    }
+
+    let _ = writeln!(setup, "end.new");
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr: var_name,
+    }
+}
+
+#[cfg(test)]
+mod trait_bridge_tests {
+    use super::emit_test_backend;
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{MethodDef, ParamDef, TypeRef};
+    use crate::e2e::fixture::Fixture;
+
+    fn make_fixture(id: &str) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    fn make_param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn make_method(name: &str, params: Vec<(&str, TypeRef)>, ret: TypeRef, is_async: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: params.into_iter().map(|(n, ty)| make_param(n, ty)).collect(),
+            return_type: ret,
+            is_async,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait
+    /// must not reference any kreuzberg-domain names in setup_block or arg_expr.
+    #[test]
+    fn test_backend_emission_is_generic() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("SomeSuperTrait".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let do_thing = make_method(
+            "do_thing",
+            vec![("x", TypeRef::Primitive(crate::core::ir::PrimitiveType::I32))],
+            TypeRef::String,
+            false,
+        );
+
+        let fixture = make_fixture("my_test_fixture");
+        let methods = vec![&do_thing];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // setup_block must not reference any kreuzberg-domain trait or method names.
+        assert!(
+            !emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode domain trait names, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("process_image"),
+            "setup_block must not hardcode domain method names, got:\n{}",
+            emission.setup_block
+        );
+        // Must emit the method name from MethodDef.
+        assert!(
+            emission.setup_block.contains("do_thing"),
+            "setup_block must contain the method name 'do_thing', got:\n{}",
+            emission.setup_block
+        );
+        // Must emit Plugin name method when super_trait is set.
+        assert!(
+            emission.setup_block.contains("name"),
+            "setup_block must emit 'name' for super_trait, got:\n{}",
+            emission.setup_block
+        );
+        // arg_expr must reference the fixture id.
+        assert!(
+            emission.arg_expr.contains("my_test_fixture"),
+            "arg_expr must reference fixture id, got: {}",
+            emission.arg_expr
+        );
+    }
 }

@@ -2387,11 +2387,169 @@ fn is_php_reserved_type(name: &str) -> bool {
 
 /// Emit a PHP test backend stub.
 ///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
+/// PHP is duck-typed: define a class with the required methods inside the test method
+/// body. Each method returns a sensible PHP default. The Plugin super-trait `name`
+/// method returns the fixture id as a string.
+///
+/// The returned `setup_block` contains the inline class declaration.
+/// The `arg_expr` is `new TestStub_<id>()`.
+/// Callers emit `Kreuzberg::<RegisterFn>(arg_expr)`.
 pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("PHP test_backend emission not yet implemented")
+    use crate::codegen::defaults::language_defaults;
+    use crate::e2e::escape::sanitize_ident;
+
+    let defaults = language_defaults("php");
+
+    let mut setup = String::new();
+    let _ = writeln!(setup, "        $stub = new class {{");
+
+    // Plugin super-trait: emit `name()` returning the fixture id as a string.
+    if trait_bridge.super_trait.is_some() {
+        let escaped_id = escape_php(&fixture.id);
+        let _ = writeln!(setup, "            public function name(): string {{ return '{escaped_id}'; }}");
+    }
+
+    // Emit stubs for all required methods (skip those with default implementations).
+    for method in methods.iter().filter(|m| !m.has_default_impl) {
+        let php_name = method.name.to_lower_camel_case();
+        let default_val = defaults.emit_default(&method.return_type);
+        // Parameter list: positional only (PHP is duck-typed; we omit type hints for simplicity).
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| format!("${}", sanitize_ident(&p.name)))
+            .collect();
+        let param_str = params.join(", ");
+        if matches!(method.return_type, TypeRef::Unit) {
+            let _ = writeln!(setup, "            public function {php_name}({param_str}): void {{}}");
+        } else {
+            let _ = writeln!(
+                setup,
+                "            public function {php_name}({param_str}): mixed {{ return {default_val}; }}"
+            );
+        }
+    }
+
+    let _ = writeln!(setup, "        }};");
+
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr: "$stub".to_string(),
+    }
+}
+
+
+#[cfg(test)]
+mod trait_bridge_tests {
+    use super::emit_test_backend;
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{MethodDef, ParamDef, TypeRef};
+    use crate::e2e::fixture::Fixture;
+
+    fn make_fixture(id: &str) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    fn make_param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn make_method(name: &str, params: Vec<(&str, TypeRef)>, ret: TypeRef, is_async: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: params.into_iter().map(|(n, ty)| make_param(n, ty)).collect(),
+            return_type: ret,
+            is_async,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait
+    /// must not reference any kreuzberg-domain names in setup_block or arg_expr.
+    #[test]
+    fn test_backend_emission_is_generic() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("SomeSuperTrait".to_string()),
+            register_fn: Some("register_test_trait".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let do_thing = make_method(
+            "do_thing",
+            vec![("x", TypeRef::Primitive(crate::core::ir::PrimitiveType::I32))],
+            TypeRef::String,
+            false,
+        );
+
+        let fixture = make_fixture("my_test_fixture");
+        let methods = vec![&do_thing];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // setup_block must not reference any kreuzberg-domain trait or method names.
+        assert!(
+            !emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode domain trait names, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("process_image"),
+            "setup_block must not hardcode domain method names, got:\n{}",
+            emission.setup_block
+        );
+        // Must emit the method name from MethodDef (PHP camelCase).
+        assert!(
+            emission.setup_block.contains("doThing"),
+            "setup_block must contain the PHP camelCase method name 'doThing', got:\n{}",
+            emission.setup_block
+        );
+        // Must emit Plugin name method when super_trait is set.
+        assert!(
+            emission.setup_block.contains("name"),
+            "setup_block must emit 'name' for super_trait, got:\n{}",
+            emission.setup_block
+        );
+        // arg_expr is the anonymous class variable.
+        assert_eq!(emission.arg_expr, "$stub", "arg_expr must be '$stub', got: {}", emission.arg_expr);
+    }
 }
