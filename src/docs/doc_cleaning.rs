@@ -116,6 +116,7 @@ pub(crate) fn wrap_bare_urls(text: &str) -> String {
 /// - Converts bare `` [`Foo`] `` → `` `Foo` ``
 /// - Converts `# Errors` / `# Returns` headings to bold inline text
 /// - Converts `Foo::bar()` Rust path syntax to `Foo.bar()` in prose
+/// - Inserts a blank line before lists that follow prose (satisfies MD032)
 pub fn clean_doc(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
@@ -137,7 +138,85 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
     // Replace Rust-centric terminology
     let doc = replace_rust_terminology(&doc, lang);
 
+    // Insert blank lines before lists that follow prose. Rust doc strings often
+    // omit the blank line — CommonMark tolerates it, but rumdl's MD032 flags it.
+    let doc = ensure_blank_before_lists(&doc);
+
     doc.trim().to_string()
+}
+
+/// Returns `true` if `line` starts a Markdown list item (`-`, `*`, `+`, or `N.`/`N)`).
+///
+/// Recognises up to three leading spaces of indentation, matching CommonMark.
+fn is_list_item_start(line: &str) -> bool {
+    let trimmed_left = line.trim_start_matches(' ');
+    let leading_spaces = line.len() - trimmed_left.len();
+    if leading_spaces > 3 {
+        return false;
+    }
+    let bytes = trimmed_left.as_bytes();
+    match bytes.first() {
+        Some(b'-') | Some(b'*') | Some(b'+') => {
+            // Must be followed by whitespace to be a list marker (not bold/italic).
+            matches!(bytes.get(1), Some(b' ') | Some(b'\t'))
+        }
+        Some(c) if c.is_ascii_digit() => {
+            // Ordered list: digits then `.` or `)` then whitespace.
+            let mut idx = 1;
+            while bytes.get(idx).is_some_and(|c| c.is_ascii_digit()) {
+                idx += 1;
+            }
+            matches!(bytes.get(idx), Some(b'.') | Some(b')'))
+                && matches!(bytes.get(idx + 1), Some(b' ') | Some(b'\t'))
+        }
+        _ => false,
+    }
+}
+
+/// Insert a blank line before any list item that directly follows a non-blank
+/// line that is itself not a list item. Satisfies rumdl's MD032.
+pub(crate) fn ensure_blank_before_lists(doc: &str) -> String {
+    let mut out = String::with_capacity(doc.len());
+    let mut in_code_block = false;
+    let mut prev_non_empty: Option<String> = None;
+    let mut prev_was_blank = true;
+
+    for line in doc.lines() {
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            out.push_str(line);
+            out.push('\n');
+            prev_non_empty = Some(line.to_string());
+            prev_was_blank = false;
+            continue;
+        }
+
+        if in_code_block {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        if line.trim().is_empty() {
+            out.push_str(line);
+            out.push('\n');
+            prev_was_blank = true;
+            continue;
+        }
+
+        let starts_list = is_list_item_start(line);
+        let prev_was_list = prev_non_empty.as_deref().is_some_and(is_list_item_start);
+        if starts_list && !prev_was_blank && !prev_was_list {
+            out.push('\n');
+        }
+
+        out.push_str(line);
+        out.push('\n');
+        prev_non_empty = Some(line.to_string());
+        prev_was_blank = false;
+    }
+
+    out
 }
 
 /// Convert `# Errors` and `# Returns` section headings to bold inline text.
@@ -917,6 +996,77 @@ mod tests {
         assert!(
             check_monotonic_headings(&demoted).is_ok(),
             "demoted doc comment should have monotonic heading increments"
+        );
+    }
+
+    // --- MD032: lists preceded by blank line ---
+
+    #[test]
+    fn test_ensure_blank_before_lists_inserts_blank_after_prose() {
+        let doc = "For a typical element like `<div>`:\n1. Open tag\n2. Close tag\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(
+            result,
+            "For a typical element like `<div>`:\n\n1. Open tag\n2. Close tag\n",
+            "blank line must be inserted before the ordered list"
+        );
+    }
+
+    #[test]
+    fn test_ensure_blank_before_lists_unordered_after_prose() {
+        let doc = "Available options:\n- one\n- two\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(result, "Available options:\n\n- one\n- two\n");
+    }
+
+    #[test]
+    fn test_ensure_blank_before_lists_preserves_existing_blank_line() {
+        let doc = "Intro.\n\n- one\n- two\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(result, "Intro.\n\n- one\n- two\n", "must not add a second blank line");
+    }
+
+    #[test]
+    fn test_ensure_blank_before_lists_keeps_contiguous_list_items_tight() {
+        let doc = "- one\n- two\n- three\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(result, doc, "contiguous list items must remain tight");
+    }
+
+    #[test]
+    fn test_ensure_blank_before_lists_ignores_lists_inside_fenced_code() {
+        let doc = "Code:\n\n```\nintro\n- not a list\n```\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(
+            result, doc,
+            "content inside fenced code blocks must not be touched"
+        );
+    }
+
+    #[test]
+    fn test_ensure_blank_before_lists_does_not_split_emphasis_markers() {
+        // `*bold*` without trailing space must NOT be treated as a list marker.
+        let doc = "Plain text.\n*not a list item*\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(result, "Plain text.\n*not a list item*\n");
+    }
+
+    #[test]
+    fn test_ensure_blank_before_lists_handles_ordered_with_paren() {
+        let doc = "Steps:\n1) first\n2) second\n";
+        let result = ensure_blank_before_lists(doc);
+        assert_eq!(result, "Steps:\n\n1) first\n2) second\n");
+    }
+
+    #[test]
+    fn test_clean_doc_inserts_blank_line_before_list_md032() {
+        // Regression: visitor trait docstrings emit lists without preceding blank lines.
+        let doc = "# Execution Order\n\nFor a typical element like `<div>`:\n1. Step one\n2. Step two\n";
+        let cleaned = clean_doc(doc, Language::Python);
+        // After the prose line ending with `:`, a blank line must precede `1.`
+        assert!(
+            cleaned.contains(":\n\n1."),
+            "blank line must separate prose from list: {cleaned}"
         );
     }
 }
