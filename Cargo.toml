@@ -58,7 +58,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 ureq = { version = "3", features = ["json"] }
 walkdir = "2"
 which = "8"
-zip = { version = "7", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports"] }
