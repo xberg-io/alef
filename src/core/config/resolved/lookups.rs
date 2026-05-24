@@ -21,9 +21,16 @@ impl ResolvedCrateConfig {
         self.adapters.iter().find(|a| a.name == fn_name)
     }
     /// Get the package output directory for a language.
-    /// Uses `scaffold_output` from per-language config if set, otherwise defaults.
+    /// Uses resolved output_paths (from [crates.output] config) if available,
+    /// otherwise falls back to scaffold_output overrides and hardcoded defaults.
     /// For Node and Wasm, checks `crate_dir` override before the default formula.
     pub fn package_dir(&self, lang: Language) -> String {
+        // First priority: use resolved output_paths from [crates.output] config
+        if let Some(output_path) = self.output_paths.get(&lang.to_string()) {
+            return output_path.to_string_lossy().to_string();
+        }
+
+        // Second priority: scaffold_output overrides
         let override_path = match lang {
             Language::Python => self.python.as_ref().and_then(|c| c.scaffold_output.as_ref()),
             Language::Node => self.node.as_ref().and_then(|c| c.scaffold_output.as_ref()),
@@ -33,38 +40,39 @@ impl ResolvedCrateConfig {
             _ => None,
         };
         if let Some(p) = override_path {
-            p.to_string_lossy().to_string()
-        } else {
-            match lang {
-                Language::Python => "packages/python".to_string(),
-                // NAPI-RS + wasm-bindgen emit their published npm package into the same
-                // directory as the Rust binding crate (`crates/{name}-node/`,
-                // `crates/{name}-wasm/`) — those manifests are the actual publish source,
-                // and the historical `packages/{node,wasm}/` scaffolds were dead weight
-                // that modern alef-scaffold no longer emits. Setup/test/clean defaults
-                // need to track the live crate dir, not the dead packages one.
-                //
-                // The default formula `crates/{name}-{lang}` assumes the crate name includes
-                // any `-rs` or similar suffix. When the consumer strips the suffix for
-                // publication matching, use the `crate_dir` override.
-                Language::Node => self
-                    .node
-                    .as_ref()
-                    .and_then(|c| c.crate_dir.as_ref())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("crates/{}-node", self.name)),
-                Language::Wasm => self
-                    .wasm
-                    .as_ref()
-                    .and_then(|c| c.crate_dir.as_ref())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("crates/{}-wasm", self.name)),
-                Language::Ruby => "packages/ruby".to_string(),
-                Language::Php => "packages/php".to_string(),
-                Language::Elixir => "packages/elixir".to_string(),
-                Language::KotlinAndroid => "packages/kotlin-android".to_string(),
-                _ => format!("packages/{lang}"),
-            }
+            return p.to_string_lossy().to_string();
+        }
+
+        // Third priority: hardcoded defaults
+        match lang {
+            Language::Python => "packages/python".to_string(),
+            // NAPI-RS + wasm-bindgen emit their published npm package into the same
+            // directory as the Rust binding crate (`crates/{name}-node/`,
+            // `crates/{name}-wasm/`) — those manifests are the actual publish source,
+            // and the historical `packages/{node,wasm}/` scaffolds were dead weight
+            // that modern alef-scaffold no longer emits. Setup/test/clean defaults
+            // need to track the live crate dir, not the dead packages one.
+            //
+            // The default formula `crates/{name}-{lang}` assumes the crate name includes
+            // any `-rs` or similar suffix. When the consumer strips the suffix for
+            // publication matching, use the `crate_dir` override.
+            Language::Node => self
+                .node
+                .as_ref()
+                .and_then(|c| c.crate_dir.as_ref())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("crates/{}-node", self.name)),
+            Language::Wasm => self
+                .wasm
+                .as_ref()
+                .and_then(|c| c.crate_dir.as_ref())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("crates/{}-wasm", self.name)),
+            Language::Ruby => "packages/ruby".to_string(),
+            Language::Php => "packages/php".to_string(),
+            Language::Elixir => "packages/elixir".to_string(),
+            Language::KotlinAndroid => "packages/kotlin-android".to_string(),
+            _ => format!("packages/{lang}"),
         }
     }
 
