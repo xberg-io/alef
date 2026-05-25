@@ -21,6 +21,7 @@ use crate::core::hash::{self, CommentStyle};
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::FixtureGroup;
 use anyhow::Result;
+use heck::ToUpperCamelCase;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -68,6 +69,9 @@ impl E2eCodegen for HomebrewCodegen {
             .and_then(|p| p.version.as_ref())
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
+        let ffi_header = config.ffi_header_name();
+        let ffi_lib_name = config.ffi_lib_name();
+        let ffi_prefix = config.ffi_prefix();
 
         Ok(vec![
             GeneratedFile {
@@ -77,12 +81,12 @@ impl E2eCodegen for HomebrewCodegen {
             },
             GeneratedFile {
                 path: output_base.join("run_tests.sh"),
-                content: render_run_tests(&tap, &cli_formula, &ffi_formula, &version),
+                content: render_run_tests(&tap, &cli_formula, &ffi_formula, &version, &ffi_lib_name),
                 generated_header: true,
             },
             GeneratedFile {
                 path: output_base.join("ffi_smoke.c"),
-                content: render_ffi_smoke_c(),
+                content: render_ffi_smoke_c(&ffi_header, &ffi_prefix),
                 generated_header: true,
             },
             GeneratedFile {
@@ -120,7 +124,7 @@ fn render_brewfile(tap: &str, cli_formula: &str, ffi_formula: &str) -> String {
 }
 
 /// Render `run_tests.sh`.
-fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &str) -> String {
+fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &str, ffi_lib_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -202,7 +206,7 @@ fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &s
         "  FFI_PREFIX=$(brew --prefix \"$FFI_FORMULA_QUALIFIED\" 2>/dev/null || true)"
     );
     let _ = writeln!(out, "  FFI_CFLAGS=\"-I$FFI_PREFIX/include\"");
-    let _ = writeln!(out, "  FFI_LIBS=\"-L$FFI_PREFIX/lib -lhtml_to_markdown\"");
+    let _ = writeln!(out, "  FFI_LIBS=\"-L$FFI_PREFIX/lib -l{ffi_lib_name}\"");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
     // shellcheck disable comment for intentional word-splitting on CFLAGS/LIBS.
@@ -229,10 +233,13 @@ fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &s
 }
 
 /// Render `ffi_smoke.c`.
-fn render_ffi_smoke_c() -> String {
+fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str) -> String {
     let mut out = String::new();
+    let result_type = format!("{}Result", ffi_prefix.to_upper_camel_case());
+    let convert_fn = format!("{ffi_prefix}_convert");
+    let free_fn = format!("{ffi_prefix}_result_free");
     out.push_str(&hash::header(CommentStyle::Block));
-    let _ = writeln!(out, "#include <html_to_markdown_ffi.h>");
+    let _ = writeln!(out, "#include <{ffi_header}>");
     let _ = writeln!(out, "#include <stdio.h>");
     let _ = writeln!(out, "#include <stdlib.h>");
     let _ = writeln!(out, "#include <string.h>");
@@ -241,19 +248,19 @@ fn render_ffi_smoke_c() -> String {
     let _ = writeln!(out, "  const char *html = \"<h1>Hi</h1>\";");
     let _ = writeln!(
         out,
-        "  HtmlToMarkdownResult result = html_to_markdown_convert(html, NULL);"
+        "  {result_type} result = {convert_fn}(html, NULL);"
     );
     let _ = writeln!(out);
     let _ = writeln!(out, "  if (result.error_code != 0) {{");
     let _ = writeln!(
         out,
-        "    fprintf(stderr, \"FAIL: html_to_markdown_convert returned error %d: %s\\n\","
+        "    fprintf(stderr, \"FAIL: {convert_fn} returned error %d: %s\\n\","
     );
     let _ = writeln!(
         out,
         "            result.error_code, result.error_message ? result.error_message : \"\");"
     );
-    let _ = writeln!(out, "    html_to_markdown_result_free(result);");
+    let _ = writeln!(out, "    {free_fn}(result);");
     let _ = writeln!(out, "    return 1;");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out);
@@ -266,15 +273,15 @@ fn render_ffi_smoke_c() -> String {
         "    fprintf(stderr, \"FAIL: expected 'Hi' in output, got: %s\\n\","
     );
     let _ = writeln!(out, "            result.content ? result.content : \"(null)\");");
-    let _ = writeln!(out, "    html_to_markdown_result_free(result);");
+    let _ = writeln!(out, "    {free_fn}(result);");
     let _ = writeln!(out, "    return 1;");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "  printf(\"PASS: html_to_markdown_convert returned: %s\\n\", result.content);"
+        "  printf(\"PASS: {convert_fn} returned: %s\\n\", result.content);"
     );
-    let _ = writeln!(out, "  html_to_markdown_result_free(result);");
+    let _ = writeln!(out, "  {free_fn}(result);");
     let _ = writeln!(out, "  return 0;");
     let _ = writeln!(out, "}}");
     out

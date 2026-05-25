@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef php-ext codegen: derive package name from `config.name` instead of hardcoded `kreuzberg-dev/html-to-markdown-ext`.** Same generalization pass as the homebrew default change. (`src/e2e/codegen/php_ext.rs`)
 
+- **alef homebrew codegen: thread per-crate FFI metadata (header, lib name, prefix) into the run-tests template.** The `render_run_tests` helper now receives `ffi_lib_name` so generated tap-install smoke scripts grep for the correct shared-library symbol per host crate instead of a hardcoded name. (`src/e2e/codegen/homebrew.rs`)
+
 ### Fixed
 
 - **C# binding: emit `KreuzbergLib.Register{Trait}(IntPtr handle)` / `Unregister{Trait}(string name)` forwarders.** Test-app trait-bridge plugin-registration tests call `KreuzbergLib.RegisterDocumentExtractor(handle)`, `KreuzbergLib.UnregisterDocumentExtractor(name)`, etc. for all six plugin trait families, but the binding generator was emitting only the `NativeMethods` P/Invoke layer with no managed wrappers. The wrapper-class emitter now iterates `trait_bridges` and emits one `Register{Pascal}` + `Unregister{Pascal}` pair per trait, mirroring the Java/Kotlin pattern. (`src/backends/csharp/gen_bindings/methods.rs`)
