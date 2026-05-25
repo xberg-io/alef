@@ -68,8 +68,16 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
         Language::Php => TestAppRunConfig {
             precondition: Some(require_tool("composer")),
             before: None,
+            // PHP extensions are a special composer case: `composer install`
+            // cannot satisfy a `type: php-ext` package because the platform
+            // resolver consults `php -m` for `ext-<name>`. Alef emits an
+            // `install.sh` next to composer.json that bootstraps PIE
+            // (`composer global require php/pie:^1.4`) and runs
+            // `pie install kreuzberg/<crate>:<version>` to drop the .so into
+            // the running PHP's extension dir. Once the extension is loaded,
+            // `composer install` resolves cleanly and `composer test` runs.
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/php && composer install && composer test"
+                "cd {test_apps_dir}/php && bash install.sh && composer install && composer test"
             ))),
         },
         Language::Elixir => TestAppRunConfig {
@@ -326,6 +334,10 @@ mod tests {
         let run = c.run.unwrap().commands().join(" ");
         assert_eq!(c.precondition.as_deref(), Some("command -v composer >/dev/null 2>&1"));
         assert!(run.contains("cd test_apps/php"), "got: {run}");
+        assert!(
+            run.contains("bash install.sh"),
+            "PHP run command must call alef-emitted install.sh (PIE bootstrap) before composer; got: {run}"
+        );
         assert!(run.contains("composer install && composer test"), "got: {run}");
     }
 

@@ -129,12 +129,12 @@ impl E2eCodegen for PhpCodegen {
 
         // Generate install.sh (registry mode only) — bootstraps PIE and installs
         // the extension before `composer install` runs in the verify-install flow.
-        // The file is not marked executable here; the CI step or consumer must run
-        // `chmod +x test_apps/php/install.sh` before invoking it.
+        // The pinned version is baked in at generate time so callers can run
+        // `bash install.sh` with no args.
         if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             files.push(GeneratedFile {
                 path: output_base.join("install.sh"),
-                content: render_install_sh(&pkg_name, &extension_name),
+                content: render_install_sh(&pkg_name, &extension_name, &pkg_version),
                 generated_header: false,
             });
         }
@@ -471,16 +471,21 @@ fn render_composer_json(
 ///
 /// The script bootstraps `php/pie` globally (if absent or older than 1.3.7),
 /// runs `pie install <pkg>:<version>`, and verifies the extension binary loads.
-/// CI must `chmod +x install.sh` before invoking it.
-fn render_install_sh(pkg_name: &str, extension_name: &str) -> String {
+/// The pinned version is baked in at generate time; callers run
+/// `bash install.sh` with no arguments. The default `alef test-apps run`
+/// command for PHP invokes this script before `composer install`.
+fn render_install_sh(pkg_name: &str, extension_name: &str, pkg_version: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
 # alef-generated installer for registry-mode PHP test_app.
 # Installs the {pkg_name} extension via PIE before `composer install` runs.
 # Requires `composer` and `php` on PATH; bootstraps `php/pie` if needed.
+# Version is alef-injected at generate time so the script is self-contained.
 set -euo pipefail
 
-VERSION="${{1:?usage: $0 <version>}}"
+# Version override: pass as $1 to test an arbitrary tag; defaults to the
+# alef-pinned version from `[crates.e2e.registry.packages.php].version`.
+VERSION="${{1:-{pkg_version}}}"
 
 # PIE >= 1.3.7 supports the array-form `php-ext.download-url-method`
 # our composer.json emits; 1.4.x is preferred. Install pie globally if
@@ -2880,7 +2885,7 @@ mod composer_json_tests {
 
     #[test]
     fn registry_install_sh_contains_pie_install() {
-        let content = render_install_sh("kreuzberg/liter-llm", "liter_llm");
+        let content = render_install_sh("kreuzberg/liter-llm", "liter_llm", "1.4.0-rc.32");
         // The script uses $PIE as the resolved pie binary path.
         assert!(
             content.contains("\"$PIE\" install"),
@@ -2893,6 +2898,11 @@ mod composer_json_tests {
         assert!(
             content.starts_with("#!/usr/bin/env bash"),
             "install.sh must start with bash shebang, got:\n{content}"
+        );
+        // Version is baked in so callers can run `bash install.sh` with no args.
+        assert!(
+            content.contains(r#"VERSION="${1:-1.4.0-rc.32}""#),
+            "install.sh must default VERSION to the alef-pinned version, got:\n{content}"
         );
     }
 }
