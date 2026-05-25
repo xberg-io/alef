@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef dart codegen (facade defaults): empty `Vec<integer/float>` defaults now emit the matching `dart:typed_data` typed-list constructor.** `zero_value_for_type` previously emitted `[]` for every `Vec<_>`, which the FRB-generated constructor rejected when the field was typed as `Uint8List`/`Int64List`/`Float64List`. Alef widens every integer to `i64` and every float to `f64` in the FRB-facing mirror (`gen_rust_crate/mirror.rs`), so FRB lands on `Int64List`/`Float64List` regardless of the original Rust width — `Vec<u8>` is the lone exception (kept narrow, maps to `Uint8List`). Empty defaults now follow that mapping: `Vec<u8>` → `Uint8List(0)`, `Vec<integer>` → `Int64List(0)`, `Vec<f32|f64>` → `Float64List(0)`; `Vec<String>`/`Vec<Named>` stays as `[]`. Also fixes `TypeRef::Bytes` default from `[]` to `Uint8List(0)`. (`src/backends/dart/gen_bindings/functions.rs`)
+
+- **alef dart e2e codegen (handle setup): call positional-optional facade methods with positional syntax.** The dart binding facade emits `createEngine([ConfigType? config])` (positional-optional) for methods that take an optional config struct, but the e2e codegen call site emitted `createEngine(config: cfg)` — Dart raised "No named parameter 'config'" and failed to load 29 test files. Now emits `createEngine(cfg)` matching the facade contract. (`src/e2e/codegen/dart.rs`)
+
 - **scaffold (elixir/dart): add `ahash` to cargo-machete ignored list.** `ahash` is conditionally included in Elixir and Dart bindings when any function parameter uses `AHashMap<Cow, _>`, but the generated binding wrappers never directly reference it—it's used only in the Rust core for type field marshalling. Elixir now emits a `[package.metadata.cargo-machete]` section when dependencies require ignoring; Dart extends its existing ignore list to include `ahash`. This fixes CI lint errors flagging `ahash` as unused. (`src/scaffold/languages/elixir.rs`, `src/backends/dart/gen_rust_crate/cargo.rs`)
 
 ## [0.19.11] - 2026-05-25

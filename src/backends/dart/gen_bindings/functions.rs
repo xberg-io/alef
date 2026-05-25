@@ -210,7 +210,8 @@ fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => Some("0.0".to_string()),
         TypeRef::Primitive(_) => Some("0".to_string()),
         TypeRef::String | TypeRef::Char | TypeRef::Path => Some("''".to_string()),
-        TypeRef::Bytes | TypeRef::Vec(_) => Some("[]".to_string()),
+        TypeRef::Bytes => Some("Uint8List(0)".to_string()),
+        TypeRef::Vec(inner) => Some(empty_vec_literal(inner)),
         TypeRef::Map(_, _) | TypeRef::Json => Some("{}".to_string()),
         TypeRef::Optional(_) | TypeRef::Unit => Some("null".to_string()),
         TypeRef::Duration => Some("Duration.zero".to_string()),
@@ -221,6 +222,35 @@ fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -
                 default_expression_for_named_type(name, type_defs, enums)
             }
         }
+    }
+}
+
+/// Empty-`Vec` default that matches the FRB-mapped Dart type.
+///
+/// Alef's `gen_rust_crate` widens every Rust integer to `i64` and every float
+/// to `f64` in the FRB-facing mirror struct (see `gen_rust_crate::mirror`),
+/// matching FRB's own widening behavior. FRB then maps `Vec<i64>` →
+/// `Int64List` and `Vec<f64>` → `Float64List` in the Dart class. `Vec<u8>` is
+/// a special case (kept as `Vec<u8>` for byte buffers, mapped to `Uint8List`).
+///
+/// A plain `[]` literal is `List<dynamic>` and fails to satisfy the FRB ctor's
+/// typed-list parameter, so we emit the typed-list constructor matching the
+/// widened FRB type. Non-primitive element types (Strings, named structs,
+/// nested Vecs, etc.) stay as `List<T>` in FRB and accept `[]`.
+fn empty_vec_literal(inner: &TypeRef) -> String {
+    match inner {
+        TypeRef::Primitive(PrimitiveType::U8) => "Uint8List(0)".to_string(),
+        TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "Float64List(0)".to_string(),
+        TypeRef::Primitive(
+            PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32
+            | PrimitiveType::I64
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::U64,
+        ) => "Int64List(0)".to_string(),
+        _ => "[]".to_string(),
     }
 }
 
@@ -248,4 +278,63 @@ fn default_enum_variant<'a>(name: &str, enums: &'a [EnumDef]) -> Option<&'a str>
 
 fn escape_dart_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::PrimitiveType;
+
+    #[test]
+    fn empty_vec_of_integer_primitive_uses_int64list_ctor() {
+        // Alef widens every Rust integer to i64 in the FRB-facing mirror
+        // (see backends/dart/gen_rust_crate/mirror.rs), and FRB then maps
+        // Vec<i64> → Int64List. Bytes (Vec<u8>) is the lone special case.
+        let widened_to_int64 = [
+            PrimitiveType::U16,
+            PrimitiveType::U32,
+            PrimitiveType::U64,
+            PrimitiveType::I8,
+            PrimitiveType::I16,
+            PrimitiveType::I32,
+            PrimitiveType::I64,
+        ];
+        for prim in widened_to_int64 {
+            let prim_dbg = format!("{prim:?}");
+            let got = empty_vec_literal(&TypeRef::Primitive(prim));
+            assert_eq!(got, "Int64List(0)", "Vec<{prim_dbg}> empty default");
+        }
+        assert_eq!(empty_vec_literal(&TypeRef::Primitive(PrimitiveType::U8)), "Uint8List(0)");
+    }
+
+    #[test]
+    fn empty_vec_of_float_primitive_uses_float64list_ctor() {
+        // Alef widens f32 → f64 in the mirror; FRB maps Vec<f64> → Float64List.
+        assert_eq!(
+            empty_vec_literal(&TypeRef::Primitive(PrimitiveType::F32)),
+            "Float64List(0)"
+        );
+        assert_eq!(
+            empty_vec_literal(&TypeRef::Primitive(PrimitiveType::F64)),
+            "Float64List(0)"
+        );
+    }
+
+    #[test]
+    fn empty_vec_of_string_or_named_stays_list_literal() {
+        assert_eq!(empty_vec_literal(&TypeRef::String), "[]");
+        assert_eq!(empty_vec_literal(&TypeRef::Named("Foo".to_string())), "[]");
+        assert_eq!(
+            empty_vec_literal(&TypeRef::Vec(Box::new(TypeRef::String))),
+            "[]"
+        );
+    }
+
+    #[test]
+    fn bytes_default_is_typed_uint8list() {
+        assert_eq!(
+            zero_value_for_type(&TypeRef::Bytes, &[], &[]),
+            Some("Uint8List(0)".to_string())
+        );
+    }
 }
