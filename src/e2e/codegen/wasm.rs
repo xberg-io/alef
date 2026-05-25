@@ -234,9 +234,13 @@ impl E2eCodegen for WasmCodegen {
         // `${process.env.MOCK_SERVER_URL}/fixtures/<id>`, so the mock server must
         // be running and the env var set even when no raw HTTP fixtures exist.
         let needs_global_setup = has_http_fixtures;
+        // needs_setup_ts is computed after has_file_fixtures below; hoist the
+        // boolean here since we need it for vitest.config.ts before the
+        // setup.ts push. Use `has_file_fixtures || has_http_fixtures` directly.
+        let with_file_setup_cfg = has_file_fixtures || has_http_fixtures;
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
-            content: render_vitest_config(needs_global_setup, has_file_fixtures),
+            content: render_vitest_config(needs_global_setup, with_file_setup_cfg),
             generated_header: true,
         });
 
@@ -252,12 +256,18 @@ impl E2eCodegen for WasmCodegen {
             });
         }
 
-        // Generate setup.ts when any active fixture takes a file_path / bytes arg.
-        // This chdir's to test_documents/ so relative fixture paths resolve.
-        if has_file_fixtures {
+        // Generate setup.ts — runs per-test-worker via vitest setupFiles.
+        // When file fixtures are present: chdir to test_documents/ so relative
+        // fixture paths resolve, plus the wasm module init block.
+        // When only HTTP fixtures are present: emit just the wasm init block.
+        // The wasm init MUST run in setupFiles (per-worker), not just in
+        // globalSetup (main process), because each vitest worker gets a fresh
+        // module graph; init done in globalSetup does not propagate to workers.
+        let needs_setup_ts = has_file_fixtures || has_http_fixtures;
+        if needs_setup_ts {
             files.push(GeneratedFile {
                 path: output_base.join("setup.ts"),
-                content: render_file_setup(&e2e_config.test_documents_dir),
+                content: render_setup(&e2e_config.test_documents_dir, has_file_fixtures, &pkg_name),
                 generated_header: true,
             });
         }
@@ -418,6 +428,48 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
             with_file_setup => with_file_setup,
         },
     )
+}
+
+/// Render `setup.ts` — vitest `setupFiles` entry, runs per test worker.
+///
+/// Always emits the wasm-bindgen async `init()` call so that the wasm
+/// module is fully instantiated before any test body runs. This MUST live
+/// in `setupFiles` (per-worker), not in `globalSetup` (main process only),
+/// because each vitest worker spawns its own module graph; init done in
+/// the main process does not propagate.
+///
+/// When `include_file_setup` is true, also patches the CommonJS loader for
+/// wasm-pack `--target nodejs` WASI/env stubs and chdir's to
+/// `test_documents_dir` so file-path fixture arguments resolve.
+fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = header;
+    // Wasm module async init — must run before any wasm export is called.
+    // The published wasm-bindgen package exports a default async `init()`.
+    // wasm-pack `--target nodejs` bundles are synchronously self-initializing;
+    // the try/catch + typeof guard is a no-op for them.
+    out.push_str("// Pre-initialize the wasm-bindgen module so that exports are callable.\n");
+    out.push_str("// Published packages built with wasm-bindgen export a default async\n");
+    out.push_str("// `init()` that must be awaited before any wasm export is callable.\n");
+    out.push_str("// wasm-pack `--target nodejs` CJS bundles are self-initializing and\n");
+    out.push_str("// the try/catch is a no-op for them.\n");
+    let _ = writeln!(out, "try {{");
+    let _ = writeln!(out, "  const wasmModule = await import('{pkg_name}');");
+    out.push_str("  const init = wasmModule.default ?? (wasmModule as unknown as Record<string, unknown>).init;\n");
+    out.push_str("  if (typeof init === 'function') {\n");
+    out.push_str("    await (init as () => Promise<unknown>)();\n");
+    out.push_str("  }\n");
+    out.push_str("} catch {\n");
+    out.push_str("  // Module may not export a top-level init — continue anyway.\n");
+    out.push_str("}\n\n");
+    if include_file_setup {
+        let file_only = render_file_setup(test_documents_dir);
+        // render_file_setup prepends its own header; strip the header lines
+        // (everything before the first `import`) when embedding.
+        let body_start = file_only.find("import { createRequire }").unwrap_or(0);
+        out.push_str(&file_only[body_start..]);
+    }
+    out
 }
 
 fn render_file_setup(test_documents_dir: &str) -> String {

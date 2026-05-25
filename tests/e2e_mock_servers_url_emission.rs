@@ -528,6 +528,28 @@ fn wasm_global_setup_awaits_wasm_init_before_mock_server_setup() {
 }
 
 #[test]
+fn wasm_setup_ts_awaits_wasm_init_per_worker() {
+    // The wasm init MUST also appear in setup.ts (vitest setupFiles, per-worker)
+    // because globalSetup runs only in the main process; worker processes spawn
+    // their own module graph and would hit __wbindgen_add_to_stack_pointer crashes
+    // without a per-worker init call.
+    let files = generate_all(
+        &WasmCodegen,
+        "wasm",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let setup_ts = files
+        .iter()
+        .find(|f| f.path.ends_with("setup.ts"))
+        .expect("wasm setup.ts not found — it must be emitted for HTTP fixtures");
+    assert!(
+        setup_ts.content.contains("await init()") || setup_ts.content.contains("await (init"),
+        "wasm setup.ts must await wasm init() per worker:\n{}",
+        setup_ts.content
+    );
+}
+
+#[test]
 fn wasm_global_setup_skips_spawn_when_mock_server_url_preset() {
     let files = generate_all(
         &WasmCodegen,
