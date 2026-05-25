@@ -378,8 +378,18 @@ fn render_composer_json(
 ) -> String {
     let (require_section, autoload_section) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
+            // `minimum-stability: "dev"` + `prefer-stable: true` allows composer
+            // to resolve pre-release tags (rc.*, beta.*, alpha.*, dev.*) when the
+            // pinned `pkg_version` is itself a pre-release. With composer's default
+            // `minimum-stability: "stable"` an `rc.*` pin like `"1.4.0-rc.32"`
+            // resolves to "package found but not loaded, likely conflicts with
+            // another require" because rc tags are below the stability floor.
+            // Prefer-stable still picks stable tags when both are eligible, so this
+            // is benign for non-pre-release pins.
             let require = format!(
-                r#"  "require": {{
+                r#"  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "require": {{
     "{pkg_name}": "{pkg_version}"
   }},
   "require-dev": {{
