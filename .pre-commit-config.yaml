@@ -85,6 +85,6 @@ repos:
     hooks:
       - id: actionlint
   - repo: https://github.com/Goldziher/gh-actions-updater
-    rev: v0.1.3
+    rev: v0.1.4
     hooks:
       - id: gh-actions-updater
