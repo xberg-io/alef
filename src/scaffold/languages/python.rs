@@ -37,6 +37,55 @@ fn format_toml_array_with_prefix(entries: &[String], prefix_len: usize) -> Strin
     format!("[\n{inner}\n]")
 }
 
+/// Canonicalize a PEP 440 version specifier to `pyproject-fmt`'s normalized form.
+///
+/// `pyproject-fmt` strips redundant trailing `.0` release segments from each
+/// version number in a specifier (e.g. `>=1.0,<2.0` → `>=1,<2`, `>=1.19.0`
+/// → `>=1.19`). The renovate-tracked constants in [`crate::core::template_versions`]
+/// keep their human-readable form; this normalizes them at emission time so the
+/// generated `pyproject.toml` stays a no-op under the `pyproject-fmt` hook.
+///
+/// A trailing `.0` is only stripped when it is not the sole release segment — a
+/// bare `0` (e.g. `==0`) is left untouched.
+fn canonicalize_pep440_specifier(specifier: &str) -> String {
+    // Split into comma-separated clauses, normalize each, rejoin without spaces
+    // (pyproject-fmt emits `>=1,<2`, not `>=1, <2`).
+    specifier
+        .split(',')
+        .map(|clause| {
+            let clause = clause.trim();
+            // Separate the comparison operator prefix from the version number.
+            let op_len = clause
+                .char_indices()
+                .find(|(_, c)| c.is_ascii_digit())
+                .map(|(idx, _)| idx)
+                .unwrap_or(clause.len());
+            let (op, version) = clause.split_at(op_len);
+            format!("{op}{}", canonicalize_pep440_version(version))
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Strip redundant trailing `.0` release segments from a single PEP 440 version
+/// number while preserving at least one release segment (`2.0` → `2`, `1.19.0`
+/// → `1.19`, `0` → `0`). Pre/post/dev suffixes and local versions are left as-is.
+fn canonicalize_pep440_version(version: &str) -> String {
+    // Only touch the leading release segment (digits and dots before any
+    // pre/post/dev/local marker); leave the remainder untouched.
+    let release_len = version
+        .char_indices()
+        .find(|(_, c)| !(c.is_ascii_digit() || *c == '.'))
+        .map(|(idx, _)| idx)
+        .unwrap_or(version.len());
+    let (release, suffix) = version.split_at(release_len);
+    let mut segments: Vec<&str> = release.split('.').collect();
+    while segments.len() > 1 && segments.last() == Some(&"0") {
+        segments.pop();
+    }
+    format!("{}{}", segments.join("."), suffix)
+}
+
 pub(crate) fn scaffold_python_cargo(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -213,8 +262,8 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let urls_line = format!("urls.repository = \"{}\"\n", meta.repository);
 
     let dev_group_entries = [
-        format!("\"mypy{}\"", tv::pypi::MYPY),
-        format!("\"ruff{}\"", tv::pypi::RUFF),
+        format!("\"mypy{}\"", canonicalize_pep440_specifier(tv::pypi::MYPY)),
+        format!("\"ruff{}\"", canonicalize_pep440_specifier(tv::pypi::RUFF)),
     ];
     let dev_group_array = format_toml_array_with_prefix(&dev_group_entries, "dev = ".len());
 
@@ -248,7 +297,8 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
 ]
-{urls_line}{homepage}{dependencies}[dependency-groups]
+{urls_line}{homepage}{dependencies}
+[dependency-groups]
 dev = {dev_group}
 
 [tool.maturin]
@@ -262,8 +312,8 @@ python-packages = [ "{python_package}" ]
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-format.docstring-code-format = true
 format.docstring-code-line-length = 120
+format.docstring-code-format = true
 lint.select = [ "ALL" ]
 lint.ignore = [
   "ANN401",
@@ -290,8 +340,7 @@ lint.ignore = [
   "TD",
   "TRY",
 ]
-lint.mccabe.max-complexity = 15
-lint.per-file-ignores."tests/**" = [ "ANN", "D103", "PLR2004", "S101" ]
+lint.per-file-ignores."{python_package}/__init__.py" = [ "I001" ]
 # The alef Python codegen still emits cosmetic warnings on the wrapper
 # modules: api.py keeps the legacy `from typing import AsyncIterator` and a
 # single-line import block, options.py carries # noqa: TC001 / F401 markers
@@ -300,7 +349,8 @@ lint.per-file-ignores."tests/**" = [ "ANN", "D103", "PLR2004", "S101" ]
 # the codegen is updated to emit ruff-clean output.
 lint.per-file-ignores."{python_package}/api.py" = [ "F401", "I001", "UP035" ]
 lint.per-file-ignores."{python_package}/options.py" = [ "F401", "RUF100" ]
-lint.per-file-ignores."{python_package}/__init__.py" = [ "I001" ]
+lint.per-file-ignores."tests/**" = [ "ANN", "D103", "PLR2004", "S101" ]
+lint.mccabe.max-complexity = 15
 lint.pydocstyle.convention = "google"
 lint.pylint.max-args = 10
 lint.pylint.max-branches = 15
@@ -335,7 +385,7 @@ overrides = [
         python_package = python_package,
         module_name = module_name,
         crate_dir = core_crate_dir,
-        maturin_build_requires = tv::pypi::MATURIN_BUILD_REQUIRES,
+        maturin_build_requires = canonicalize_pep440_specifier(tv::pypi::MATURIN_BUILD_REQUIRES),
         dev_group = dev_group_array,
         mypy_disable_codes = mypy_disable_codes,
     );
@@ -355,4 +405,37 @@ overrides = [
             generated_header: false,
         },
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{canonicalize_pep440_specifier, canonicalize_pep440_version};
+
+    /// `pyproject-fmt` strips redundant trailing `.0` release segments from a
+    /// single version number, keeping at least one segment.
+    #[test]
+    fn canonicalize_version_strips_redundant_trailing_zero() {
+        assert_eq!(canonicalize_pep440_version("2.0"), "2");
+        assert_eq!(canonicalize_pep440_version("1.19.0"), "1.19");
+        assert_eq!(canonicalize_pep440_version("1.0.0"), "1");
+        // Non-redundant segments are preserved.
+        assert_eq!(canonicalize_pep440_version("1.19"), "1.19");
+        assert_eq!(canonicalize_pep440_version("0.14.8"), "0.14.8");
+        // A bare zero is the sole segment and must be kept.
+        assert_eq!(canonicalize_pep440_version("0"), "0");
+        // Suffixes (pre/post/dev/local) are left untouched.
+        assert_eq!(canonicalize_pep440_version("1.0rc1"), "1rc1");
+    }
+
+    /// Multi-clause specifiers are normalized clause-by-clause and rejoined with
+    /// a bare comma (no space), matching `pyproject-fmt`'s output.
+    #[test]
+    fn canonicalize_specifier_handles_comparison_operators_and_clauses() {
+        assert_eq!(canonicalize_pep440_specifier(">=1.0,<2.0"), ">=1,<2");
+        assert_eq!(canonicalize_pep440_specifier(">=1.19.0"), ">=1.19");
+        assert_eq!(canonicalize_pep440_specifier(">=0.14.8"), ">=0.14.8");
+        assert_eq!(canonicalize_pep440_specifier("==1.0"), "==1");
+        // Surrounding whitespace inside clauses is normalized away.
+        assert_eq!(canonicalize_pep440_specifier(">=1.0, <2.0"), ">=1,<2");
+    }
 }

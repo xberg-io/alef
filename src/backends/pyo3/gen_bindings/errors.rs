@@ -276,6 +276,11 @@ pub(super) fn gen_init_py(
         }
     }
     exc_names.sort();
+    // De-duplicate: distinct error enums can contribute variants that map to the same Python
+    // exception name (e.g. two enums each with a `Validation` variant → `ValidationError`).
+    // Emitting the symbol twice in `from .exceptions import (...)` trips ruff F811/I001, which
+    // rewrites the file and breaks `alef verify`.
+    exc_names.dedup();
     imports_from_exceptions.extend(exc_names.clone());
 
     // Output imports in isort order: underscore-prefixed modules before regular names.
@@ -538,6 +543,71 @@ mod tests {
         let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
         assert!(result.contains("__version__ = \"1.2.3\""));
         assert!(result.contains("__all__"));
+    }
+
+    /// When multiple error enums contribute variants that map to the same Python exception
+    /// name (e.g. two enums each with a `Validation` variant → `ValidationError`), the
+    /// `from .exceptions import (...)` block and `__all__` must each list every symbol once.
+    /// Duplicate imports trip ruff F811/I001 and break `alef verify`.
+    #[test]
+    fn gen_init_py_dedups_overlapping_exception_names() {
+        use crate::core::ir::{ErrorDef, ErrorVariant};
+
+        let make_variant = |name: &str| ErrorVariant {
+            name: name.to_string(),
+            message_template: None,
+            fields: vec![],
+            has_source: false,
+            has_from: false,
+            is_unit: true,
+            doc: String::new(),
+        };
+        let make_error = |name: &str, variants: Vec<&str>| ErrorDef {
+            name: name.to_string(),
+            rust_path: format!("lib::{name}"),
+            original_rust_path: String::new(),
+            variants: variants.into_iter().map(make_variant).collect(),
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let mut api = empty_api();
+        // Two distinct error enums whose variants collide on Python exception names.
+        api.errors.push(make_error(
+            "ParseError",
+            vec!["Validation", "ComplexityLimitExceeded", "DepthLimitExceeded"],
+        ));
+        api.errors.push(make_error(
+            "QueryError",
+            vec!["Validation", "ComplexityLimitExceeded", "DepthLimitExceeded"],
+        ));
+
+        let dto = DtoConfig::default();
+        let extra = std::collections::BTreeMap::new();
+        let caps = std::collections::HashMap::new();
+        let adapters = vec![];
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
+
+        for symbol in [
+            "ValidationError",
+            "ComplexityLimitExceededError",
+            "DepthLimitExceededError",
+        ] {
+            // Inside the exceptions import block, each symbol must appear exactly once.
+            let import_occurrences = result.matches(&format!("    {symbol},\n")).count();
+            assert_eq!(
+                import_occurrences, 1,
+                "{symbol} must be imported once, got {import_occurrences} in:\n{result}",
+            );
+            // In __all__ each symbol must appear exactly once.
+            let all_occurrences = result.matches(&format!("\"{symbol}\"")).count();
+            assert_eq!(
+                all_occurrences, 1,
+                "{symbol} must appear once in __all__, got {all_occurrences} in:\n{result}",
+            );
+        }
     }
 
     /// `extra_init_imports` adds the import lines and the symbols into `__all__`.

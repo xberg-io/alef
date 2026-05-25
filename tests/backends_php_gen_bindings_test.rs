@@ -3133,3 +3133,138 @@ fn has_default_struct_keeps_derived_default_when_delegation_disabled() {
         "no delegating impl Default should be emitted when the flag is disabled; got:\n{content}"
     );
 }
+
+/// Every generated PHP source file must have a blank line immediately after the
+/// `<?php` opening tag. PSR-12's `blank_line_after_opening_tag` rule (enforced by
+/// php-cs-fixer) inserts one post-write, which would mutate the alef-hash-tracked
+/// file and break `alef verify`. Emitting it natively keeps the formatter a no-op.
+#[test]
+fn test_php_source_files_have_blank_line_after_opening_tag() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Config".to_string(),
+                rust_path: "test_lib::Config".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Config".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "Handle".to_string(),
+                rust_path: "test_lib::Handle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "close".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Close the handle".to_string(),
+                    receiver: Some(ReceiverKind::Owned),
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Opaque handle".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+
+    // Collect all generated PHP source files (facade + opaque class files + type stubs).
+    let mut php_files: Vec<alef::core::backend::GeneratedFile> = Vec::new();
+    php_files.extend(backend.generate_public_api(&api, &config).expect("public api ok"));
+    php_files.extend(backend.generate_type_stubs(&api, &config).expect("type stubs ok"));
+    php_files.retain(|f| f.path.extension().and_then(|e| e.to_str()) == Some("php"));
+    assert!(!php_files.is_empty(), "expected at least one generated .php file");
+
+    for file in &php_files {
+        let name = file.path.to_string_lossy().to_string();
+        assert!(
+            file.content.starts_with("<?php\n\n"),
+            "{name} must have a blank line after `<?php` (PSR-12 blank_line_after_opening_tag). got:\n{}",
+            &file.content[..file.content.len().min(120)],
+        );
+    }
+
+    // Strongest check: run php-cs-fixer with the scaffold's @PSR12 ruleset and assert it
+    // produces zero changes. Skips when php or php-cs-fixer are unavailable.
+    use std::process::Command;
+    let tools_available = Command::new("php").arg("--version").output().is_ok()
+        && Command::new("php-cs-fixer").arg("--version").output().is_ok();
+    if !tools_available {
+        eprintln!("skipping php-cs-fixer no-op check: php or php-cs-fixer not installed");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+
+    // The scaffold's php-cs-fixer config formats `src/` but explicitly excludes `stubs/`
+    // (`->notPath('stubs')`) because the stub files carry ext-php-rs scaffolding the formatter
+    // would otherwise rewrite. So the formatter no-op contract applies to the userland `src/`
+    // files (facade + opaque DTO classes) — those are what `alef verify` and the formatter must
+    // agree on. Stub files only need the blank-line-after-`<?php` guarantee asserted above.
+    for file in php_files.iter().filter(|f| !f.path.to_string_lossy().contains("stubs")) {
+        let php_path = dir.path().join("subject.php");
+        std::fs::write(&php_path, &file.content).unwrap();
+        let output = Command::new("php-cs-fixer")
+            .arg("fix")
+            .arg("--using-cache=no")
+            .arg("--rules=@PSR12")
+            .arg(&php_path)
+            .output()
+            .expect("run php-cs-fixer");
+        let after = std::fs::read_to_string(&php_path).unwrap();
+        assert_eq!(
+            after,
+            file.content,
+            "php-cs-fixer rewrote {}; stderr:\n{}",
+            file.path.display(),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+}

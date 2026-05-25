@@ -1312,10 +1312,10 @@ impl Backend for PhpBackend {
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
         let namespace = php_autoload_namespace(config);
 
-        // PSR-12 requires a blank line after the opening `<?php` tag.
-        // php-cs-fixer enforces this and would insert it post-write,
-        // making `alef verify` see content that differs from what was
-        // freshly generated. Emit it here so generated == on-disk.
+        // PSR-12 requires a blank line after the opening `<?php` tag. php-cs-fixer enforces
+        // this and would insert it post-write, making `alef verify` see content that differs
+        // from what was freshly generated. The `php_file_header.jinja` template emits `<?php`
+        // followed by the blank line so generated == on-disk.
         let mut content = String::new();
         content.push_str(&crate::backends::php::template_env::render(
             "php_file_header.jinja",

@@ -525,6 +525,63 @@ keywords = ["zebra", "apple", "banana"]
     );
 }
 
+/// The generated `pyproject.toml` must already be in `pyproject-fmt` canonical form so the
+/// `pyproject-fmt` pre-commit hook is a no-op on every regen. Running `pyproject-fmt` on our
+/// output must produce zero changes — otherwise the hook rewrites the alef-hash-tracked file
+/// and breaks `alef verify`. Skips when the `pyproject-fmt` binary is unavailable.
+#[test]
+fn test_scaffold_python_pyproject_is_pyproject_fmt_clean() {
+    use std::process::Command;
+
+    if Command::new("pyproject-fmt").arg("--version").output().is_err() {
+        eprintln!("skipping: pyproject-fmt not installed");
+        return;
+    }
+
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+authors = ["Bob"]
+keywords = ["zebra", "apple", "banana"]
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let content = &files[0].content;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pyproject.toml");
+    std::fs::write(&path, content).unwrap();
+
+    // Format in place, then compare bytes. A single subprocess avoids the flakiness of
+    // spawning pyproject-fmt twice, and comparing content (rather than the `--check` exit
+    // status) is robust to non-formatting exit codes.
+    let spawn = Command::new("pyproject-fmt").arg(&path).output();
+    let Ok(output) = spawn else {
+        eprintln!("skipping: pyproject-fmt failed to spawn");
+        return;
+    };
+    let formatted = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        &formatted,
+        content,
+        "generated pyproject.toml is not pyproject-fmt-clean.\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
 #[test]
 fn test_scaffold_python_license_files_field() {
     // Verify that pyproject.toml includes license-files = ["LICENSE"] to ensure
