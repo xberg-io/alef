@@ -163,41 +163,19 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         }
     };
 
-    // Derive the GitHub owner/repo from the repository URL for the binary URL template.
-    // e.g. "https://github.com/kreuzberg-dev/html-to-markdown" -> "kreuzberg-dev/html-to-markdown"
-    let repo_path = meta
-        .repository
-        .strip_prefix("https://github.com/")
-        .or_else(|| meta.repository.strip_prefix("http://github.com/"))
-        .filter(|s| !s.is_empty())
-        .unwrap_or("");
-
-    let pie_binary_block = if !repo_path.is_empty() {
-        format!(
-            r#",
-  "extra": {{
-    "pie": {{
-      "binary": {{
-        "url-template": "https://github.com/{repo_path}/releases/download/v{{Version}}/php_{ext_name}-{{Version}}_php{{PhpVersion}}-{{Arch}}-{{OS}}-{{Libc}}-{{TSMode}}.tgz"
-      }}
-    }}
-  }}"#,
-            repo_path = repo_path,
-            ext_name = ext_name,
-        )
-    } else {
-        String::new()
-    };
-
     // Composer manifests are emitted twice with one structural difference: the
     // PSR-4 autoload src path. The package manifest at `{pkg_dir}/composer.json`
     // is the dev manifest used by phpstan/phpunit/php-cs-fixer inside the
     // package directory and points at `src/`. The root manifest at
     // `composer.json` is the one Packagist indexes and PIE installs read — it
     // must point at `{pkg_dir}/src/` so the same PSR-4 classes resolve from
-    // the repo root. Everything else (name, php-ext block, extra.pie binary
-    // url-template, require/require-dev, scripts) is byte-identical so the two
-    // manifests stay in sync without drift.
+    // the repo root. Everything else (name, php-ext block, require/require-dev,
+    // scripts) is byte-identical so the two manifests stay in sync without drift.
+    //
+    // Note: the former `extra.pie.binary.url-template` block is intentionally
+    // omitted. PIE does not read `extra.pie.binary`; it only keys off
+    // `extra.php-ext.download-url-method`. Keeping the dead block around misleads
+    // maintainers into thinking it does something.
     let render_composer = |autoload_src: &str| -> String {
         format!(
             r#"{{
@@ -231,7 +209,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "support-zts": true,
     "support-nts": true,
     "download-url-method": ["pre-packaged-binary", "composer-default"]
-  }}{keywords}{pie_binary_block}
+  }}{keywords}
 }}
 "#,
             vendor = vendor,
@@ -242,7 +220,6 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             autoload_src = autoload_src,
             ext_name = ext_name,
             keywords = keywords_json,
-            pie_binary_block = pie_binary_block,
             phpstan = tv::packagist::PHPSTAN,
             php_cs_fixer = tv::packagist::PHP_CS_FIXER,
             phpunit = tv::packagist::PHPUNIT,
