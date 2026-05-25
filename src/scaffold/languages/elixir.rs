@@ -181,14 +181,48 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         None => String::new(),
     };
 
-    // `lib/` is only populated when there is at least one non-OptionsField trait
-    // bridge GenServer module to emit (see the bridge generation loop below).
-    // Hex publish refuses to package a non-existent directory, so include `lib`
-    // in `files:` only when we actually write into it.
-    let lib_populated = config.trait_bridges.iter().any(|b| {
-        !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler")
-            && b.bind_via != BridgeBinding::OptionsField
-    });
+    // `lib/` is populated when either (a) at least one non-OptionsField trait
+    // bridge emits a GenServer module into `lib/`, or (b) a wrapper module file
+    // (`lib/<app_name>.ex`, or any `.ex` under `lib/`) was emitted earlier in
+    // the pipeline. Hex publish refuses to package a non-existent directory,
+    // but it equally fails to publish a usable hex package when the wrapper
+    // module exists on disk yet is excluded from `files:` — so include `lib`
+    // whenever anything in `lib/` already exists.
+    let lib_has_files_on_disk = {
+        let lib_dir_rel = format!("{pkg_dir}/lib");
+        let lib_dir = if let Some(ws_root) = config.workspace_root.as_deref() {
+            ws_root.join(&lib_dir_rel)
+        } else {
+            PathBuf::from(&lib_dir_rel)
+        };
+        // Treat the lib dir as "populated" if it contains at least one .ex file
+        // (recursively). The wrapper module is alef-emitted earlier in the
+        // pipeline; by the time mix.exs is rendered it should already be on
+        // disk. A nested `.ex` (e.g. submodule under `lib/<app>/foo.ex`) also
+        // counts — those need packaging too.
+        fn has_any_ex_file(dir: &std::path::Path) -> bool {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return false;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if has_any_ex_file(&path) {
+                        return true;
+                    }
+                } else if path.extension().is_some_and(|e| e == "ex") {
+                    return true;
+                }
+            }
+            false
+        }
+        has_any_ex_file(&lib_dir)
+    };
+    let lib_populated = lib_has_files_on_disk
+        || config.trait_bridges.iter().any(|b| {
+            !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler")
+                && b.bind_via != BridgeBinding::OptionsField
+        });
 
     // Always-present entries on disk after scaffolding: native crate sources,
     // .formatter.exs, mix.exs, and the README (alef writes one or expects one).
