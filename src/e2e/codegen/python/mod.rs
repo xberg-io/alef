@@ -46,12 +46,14 @@ impl super::E2eCodegen for PythonE2eCodegen {
             generated_header: true,
         });
 
-        files.push(GeneratedFile {
-            path: output_base.join("__init__.py"),
-            content: "\n".to_string(),
-            generated_header: false,
-        });
-
+        // NOTE: do NOT emit a root-level `__init__.py` in the test_app dir.
+        // Marking `test_apps/python/` as a Python package interferes with
+        // `uv sync` installing the published wheel — the editable install of
+        // the e2e project picks up the root `__init__.py` and pytest then
+        // resolves `import liter_llm` against an empty local namespace,
+        // missing the actual `liter_llm/__init__.py` shipped in the wheel
+        // (`ImportError: cannot import name 'create_client' from 'liter_llm'`).
+        // The conftest + tests/ subdirectory are sufficient for pytest.
         files.push(GeneratedFile {
             path: output_base.join("tests").join("__init__.py"),
             content: "\n".to_string(),
@@ -347,11 +349,25 @@ result_var = "result"
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = PythonE2eCodegen;
         let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
-        // conftest.py, __init__.py (root), tests/__init__.py, pyproject.toml
-        assert_eq!(files.len(), 4, "expected 4 config files, got: {}", files.len());
+        // conftest.py, tests/__init__.py, pyproject.toml
+        // (NO root __init__.py — would shadow the published `liter_llm` package
+        // during `uv sync`'s editable install of the e2e project.)
+        assert_eq!(files.len(), 3, "expected 3 config files, got: {}", files.len());
         let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
         assert!(paths.iter().any(|p| p.ends_with("conftest.py")));
         assert!(paths.iter().any(|p| p.ends_with("pyproject.toml")));
+        // tests/__init__.py is kept so pytest can resolve `from tests.X import …` if used
+        assert!(
+            paths.iter().any(|p| p.ends_with("tests/__init__.py")),
+            "tests/__init__.py must still be emitted; got: {paths:?}"
+        );
+        assert!(
+            !paths
+                .iter()
+                .any(|p| p.ends_with("python/__init__.py") && !p.ends_with("tests/__init__.py")),
+            "no root-level __init__.py in test_apps/python/ — would shadow the published wheel \
+             during uv sync's editable install. got: {paths:?}"
+        );
     }
 
     #[test]

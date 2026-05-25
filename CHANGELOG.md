@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef `test-apps` (Python): drop the root `test_apps/python/__init__.py` emission.** Marking `test_apps/python/` as a Python package interfered with `uv sync` installing the published wheel: the editable install of the e2e project picked up the root `__init__.py` and pytest then resolved `import liter_llm` against an empty local namespace, missing the actual `liter_llm/__init__.py` shipped in the wheel — every test collection died with `ImportError: cannot import name 'create_client' from 'liter_llm' (unknown location)`. The conftest + `tests/__init__.py` are sufficient for pytest. (`src/e2e/codegen/python/mod.rs`)
+
 - **alef `test-apps run` (Go): default run command now runs `go mod tidy` before `go test`.** Without it, `go test ./...` fails with `missing go.sum entry for module providing package <published-module>` — alef emits a `go.mod` with the published-module require but no `go.sum`. `go mod download` alone only writes `/go.mod` hashes; `go mod tidy` adds the package content hashes `go test` actually checks. `tidy` is idempotent once the sum is complete. Both invocations share the same `GOWORK=off` prefix added in v0.19.9. (`src/core/config/test_apps_run_defaults.rs`)
 
 ## [0.19.9] - 2026-05-25
