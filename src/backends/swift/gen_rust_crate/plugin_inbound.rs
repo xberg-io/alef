@@ -144,30 +144,15 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
 
     let mut block = String::new();
 
-    // Phantom Vec<Swift{Trait}Box> in extern "Rust" to force swift-bridge-build to emit
-    // the Vec accessor C symbols. This must come BEFORE the extern "Swift" block so the
-    // type is visible when the "Swift" block declares methods that use it.
-    //
-    // trait_phantom_fn.jinja appends a hardcoded `Box` suffix to `trait_name`, so we
-    // pass the *unboxed* `Swift{Trait}` prefix here. Passing `box_name` (which already
-    // ends in `Box`) would produce a malformed `Vec<Swift{Trait}BoxBox>` reference and
-    // make swift-bridge-build's parser bail with "Type must be declared with `type >`".
-    //
-    // The phantom_trait_snake must also be distinct from the matching outbound
-    // (Rust-side) trait's snake (e.g., `html_visitor`) — otherwise the impl-side
-    // `pub fn alef_phantom_vec_{snake}` collides with the outbound phantom emitted
-    // by trait_bridge.rs at module scope.
-    let phantom_trait_name = format!("Swift{trait_name}");
-    let phantom_trait_snake = heck::AsSnakeCase(phantom_trait_name.as_str()).to_string();
-    block.push_str("    extern \"Rust\" {\n");
-    block.push_str(&crate::backends::swift::template_env::render(
-        "trait_phantom_fn.jinja",
-        minijinja::context! {
-            trait_name => &phantom_trait_name,
-            trait_snake => &phantom_trait_snake,
-        },
-    ));
-    block.push_str("    }\n\n");
+    // No inbound (Swift-side) phantom Vec block: `Swift{Trait}Box` is an
+    // `extern "Swift" type` with no Rust-side struct backing it at module scope,
+    // so neither the `extern "Rust" { fn ... -> Vec<Swift{Trait}Box>; }` declaration
+    // nor its matching `pub fn` impl can compile. swift-bridge's auto-generated
+    // Vec accessors for inbound traits are not actually used by the bindings we
+    // emit (Swift code consumes individual instances, not Vec<>), so omitting the
+    // phantom does not break anything. The outbound Rust-side trait_bridge.rs
+    // still emits its own phantom for `{Trait}Box`, which is a real `pub struct`
+    // at module scope.
 
     block.push_str("    extern \"Swift\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
