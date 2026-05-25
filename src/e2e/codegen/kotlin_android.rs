@@ -568,12 +568,35 @@ mod tests {
             "liter-llm",
             "dev.kreuzberg.literllm.android",
             "1.0.0",
+            "dev.kreuzberg:liter-llm-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
         );
         assert!(
             output.contains("jackson-module-kotlin"),
             "build.gradle.kts must depend on jackson-module-kotlin, got:\n{output}"
+        );
+    }
+
+    /// Regression: registry-mode build.gradle.kts must emit the full Maven
+    /// coordinate (`groupId:artifactId:version`) for the published Android AAR,
+    /// not just the artifact name. The coordinate is resolved from
+    /// `naming::aar_group_id()` and `naming::aar_artifact_id()` so it respects
+    /// the `[crates.kotlin_android]` config. Credentials: Maven Central requires
+    /// the fully-qualified coordinate (e.g., `dev.kreuzberg:kreuzberg-android:5.0.0-rc.1`).
+    #[test]
+    fn build_gradle_kotlin_android_registry_mode_emits_full_maven_coordinate() {
+        let output = render_build_gradle_kotlin_android(
+            "kreuzberg",
+            "dev.kreuzberg",
+            "5.0.0-rc.1",
+            "dev.kreuzberg:kreuzberg-android:5.0.0-rc.1",
+            crate::e2e::config::DependencyMode::Registry,
+            false,
+        );
+        assert!(
+            output.contains(r#"testImplementation("dev.kreuzberg:kreuzberg-android:5.0.0-rc.1")"#),
+            "build.gradle.kts must emit full Maven coordinate with groupId:artifactId:version, got:\n{output}"
         );
     }
 
