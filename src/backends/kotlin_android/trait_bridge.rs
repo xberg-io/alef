@@ -87,7 +87,7 @@ pub fn gen_trait_bridge_object(
     body.push_str("}\n");
 
     let content = assemble_kt_content(package, &_imports, &body);
-    Some((format!("{bridge_class_name}.kt"), content))
+    Some((format!("{bridge_obj}.kt"), content))
 }
 
 /// Assemble Kotlin file content with package and imports.
