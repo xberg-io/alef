@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef `test-apps run`: export MOCK_SERVER_URL/MOCK_SERVERS plainly (overwrite), not via the PATH-style append helper.** The append form (`export VAR='val'"${VAR:+:$VAR}"`) corrupted the scalar URL into `http://host:port:http://host:port` → every HTTP-fixture test failed with `getaddrinfo`. Fixed: python test app now passes 558/558 against the published wheel. Also: e2e kotlin codegen emits the real `dev.spikard:spikard-kotlin:<version>` Maven coordinate (was the doubled `dev.spikard:dev.spikard:spikard`). (`src/cli/pipeline/commands.rs`, `src/e2e/codegen/kotlin.rs`)
+
 - **alef `test-apps run` + e2e codegen: make registry test apps runnable against published packages.** (1) `test-apps run` builds + starts the e2e mock-server (`<e2e.output>/rust` `mock-server` binary), captures `MOCK_SERVER_URL`, injects it into every test-app command, and stops it on exit via an RAII guard — so HTTP-fixture apps (go/python/wasm/brew) no longer fail with connection-refused / `MOCK_SERVER_URL is required`. (2) The go/python/wasm harnesses honor a pre-set `MOCK_SERVER_URL` and skip self-spawning the local binary (absent under `test_apps/`). (3) The generated node test app emits its own `pnpm-workspace.yaml` so `pnpm install` installs its devDeps (vitest) locally instead of being absorbed by the consumer's root pnpm workspace. (`src/cli/pipeline/commands.rs`, `src/e2e/codegen/{go.rs,python/config.rs,typescript/}`, `src/e2e/templates/{typescript,wasm}/globalSetup.ts.jinja`)
 
 ### Removed

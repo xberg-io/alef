@@ -227,8 +227,20 @@ pub(crate) fn render_build_gradle(
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Registry mode: maven central with group:artifact:version
-            format!(r#"    testImplementation("{kotlin_pkg_id}:{pkg_name}:{pkg_version}")"#)
+            // Registry mode: maven central with group:artifact:version.
+            //
+            // `pkg_name` is the published artifactId only (e.g. `spikard-kotlin`);
+            // the group is `kotlin_pkg_id` (the `[kotlin] package`, e.g.
+            // `dev.spikard`). Guard against a `pkg_name` that already embeds the
+            // group (e.g. `dev.spikard:spikard-kotlin`) so the group is never
+            // prepended twice — otherwise gradle resolves a nonexistent
+            // `dev.spikard:dev.spikard:spikard-kotlin` coordinate.
+            let coordinate = if pkg_name.starts_with(&format!("{kotlin_pkg_id}:")) {
+                format!("{pkg_name}:{pkg_version}")
+            } else {
+                format!("{kotlin_pkg_id}:{pkg_name}:{pkg_version}")
+            };
+            format!(r#"    testImplementation("{coordinate}")"#)
         }
         crate::e2e::config::DependencyMode::Local => {
             // Local mode: reference the kotlin binding's built jar. The Kotlin
@@ -2819,6 +2831,63 @@ mod tests {
         assert!(
             !out_jvm.contains("registerKotlinModule"),
             "non-android MAPPER must NOT reference registerKotlinModule, got:\n{out_jvm}"
+        );
+    }
+
+    /// Registry mode joins the group (`kotlin_pkg_id`) and artifactId (`pkg_name`)
+    /// into a single `group:artifact:version` coordinate.
+    #[test]
+    fn registry_dep_uses_group_artifact_version_coordinate() {
+        let out = render_build_gradle(
+            "spikard-kotlin",
+            "dev.spikard",
+            "0.15.6-rc.3",
+            crate::e2e::config::DependencyMode::Registry,
+            false,
+        );
+        assert!(
+            out.contains(r#"testImplementation("dev.spikard:spikard-kotlin:0.15.6-rc.3")"#),
+            "expected single-group maven coordinate, got:\n{out}"
+        );
+    }
+
+    /// Regression: a `pkg_name` that already embeds the group must NOT have the
+    /// group prepended a second time (previously produced the unresolvable
+    /// `dev.spikard:dev.spikard:spikard:<version>` coordinate).
+    #[test]
+    fn registry_dep_does_not_double_the_group_prefix() {
+        let out = render_build_gradle(
+            "dev.spikard:spikard-kotlin",
+            "dev.spikard",
+            "0.15.6-rc.3",
+            crate::e2e::config::DependencyMode::Registry,
+            false,
+        );
+        assert!(
+            out.contains(r#"testImplementation("dev.spikard:spikard-kotlin:0.15.6-rc.3")"#),
+            "group must not be doubled, got:\n{out}"
+        );
+        assert!(
+            !out.contains("dev.spikard:dev.spikard"),
+            "doubled group must never appear, got:\n{out}"
+        );
+    }
+
+    /// Local mode resolves the built jar by its filesystem base name (the
+    /// kotlin binding's `rootProject.name`, passed as `pkg_name` in local mode),
+    /// independent of the published Maven artifactId.
+    #[test]
+    fn local_dep_references_built_jar_by_base_name() {
+        let out = render_build_gradle(
+            "spikard",
+            "dev.spikard",
+            "0.15.6-rc.3",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+        );
+        assert!(
+            out.contains("packages/kotlin/build/libs/spikard-0.15.6-rc.3.jar"),
+            "expected local jar reference, got:\n{out}"
         );
     }
 }

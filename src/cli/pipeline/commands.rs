@@ -660,6 +660,13 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
         .as_ref()
         .map(|h| h.env_vars.iter().map(|(k, v)| (*k, v.clone())).collect())
         .unwrap_or_default();
+    // Plain, overwrite-style export prefix for the server env vars. Do NOT use
+    // `run_command_streamed_with_env` here: it appends PATH-style
+    // (`export VAR='val'"${VAR:+:$VAR}"`), which corrupts a plain value like
+    // MOCK_SERVER_URL into `http://host:port:http://host:port` (invalid → getaddrinfo
+    // failure). These are scalar values, so set them outright. Values are URLs / JSON
+    // (double-quoted) with no single quotes, so single-quote wrapping is safe.
+    let env_prefix: String = server_env.iter().map(|(k, v)| format!("export {k}='{v}'; ")).collect();
 
     let results: Vec<(String, TestAppOutcome)> = names
         .par_iter()
@@ -671,7 +678,7 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
             }
             if let Some(before) = &cfg.before {
                 for cmd in before.commands() {
-                    if let Err(e) = run_command_streamed_with_env(cmd, Some(name), &server_env) {
+                    if let Err(e) = run_command_streamed(&format!("{env_prefix}{cmd}"), Some(name)) {
                         return (name.clone(), TestAppOutcome::Failed(e));
                     }
                 }
@@ -679,7 +686,7 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
             match &cfg.run {
                 Some(cmd_list) => {
                     for cmd in cmd_list.commands() {
-                        if let Err(e) = run_command_streamed_with_env(cmd, Some(name), &server_env) {
+                        if let Err(e) = run_command_streamed(&format!("{env_prefix}{cmd}"), Some(name)) {
                             return (name.clone(), TestAppOutcome::Failed(e));
                         }
                     }
