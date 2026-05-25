@@ -96,9 +96,23 @@ pub fn write_alef_toml_version(config_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Substring that identifies the alef hooks repo in a `.pre-commit-config.yaml`
-/// `repo:` line (alef's own hooks live in `github.com/kreuzberg-dev/alef`).
-const ALEF_HOOKS_REPO_MARKER: &str = "kreuzberg-dev/alef";
+/// Heuristic for identifying the alef hooks repo on a `.pre-commit-config.yaml`
+/// `- repo:` line. We match any URL whose path ends in `/alef` or `/alef.git`
+/// (case-insensitive) so the detection works regardless of which organization
+/// hosts the fork. Alef itself stays project-agnostic — downstream forks under
+/// different orgs get the same self-sync behaviour for free.
+fn is_alef_hooks_repo_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with("- repo:") {
+        return false;
+    }
+    let Some((_, url)) = trimmed.split_once(':') else {
+        return false;
+    };
+    let url = url.trim().trim_end_matches('/').to_ascii_lowercase();
+    let path = url.strip_suffix(".git").unwrap_or(&url);
+    path.rsplit_once('/').is_some_and(|(_, tail)| tail == "alef")
+}
 
 /// Bump the alef hook `rev:` in `<repo_root>/.pre-commit-config.yaml` to `v{cli}`.
 ///
@@ -118,10 +132,7 @@ pub fn sync_precommit_alef_rev(repo_root: &Path) -> Result<()> {
     let mut lines: Vec<String> = content.lines().map(str::to_owned).collect();
 
     // Locate the alef hooks repo block.
-    let Some(repo_idx) = lines
-        .iter()
-        .position(|l| l.trim_start().starts_with("- repo:") && l.contains(ALEF_HOOKS_REPO_MARKER))
-    else {
+    let Some(repo_idx) = lines.iter().position(|l| is_alef_hooks_repo_line(l)) else {
         return Ok(()); // no remote alef hook block (e.g. local hooks) — nothing to do
     };
 
