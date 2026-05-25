@@ -226,6 +226,7 @@ pub(super) fn format_param_unused(name: &str, ty: &str, unused: bool) -> String 
 /// Generate a free function binding with deduplication of input DTOs.
 /// Returns a string containing any generated Input DTO structs (not in emitted_input_dtos set)
 /// followed by the function code.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_function_with_emitted_dtos(
     func: &FunctionDef,
     mapper: &WasmMapper,
@@ -1410,8 +1411,7 @@ mod tests {
         // Sanitized String field: use JSON deserialization
         let conv_sanitized = dto_field_conversion(&ty_string, true);
         assert_eq!(
-            conv_sanitized,
-            "serde_json::from_str(&v).unwrap_or_default()",
+            conv_sanitized, "serde_json::from_str(&v).unwrap_or_default()",
             "sanitized String should use JSON deserialization: {conv_sanitized}"
         );
     }

@@ -113,6 +113,48 @@ fn test_scaffold_node() {
 }
 
 #[test]
+fn test_scaffold_node_napi_package_name_matches_scoped_package() {
+    // Regression: when `package_name` is a scoped npm name (e.g. `@scope/foo`),
+    // napi.packageName must be set to that same scoped name so `napi create-npm-dirs`
+    // emits platform sub-packages as `@scope/foo-linux-x64-gnu` etc. — not bare
+    // `foo-node-linux-x64-gnu`. The index.js platform-dispatch table must require
+    // those scoped optional-dep names accordingly.
+    let config = test_config_from_toml(
+        r#"
+[crates.node]
+package_name = "@scope/foo"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let pkg_json = files
+        .iter()
+        .find(|f| f.path.ends_with("package.json"))
+        .expect("crate package.json must be emitted");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&pkg_json.content).expect("emitted package.json must be valid JSON");
+    let napi = parsed.get("napi").expect("napi block required");
+    assert_eq!(
+        napi.get("packageName").and_then(|v| v.as_str()),
+        Some("@scope/foo"),
+        "napi.packageName must mirror the scoped package_name so platform sub-packages inherit the scope"
+    );
+    let index_js = files
+        .iter()
+        .find(|f| f.path.ends_with("index.js"))
+        .expect("crate index.js must be emitted");
+    assert!(
+        index_js.content.contains("\"@scope/foo-linux-x64-gnu\""),
+        "index.js optional-dep names must use the scoped napi.packageName"
+    );
+    assert!(
+        !index_js.content.contains("\"my-lib-node-linux-x64-gnu\""),
+        "index.js must not fall back to the unscoped binaryName for optional-dep names"
+    );
+}
+
+#[test]
 fn test_scaffold_node_package_json_includes_repository_url() {
     // Regression: npm publish-with-provenance verifies the package's
     // `repository.url` against the provenance attestation and rejects the

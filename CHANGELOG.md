@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-sync-versions: bump three previously-missed version-bearing files so a version sync leaves a fully version-consistent tree.** `alef sync-versions` (and the full `alef all` pipeline) left three files stale after a version bump: (1) the Kotlin package `build.gradle.kts` top-level `version = "..."` (Gradle `Project.version`) — now bumped via a line-anchored rewrite that skips plugin `version "..."`, `version.set(...)`, and dependency-coordinate constructs; (2) the Elixir NIF crate's committed `Cargo.lock` (shipped in the Hex source tarball) — its local/path-source `[[package]]` entries (sourceless crates) are now rewritten to match the bumped manifests, leaving registry/git entries untouched; (3) the docs API-reference `version-badge` spans in `docs/reference/api-*.md` — `alef docs` already injects the workspace version into the badge, but a `sync-versions`-only bump (the path consumers take) did not regenerate the docs tree, so the badge stayed pinned. All three are discovered generically from config + conventions. (`src/cli/pipeline/version.rs`)
+
+- **alef-scaffold-node: separate `packageName` from `binaryName` in NAPI platform-dispatch index.** The generated `index.js` used `binaryName` for both local `.node` file paths and optional-dep npm package names. For scoped packages (e.g., `@scope/lib`) this caused `requireOptionalDependency` to look up `lib-node-linux-x64-gnu` instead of `@scope/lib-linux-x64-gnu`, silently falling through all targets and returning no binding. The scaffold now passes `package_name` separately, uses `{bin}` for local paths and `{pkg}` for optional-dep names, and emits `"packageName": "{package_name}"` in the `napi` block of the generated `package.json`. (`src/scaffold/languages/node.rs`)
+
+- **alef-bench: add missing `map_is_ahash` and `map_key_is_cow` fields to `ParamDef` initializers in bench fixtures.** The `make_param` helper in five backend emit benchmarks (`backends_dart_emit`, `backends_gleam_emit`, `backends_kotlin_emit`, `backends_swift_emit`, `backends_zig_emit`) did not initialize the two fields added to `ParamDef` in 0.19.5, causing `cargo check --benches` to fail with E0063. (`benches/backends_*_emit.rs`)
+
 ### Removed
 
 ## [0.19.5] - 2026-05-25

@@ -51,10 +51,7 @@ pub(crate) fn scaffold_elixir_cargo(
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
     // NIF emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
-    let needs_ahash = api
-        .functions
-        .iter()
-        .any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
     let lib_path_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
         let output_dir = elixir_out.to_string_lossy();
         if output_dir.contains("/native/") {

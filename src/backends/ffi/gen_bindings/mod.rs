@@ -2818,10 +2818,7 @@ type = "*const std::ffi::c_char"
                     },
                     ParamDef {
                         name: "metadata".to_string(),
-                        ty: TypeRef::Map(
-                            Box::new(TypeRef::String),
-                            Box::new(TypeRef::Json),
-                        ),
+                        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json)),
                         optional: true,
                         default: None,
                         sanitized: false,
@@ -2870,14 +2867,22 @@ type = "*const std::ffi::c_char"
         assert!(
             lib.content.contains("ahash::AHashMap<std::borrow::Cow<'static, str>,"),
             "should deserialize into AHashMap<Cow<'static, str>, ...>, got:\n{}",
-            if lib.content.len() > 3000 { &lib.content[lib.content.len() - 3000..] } else { &lib.content }
+            if lib.content.len() > 3000 {
+                &lib.content[lib.content.len() - 3000..]
+            } else {
+                &lib.content
+            }
         );
 
         // The call must use .as_ref() not .as_deref() — HashMap doesn't impl Deref
         assert!(
             lib.content.contains("metadata_rs.as_ref()"),
             "should pass metadata_rs.as_ref() (not .as_deref()), got:\n{}",
-            if lib.content.len() > 3000 { &lib.content[lib.content.len() - 3000..] } else { &lib.content }
+            if lib.content.len() > 3000 {
+                &lib.content[lib.content.len() - 3000..]
+            } else {
+                &lib.content
+            }
         );
         assert!(
             !lib.content.contains("metadata_rs.as_deref()"),

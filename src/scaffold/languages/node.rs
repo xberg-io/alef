@@ -186,7 +186,7 @@ napi-build = "{napi_build}"
     }])
 }
 
-fn generate_napi_platform_dispatch_index(binary_name: &str) -> String {
+fn generate_napi_platform_dispatch_index(binary_name: &str, package_name: &str) -> String {
     format!(
         r#""use strict";
 
@@ -234,15 +234,18 @@ function requireOptionalDependency(name) {{
 }}
 
 const tryLoadBinding = () => {{
+  // Local `.node` files are named after `napi.binaryName` (binary file name on disk).
+  // Optional-dep packages are named after `napi.packageName` (npm subpackage names),
+  // which inherits any scope prefix from the parent package.
   const targets = [
-    ["linux", "x64", "gnu", "./{}.linux-x64-gnu.node", "{}-linux-x64-gnu"],
-    ["linux", "x64", "musl", "./{}.linux-x64-musl.node", "{}-linux-x64-musl"],
-    ["linux", "arm64", "gnu", "./{}.linux-arm64-gnu.node", "{}-linux-arm64-gnu"],
-    ["linux", "arm64", "musl", "./{}.linux-arm64-musl.node", "{}-linux-arm64-musl"],
-    ["darwin", "x64", null, "./{}.darwin-x64.node", "{}-darwin-x64"],
-    ["darwin", "arm64", null, "./{}.darwin-arm64.node", "{}-darwin-arm64"],
-    ["win32", "x64", null, "./{}.win32-x64-msvc.node", "{}-win32-x64-msvc"],
-    ["win32", "arm64", null, "./{}.win32-arm64-msvc.node", "{}-win32-arm64-msvc"],
+    ["linux", "x64", "gnu", "./{bin}.linux-x64-gnu.node", "{pkg}-linux-x64-gnu"],
+    ["linux", "x64", "musl", "./{bin}.linux-x64-musl.node", "{pkg}-linux-x64-musl"],
+    ["linux", "arm64", "gnu", "./{bin}.linux-arm64-gnu.node", "{pkg}-linux-arm64-gnu"],
+    ["linux", "arm64", "musl", "./{bin}.linux-arm64-musl.node", "{pkg}-linux-arm64-musl"],
+    ["darwin", "x64", null, "./{bin}.darwin-x64.node", "{pkg}-darwin-x64"],
+    ["darwin", "arm64", null, "./{bin}.darwin-arm64.node", "{pkg}-darwin-arm64"],
+    ["win32", "x64", null, "./{bin}.win32-x64-msvc.node", "{pkg}-win32-x64-msvc"],
+    ["win32", "arm64", null, "./{bin}.win32-arm64-msvc.node", "{pkg}-win32-arm64-msvc"],
   ];
 
   for (const [plat, a, abi, localPath, optionalDep] of targets) {{
@@ -288,22 +291,8 @@ if (!nativeBinding) {{
 
 module.exports = nativeBinding;
 "#,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
-        binary_name,
+        bin = binary_name,
+        pkg = package_name,
     )
 }
 
@@ -344,6 +333,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "types": "index.d.ts",
   "files": ["index.js", "index.d.ts", "*.node"],
   "napi": {{
+    "packageName": "{package_name}",
     "binaryName": "{crate_dir}-node",
     "targets": [
       "x86_64-unknown-linux-gnu",
@@ -372,7 +362,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
     );
 
-    let crate_index_js = generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir));
+    let crate_index_js = generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir), &package_name);
 
     // The npm publish target lives at `crates/{crate_dir}-node/` and is built by
     // NAPI-RS. We only emit the crate-level `package.json` + platform-dispatch

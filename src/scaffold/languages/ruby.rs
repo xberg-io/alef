@@ -41,10 +41,7 @@ pub(crate) fn scaffold_ruby_cargo(
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
     // Magnus wrapper emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
-    let needs_ahash = api
-        .functions
-        .iter()
-        .any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
 
     // Collect all [dependencies] entries then sort alphabetically so the emitted
