@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **alef `test-apps run` (Go): default run command now runs `go mod download` before `go test`.** Without it, `go test ./...` fails with `missing go.sum entry for module providing package <published-module>` — alef emits a `go.mod` with the published-module require but no `go.sum` (checksums are resolved at fetch time, not at manifest emission). `go mod download` populates the sum from the version pin and is idempotent on subsequent runs. Both invocations share the same `GOWORK=off` prefix added in v0.19.9. (`src/core/config/test_apps_run_defaults.rs`)
+- **alef `test-apps run` (Go): default run command now runs `go mod tidy` before `go test`.** Without it, `go test ./...` fails with `missing go.sum entry for module providing package <published-module>` — alef emits a `go.mod` with the published-module require but no `go.sum`. `go mod download` alone only writes `/go.mod` hashes; `go mod tidy` adds the package content hashes `go test` actually checks. `tidy` is idempotent once the sum is complete. Both invocations share the same `GOWORK=off` prefix added in v0.19.9. (`src/core/config/test_apps_run_defaults.rs`)
 
 ## [0.19.9] - 2026-05-25
 

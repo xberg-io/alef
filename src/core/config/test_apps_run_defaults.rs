@@ -87,14 +87,16 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
             // ./...` to resolve the module graph via the workspace root and
             // reject the test app's go.mod as a non-member module.
             //
-            // `go mod download` first populates `go.sum` from the version
-            // pinned in `go.mod` — alef emits a go.mod with the published
-            // module require but no go.sum (the checksums depend on the
-            // resolved module, not the manifest), and `go test` won't proceed
-            // without checksums. `download` is idempotent and a no-op once
-            // the sum is cached. Both commands share the same `GOWORK=off`.
+            // `go mod tidy` populates `go.sum` with full module + package
+            // checksums from the require directives in `go.mod`. Alef emits a
+            // go.mod with the published-module require but no go.sum (the
+            // hashes resolve at fetch time, not at manifest emission), and
+            // `go test` refuses to proceed without complete checksums.
+            // `go mod download` alone only writes `/go.mod` hashes — `tidy`
+            // adds the package content hashes that `go test` actually checks.
+            // `tidy` is idempotent once the sum is complete.
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/go && GOWORK=off go mod download && GOWORK=off go test ./..."
+                "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./..."
             ))),
         },
         Language::Java => TestAppRunConfig {
@@ -359,8 +361,8 @@ mod tests {
             "expected GOWORK=off in go run command, got: {run}"
         );
         assert!(
-            run.contains("GOWORK=off go mod download"),
-            "expected `go mod download` to populate go.sum before test, got: {run}"
+            run.contains("GOWORK=off go mod tidy"),
+            "expected `go mod tidy` to populate go.sum before test, got: {run}"
         );
         assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
     }
