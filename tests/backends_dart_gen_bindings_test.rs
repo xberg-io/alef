@@ -1359,8 +1359,10 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        2,
-        "FRB config must have exactly two PostProcessFile steps (exclude_functions and sealed_variants)"
+        3,
+        "FRB config must have three PostProcessFile steps (exclude_functions on lib.dart, \
+         sealed_variants on lib.dart, sealed_variants on frb_generated.dart for the \
+         published-package native-lib loader)"
     );
 
     // First step: exclude functions
@@ -1371,7 +1373,7 @@ fn build_config_for_frb_emits_post_process_file_step() {
         );
     }
 
-    // Second step: sealed variants
+    // Second step: sealed variants on lib.dart
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[1] {
         assert_eq!(
             *processor,
@@ -1386,7 +1388,28 @@ fn build_config_for_frb_emits_post_process_file_step() {
             .join("lib.dart");
         assert_eq!(
             path, &expected_path,
-            "PostProcessFile path must point to frb-generated lib.dart for crate 'demo-crate'"
+            "Second PostProcessFile path must point to frb-generated lib.dart for crate 'demo-crate'"
+        );
+    }
+
+    // Third step: sealed variants reused for the published-package native-lib loader
+    // injection into frb_generated.dart (idempotent — the loader fix is keyed off the
+    // FRB loader config present only in that file).
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[2] {
+        assert_eq!(
+            *processor,
+            PostProcessor::FrbDartSealedVariants,
+            "Third PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
+        );
+        let expected_path = PathBuf::from("packages")
+            .join("dart")
+            .join("lib")
+            .join("src")
+            .join("demo_crate_bridge_generated")
+            .join("frb_generated.dart");
+        assert_eq!(
+            path, &expected_path,
+            "Third PostProcessFile path must point to frb_generated.dart for the loader injection"
         );
     }
 }
@@ -1414,7 +1437,7 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
 
     assert_eq!(
         steps,
-        vec!["RunCommand", "PostProcessFile", "PostProcessFile"],
+        vec!["RunCommand", "PostProcessFile", "PostProcessFile", "PostProcessFile"],
         "RunCommand must come before all PostProcessFile steps in post_build steps"
     );
 }

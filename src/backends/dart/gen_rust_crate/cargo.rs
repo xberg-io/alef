@@ -485,6 +485,32 @@ fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &
     )
 }
 
+pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
+    // FRB v2 schema: `rust_root` points at the Rust crate dir, `rust_input` at the
+    // module path(s) to scan for `pub` items (the alef-generated crate places its
+    // entire surface at the crate root `lib.rs`), and `dart_output` at the bindings
+    // directory. `rust_input` is required by the FRB CLI even in v2 — omitting it
+    // causes `flutter_rust_bridge_codegen generate` to panic with
+    // "Please provide `rust_input`".
+    // `add_mod_to_lib: false` prevents FRB codegen from prepending its own
+    // `mod frb_generated;` at line 1 of lib.rs — alef already emits it in the
+    // correct position (after crate-level #![allow] attrs) to avoid E0753.
+    let content = format!(
+        "rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\nadd_mod_to_lib: false\n"
+    );
+    GeneratedFile {
+        path: PathBuf::from(format!("{rust_dir}/flutter_rust_bridge.yaml")),
+        content,
+        generated_header: false,
+    }
+}
+
+fn api_version(config: &ResolvedCrateConfig) -> String {
+    // Use the resolved version from Cargo.toml if available, otherwise fall back to "0.1.0"
+    // as a safe default (the real version is resolved from Cargo.toml at publish time).
+    config.resolved_version().unwrap_or_else(|| "0.1.0".to_string())
+}
+
 #[cfg(test)]
 mod build_rs_tests {
     use super::*;
@@ -525,30 +551,4 @@ mod build_rs_tests {
             "build.rs replacement must prefer the package-relative library"
         );
     }
-}
-
-pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
-    // FRB v2 schema: `rust_root` points at the Rust crate dir, `rust_input` at the
-    // module path(s) to scan for `pub` items (the alef-generated crate places its
-    // entire surface at the crate root `lib.rs`), and `dart_output` at the bindings
-    // directory. `rust_input` is required by the FRB CLI even in v2 — omitting it
-    // causes `flutter_rust_bridge_codegen generate` to panic with
-    // "Please provide `rust_input`".
-    // `add_mod_to_lib: false` prevents FRB codegen from prepending its own
-    // `mod frb_generated;` at line 1 of lib.rs — alef already emits it in the
-    // correct position (after crate-level #![allow] attrs) to avoid E0753.
-    let content = format!(
-        "rust_root: .\nrust_input: crate\ndart_output: ../lib/src/{module_name}_bridge_generated\nadd_mod_to_lib: false\n"
-    );
-    GeneratedFile {
-        path: PathBuf::from(format!("{rust_dir}/flutter_rust_bridge.yaml")),
-        content,
-        generated_header: false,
-    }
-}
-
-fn api_version(config: &ResolvedCrateConfig) -> String {
-    // Use the resolved version from Cargo.toml if available, otherwise fall back to "0.1.0"
-    // as a safe default (the real version is resolved from Cargo.toml at publish time).
-    config.resolved_version().unwrap_or_else(|| "0.1.0".to_string())
 }
