@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **kotlin_android test-app switched from instrumented tests to JUnit unit tests.** Removed dependency on Android emulator/device (`adb devices` precondition); tests now run on host JVM via `gradle test`. Tests emit to `src/test/kotlin/` instead of `src/androidTest/kotlin/`. Test dependencies always emitted (both Local and Registry modes). Simplifies local development: plain `gradle` + JDK required, no AVD setup. (`src/e2e/codegen/kotlin_android.rs`, `src/core/config/test_apps_run_defaults.rs`)
+
 - **alef version bumped to 0.19.10** (`Cargo.toml`, `alef.toml`, `src/core/template_versions.rs`).
 
 - **alef production-source project-agnostic guard completed.** Expanded the no-project-special-casing cleanup through generated defaults and formatting follow-ups so production code paths no longer depend on downstream product literals; remaining examples now derive from config or use neutral placeholders.
@@ -22,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef homebrew codegen: thread per-crate FFI metadata (header, lib name, prefix) into the run-tests template.** The `render_run_tests` helper now receives `ffi_lib_name` so generated tap-install smoke scripts grep for the correct shared-library symbol per host crate instead of a hardcoded name. (`src/e2e/codegen/homebrew.rs`)
 
 ### Fixed
+
+- **alef `test-apps run` (php): forward the published package version to `install.sh`.** The generated PHP `install.sh` takes the package version as its first argument, but the default run command invoked `bash install.sh` with no argument, so the installer aborted before installing the extension. The PHP run-config builder now receives the resolved published version (registry override → base package → workspace `version_from`), strips any composer-style constraint prefix (`^`, `~`, `>=`, …) so PIE gets a concrete tag, and forwards it as `bash install.sh <version>`. When no version is known it falls back to the bare `bash install.sh` (the installer supplies its own generate-time default). (`src/core/config/test_apps_run_defaults.rs`, `src/core/config/resolved/lookups.rs`)
 
 - **alef scaffold (php): add `ahash` to cargo-machete ignored list to suppress false-positive unused warnings.** When the Rust API exposes types with `AHashMap<Cow<'static, str>, _>` fields, alef adds `ahash` to the PHP binding's Cargo.toml as a transitive dependency of the core crate. However, the PHP wrapper code never directly `use`s ahash—it's used only by the Rust core for field marshalling. This caused `cargo machete` to report ahash as unused. The fix adds `ahash` to the `[package.metadata.cargo-machete] ignored` list alongside `tokio` and `async-trait`, which have the same pattern (conditionally included via core, never directly referenced in PHP glue code). (`src/scaffold/languages/php.rs`)
 
