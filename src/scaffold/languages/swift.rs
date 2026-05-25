@@ -248,8 +248,8 @@ let package = Package(
     // The binary includes C headers for swift-bridge interop.
     .binaryTarget(
       name: "RustBridge",
-      url: "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v{placeholder_version}/{module}-rs.artifactbundle.zip",
-      checksum: "{placeholder_checksum}"
+      url: "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v__ALEF_SWIFT_VERSION__/{module}-rs.artifactbundle.zip",
+      checksum: "__ALEF_SWIFT_CHECKSUM__"
     ),
     .target(
       name: "{module}",
@@ -262,23 +262,21 @@ let package = Package(
         module = module,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
-        placeholder_version = "VERSION",
-        placeholder_checksum = "CHECKSUM",
     );
 
     Ok(vec![
-        // Root-level Package.swift omitted for v3.5.2+:
-        // Consumers building from source should use `cd packages/swift && swift build`.
-        // Root Package.swift with .binaryTarget will be generated at release time by
-        // the publish workflow for artifact distribution.
+        // Root-level Package.swift: consumer-facing manifest with .binaryTarget
+        // pointing to pre-built XCFramework/artifact bundles published as release assets.
+        // The __VERSION__ and __CHECKSUM__ placeholders are filled at release time by
+        // the publish workflow (via `gh release edit` or similar tooling).
         //
-        // For now, this keeps the git repo clean and avoids placeholder URL issues.
-        //
-        // GeneratedFile {
-        //     path: PathBuf::from("Package.swift"),
-        //     content: root_package_swift,
-        //     generated_header: false,
-        // },
+        // External consumers: `swift package resolve https://github.com/kreuzberg-dev/html-to-markdown`
+        // In-tree development: `cd packages/swift && swift build`
+        GeneratedFile {
+            path: PathBuf::from("Package.swift"),
+            content: _root_package_swift,
+            generated_header: false,
+        },
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
             content: package_swift,

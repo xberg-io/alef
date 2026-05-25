@@ -10,6 +10,7 @@ pub mod types;
 use crate::backends::napi::type_map::NapiMapper;
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators::{self, AsyncPattern, RustBindingConfig};
+use crate::codegen::naming::to_node_name;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use crate::core::config::{Language, NodeCapsuleTypeConfig, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::ir::{ApiSurface, TypeRef};
@@ -970,6 +971,99 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             path: crate_root.join("index.d.ts"),
             content,
             generated_header: false,
+        }])
+    }
+
+    fn generate_public_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Collect all exported names from the native module.
+        // These are used to construct named re-exports that work with both CJS and ESM.
+        let mut type_names = vec![];
+        let mut function_names = vec![];
+
+        // Collect struct and class types (skip traits and capsule types)
+        let capsule_types: HashMap<String, NodeCapsuleTypeConfig> = config
+            .node
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
+        for typ in api.types.iter() {
+            if !typ.is_trait && !capsule_types.contains_key(&typ.name) {
+                type_names.push(typ.name.clone());
+            }
+        }
+
+        // Collect enums
+        for enum_def in &api.enums {
+            type_names.push(enum_def.name.clone());
+        }
+
+        // Collect functions (with snake_case → camelCase conversion for JS naming)
+        for func in &api.functions {
+            function_names.push(to_node_name(&func.name));
+        }
+
+        // Include trait-bridge register/unregister/clear functions
+        for bridge in &config.trait_bridges {
+            if let Some(name) = bridge.register_fn.as_deref() {
+                function_names.push(to_node_name(name));
+            }
+            if let Some(name) = bridge.unregister_fn.as_deref() {
+                function_names.push(to_node_name(name));
+            }
+            if let Some(name) = bridge.clear_fn.as_deref() {
+                function_names.push(to_node_name(name));
+            }
+        }
+
+        // Sort for deterministic output
+        type_names.sort();
+        function_names.sort();
+
+        // Generate TypeScript re-export file using explicit named re-exports.
+        // This works with both CJS and ESM because we use `export { name } from 'module'`
+        // which TypeScript understands regardless of the underlying CJS/ESM implementation.
+        let package_name = config.node_package_name();
+        let mut lines = vec![];
+
+        // Export functions as regular exports
+        if !function_names.is_empty() {
+            lines.push("export {".to_string());
+            for name in &function_names {
+                lines.push(format!("  {name},"));
+            }
+            lines.push(format!("}} from '{}';", package_name));
+            lines.push("".to_string());
+        }
+
+        // Export types as type-only exports (TypeScript 4.5+)
+        if !type_names.is_empty() {
+            lines.push("export type {".to_string());
+            for name in &type_names {
+                lines.push(format!("  {name},"));
+            }
+            lines.push(format!("}} from '{}';", package_name));
+            lines.push("".to_string());
+        }
+
+        // Include custom module re-exports
+        let custom_mods = config.custom_modules.for_language(Language::Node);
+        for module_name in custom_mods {
+            lines.push(format!("export * from './{module_name}';"));
+        }
+
+        let content = lines.join("\n");
+
+        // Output path: packages/typescript/src/index.ts
+        let output_path = PathBuf::from("packages/typescript/src/index.ts");
+
+        Ok(vec![GeneratedFile {
+            path: output_path,
+            content,
+            generated_header: true,
         }])
     }
 

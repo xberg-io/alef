@@ -79,7 +79,7 @@ pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, mod
     };
 
     let replacement = frb_init_prologue_replacement(package_name, module_name, stem);
-    let with_loader = source.replacen(prologue, &replacement, 1);
+    let with_loader = source.replacen(&prologue, &replacement, 1);
 
     ensure_loader_imports(&with_loader)
 }
@@ -88,15 +88,22 @@ pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, mod
 /// up to and including the `async {` that opens the method body, or `None` if
 /// the canonical signature is absent.
 ///
-/// flutter_rust_bridge emits this method deterministically; matching the literal
-/// signature keeps the rewrite robust without a full Dart parser.
-fn frb_init_prologue(source: &str) -> Option<&'static str> {
-    const PROLOGUE: &str = "  /// Initialize flutter_rust_bridge\n  static Future<void> init({\n    RustLibApi? api,\n    BaseHandler? handler,\n    ExternalLibrary? externalLibrary,\n    bool forceSameCodegenVersion = true,\n  }) async {\n";
-    if source.contains(PROLOGUE) {
-        Some(PROLOGUE)
-    } else {
-        None
-    }
+/// Matches the prologue with flexible indentation, since flutter_rust_bridge
+/// emits different indentation in different versions.
+fn frb_init_prologue(source: &str) -> Option<String> {
+    let re = init_prologue_regex();
+    re.find(source).map(|m| m.as_str().to_string())
+}
+
+fn init_prologue_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        // Match the init prologue with flexible whitespace indentation.
+        // Allows any amount of leading whitespace before `///` and parameters.
+        Regex::new(
+            r"(?m)^\s*/// Initialize flutter_rust_bridge\n\s*static Future<void> init\(\{\n(?:\s*RustLibApi\? api,\n)?(?:\s*BaseHandler\? handler,\n)?(?:\s*ExternalLibrary\? externalLibrary,\n)?(?:\s*bool forceSameCodegenVersion = true,\n)?\s*\}\) async \{\n"
+        ).expect("init prologue regex must compile")
+    })
 }
 
 /// Build the patched `RustLib.init` prologue: the original signature plus a

@@ -3670,6 +3670,40 @@ fn is_visible_csharp_type(type_name: &str) -> bool {
     )
 }
 
+/// Emit the correct default value for a C# test stub return type.
+/// When the original type is non-visible (e.g., InternalDocument), it's mapped to `string`,
+/// so we need to return the appropriate default for the visible type, not the original.
+fn emit_csharp_stub_default(
+    original_type: &crate::core::ir::TypeRef,
+    visible_type: &str,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) -> String {
+    use crate::core::ir::TypeRef;
+
+    // Check if this type or its inner types are non-visible
+    fn contains_non_visible(ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(name) => !is_visible_csharp_type(name),
+            TypeRef::Optional(inner) => contains_non_visible(inner),
+            TypeRef::Vec(inner) => contains_non_visible(inner),
+            TypeRef::Map(k, v) => contains_non_visible(k) || contains_non_visible(v),
+            _ => false,
+        }
+    }
+
+    if contains_non_visible(original_type) {
+        // Type contains non-visible parts, map to string default
+        if visible_type.contains("?") {
+            "null".to_string()
+        } else {
+            "\"\"".to_string()
+        }
+    } else {
+        // Visible type, use the default logic
+        defaults.emit_default(original_type)
+    }
+}
+
 /// Emit a single C# stub method body into `out`.
 ///
 /// Used by both the main method loop and the super-trait method section of
@@ -3684,7 +3718,9 @@ fn emit_csharp_stub_method(
     use crate::core::ir::TypeRef;
 
     let ret_ty = csharp_type_for_stub_visible(&method.return_type);
-    let default_val = defaults.emit_default(&method.return_type);
+    // Use the visible type to determine the default value, not the original type
+    // (e.g., InternalDocument → string → "")
+    let default_val = emit_csharp_stub_default(&method.return_type, &ret_ty, defaults);
 
     // Build parameter list.
     let params: Vec<String> = method
@@ -3784,6 +3820,9 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "        public string Name => \"{plugin_name}\";");
         let _ = writeln!(setup, "        public string Version => \"1.0.0\";");
         let _ = writeln!(setup);
+        // Mark name and version as emitted so they won't be re-emitted as methods
+        emitted_methods.insert("name".to_string());
+        emitted_methods.insert("version".to_string());
 
         // Emit super-trait methods (initialize, shutdown) and domain methods
         for method in methods
