@@ -2122,19 +2122,17 @@ fn test_scaffold_swift() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
-    // Original 6 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift = 10
-    // (root Package.swift is omitted as of v3.5.2)
+    // Original 6 + root Package.swift + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift = 11
     assert_eq!(
         files.len(),
-        10,
-        "Expected 10 files for Swift scaffold (original 6 + 4 new, no root Package.swift)"
+        11,
+        "Expected 11 files for Swift scaffold (original 6 + root Package.swift + 4 extras)"
     );
 
-    // No root-level Package.swift — consumers use packages/swift/Package.swift directly
-    // or wait for binary distribution via publish workflow
-
-    let package_swift = &files[0];
-    assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
+    let package_swift = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/swift/Package.swift"))
+        .unwrap();
     // Module name derives to PascalCase of "my-lib" → "MyLib"
     assert!(
         package_swift.content.contains("name: \"MyLib\""),

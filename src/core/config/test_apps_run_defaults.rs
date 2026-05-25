@@ -2,6 +2,14 @@ use super::extras::Language;
 use super::output::{StringOrVec, TestAppRunConfig};
 use super::tools::{LangContext, require_tool};
 
+/// Strip a leading package-manager version-constraint prefix (`^`, `~`, `>`,
+/// `<`, `=`) from a version string, returning the bare version. A concrete
+/// installer tag (e.g. PIE's `pie install pkg:<version>`) must not carry a
+/// constraint operator.
+fn strip_version_constraint(version: &str) -> &str {
+    version.trim_start_matches(['^', '~', '>', '<', '='])
+}
+
 /// Return the default test-app run configuration for a language.
 ///
 /// `test_apps_dir` is the registry-mode output directory (e.g. `test_apps`); the
@@ -9,9 +17,16 @@ use super::tools::{LangContext, require_tool};
 /// subdir matches exactly what the test-apps generator (`src/e2e/codegen`) writes
 /// for that language — usually the language name, but `swift` is emitted under
 /// `swift_e2e` to give the SwiftPM package a distinct identity. `ctx` provides the
-/// package-manager selection. Executed by `alef test-apps run` to install the
+/// package-manager selection. `published_version` is the published package version
+/// for this language (when known); some run commands need to forward it to a
+/// generated installer script. Executed by `alef test-apps run` to install the
 /// published package into the test app and exercise it.
-pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &LangContext) -> TestAppRunConfig {
+pub fn default_test_apps_run_config(
+    lang: Language,
+    test_apps_dir: &str,
+    ctx: &LangContext,
+    published_version: Option<&str>,
+) -> TestAppRunConfig {
     match lang {
         Language::Rust => TestAppRunConfig {
             // Rust has no separate package manager — cargo handles install + test.
@@ -65,21 +80,35 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
                 "cd {test_apps_dir}/ruby && bundle install && bundle exec rspec"
             ))),
         },
-        Language::Php => TestAppRunConfig {
-            precondition: Some(require_tool("composer")),
-            before: None,
+        Language::Php => {
             // PHP extensions are a special composer case: `composer install`
             // cannot satisfy a `type: php-ext` package because the platform
             // resolver consults `php -m` for `ext-<name>`. Alef emits an
-            // `install.sh` next to composer.json that bootstraps PIE
-            // (`composer global require php/pie:^1.4`) and runs
-            // `pie install sample_core/<crate>:<version>` to drop the .so into
+            // `install.sh` next to composer.json that bootstraps PIE and runs
+            // `pie install <vendor>/<crate>:<version>` to drop the binary into
             // the running PHP's extension dir. Once the extension is loaded,
             // `composer install` resolves cleanly and `composer test` runs.
-            run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/php && bash install.sh && composer install && composer test"
-            ))),
-        },
+            //
+            // `install.sh` takes the package version as its first argument
+            // (falling back to a generate-time default when omitted). Forward
+            // the published version explicitly so the test app exercises the
+            // exact version the runner installs for every other language. The
+            // version may carry a composer-style constraint prefix (^, ~, >=,
+            // …) that PIE does not accept as a concrete tag — strip it so the
+            // installer receives a bare version.
+            let version_arg = published_version
+                .map(strip_version_constraint)
+                .filter(|v| !v.is_empty())
+                .map(|v| format!(" {v}"))
+                .unwrap_or_default();
+            TestAppRunConfig {
+                precondition: Some(require_tool("composer")),
+                before: None,
+                run: Some(StringOrVec::Single(format!(
+                    "cd {test_apps_dir}/php && bash install.sh{version_arg} && composer install && composer test"
+                ))),
+            }
+        }
         Language::Elixir => TestAppRunConfig {
             precondition: Some(require_tool("mix")),
             before: None,

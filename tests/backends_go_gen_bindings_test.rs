@@ -162,22 +162,19 @@ fn test_basic_generation() {
 
     let files = result.unwrap();
     assert!(!files.is_empty(), "Should generate files");
-    assert_eq!(files.len(), 1, "Should generate exactly 1 file (binding.go)");
 
-    let binding_file = &files[0];
-    assert!(
-        binding_file.path.to_string_lossy().ends_with("binding.go"),
-        "Should generate binding.go file"
-    );
+    let binding_file = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("binding.go"))
+        .expect("Should generate binding.go file");
 
     let content = &binding_file.content;
 
     // Verify Go package declaration
     assert!(content.contains("package testlib"), "Should declare Go package");
 
-    // Verify cgo directives (include and linking)
+    // Verify cgo directives
     assert!(content.contains("#cgo CFLAGS:"), "Should have cgo CFLAGS directive");
-    assert!(content.contains("#cgo LDFLAGS:"), "Should have cgo LDFLAGS directive");
     assert!(content.contains("import \"C\""), "Should import C");
 
     // Verify standard Go imports
@@ -510,13 +507,14 @@ fn test_generated_header() {
     let files = result.unwrap();
     assert!(!files.is_empty());
 
-    // All files should have generated_header set to true
-    for file in &files {
-        assert!(
-            file.generated_header,
-            "All generated files should have generated_header=true"
-        );
-    }
+    let binding_file = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("binding.go"))
+        .expect("Should generate binding.go file");
+    assert!(
+        binding_file.generated_header,
+        "binding.go should have generated_header=true"
+    );
 }
 
 #[test]

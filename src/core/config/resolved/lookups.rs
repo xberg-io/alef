@@ -252,7 +252,25 @@ impl ResolvedCrateConfig {
         // (e.g. `brew`) fall back to the name-based default.
         let parsed: Result<Language, _> = toml::Value::String(name.to_string()).try_into();
         match parsed {
-            Ok(lang) => test_apps_run_defaults::default_test_apps_run_config(lang, test_apps_dir, &ctx),
+            Ok(lang) => {
+                // Resolve the published package version the same way the e2e
+                // codegen does (registry override → base package → workspace
+                // version): a run command may need to forward it to a generated
+                // installer (e.g. PHP's `install.sh`). The package entry is keyed
+                // by the language slug.
+                let published_version = self
+                    .e2e
+                    .as_ref()
+                    .and_then(|e2e| e2e.resolve_package(name))
+                    .and_then(|pkg| pkg.version)
+                    .or_else(|| self.resolved_version());
+                test_apps_run_defaults::default_test_apps_run_config(
+                    lang,
+                    test_apps_dir,
+                    &ctx,
+                    published_version.as_deref(),
+                )
+            }
             Err(_) => test_apps_run_defaults::default_test_apps_run_config_for_name(name, test_apps_dir, &ctx),
         }
     }

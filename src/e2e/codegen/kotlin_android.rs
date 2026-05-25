@@ -343,13 +343,9 @@ fn render_build_gradle_kotlin_android(
         (src_sets.to_string(), String::new(), tasks.to_string())
     };
 
-    // Test dependencies are only needed in local mode (host-JVM tests).
-    // In registry mode, no tests are emitted so these dependencies are unnecessary.
-    let test_deps = if dep_mode == crate::e2e::config::DependencyMode::Registry {
-        String::new()
-    } else {
-        format!(
-            r#"    // Jackson for JSON assertion helpers
+    // Test dependencies are always needed for host-JVM tests (both Local and Registry modes).
+    let test_deps = format!(
+        r#"    // Jackson for JSON assertion helpers
     testImplementation("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
     testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
@@ -376,8 +372,7 @@ fn render_build_gradle_kotlin_android(
     // JNA for loading the native library from java.library.path
     testImplementation("net.java.dev.jna:jna:{jna}")
 "#
-        )
-    };
+    );
 
     format!(
         r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -527,7 +522,7 @@ mod tests {
             false,
         );
         assert!(
-            output.contains(r#"testImplementation("dev.kreuzberg:kreuzberg-android:5.0.0-rc.1")"#),
+            output.contains(r#"implementation("dev.kreuzberg:kreuzberg-android:5.0.0-rc.1")"#),
             "build.gradle.kts must emit full Maven coordinate with groupId:artifactId:version, got:\n{output}"
         );
     }
