@@ -139,7 +139,7 @@ fn has_plugin_super(bridge_config: &TraitBridgeConfig) -> bool {
 pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: &TraitBridgeConfig) -> String {
     let trait_name = &trait_def.name;
     let box_name = format!("Swift{trait_name}Box");
-    let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
+    let _trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
     let emit_plugin_shims = has_plugin_super(bridge_config);
 
     let mut block = String::new();

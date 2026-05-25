@@ -59,13 +59,17 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     } else {
         format!("\n{all_deps}")
     };
-    // Build the cargo-machete ignored list. `serde_json` and `tokio` are
-    // emitted unconditionally above so they are always ignored. Conditional
-    // deps (`async-trait` for trait bridges, `futures-util` for streaming)
-    // are appended only when the scaffold actually adds them to
-    // `[dependencies]`, so cargo-machete doesn't flap on umbrellas whose
-    // API surface doesn't exercise the trait-bridge / streaming codepath.
-    let mut machete_ignored: Vec<&str> = vec![];
+    // Build the cargo-machete ignored list. `tokio` is added to the
+    // dependency block unconditionally to keep the manifest layout stable
+    // across kreuzberg-dev crates, but consumers whose PHP surface exposes
+    // no async functions never reference it — list it as ignored. Same for
+    // `async-trait`, which is added when the umbrella declares
+    // `trait_bridges` but goes unreferenced when the resulting trait shim
+    // does not use `#[async_trait]` after JSON-bridging.
+    let mut machete_ignored: Vec<&str> = vec!["tokio"];
+    if has_trait_bridges {
+        machete_ignored.push("async-trait");
+    }
     if !needs_ahash {
         machete_ignored.push("ahash");
     }

@@ -387,7 +387,12 @@ mod tests {
         // auto-prepend `==` so the resulting requirement is a valid PEP 508
         // specifier. Bare `1.4.0-rc.30` previously rendered as
         // `"my-pkg1.4.0-rc.30"` which pip/uv reject.
-        let out = render_pyproject("my-pkg", "../../packages/python", "1.4.0-rc.30", DependencyMode::Registry);
+        let out = render_pyproject(
+            "my-pkg",
+            "../../packages/python",
+            "1.4.0-rc.30",
+            DependencyMode::Registry,
+        );
         let deps_start = out.find("dependencies = [").expect("dependencies array");
         let deps_block = &out[deps_start..];
         assert!(
