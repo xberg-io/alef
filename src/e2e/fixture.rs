@@ -304,14 +304,14 @@ impl Fixture {
     }
 
     /// Returns true if this fixture requires a mock HTTP server.
-    /// This is true when either `mock_response` (liter-llm shape),
-    /// `http.expected_response` (consumer shape), or the kreuzcrawl-style
+    /// This is true when either `mock_response` (sample-llm shape),
+    /// `http.expected_response` (consumer shape), or the sample-crawler-style
     /// `input.mock_responses` array is non-empty.
     pub fn needs_mock_server(&self) -> bool {
         if self.mock_response.is_some() || self.http.is_some() {
             return true;
         }
-        // kreuzcrawl-style: input.mock_responses array with at least one entry
+        // sample-crawler-style: input.mock_responses array with at least one entry
         self.input
             .get("mock_responses")
             .and_then(|v| v.as_array())
@@ -320,7 +320,7 @@ impl Fixture {
     }
 
     /// Returns the effective mock response for this fixture, bridging both schemas:
-    /// - liter-llm shape: `mock_response: { status, body, stream_chunks }`
+    /// - sample-llm shape: `mock_response: { status, body, stream_chunks }`
     /// - consumer shape: `http.expected_response: { status_code, body, headers }`
     ///
     /// Returns `None` if neither schema is present.

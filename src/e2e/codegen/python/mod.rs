@@ -50,9 +50,9 @@ impl super::E2eCodegen for PythonE2eCodegen {
         // Marking `test_apps/python/` as a Python package interferes with
         // `uv sync` installing the published wheel — the editable install of
         // the e2e project picks up the root `__init__.py` and pytest then
-        // resolves `import liter_llm` against an empty local namespace,
-        // missing the actual `liter_llm/__init__.py` shipped in the wheel
-        // (`ImportError: cannot import name 'create_client' from 'liter_llm'`).
+        // resolves `import sample_llm` against an empty local namespace,
+        // missing the actual `sample_llm/__init__.py` shipped in the wheel
+        // (`ImportError: cannot import name 'create_client' from 'sample_llm'`).
         // The conftest + tests/ subdirectory are sufficient for pytest.
         files.push(GeneratedFile {
             path: output_base.join("tests").join("__init__.py"),
@@ -350,7 +350,7 @@ result_var = "result"
         let codegen = PythonE2eCodegen;
         let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
         // conftest.py, tests/__init__.py, pyproject.toml
-        // (NO root __init__.py — would shadow the published `liter_llm` package
+        // (NO root __init__.py — would shadow the published `sample_llm` package
         // during `uv sync`'s editable install of the e2e project.)
         assert_eq!(files.len(), 3, "expected 3 config files, got: {}", files.len());
         let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
@@ -395,7 +395,7 @@ result_var = "result"
             "setup_block should define the stub class, got: {}",
             emission.setup_block
         );
-        // Must NOT hardcode kreuzberg-domain trait names.
+        // Must NOT hardcode sample_core-domain trait names.
         assert!(
             !emission.setup_block.contains("OcrBackend"),
             "setup_block must not hardcode OcrBackend"

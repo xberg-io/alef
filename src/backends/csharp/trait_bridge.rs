@@ -799,7 +799,7 @@ mod tests {
         // The FFI layer exports the clear function as `{prefix}_clear_{trait_snake}`,
         // ignoring the alef.toml `clear_fn` alias (which may be plural, e.g.
         // `clear_ocr_backends`). The P/Invoke EntryPoint must match the actual FFI
-        // symbol `kreuzberg_clear_ocr_backend`, not the alias.
+        // symbol `sample_core_clear_ocr_backend`, not the alias.
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());

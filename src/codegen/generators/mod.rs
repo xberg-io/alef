@@ -53,7 +53,7 @@ pub struct RustBindingConfig<'a> {
     pub signature_prefix: &'a str,
     /// Suffix for the signature annotation, e.g. `"))]"`.
     pub signature_suffix: &'a str,
-    /// Core crate import path, e.g. `"liter_llm"`. Used to generate calls into core.
+    /// Core crate import path, e.g. `"sample_llm"`. Used to generate calls into core.
     pub core_import: &'a str,
     /// Async pattern supported by this backend.
     pub async_pattern: AsyncPattern,

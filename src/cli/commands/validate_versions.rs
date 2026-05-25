@@ -6,8 +6,8 @@
 //!
 //! Replaces:
 //! - `actions/validate-versions/scripts/validate.py`
-//! - `kreuzberg/scripts/publish/validate-version-consistency.sh`
-//! - `kreuzberg/scripts/publish/verify-cargo-version.sh`
+//! - `sample_core/scripts/publish/validate-version-consistency.sh`
+//! - `sample_core/scripts/publish/verify-cargo-version.sh`
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::version::{to_r_version, to_rubygems_prerelease};

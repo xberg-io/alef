@@ -419,7 +419,7 @@ pub fn format_generated(
             // hook would run keeps `alef-verify` stable. Falling back to
             // google-java-format would produce different bytes than Spotless,
             // and the embedded `alef:hash:` value would invalidate as soon as
-            // prek's `mvn spotless:apply` ran. See issue tslp/v1.8.0-rc.14.
+            // prek's `mvn spotless:apply` ran. See issue parser-pack/v1.8.0-rc.14.
             if *lang == Language::Java
                 && let Some(pom) = detect_spotless_pom(base_dir, &spec.work_dir)
             {

@@ -429,7 +429,7 @@ fn render_test_case(
     }
     // The extendr extraction wrappers return JSON strings carrying the
     // serialized core result; parse into an R list so tests can use `$`
-    // accessors. `result_is_simple` calls (e.g. `convert_html_to_markdown`)
+    // accessors. `result_is_simple` calls (e.g. `convert_sample_markdown`)
     // already return scalar values and must be passed through verbatim.
     // `result_is_r_list` signals the binding returns a native R list (Robj),
     // not a JSON string — skip `jsonlite::fromJSON` but keep `$` accessors.

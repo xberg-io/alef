@@ -23,7 +23,7 @@ pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 /// PHP-specific trait bridge generator.
 /// Implements code generation for bridging PHP objects to Rust traits.
 pub struct PhpBridgeGenerator {
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,

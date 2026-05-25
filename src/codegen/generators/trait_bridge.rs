@@ -16,7 +16,7 @@ pub struct TraitBridgeSpec<'a> {
     pub trait_def: &'a TypeDef,
     /// Bridge configuration from `alef.toml`.
     pub bridge_config: &'a TraitBridgeConfig,
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     pub core_import: &'a str,
     /// Language-specific prefix for the wrapper type (e.g., `"Python"`, `"Js"`, `"Wasm"`).
     pub wrapper_prefix: &'a str,
@@ -29,7 +29,7 @@ pub struct TraitBridgeSpec<'a> {
 }
 
 impl<'a> TraitBridgeSpec<'a> {
-    /// Fully qualified error type path (e.g., `"kreuzberg::KreuzbergError"`).
+    /// Fully qualified error type path (e.g., `"sample_core::KreuzbergError"`).
     ///
     /// If `error_type` already looks fully-qualified (contains `::`) or is a generic
     /// type expression (contains `<`), it is returned as-is without prefixing
@@ -58,7 +58,7 @@ impl<'a> TraitBridgeSpec<'a> {
         self.trait_def.name.to_snake_case()
     }
 
-    /// Full Rust path to the trait (e.g., `kreuzberg::OcrBackend`).
+    /// Full Rust path to the trait (e.g., `sample_core::OcrBackend`).
     pub fn trait_path(&self) -> String {
         self.trait_def.rust_path.replace('-', "_")
     }
@@ -462,11 +462,11 @@ pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGe
 }
 
 /// Resolve the FQN of a host-crate plugin function (e.g.
-/// `kreuzberg::plugins::ocr::unregister_ocr_backend`) given the bridge's
+/// `sample_core::plugins::ocr::unregister_ocr_backend`) given the bridge's
 /// `registry_getter` path. The convention used by host crates is:
 ///
-/// - `registry_getter = "kreuzberg::plugins::registry::get_ocr_backend_registry"`
-/// - top-level fn      = `kreuzberg::plugins::ocr::unregister_ocr_backend`
+/// - `registry_getter = "sample_core::plugins::registry::get_ocr_backend_registry"`
+/// - top-level fn      = `sample_core::plugins::ocr::unregister_ocr_backend`
 ///
 /// We rewrite `::registry::get_*_registry` to `::<sub>::<fn_name>` where
 /// `<sub>` is the trait submodule name (extracted from `_*_registry`).
@@ -560,7 +560,7 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 /// Format a `TypeRef` as a Rust type string for use in trait method signatures.
 ///
 /// `type_paths` qualifies `Named` types with their full Rust path (e.g., `"Config"` →
-/// `"kreuzberg::Config"`). If a name isn't in `type_paths`, it's used as-is.
+/// `"sample_core::Config"`). If a name isn't in `type_paths`, it's used as-is.
 pub fn format_type_ref(ty: &crate::core::ir::TypeRef, type_paths: &HashMap<String, String>) -> String {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match ty {
@@ -723,7 +723,7 @@ pub fn prim(p: &PrimitiveType) -> &'static str {
 }
 
 /// Map a `TypeRef` to its Rust source type string for use in trait bridge method
-/// signatures. `ci` is the core import path (e.g. `"kreuzberg"`), `tp` maps
+/// signatures. `ci` is the core import path (e.g. `"sample_core"`), `tp` maps
 /// type names to fully-qualified paths.
 pub fn bridge_param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
     match ty {

@@ -197,7 +197,7 @@ pub fn emit_function_jvm(f: &FunctionDef, out: &mut String, imports: &mut BTreeS
 /// Emit one Kotlin coroutine-wrapper file per opaque client type.
 ///
 /// Returns an empty `Vec` when no type in the API surface has methods (flat-function
-/// APIs like kreuzberg keep working unchanged). Otherwise, returns one
+/// APIs like sample_core keep working unchanged). Otherwise, returns one
 /// [`GeneratedFile`] per client type, each named after the wrapped type
 /// (e.g. `Router.kt`, `GraphQLRouteConfig.kt`, `DefaultClient.kt`).
 ///
@@ -239,7 +239,7 @@ pub fn emit_jvm_client_class_with_package(
     //   * AND it is not a trait (trait types are not emitted as concrete
     //     Java classes — referencing them would dangle),
     //   * AND it has at least one non-sanitized, non-static instance method.
-    // Non-opaque value types (e.g. kreuzberg `ExtractionConfig` with a
+    // Non-opaque value types (e.g. sample_core `ExtractionConfig` with a
     // `default()` static) keep flowing through the Java typealias as before.
     let exclude_types = effective_kotlin_exclude_types(config);
     let is_client_type = |t: &&TypeDef| {
@@ -525,8 +525,8 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
 ///
 /// Used by `emit_jvm_client_class_with_package` to derive explicit per-type
 /// Kotlin imports for the Java DTO package when the emitted Kotlin file
-/// lives in a different (typically sub-) package (e.g. `dev.kreuzberg.kt`
-/// or `dev.kreuzberg.kreuzcrawl.android`).
+/// lives in a different (typically sub-) package (e.g. `dev.sample_core.kt`
+/// or `dev.sample_core.sample-crawler.android`).
 fn collect_user_types(ty: &TypeRef, out: &mut BTreeSet<String>) {
     match ty {
         TypeRef::Named(name) => {

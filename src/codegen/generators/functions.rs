@@ -657,7 +657,7 @@ fn can_delegate_with_named_let_bindings(func: &FunctionDef, opaque_types: &AHash
 
 /// Collect all unique trait import paths from types' methods.
 ///
-/// Returns a deduplicated, sorted list of trait paths (e.g. `["liter_llm::LlmClient"]`)
+/// Returns a deduplicated, sorted list of trait paths (e.g. `["sample_llm::LlmClient"]`)
 /// that need to be imported in generated binding code so that trait methods can be called.
 /// Both opaque and non-opaque types are scanned because non-opaque wrapper types also
 /// delegate trait method calls to their inner core type.
@@ -694,7 +694,7 @@ pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
 /// Check if any type has methods from trait impls whose trait_source could not be resolved.
 ///
 /// When true, the binding crate should add a glob import of the core crate (e.g.
-/// `use kreuzberg::*`) to bring all publicly exported traits into scope.
+/// `use sample_core::*`) to bring all publicly exported traits into scope.
 /// This handles traits defined in private submodules that are re-exported.
 pub fn has_unresolved_trait_methods(api: &ApiSurface) -> bool {
     // Count method names that appear on multiple non-trait types but lack trait_source.

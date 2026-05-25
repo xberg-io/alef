@@ -1,4 +1,4 @@
-use crate::core::ir::{FunctionDef, TypeRef};
+use crate::core::ir::{DefaultValue, EnumDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
@@ -7,37 +7,25 @@ use crate::backends::dart::template_env;
 
 use super::render_type::{format_param, render_type};
 
-/// The Dart literal for the default `ExtractionConfig`, matching `ExtractionConfig::default()`.
-///
-/// FRB generates `ExtractionConfig` with several required fields. Any wrapper that makes
-/// `config` optional must supply a valid default when the caller omits it.
-const DEFAULT_EXTRACTION_CONFIG: &str = "ExtractionConfig(\
-    useCache: true, \
-    enableQualityProcessing: true, \
-    forceOcr: false, \
-    disableOcr: false, \
-    resultFormat: ResultFormat.unified, \
-    outputFormat: OutputFormat.plain(), \
-    includeDocumentStructure: false, \
-    useLayoutForMarkdown: false, \
-    maxArchiveDepth: 3\
-)";
-
 /// Returns `true` if the parameter is a config type that should be made optional in Dart.
 ///
-/// Parameters named `config` with types like `ExtractionConfig` or `PackConfig` are
-/// made optional in the dart wrapper so callers can omit the config and get sensible
-/// defaults. This applies to config structs that have `Default` implementations in Rust
-/// and are conventionally used with optional semantics at binding boundaries.
-fn is_optional_config_param(p: &crate::core::ir::ParamDef) -> bool {
-    p.name == "config"
-        && matches!(
-            &p.ty,
-            TypeRef::Named(n) if n == "ExtractionConfig" || n == "PackConfig"
-        )
+/// Parameters named `config` whose named type has a Rust `Default` implementation are
+/// made optional in the Dart wrapper so callers can omit the config and get the Rust
+/// default represented as a Dart constructor expression.
+fn is_optional_config_param(p: &crate::core::ir::ParamDef, type_defs: &[TypeDef]) -> bool {
+    let TypeRef::Named(name) = &p.ty else {
+        return false;
+    };
+    p.name == "config" && type_defs.iter().any(|ty| ty.name == *name && ty.has_default)
 }
 
-pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>) {
+pub(super) fn emit_function(
+    f: &FunctionDef,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+) {
     if !f.doc.is_empty() {
         let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
@@ -60,7 +48,7 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
     let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
 
     // Find the optional config param if present, and determine its type.
-    let config_param = f.params.iter().find(|p| is_optional_config_param(p));
+    let config_param = f.params.iter().find(|p| is_optional_config_param(p, type_defs));
     let config_type = config_param.and_then(|p| match &p.ty {
         TypeRef::Named(n) => Some(n.as_str()),
         _ => None,
@@ -78,7 +66,7 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         let required_params: Vec<String> = f
             .params
             .iter()
-            .filter(|p| !is_optional_config_param(p))
+            .filter(|p| !is_optional_config_param(p, type_defs))
             .map(|p| format_param(p, imports))
             .collect();
         let optional_sig = format!("[{cfg_type}? config]");
@@ -115,19 +103,15 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         let non_config: Vec<String> = f
             .params
             .iter()
-            .filter(|p| !is_optional_config_param(p))
+            .filter(|p| !is_optional_config_param(p, type_defs))
             .map(|p| {
                 let ident = dart_safe_ident(&p.name.to_lower_camel_case());
                 format!("{ident}: {ident}")
             })
             .collect();
-        // For ExtractionConfig, use the hardcoded DEFAULT_EXTRACTION_CONFIG constant.
-        // For other config types (e.g., PackConfig), use the default constructor.
-        let config_default = if cfg_type == "ExtractionConfig" {
-            format!("config ?? {DEFAULT_EXTRACTION_CONFIG}")
-        } else {
-            format!("config ?? {cfg_type}()")
-        };
+        let default_expr =
+            default_expression_for_named_type(cfg_type, type_defs, enums).unwrap_or_else(|| format!("{cfg_type}()"));
+        let config_default = format!("config ?? {default_expr}");
         let config_arg = format!("config: {config_default}");
         if non_config.is_empty() {
             config_arg
@@ -170,4 +154,98 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         ));
         out.push_str("  }\n");
     }
+}
+
+fn default_expression_for_named_type(name: &str, type_defs: &[TypeDef], enums: &[EnumDef]) -> Option<String> {
+    let ty = type_defs.iter().find(|ty| ty.name == name && ty.has_default)?;
+    let fields: Vec<String> = ty
+        .fields
+        .iter()
+        .filter(|field| !field.binding_excluded)
+        .map(|field| {
+            let field_name = dart_safe_ident(&field.name.to_lower_camel_case());
+            let value = default_expression_for_field(field, type_defs, enums)?;
+            Some(format!("{field_name}: {value}"))
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    if fields.is_empty() {
+        Some(format!("{name}()"))
+    } else {
+        Some(format!("{name}({})", fields.join(", ")))
+    }
+}
+
+fn default_expression_for_field(
+    field: &crate::core::ir::FieldDef,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+) -> Option<String> {
+    if let Some(default) = &field.typed_default {
+        return render_default_value(&field.ty, default, type_defs, enums);
+    }
+    zero_value_for_type(&field.ty, type_defs, enums)
+}
+
+fn render_default_value(
+    ty: &TypeRef,
+    default: &DefaultValue,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+) -> Option<String> {
+    match default {
+        DefaultValue::BoolLiteral(value) => Some(value.to_string()),
+        DefaultValue::StringLiteral(value) => Some(format!("'{}'", escape_dart_string(value))),
+        DefaultValue::IntLiteral(value) => Some(value.to_string()),
+        DefaultValue::FloatLiteral(value) => Some(value.to_string()),
+        DefaultValue::EnumVariant(variant) => render_enum_variant_default(ty, variant, enums),
+        DefaultValue::Empty => zero_value_for_type(ty, type_defs, enums),
+        DefaultValue::None => Some("null".to_string()),
+    }
+}
+
+fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -> Option<String> {
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => Some("false".to_string()),
+        TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => Some("0.0".to_string()),
+        TypeRef::Primitive(_) => Some("0".to_string()),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => Some("''".to_string()),
+        TypeRef::Bytes | TypeRef::Vec(_) => Some("[]".to_string()),
+        TypeRef::Map(_, _) | TypeRef::Json => Some("{}".to_string()),
+        TypeRef::Optional(_) | TypeRef::Unit => Some("null".to_string()),
+        TypeRef::Duration => Some("Duration.zero".to_string()),
+        TypeRef::Named(name) => {
+            if let Some(default) = default_enum_variant(name, enums) {
+                render_enum_variant_default(ty, default, enums)
+            } else {
+                default_expression_for_named_type(name, type_defs, enums)
+            }
+        }
+    }
+}
+
+fn render_enum_variant_default(ty: &TypeRef, variant: &str, enums: &[EnumDef]) -> Option<String> {
+    let TypeRef::Named(name) = ty else {
+        return None;
+    };
+    let variant_name = dart_safe_ident(&variant.to_lower_camel_case());
+    let enum_def = enums.iter().find(|e| e.name == *name)?;
+    let enum_variant = enum_def.variants.iter().find(|v| v.name == variant)?;
+    if enum_variant.fields.is_empty() {
+        Some(format!("{name}.{variant_name}"))
+    } else {
+        Some(format!("{name}.{variant_name}()"))
+    }
+}
+
+fn default_enum_variant<'a>(name: &str, enums: &'a [EnumDef]) -> Option<&'a str> {
+    enums
+        .iter()
+        .find(|e| e.name == name)
+        .and_then(|e| e.variants.iter().find(|v| v.is_default))
+        .map(|v| v.name.as_str())
+}
+
+fn escape_dart_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
 }

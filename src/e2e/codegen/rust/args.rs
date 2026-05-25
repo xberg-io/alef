@@ -295,7 +295,7 @@ pub fn resolve_visitor_trait(rust_override: Option<&crate::e2e::config::CallOver
 /// Emit a Rust visitor method for a callback action.
 ///
 /// The parameter type list mirrors the `HtmlVisitor` trait in
-/// `kreuzberg-dev/html-to-markdown`. For non-template actions params are bound
+/// `sample_core-dev/sample-markdown`. For non-template actions params are bound
 /// to `_name` patterns so the generated body needn't introduce unused bindings
 /// (clippy `-D warnings` would otherwise fire). For `CustomTemplate` actions
 /// the template string may reference named variables via `{name}` interpolation,

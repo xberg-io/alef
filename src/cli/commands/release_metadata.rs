@@ -2,7 +2,7 @@
 //!
 //! Computes and prints the JSON metadata object that CI workflows consume to
 //! determine what to build and publish. Ports the logic of
-//! `kreuzberg/scripts/publish/validate-and-compute-release-metadata.sh`
+//! `sample_core/scripts/publish/validate-and-compute-release-metadata.sh`
 //! faithfully to Rust.
 
 use crate::core::config::ResolvedCrateConfig;

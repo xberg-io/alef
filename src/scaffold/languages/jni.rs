@@ -16,14 +16,14 @@ use std::path::PathBuf;
 /// `alef-backend-jni::gen_shims::jni_output_path` for `src/lib.rs`.
 ///
 /// Consumers whose `config.name` carries a language suffix (e.g.
-/// `"html-to-markdown-rs"`) can set `[crates.jni] crate_dir = "html-to-markdown"`
-/// to produce `crates/html-to-markdown-jni/` — matching every other binding
+/// `"sample-markdown-rs"`) can set `[crates.jni] crate_dir = "sample-markdown"`
+/// to produce `crates/sample-markdown-jni/` — matching every other binding
 /// crate — while the umbrella dep entry still uses `config.name` as the Cargo
 /// package key with `path = "../<core_crate_dir>"` for the on-disk location.
 ///
 /// When `core_crate_dir` (derived from `sources`) differs from `config.name`
-/// — e.g. tslp's `name = "tree-sitter-language-pack"` with
-/// `sources = ["crates/ts-pack-core/src/lib.rs"]` — the path dependency on
+/// — e.g. parser-pack's `name = "parser-language-pack"` with
+/// `sources = ["crates/parser-core-core/src/lib.rs"]` — the path dependency on
 /// the umbrella crate uses `core_crate_dir` (the directory) while the JNI
 /// crate's own directory follows `jni_crate_base`.
 pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -46,9 +46,9 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     };
 
     // The umbrella crate's cargo package name (`config.name`) and its
-    // on-disk directory (`core_crate_dir`) can differ — e.g. tslp uses
-    // `name = "tree-sitter-language-pack"` for sources under
-    // `crates/ts-pack-core/`. Cargo dep-table keys must use the package
+    // on-disk directory (`core_crate_dir`) can differ — e.g. parser-pack uses
+    // `name = "parser-language-pack"` for sources under
+    // `crates/parser-core-core/`. Cargo dep-table keys must use the package
     // name; the `path = ...` value must use the directory name.
     let umbrella_dep_name = &config.name;
     // Collect `[dependencies]` entries then sort alphabetically so the emitted
@@ -161,9 +161,9 @@ namespace = "dev.kreuzberg.demo"
         );
     }
 
-    /// When `config.name` differs from `core_crate_dir()` (e.g. tslp's
-    /// `name = "tree-sitter-language-pack"` with sources under
-    /// `crates/ts-pack-core/`), the JNI scaffold must place its output at
+    /// When `config.name` differs from `core_crate_dir()` (e.g. parser-pack's
+    /// `name = "parser-language-pack"` with sources under
+    /// `crates/parser-core-core/`), the JNI scaffold must place its output at
     /// `crates/<config.name>-jni/Cargo.toml` to match the path that
     /// `alef-backend-jni::gen_shims` uses for `src/lib.rs`, and the umbrella
     /// dep entry must use the cargo package name as the dep key while the
@@ -243,11 +243,11 @@ namespace = "dev.kreuzberg.plain"
     /// umbrella dep key remains `config.name` (the Cargo package name) with
     /// `path = "../<core_crate_dir>"`.
     ///
-    /// This covers the html-to-markdown case: `name = "html-to-markdown-rs"`,
-    /// `sources = ["crates/html-to-markdown/src/lib.rs"]`,
-    /// `[crates.jni] crate_dir = "html-to-markdown"` — the JNI crate lands at
-    /// `crates/html-to-markdown-jni/` (matching `*-node`, `*-py`, `*-wasm`, etc.)
-    /// rather than `crates/html-to-markdown-rs-jni/`.
+    /// This covers the sample-markdown case: `name = "sample-markdown-rs"`,
+    /// `sources = ["crates/sample-markdown/src/lib.rs"]`,
+    /// `[crates.jni] crate_dir = "sample-markdown"` — the JNI crate lands at
+    /// `crates/sample-markdown-jni/` (matching `*-node`, `*-py`, `*-wasm`, etc.)
+    /// rather than `crates/sample-markdown-rs-jni/`.
     #[test]
     fn scaffold_jni_crate_dir_override_controls_output_path() {
         let config = resolved_one(

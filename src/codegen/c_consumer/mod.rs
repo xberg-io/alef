@@ -15,9 +15,9 @@ use std::path::PathBuf;
 pub struct CConsumerContext<'a> {
     /// Reference to the resolved crate configuration.
     pub config: &'a ResolvedCrateConfig,
-    /// C header filename (e.g., "html_to_markdown.h").
+    /// C header filename (e.g., "sample_markdown.h").
     pub header: String,
-    /// C library name used for linking (e.g., "html_to_markdown").
+    /// C library name used for linking (e.g., "sample_markdown").
     pub lib_name: String,
     /// C symbol prefix for FFI functions (e.g., "htm").
     pub prefix: String,

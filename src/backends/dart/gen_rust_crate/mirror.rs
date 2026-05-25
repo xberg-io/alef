@@ -34,7 +34,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
         // struct so FRB v2 manages the value as a reference-counted opaque handle (RustAutoOpaque).
         // Bridge functions use `.inner` to access the wrapped core type.
         //
-        // Prefer the IR-recorded `rust_path` (e.g. `kreuzberg::extractors::HwpxExtractor`)
+        // Prefer the IR-recorded `rust_path` (e.g. `sample_core::extractors::HwpxExtractor`)
         // over the naive `{source_crate}::{name}` form, which only resolves for types
         // re-exported at the crate root.
         let source_module = source_crate_name.replace('-', "_");
@@ -426,7 +426,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
     }
 
     // Resolve the fully-qualified core type path, preferring the IR-recorded `rust_path`
-    // (e.g. `liter_llm::error::LiterLlmError`) over the naive `{crate}::{Name}` fallback.
+    // (e.g. `sample_llm::error::LiterLlmError`) over the naive `{crate}::{Name}` fallback.
     let core_path = if error.rust_path.is_empty() {
         format!("{source_crate_name}::{}", error.name)
     } else {

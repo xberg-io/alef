@@ -35,7 +35,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     // PHP wrapper emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
     let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
     let mut all_deps = extra_deps;
-    if needs_ahash && !all_deps.contains("ahash") {
+    if needs_ahash {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
@@ -61,7 +61,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     };
     // Build the cargo-machete ignored list. `tokio` is added to the
     // dependency block unconditionally to keep the manifest layout stable
-    // across kreuzberg-dev crates, but consumers whose PHP surface exposes
+    // across sample_core-dev crates, but consumers whose PHP surface exposes
     // no async functions never reference it — list it as ignored. Same for
     // `async-trait`, which is added when the umbrella declares
     // `trait_bridges` but goes unreferenced when the resulting trait shim
@@ -69,9 +69,6 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     let mut machete_ignored: Vec<&str> = vec!["tokio"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
-    }
-    if !needs_ahash {
-        machete_ignored.push("ahash");
     }
     if has_streaming {
         machete_ignored.push("futures-util");
@@ -94,9 +91,7 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
-# `ahash` is conditionally referenced: only when the umbrella crate exposes
-# `AHashMap<Cow<str>, _>` parameters (the conditional `__*_ahash` shim rebuilds).
-# `futures-util` is similarly conditional on streaming adapters being declared.
+# `futures-util` is conditionally referenced: only when streaming adapters are declared.
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
@@ -127,7 +122,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let ext_name = config.php_extension_name();
     let name = &config.name;
     let pkg_dir = config.package_dir(Language::Php);
-    // PSR-4 namespace derived from the extension name (e.g. html_to_markdown_rs -> Html\To\Markdown\Rs).
+    // PSR-4 namespace derived from the extension name (e.g. sample_markdown_rs -> Html\To\Markdown\Rs).
     // Double backslashes for JSON string literal output.
     let php_namespace = php_autoload_namespace(config).replace('\\', "\\\\");
 
@@ -154,7 +149,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         match parts.as_slice() {
             [owner, repo_name, ..] => {
                 let vendor = owner.to_lowercase();
-                // Use the repo name (e.g. html-to-markdown) for the package name,
+                // Use the repo name (e.g. sample-markdown) for the package name,
                 // falling back to the crate name if the repo name can't be extracted.
                 let pkg_name = repo_name.to_lowercase();
                 (vendor, pkg_name)

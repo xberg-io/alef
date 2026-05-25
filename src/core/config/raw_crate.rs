@@ -41,7 +41,7 @@ pub struct RawCrateConfig {
     // -----------------------------------------------------------------
     // Identity and source crate
     // -----------------------------------------------------------------
-    /// Crate name (e.g. `"spikard"`). Must be unique within the workspace.
+    /// Crate name (e.g. `"sample_project"`). Must be unique within the workspace.
     pub name: String,
 
     /// Rust source files this crate's bindings extract from.

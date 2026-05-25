@@ -127,7 +127,7 @@ pub(super) fn gen_field_accessor(
     // ambiguity when multiple types share the same short name.
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
         // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
-        // or "kreuzberg::types::OutputFormat" (already fully qualified with crate prefix)
+        // or "sample_core::types::OutputFormat" (already fully qualified with crate prefix)
         // or "mylib_http::openapi::OpenApiConfig" (sibling workspace crate, common in
         // multi-crate workspaces where the umbrella crate re-exports types).
         // We need the module path prefix without the type name itself.

@@ -36,7 +36,7 @@ pub struct RegistryConfig {
     /// shared libraries) from GitHub Releases.
     ///
     /// Falls back to `[scaffold] repository` when not set, then to
-    /// `https://github.com/kreuzberg-dev/{crate.name}`.
+    /// `https://github.com/sample_core-dev/{crate.name}`.
     #[serde(default)]
     pub github_repo: Option<String>,
     /// Per-language commands that install the published package into the
@@ -77,8 +77,8 @@ pub struct E2eConfig {
     /// Backends that emit chdir / setup hooks for file-based fixtures resolve
     /// the relative path from the test-emission directory via
     /// [`E2eConfig::test_documents_relative_from`]. The default matches the
-    /// kreuzberg convention; downstream crates whose fixtures don't reference
-    /// files (e.g. liter-llm, which uses pure mock-server fixtures) can leave
+    /// sample_core convention; downstream crates whose fixtures don't reference
+    /// files (e.g. sample-llm, which uses pure mock-server fixtures) can leave
     /// the default in place — backends conditionally emit the setup only when
     /// fixtures actually need it.
     #[serde(default = "default_test_documents_dir")]
@@ -741,7 +741,7 @@ pub struct ArgMapping {
     ///
     /// When set, the Go e2e codegen uses this as the element type instead of the default
     /// derived from `element_type`. Use Go-idiomatic type names including the import alias
-    /// prefix where needed, e.g. `"kreuzberg.BatchBytesItem"` or `"string"`.
+    /// prefix where needed, e.g. `"sample_core.BatchBytesItem"` or `"string"`.
     #[serde(default)]
     pub go_type: Option<String>,
     /// Trait name for `test_backend` arg type (e.g., `"DocumentExtractor"`, `"OcrBackend"`).
@@ -813,7 +813,7 @@ pub struct CallOverride {
     ///
     /// When set, a separate `from {from_json_module} import {options_type}` line
     /// is emitted instead of including the type in the main module import.
-    /// E.g., `"liter_llm._internal_bindings"` for PyO3 native types.
+    /// E.g., `"sample_llm._internal_bindings"` for PyO3 native types.
     #[serde(default)]
     pub from_json_module: Option<String>,
     /// Override whether the call is async for this language.
@@ -835,7 +835,7 @@ pub struct CallOverride {
     #[serde(default)]
     pub assert_enum_fields: HashMap<String, String>,
     /// Module to import enum types from (if different from the main module).
-    /// E.g., "html_to_markdown._html_to_markdown" for PyO3 native enums.
+    /// E.g., "sample_markdown._sample_markdown" for PyO3 native enums.
     #[serde(default)]
     pub enum_module: Option<String>,
     /// Maps nested fixture object field names to their C# type names.
@@ -845,7 +845,7 @@ pub struct CallOverride {
     pub nested_types: HashMap<String, String>,
     /// When `false`, nested config builder results are passed directly to builder methods
     /// without wrapping in `Optional.of(...)`. Set to `false` for bindings where nested
-    /// option types are non-optional (e.g., html-to-markdown Java).
+    /// option types are non-optional (e.g., sample-markdown Java).
     /// Defaults to `true` for backward compatibility.
     #[serde(default = "default_true")]
     pub nested_types_optional: bool,
@@ -1123,7 +1123,7 @@ pub struct CallOverride {
     ///
     /// E.g., `"HtmlVisitor"` generates:
     /// ```rust,ignore
-    /// use html_to_markdown_rs::visitor::{HtmlVisitor, NodeContext, VisitResult};
+    /// use sample_markdown_rs::visitor::{HtmlVisitor, NodeContext, VisitResult};
     /// // ...
     /// impl HtmlVisitor for _TestVisitor { ... }
     /// ```
@@ -1220,17 +1220,17 @@ pub struct PackageRef {
     /// directing the user to run `zig fetch --save <url>` to populate it.
     #[serde(default)]
     pub hash: Option<String>,
-    /// Homebrew tap name (e.g., `"kreuzberg-dev/tap"`).
+    /// Homebrew tap name (e.g., `"sample_core-dev/tap"`).
     ///
     /// Used by the `homebrew` test_app generator.
     #[serde(default)]
     pub tap: Option<String>,
-    /// Homebrew CLI formula name (e.g., `"html-to-markdown"`).
+    /// Homebrew CLI formula name (e.g., `"sample-markdown"`).
     ///
     /// Used by the `homebrew` test_app generator.
     #[serde(default)]
     pub cli_formula: Option<String>,
-    /// Homebrew FFI shared-library formula name (e.g., `"libhtml-to-markdown"`).
+    /// Homebrew FFI shared-library formula name (e.g., `"libsample-markdown"`).
     ///
     /// Used by the `homebrew` test_app generator.
     #[serde(default)]

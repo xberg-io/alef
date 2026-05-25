@@ -2139,7 +2139,7 @@ fn build_ruby_method_call(
     }
 }
 
-/// Convert a module path (e.g., "html_to_markdown") to Ruby PascalCase module name
+/// Convert a module path (e.g., "sample_markdown") to Ruby PascalCase module name
 /// (e.g., "HtmlToMarkdown").
 fn ruby_module_name(module_path: &str) -> String {
     use heck::ToUpperCamelCase;
@@ -2441,7 +2441,7 @@ mod trait_bridge_tests {
     }
 
     /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait
-    /// must not reference any kreuzberg-domain names in setup_block or arg_expr.
+    /// must not reference any sample_core-domain names in setup_block or arg_expr.
     #[test]
     fn test_backend_emission_is_generic() {
         let trait_bridge = TraitBridgeConfig {
@@ -2462,7 +2462,7 @@ mod trait_bridge_tests {
         let methods = vec![&do_thing];
         let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
 
-        // setup_block must not reference any kreuzberg-domain trait or method names.
+        // setup_block must not reference any sample_core-domain trait or method names.
         assert!(
             !emission.setup_block.contains("OcrBackend"),
             "setup_block must not hardcode domain trait names, got:\n{}",

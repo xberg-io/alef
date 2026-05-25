@@ -83,7 +83,7 @@ pub enum AdapterPattern {
 pub struct AdapterConfig {
     pub name: String,
     pub pattern: AdapterPattern,
-    /// Full Rust path to the core function/method (e.g., "html_to_markdown_rs::convert")
+    /// Full Rust path to the core function/method (e.g., "sample_markdown_rs::convert")
     pub core_path: String,
     /// Parameters
     #[serde(default)]
@@ -118,7 +118,7 @@ pub struct AdapterConfig {
     ///
     /// Mirrors the same field on `[[crates.e2e.calls.*]]`. Useful when a
     /// consumer's core crate cannot compile on a given target (e.g.
-    /// `kreuzcrawl` on `wasm32-unknown-unknown` which has no working async
+    /// `sample-crawler` on `wasm32-unknown-unknown` which has no working async
     /// runtime for streaming). The adapter remains declared for every backend
     /// where it works, with explicit per-backend opt-out rather than removing
     /// the adapter entirely.

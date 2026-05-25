@@ -2,8 +2,8 @@ use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, TraitBridgeConfig, new_config::NewAlefConfig};
 use alef::core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
-    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
+    MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -376,6 +376,128 @@ fn simple_sync_function_emits_static_method() {
     assert!(
         content.contains("import 'demo_crate_bridge_generated/lib.dart' as rust_bridge;"),
         "missing rust_bridge lib.dart import: {content}"
+    );
+}
+
+#[test]
+fn default_config_param_uses_default_constructor_for_empty_default_type() {
+    let mut pack_config = make_type("PackConfig", vec![]);
+    pack_config.has_default = true;
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![pack_config],
+        functions: vec![FunctionDef {
+            name: "pack".into(),
+            rust_path: "demo::pack".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("config", TypeRef::Named("PackConfig".to_string()))],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = find_dart_src(&files).expect("src dart file should be emitted");
+
+    assert!(
+        content.contains("static Future<void> pack([PackConfig? config]) async {"),
+        "config should be optional: {content}"
+    );
+    assert!(
+        content.contains("return await rust_bridge.pack(config: config ?? PackConfig());"),
+        "config should fall back to PackConfig(): {content}"
+    );
+}
+
+#[test]
+fn default_config_param_synthesizes_expression_from_type_metadata() {
+    let mut enabled = make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false);
+    enabled.typed_default = Some(DefaultValue::BoolLiteral(true));
+    let mut retry_count = make_field("retry_count", TypeRef::Primitive(PrimitiveType::U32), false);
+    retry_count.typed_default = Some(DefaultValue::IntLiteral(2));
+    let mut strategy = make_field("strategy", TypeRef::Named("Strategy".to_string()), false);
+    strategy.typed_default = Some(DefaultValue::EnumVariant("Balanced".to_string()));
+    let mut example_config = make_type("ExampleConfig", vec![enabled, retry_count, strategy]);
+    example_config.has_default = true;
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![example_config],
+        functions: vec![FunctionDef {
+            name: "run_example".into(),
+            rust_path: "demo::run_example".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("config", TypeRef::Named("ExampleConfig".to_string()))],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![EnumDef {
+            name: "Strategy".into(),
+            rust_path: "demo::Strategy".into(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Balanced".into(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                is_tuple: false,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = find_dart_src(&files).expect("src dart file should be emitted");
+
+    assert!(
+        content.contains("static Future<String> runExample([ExampleConfig? config]) async {"),
+        "config should be optional: {content}"
+    );
+    assert!(
+        content.contains("config: config ?? ExampleConfig(enabled: true, retryCount: 2, strategy: Strategy.balanced)"),
+        "config should use metadata-derived defaults: {content}"
+    );
+    assert!(
+        !content.contains("DEFAULT_EXTRACTION_CONFIG") && !content.contains("ExtractionConfig("),
+        "Dart defaults should not use the removed ExtractionConfig special case: {content}"
     );
 }
 

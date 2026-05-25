@@ -16,10 +16,10 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     // distinguish them without collapsing data-bearing variants to Unknown.
 
     // Bridge enum variant names: use the raw Rust identifier from the IR (which is
-    // the actual identifier from the kreuzberg source, e.g. "EasyOCR", "RDFa").
+    // the actual identifier from the sample_core source, e.g. "EasyOCR", "RDFa").
     // Do NOT apply to_upper_camel_case() — heck transforms acronyms like "EasyOCR"
     // to "EasyOcr" and "RDFa" to "RdFa", creating names that don't match the source.
-    // The bridge enum uses the same names as the kreuzberg source enum so the From impl
+    // The bridge enum uses the same names as the sample_core source enum so the From impl
     // match arms are valid Rust identifiers on both sides.
     out.push_str(&crate::backends::swift::template_env::render(
         "enum_unit_header.jinja",

@@ -13,8 +13,8 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let min_macos_major = swift_min_macos(config).split('.').next().unwrap_or("13").to_string();
     let min_ios_major = swift_min_ios(config).split('.').next().unwrap_or("16").to_string();
 
-    // crate_name is e.g. "kreuzberg", the Cargo crate being wrapped.
-    // The swift-bridge output files are named after the *binding* crate, e.g. "kreuzberg-swift".
+    // crate_name is e.g. "sample_core", the Cargo crate being wrapped.
+    // The swift-bridge output files are named after the *binding* crate, e.g. "sample_core-swift".
     let crate_name = &config.name;
     let binding_crate_name = format!("{crate_name}-swift");
     let binding_crate_underscore = binding_crate_name.replace('-', "_");
@@ -219,7 +219,7 @@ struct Demo {{
     // For in-tree development, developers use `packages/swift/Package.swift` directly,
     // which contains the unsafeFlags and in-tree build workflow.
     //
-    // The placeholder URL `https://github.com/kreuzberg-dev/{repo}/releases/download/{tag}/{archive}`
+    // The placeholder URL `https://github.com/sample_core-dev/{repo}/releases/download/{tag}/{archive}`
     // is replaced during publish by the actual release asset URL. The checksum is computed
     // by `swift package compute-checksum` and wired in by the release pipeline.
     let _root_package_swift = format!(
@@ -270,7 +270,7 @@ let package = Package(
         // The __VERSION__ and __CHECKSUM__ placeholders are filled at release time by
         // the publish workflow (via `gh release edit` or similar tooling).
         //
-        // External consumers: `swift package resolve https://github.com/kreuzberg-dev/html-to-markdown`
+        // External consumers: `swift package resolve https://github.com/sample_core-dev/sample-markdown`
         // In-tree development: `cd packages/swift && swift build`
         GeneratedFile {
             path: PathBuf::from("Package.swift"),

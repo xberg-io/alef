@@ -1835,6 +1835,25 @@ mod tests {
     }
 
     #[test]
+    fn cache_isolation_setup_uses_generic_alef_names() {
+        let mut rendered = String::new();
+        emit_cache_isolation_setup(&mut rendered);
+
+        assert!(
+            rendered.contains("_alefTestCacheDir"),
+            "missing generic cache var: {rendered}"
+        );
+        assert!(
+            rendered.contains("mkdtempSync(join(tmpdir(), 'alef-e2e-'))"),
+            "missing generic cache prefix: {rendered}"
+        );
+        assert!(
+            !rendered.contains("tslp"),
+            "TypeScript cache isolation setup must not contain downstream project names: {rendered}"
+        );
+    }
+
+    #[test]
     fn derive_nested_types_returns_empty_for_unknown_type() {
         let derived = derive_nested_types_for_wasm("WasmUnknownType", &[], "Wasm");
         assert!(derived.is_empty());

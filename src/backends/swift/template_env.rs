@@ -378,10 +378,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_trailing_arg.jinja"),
     ),
     (
-        "json_factory_shims.rs.jinja",
-        include_str!("templates/json_factory_shims.rs.jinja"),
-    ),
-    (
         "rust_from_json_extern_decl.rs.jinja",
         include_str!("templates/rust_from_json_extern_decl.rs.jinja"),
     ),

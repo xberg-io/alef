@@ -2177,7 +2177,7 @@ mod tests {
         error.doc = "Errors that can occur during GraphQL operations\n\n\
             These errors are compatible with async-graphql error handling.\n"
             .to_string();
-        // Mirror the real `status_code()` rustdoc from spikard-graphql: it has a
+        // Mirror the real `status_code()` rustdoc from sample_project-graphql: it has a
         // `# Examples` section with a ```ignore fence referencing `Self::error_code`,
         // `Result<T, E>`, intra-doc links, and a `::` path separator — everything
         // that previously leaked into a one-line `<summary>` attribute.

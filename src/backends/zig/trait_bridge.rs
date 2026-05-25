@@ -8,7 +8,7 @@
 //!
 //! The generated `register_{trait_snake}` shim calls
 //! `c.{prefix}_register_{trait_snake}` — the symbol exposed by the
-//! `kreuzberg-ffi` C layer (pattern: `{crate_prefix}_register_{trait_snake}`).
+//! `sample_core-ffi` C layer (pattern: `{crate_prefix}_register_{trait_snake}`).
 //! If the actual symbol differs, override the generated call site.
 //!
 //! # `TraitBridgeGenerator` implementation
@@ -322,7 +322,7 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 
 /// Emit the vtable extern struct and registration shim for a single trait bridge.
 ///
-/// `prefix` is the C FFI prefix (e.g., `"kreuzberg"`, `"kreuzcrawl"`).
+/// `prefix` is the C FFI prefix (e.g., `"sample_core"`, `"sample-crawler"`).
 /// `error_type` is the Zig error set type name (e.g., `"KreuzbergError"`, `"CrawlError"`).
 /// `bridge_cfg` is the trait bridge configuration entry.
 /// `trait_def` is the IR type definition for the trait (must have `is_trait = true`).
@@ -507,8 +507,8 @@ pub fn emit_trait_bridge(
         // The Zig wrapper is named after `bridge_cfg.clear_fn` verbatim
         // (e.g. `clear_ocr_backends` — pluralised by convention to signal
         // multi-removal). The underlying C FFI symbol follows the singular
-        // trait-snake naming used elsewhere in `kreuzberg-ffi`
-        // (`kreuzberg_clear_ocr_backend`), so derive `c_clear` from
+        // trait-snake naming used elsewhere in `sample_core-ffi`
+        // (`sample_core_clear_ocr_backend`), so derive `c_clear` from
         // `trait_snake` rather than from `clear_fn`.
         // ---------------------------------------------------------------
         if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
@@ -585,7 +585,7 @@ pub fn emit_trait_bridge(
 
 /// Zig-specific [`TraitBridgeGenerator`] implementation.
 ///
-/// Carries the FFI symbol prefix (e.g., `"kreuzberg"`) used when deriving the
+/// Carries the FFI symbol prefix (e.g., `"sample_core"`) used when deriving the
 /// C symbol for `unregister_*` and `clear_*` wrappers.
 ///
 /// The required trait methods that produce *Rust* source (`gen_sync_method_body`,
@@ -593,7 +593,7 @@ pub fn emit_trait_bridge(
 /// empty strings because Zig bridge code is produced by the standalone
 /// [`emit_trait_bridge`] free function, not the shared driver.
 pub struct ZigTraitBridgeGenerator {
-    /// FFI symbol prefix (e.g., `"kreuzberg"`).
+    /// FFI symbol prefix (e.g., `"sample_core"`).
     pub prefix: String,
 }
 
@@ -863,7 +863,7 @@ mod tests {
             out.contains("pub fn clear_ocr_backends() KreuzbergError!void"),
             "missing clear_ocr_backends signature: {out}"
         );
-        // C symbol uses the singular trait-snake suffix to match kreuzberg-ffi naming.
+        // C symbol uses the singular trait-snake suffix to match sample_core-ffi naming.
         assert!(
             out.contains("c.kreuzberg_clear_ocr_backend(&_out_error)"),
             "wrong C symbol target for clear wrapper: {out}"
@@ -949,7 +949,7 @@ mod tests {
             out.contains("out_error:"),
             "missing out_error for fallible method: {out}"
         );
-        // C symbols use kreuzberg prefix
+        // C symbols use sample_core prefix
         assert!(
             out.contains("c.kreuzberg_register_ocr_backend("),
             "wrong register symbol: {out}"

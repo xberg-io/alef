@@ -51,7 +51,7 @@ pub enum ResolveError {
 /// languages = ["python", "node"]
 ///
 /// [[crates]]
-/// name = "spikard"
+/// name = "sample_project"
 /// sources = ["src/lib.rs"]
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

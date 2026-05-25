@@ -524,7 +524,7 @@ fn has_mock_server_bin(manifest_path: &std::path::Path) -> anyhow::Result<bool> 
 /// test-app `run` command.
 ///
 /// The mock-server crate is the alef-generated `<e2e.output>/rust` project, built
-/// in release (mirroring spikard's Taskfile `e2e:build`), producing the
+/// in release (mirroring sample_project's Taskfile `e2e:build`), producing the
 /// `mock-server` binary at `<e2e.output>/rust/target/release/mock-server`. On
 /// startup the binary prints `MOCK_SERVER_URL=http://127.0.0.1:<port>` (and, when
 /// host-root fixtures exist, `MOCK_SERVERS={...}`) to stdout, then blocks reading
@@ -918,7 +918,7 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
 }
 
 /// Resolve the crate directory from the output config path.
-/// Output paths like `crates/html-to-markdown-node/src/` → `crates/html-to-markdown-node`.
+/// Output paths like `crates/sample-markdown-node/src/` → `crates/sample-markdown-node`.
 fn resolve_crate_dir(output_path: &Path) -> &Path {
     // If path ends in src/ or src, go up one level
     if output_path.file_name().is_some_and(|n| n == "src") {

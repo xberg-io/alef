@@ -34,7 +34,7 @@ use crate::core::ir::{MethodDef, ReceiverKind};
 /// # Parameters
 ///
 /// - `prefix`: the FFI symbol prefix (e.g. `"htm"`).
-/// - `core_import`: the Rust crate name for the core library (e.g. `"html_to_markdown_rs"`).
+/// - `core_import`: the Rust crate name for the core library (e.g. `"sample_markdown_rs"`).
 /// - `trait_def`: the IR definition of the trait whose bridge is being attached.
 /// - `trait_name`: the Rust trait name (e.g. `"HtmlVisitor"`).
 /// - `field_name`: the field on the options struct (e.g. `"visitor"`).
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn {fn_name}(
 /// # Parameters
 ///
 /// - `prefix`: the FFI symbol prefix (e.g. `"htm"`).
-/// - `core_import`: the Rust crate name for the core library (e.g. `"html_to_markdown_rs"`).
+/// - `core_import`: the Rust crate name for the core library (e.g. `"sample_markdown_rs"`).
 pub fn gen_convert_with_options_field_bridge(prefix: &str, core_import: &str) -> String {
     let fn_name = format!("{prefix}_convert");
     format!(

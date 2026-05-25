@@ -12,7 +12,7 @@ pub struct TraitBridgeConfig {
     #[serde(default)]
     pub super_trait: Option<String>,
     /// Rust path to the registry getter function
-    /// (e.g., `"kreuzberg::plugins::registry::get_ocr_backend_registry"`).
+    /// (e.g., `"sample_core::plugins::registry::get_ocr_backend_registry"`).
     /// Optional — when set, the generated registration function inserts the bridge into a registry.
     #[serde(default)]
     pub registry_getter: Option<String>,

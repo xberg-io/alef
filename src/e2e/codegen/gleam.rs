@@ -1195,7 +1195,7 @@ fn build_args_and_setup(
                     let config_val = val.unwrap_or(&empty_obj);
                     let json_literal = json_to_gleam(config_val);
                     // When the downstream has configured a wrapper (e.g.
-                    // `kreuzberg.config_from_json_string({json})`), substitute
+                    // `sample_core.config_from_json_string({json})`), substitute
                     // the placeholder; otherwise emit the bare JSON-string
                     // literal.
                     let emitted = match json_object_wrapper {

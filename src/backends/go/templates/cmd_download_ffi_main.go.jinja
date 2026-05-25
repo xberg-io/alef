@@ -62,24 +62,19 @@ func determinePaths() (string, string, error) {
 	}
 
 	libName := "{{ ffi_lib_name }}"
-	cacheBase := filepath.Join(homeDir(), ".html-to-markdown")
-	osArchDir := fmt.Sprintf("%s-%s-%s", libName, osName, goarch)
-	libPath := filepath.Join(cacheBase, osArchDir, libFilename(libName, goos))
-
-	return filepath.Join(cacheBase, osArchDir), libPath, nil
-}
-
-func homeDir() string {
-	home, err := os.UserHomeDir()
+	// Use the current working directory as the module root (where this script is run from)
+	// and place libraries in .lib/{os}-{arch}/
+	moduleRoot, err := os.Getwd()
 	if err != nil {
-		// Fallback to XDG_CACHE_HOME or /tmp
-		if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
-			return xdg
-		}
-		return "/tmp"
+		return "", "", fmt.Errorf("cannot determine module root: %w", err)
 	}
-	return home
+
+	libDir := filepath.Join(moduleRoot, ".lib", fmt.Sprintf("%s-%s", osName, goarch))
+	libPath := filepath.Join(libDir, libFilename(libName, goos))
+
+	return libDir, libPath, nil
 }
+
 
 func libFilename(libName, goos string) string {
 	switch goos {

@@ -60,7 +60,7 @@ pub struct PythonConfig {
     pub module_name: Option<String>,
     pub async_runtime: Option<String>,
     pub stubs: Option<StubsConfig>,
-    /// PyPI package name (e.g. `"html-to-markdown"`). Used as the `[project] name` in
+    /// PyPI package name (e.g. `"sample-markdown"`). Used as the `[project] name` in
     /// `pyproject.toml` and to derive the `python-packages` list for maturin.
     /// Defaults to the crate name.
     #[serde(default)]
@@ -228,8 +228,8 @@ pub struct NodeConfig {
     pub scaffold_output: Option<PathBuf>,
     /// Overrides the default `crates/{name}-node` formula for the crate directory.
     /// Useful when the Rust crate directory does not follow the alef convention
-    /// (e.g., consumer strips a `-rs` suffix so actual crate dir is `crates/html-to-markdown-node`
-    /// instead of `crates/html-to-markdown-rs-node`). Used by setup, test, clean, and format tasks.
+    /// (e.g., consumer strips a `-rs` suffix so actual crate dir is `crates/sample-markdown-node`
+    /// instead of `crates/sample-markdown-rs-node`). Used by setup, test, clean, and format tasks.
     #[serde(default)]
     pub crate_dir: Option<String>,
     /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
@@ -285,7 +285,7 @@ pub struct RubyConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhpConfig {
     pub extension_name: Option<String>,
-    /// Cargo crate name for the PHP binding (e.g. `"ts-pack-core-php"`).
+    /// Cargo crate name for the PHP binding (e.g. `"parser-core-core-php"`).
     /// Used to derive the shared library filename in the e2e test runner.
     /// When absent, the lib name is derived from `extension_name` by appending `_php`.
     #[serde(default)]
@@ -294,7 +294,7 @@ pub struct PhpConfig {
     ///
     /// When set, this value is used verbatim as the PHP namespace (e.g. `"HtmlToMarkdown"`).
     /// When absent, the namespace is derived from `extension_name` by splitting on `_` and
-    /// converting each segment to PascalCase (e.g. `html_to_markdown` → `Html\To\Markdown`).
+    /// converting each segment to PascalCase (e.g. `sample_markdown` → `Html\To\Markdown`).
     #[serde(default)]
     pub namespace: Option<String>,
     /// Feature gate for ext-php-rs (default: "extension-module").
@@ -411,8 +411,8 @@ pub struct WasmConfig {
     pub extra_lint_paths: Vec<String>,
     /// Overrides the default `crates/{name}-wasm` formula for the crate directory.
     /// Useful when the Rust crate directory does not follow the alef convention
-    /// (e.g., consumer strips a `-rs` suffix so actual crate dir is `crates/html-to-markdown-wasm`
-    /// instead of `crates/html-to-markdown-rs-wasm`). Used by setup, test, clean, and format tasks.
+    /// (e.g., consumer strips a `-rs` suffix so actual crate dir is `crates/sample-markdown-wasm`
+    /// instead of `crates/sample-markdown-rs-wasm`). Used by setup, test, clean, and format tasks.
     #[serde(default)]
     pub crate_dir: Option<String>,
     /// Override the core Cargo dependency name and path for the WASM binding crate.
@@ -499,7 +499,7 @@ pub struct FfiConfig {
     /// ```toml
     /// # downstream whose error type has a struct variant with two fields:
     /// plugin_error_constructor = """
-    /// kreuzberg::KreuzbergError::Plugin { message: msg, plugin_name: String::new() }
+    /// sample_core::KreuzbergError::Plugin { message: msg, plugin_name: String::new() }
     /// """
     ///
     /// # downstream whose error type implements `From<String>`:
@@ -515,7 +515,7 @@ pub struct FfiConfig {
     /// Per-target overrides for the core-crate dependency emitted into the
     /// generated FFI Cargo.toml. Used when some `cfg(...)` target requires a
     /// reduced feature set (e.g. the `x86_64-linux-android` emulator cannot
-    /// link ONNX Runtime, so kreuzberg ships an `android-target` feature
+    /// link ONNX Runtime, so sample_core ships an `android-target` feature
     /// flag that drops every ORT-dependent extractor).
     ///
     /// When this list is non-empty the scaffold emits
@@ -586,13 +586,13 @@ pub struct JavaConfig {
     /// Override the Maven `<groupId>` emitted by alef-scaffold and alef-e2e. When unset,
     /// `java_group_id()` falls back to the Java `package` value. Set this when the
     /// published Maven coords differ from the Java package path (e.g. group
-    /// `dev.kreuzberg`, package `dev.kreuzberg.htmltomarkdown`).
+    /// `dev.sample_core`, package `dev.sample_core.htmltomarkdown`).
     #[serde(default)]
     pub group_id: Option<String>,
     /// Override the Maven `<artifactId>` emitted by alef-scaffold and alef-e2e. When
     /// unset, defaults to the crate name (the `[[crates]] name = "..."`). Set this when
     /// the published artifactId differs from the source crate name (e.g. crate
-    /// `html-to-markdown-rs` published as `html-to-markdown`).
+    /// `sample-markdown-rs` published as `sample-markdown`).
     #[serde(default)]
     pub artifact_id: Option<String>,
     #[serde(default = "default_java_ffi_style")]
@@ -724,7 +724,7 @@ pub struct KotlinConfig {
 /// `src/main/java/` so the AAR is self-contained.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KotlinAndroidConfig {
-    /// JVM-style package for Kotlin bindings (e.g. `dev.kreuzberg`).
+    /// JVM-style package for Kotlin bindings (e.g. `dev.sample_core`).
     /// Defaults to the crate name.
     #[serde(default)]
     pub package: Option<String>,
@@ -782,8 +782,8 @@ pub struct KotlinAndroidConfig {
 /// section (package, features, etc.).  Set `crate_dir` when the JNI crate
 /// directory should differ from the default `<config.name>-jni/` — for
 /// example when `config.name` carries a language-specific suffix (e.g.
-/// `"html-to-markdown-rs"`) but you want the JNI crate to live at
-/// `crates/html-to-markdown-jni/` to match every other binding crate.
+/// `"sample-markdown-rs"`) but you want the JNI crate to live at
+/// `crates/sample-markdown-jni/` to match every other binding crate.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JniConfig {
     /// Override the JNI crate directory name.
@@ -851,7 +851,7 @@ pub struct GleamConfig {
     /// ```toml
     /// [[crates.gleam.element_constructors]]
     /// element_type = "BatchFileItem"
-    /// constructor = "kreuzberg.BatchFileItem"
+    /// constructor = "sample_core.BatchFileItem"
     /// [[crates.gleam.element_constructors.fields]]
     /// gleam_field = "path"
     /// kind = "file_path"
@@ -873,7 +873,7 @@ pub struct GleamConfig {
     ///
     /// ```toml
     /// [crates.gleam]
-    /// json_object_wrapper = "kreuzberg.config_from_json_string({json})"
+    /// json_object_wrapper = "sample_core.config_from_json_string({json})"
     /// ```
     ///
     /// When `None`, the codegen emits `{json}` verbatim (a plain Gleam
@@ -891,7 +891,7 @@ pub struct GleamElementConstructor {
     /// `"BatchFileItem"`).
     pub element_type: String,
     /// Fully-qualified Gleam constructor identifier (e.g.
-    /// `"kreuzberg.BatchFileItem"`). Emitted verbatim before the `(...)` field
+    /// `"sample_core.BatchFileItem"`). Emitted verbatim before the `(...)` field
     /// list.
     pub constructor: String,
     /// Ordered list of fields to emit inside the constructor's `(...)` block,
@@ -1096,7 +1096,7 @@ pub struct SwiftConfig {
     /// emits this snippet verbatim as the function body (no implicit `Ok(...)`).
     ///
     /// Use this when the source crate's constructor signature differs from the
-    /// default `Type::new(api_key, base_url)` shape — e.g. liter-llm uses
+    /// default `Type::new(api_key, base_url)` shape — e.g. sample-llm uses
     /// `DefaultClient::new(ClientConfig, Option<&str>)` and needs to build a
     /// `ClientConfig` from the bridge inputs first.
     ///

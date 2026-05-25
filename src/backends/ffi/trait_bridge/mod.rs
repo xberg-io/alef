@@ -37,9 +37,9 @@ use helpers::prim_to_c;
 /// forwarding calls through C function pointers.  The caller owns `user_data`
 /// and guarantees thread-safety.
 pub struct FfiBridgeGenerator {
-    /// FFI function/type prefix (e.g., `"kreuzberg"`).
+    /// FFI function/type prefix (e.g., `"sample_core"`).
     pub prefix: String,
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,

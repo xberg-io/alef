@@ -1,13 +1,13 @@
 //! PHP native extension (php-ext / PIE) test_app generator.
 //!
 //! Generates a registry-mode-only test_app at `test_apps/php_ext/` that
-//! installs the html-to-markdown PHP native extension via PIE and exercises
+//! installs the sample-markdown PHP native extension via PIE and exercises
 //! the raw C extension functions.
 //!
 //! Emits three files:
 //!
 //! - `run_tests.sh` — installs the PIE extension and runs `main.php`.
-//! - `main.php` — verifies extension loading and calls `html_to_markdown_convert`.
+//! - `main.php` — verifies extension loading and calls `sample_markdown_convert`.
 //! - `README.md` — describes the test_app.
 //!
 //! This generator is registry-mode only.  In local mode it emits a single
@@ -191,7 +191,7 @@ fn render_main_php() -> String {
 fn render_readme(pkg_name: &str, version: &str) -> String {
     format!(
         "# php-ext test_app\n\n\
-         Exercises the html-to-markdown PHP native extension (`{pkg_name}` v`{version}`)\n\
+         Exercises the configured PHP native extension (`{pkg_name}` v`{version}`)\n\
          installed via [PIE](https://github.com/php/pie).\n\n\
          ## Running\n\n\
          ```bash\n\
@@ -199,8 +199,8 @@ fn render_readme(pkg_name: &str, version: &str) -> String {
          ```\n\n\
          ## What it tests\n\n\
          - PIE installs the extension successfully.\n\
-         - The extension loads (`extension_loaded('html_to_markdown')`).\n\
-         - `html_to_markdown_convert('<h1>Hi</h1>')` returns a string containing `Hi`.\n"
+         - The extension loads successfully.\n\
+         - The configured convert function returns a string containing `Hi`.\n"
     )
 }
 

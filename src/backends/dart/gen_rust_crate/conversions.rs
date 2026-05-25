@@ -20,7 +20,7 @@ pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
 }
 
 /// Like `frb_rust_type`, but qualifies excluded named types with their source-crate
-/// path (so e.g. `InternalDocument` becomes `kreuzberg::internal::InternalDocument`
+/// path (so e.g. `InternalDocument` becomes `sample_core::internal::InternalDocument`
 /// when it appears in a trait-bridge closure signature without an in-scope mirror).
 pub(crate) fn frb_rust_type_excluded_aware(
     ty: &TypeRef,

@@ -167,7 +167,7 @@ impl Backend for ExtendrBackend {
         // it is now Arc<Mutex<...>> and no longer requires special treatment here, but the
         // detection heuristic — opaque + cfg-gated — is retained for other potential cases.)
         // We identify them as opaque types that are cfg-feature-gated — only the visitor
-        // machinery (feature = "visitor") produces such types in html-to-markdown.
+        // machinery (feature = "visitor") produces such types in sample-markdown.
         let arc_incompatible_opaque: ahash::AHashSet<String> = api
             .types
             .iter()
@@ -557,7 +557,7 @@ impl Backend for ExtendrBackend {
             // Round-trip-safe ones (e.g. OutputFormat with only String data) have a
             // From<BindingStruct> for CoreEnum impl generated and don't need skipping.
             from_binding_skip_types: &non_round_trip_flat_enums,
-            // The extendr binding crate doesn't carry kreuzberg feature flags into its
+            // The extendr binding crate doesn't carry sample_core feature flags into its
             // own Cargo.toml, so cfg-gated core fields are dropped from the binding struct
             // (see `gen_struct` skip rule).  Mirror that in conversions: skip cfg-gated
             // fields and let `..Default::default()` pad the core struct slot.
@@ -1693,10 +1693,10 @@ pub(crate) struct TraitBridgeFn {
 /// free functions.
 ///
 /// Example: `clear_ocr_backends` is defined both as `pub fn` in
-/// `crates/kreuzberg/src/plugins/ocr.rs` (so it appears in `api.functions`) AND
+/// `crates/sample_core/src/plugins/ocr.rs` (so it appears in `api.functions`) AND
 /// synthesised by the trait-bridge generator for the `OcrBackend` trait. The
 /// trait-bridge form is the canonical one — it resolves to the
-/// `kreuzberg::plugins::ocr_backend::clear_ocr_backends` path module rather than
+/// `sample_core::plugins::ocr_backend::clear_ocr_backends` path module rather than
 /// the top-level alias — so emit it from the bridge generator and skip the
 /// duplicate from `api.functions`.
 pub(crate) fn collect_trait_bridge_fn_names(config: &ResolvedCrateConfig) -> ahash::AHashSet<String> {
@@ -2556,7 +2556,7 @@ fn gen_namespace(api: &ApiSurface, package_name: &str, trait_bridge_fns: &[Trait
     }
 
     // Trait-bridge functions need explicit NAMESPACE exports so that callers can use
-    // them directly (e.g. `kreuzberg::register_ocr_backend(...)`). Without an `export()`
+    // them directly (e.g. `sample_core::register_ocr_backend(...)`). Without an `export()`
     // entry, R restricts the wrapper to internal-only visibility and `:: ` lookups fail.
     for bridge_fn in trait_bridge_fns {
         out.push_str(&crate::backends::extendr::template_env::render(
@@ -3549,7 +3549,7 @@ exclude_languages = ["r"]
         let backend = ExtendrBackend;
         let config = make_config();
         let mut api = make_api_surface();
-        // Add more types and enums like html-to-markdown has
+        // Add more types and enums like sample-markdown has
         api.types.push(TypeDef {
             name: "DocumentMetadata".to_string(),
             rust_path: "test_lib::DocumentMetadata".to_string(),

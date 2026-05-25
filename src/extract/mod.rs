@@ -75,13 +75,13 @@ pub enum ExportValidation {
 ///
 /// This catches two bug classes:
 /// - **C1** -- the declared `module` does not match the actual export path (e.g., the
-///   function is defined at `kreuzberg::rendering::render_page` but `alef.toml` uses
-///   `module = "kreuzberg"`, and `render_page` is NOT re-exported at the crate root).
+///   function is defined at `sample_core::rendering::render_page` but `alef.toml` uses
+///   `module = "sample_core"`, and `render_page` is NOT re-exported at the crate root).
 /// - **C2** -- multiple definitions exist; the one with the wrong `rust_path` was kept
 ///   by the dedup pass, causing the wrong signature to be used.
 ///
-/// Pass `module_path = "kreuzberg"` and `function_name = "render_page"` to check
-/// that `kreuzberg::render_page` exists in the surface.
+/// Pass `module_path = "sample_core"` and `function_name = "render_page"` to check
+/// that `sample_core::render_page` exists in the surface.
 pub fn validate_call_export(surface: &ApiSurface, module_path: &str, function_name: &str) -> ExportValidation {
     let expected_rust_path = format!("{module_path}::{function_name}");
 

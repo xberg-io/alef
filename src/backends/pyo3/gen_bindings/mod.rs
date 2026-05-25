@@ -72,7 +72,7 @@ impl Pyo3Backend {
 /// - The field is gated on a feature (statically enabled when kompiling pyo3 module)
 ///
 /// This is safe because the PyO3 compilation unit is directly controlled by the
-/// binding's `Cargo.toml` (kreuzberg-py), which explicitly lists all features
+/// binding's `Cargo.toml` (sample_core-py), which explicitly lists all features
 /// like `pdf`, `html`, `tree-sitter`, etc. Unlike FFI-based bindings that link
 /// against a separately-compiled core library, pyo3 builds the core with known
 /// features, so feature gates are deterministic at binding-compilation time.
@@ -182,7 +182,7 @@ fn replace_constructor_with_serde_rename(
 
     // Build parameter list with serde_rename and config-based renames.
     // Include cfg-gated fields that the consumer has force-restored via
-    // `never_skip_cfg_field_names` (e.g. kreuzberg-py builds with all features so
+    // `never_skip_cfg_field_names` (e.g. sample_core-py builds with all features so
     // pdf_options / keywords / html_* / layout / tree_sitter need to be kwargs).
     let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
@@ -501,7 +501,7 @@ impl Backend for Pyo3Backend {
         // Capsule-type functions use `unsafe { PyCapsule_New(...) }` and
         // `unsafe { Bound::from_owned_ptr(...) }` — these are intentional, well-documented
         // CPython FFI calls.  Downstreams that have `unsafe_code = "deny"` at the workspace
-        // level (e.g. tree-sitter-language-pack) must not need to add per-crate overrides.
+        // level (e.g. parser-language-pack) must not need to add per-crate overrides.
         builder.add_inner_attribute("allow(unsafe_code)");
         builder.add_import("pyo3::prelude::*");
         // Note: core_import and path_mapping crates are referenced via fully-qualified paths
@@ -518,7 +518,7 @@ impl Backend for Pyo3Backend {
             builder.add_import(&trait_path);
         }
         // Core crate types are referenced via fully-qualified paths (e.g.
-        // `html_to_markdown_rs::ConversionOptions`) in generated code, so no
+        // `sample_markdown_rs::ConversionOptions`) in generated code, so no
         // named or glob imports from the core crate are needed.  Importing
         // core type names would shadow the local PyO3 wrapper structs that
         // share the same names, causing compilation errors.
@@ -1330,12 +1330,12 @@ mod alef_json_str_opt {
         // When a binding param is Optional<T> and serde deserializes to T, wrap in Some() at call site.
         // The core function expects Option<ConversionOptions>, but serde deserialization produces
         // ConversionOptions (not Optional). Wrap in Some() when passing to core.
-        // Look for patterns like: html_to_markdown_rs::convert(&html, options_core)
-        // and replace with: html_to_markdown_rs::convert(&html, Some(options_core))
+        // Look for patterns like: sample_markdown_rs::convert(&html, options_core)
+        // and replace with: sample_markdown_rs::convert(&html, Some(options_core))
         //
         // CRITICAL: only wrap when the SOURCE param is `Option<T>` — i.e. `param.optional == true`.
         // When the source is non-Option `T`, the core function expects `T` directly and wrapping
-        // in `Some()` produces a type error. (Discovered via kreuzberg `embed_texts` taking
+        // in `Some()` produces a type error. (Discovered via sample_core `embed_texts` taking
         // `config: EmbeddingConfig` rather than `Option<EmbeddingConfig>`.)
         for func in &api.functions {
             // Check if any parameter is a has_default type
@@ -1397,7 +1397,7 @@ mod alef_json_str_opt {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         let module_name = config.python_module_name();
 
-        // Use stubs output path as the package directory (e.g., packages/python/html_to_markdown/)
+        // Use stubs output path as the package directory (e.g., packages/python/sample_markdown/)
         // This ensures we write to the correct Python package, not the Rust crate name.
         let output_base = config
             .python

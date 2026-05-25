@@ -1,6 +1,6 @@
 //! Java e2e test generator using JUnit 5.
 //!
-//! Generates `e2e/java/pom.xml` and `src/test/java/dev/kreuzberg/e2e/{Category}Test.java`
+//! Generates `e2e/java/pom.xml` and `src/test/java/dev/sample_core/e2e/{Category}Test.java`
 //! files from JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
 use crate::core::backend::GeneratedFile;
@@ -720,7 +720,7 @@ fn render_test_file(
     // class must be importable for type inference and method resolution.
     //
     // Use `resolve_is_streaming` so per-call `streaming = false` opt-outs are
-    // honoured: consumers like tree-sitter-language-pack ship a real `chunks`
+    // honoured: consumers like parser-language-pack ship a real `chunks`
     // result field on their non-streaming process result, and would otherwise
     // get a spurious import plus virtual-aggregator accessor expansion on
     // `chunks`-shaped assertions.
@@ -731,8 +731,8 @@ fn render_test_file(
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
         // Derive streaming DTO imports from declared adapters so each project pulls
-        // in only the types it actually exposes (e.g., kreuzcrawl gets
-        // CrawlEvent/CrawlStreamRequest/BatchCrawlStreamRequest, liter-llm gets
+        // in only the types it actually exposes (e.g., sample-crawler gets
+        // CrawlEvent/CrawlStreamRequest/BatchCrawlStreamRequest, sample-llm gets
         // ChatCompletionChunk/ChatCompletionRequest).
         let mut streaming_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for adapter in adapters {
@@ -1634,7 +1634,7 @@ fn build_args_and_setup(
             // Previous code skipped (1), so any fixture with per-fixture host-root
             // routes (e.g. batch_crawl_basic) hit /fixtures/<id>/<path> on the shared
             // host — which mock-server doesn't serve — and returned 404 for every
-            // batch URL. Surfaced as 7 BatchTest failures on kreuzcrawl's Java e2e.
+            // batch URL. Surfaced as 7 BatchTest failures on sample-crawler's Java e2e.
             setup_lines.push(format!(
                 "String {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", (System.getProperty(\"mockServerUrl\") != null ? System.getProperty(\"mockServerUrl\") : (System.getenv(\"MOCK_SERVER_URL\") != null ? System.getenv(\"MOCK_SERVER_URL\") : \"http://localhost:8000\")) + \"/fixtures/{fixture_id}\"));"
             ));
@@ -2988,7 +2988,7 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify that no kreuzberg-domain names leak into the generated output when
+    /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
     fn java_stub_contains_no_kreuzberg_domain_names() {

@@ -28,7 +28,7 @@ use std::collections::HashMap;
 /// Rustler-specific trait bridge generator.
 /// Implements code generation for bridging Elixir modules to Rust traits via NIFs.
 pub struct RustlerBridgeGenerator {
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
@@ -870,7 +870,7 @@ pub fn gen_bridge_function(
 ///    it as `options.visitor`, then spawns a system thread, runs conversion, and
 ///    sends the result as `{:ok, result}` / `{:error, reason}` to the BEAM process.
 ///
-/// The Elixir public-API wrapper in `html_to_markdown.ex` calls
+/// The Elixir public-API wrapper in `sample_markdown.ex` calls
 /// `Native.convert_with_visitor(html, clean_opts, visitor)` when a visitor map
 /// is present, or falls back to `Native.convert(html, opts_json)` otherwise.
 pub fn gen_bridge_field_function(

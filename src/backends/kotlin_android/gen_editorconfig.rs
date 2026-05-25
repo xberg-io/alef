@@ -3,8 +3,8 @@
 //! Generated Kotlin/Android projects co-locate the alef-emitted Java facade
 //! inside the AAR's `src/main/java/<java_pkg>/` tree. The Java package is
 //! derived from the umbrella crate's `repository` URL, which (for hyphenated
-//! GitHub orgs such as `kreuzberg-dev`) introduces underscores in the
-//! resulting reverse-DNS package name (e.g. `com.github.kreuzberg_dev`).
+//! GitHub orgs such as `sample_core-dev`) introduces underscores in the
+//! resulting reverse-DNS package name (e.g. `com.github.sample_core_dev`).
 //! That trips ktlint's `standard:package-name` rule, which forbids
 //! underscores. Since the package is determined upstream and constrained by
 //! Java conventions, we disable that one rule for the generated tree rather
@@ -30,8 +30,8 @@ trim_trailing_whitespace = true
 [*.kt]
 indent_style = space
 indent_size = 4
-# Java packages derived from hyphenated GitHub orgs (e.g. `kreuzberg-dev` →
-# `com.github.kreuzberg_dev`) carry underscores; allow them for the
+# Java packages derived from hyphenated GitHub orgs (e.g. `sample-org` →
+# `com.github.sample_org`) carry underscores; allow them for the
 # co-located Java facade and its Kotlin wrappers.
 ktlint_standard_package-name = disabled
 # ktfmt and ktlint disagree on class/function/parameter splitting heuristics

@@ -10,7 +10,7 @@ use ahash::{AHashMap, AHashSet};
 /// Resolve the fully-qualified core path for a named type.
 ///
 /// When the TypeDef is found in `types_by_name` its `rust_path` is used (which
-/// may be `kreuzberg::extraction::docx::drawing::DrawingType`). When not found
+/// may be `sample_core::extraction::docx::drawing::DrawingType`). When not found
 /// (e.g. a type that doesn't appear in the API surface but is referenced as a
 /// param type) the short fallback `{core_import}::{name}` is used.
 fn resolve_core_type_path<'a>(name: &str, types_by_name: &AHashMap<&'a str, &'a TypeDef>, core_import: &str) -> String {
@@ -170,7 +170,7 @@ pub(super) fn gen_rustler_method_call_args(
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
             TypeRef::Vec(_) => {
                 if p.is_ref {
-                    // `&Vec<T>` derefs to `&[T]`, which matches kreuzberg core for `&[String]`.
+                    // `&Vec<T>` derefs to `&[T]`, which matches sample_core core for `&[String]`.
                     // For `&[&str]` signatures (Vec<String> inner), a refs intermediate is
                     // emitted in the caller body (gen_nif_function deser_lines) instead.
                     format!("&{}", p.name)
@@ -362,7 +362,7 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Vec(_) => {
                         if p.is_ref {
-                            // &Vec<T> derefs to &[T] which matches kreuzberg core in all known sites.
+                            // &Vec<T> derefs to &[T] which matches sample_core core in all known sites.
                             format!("&{}", p.name)
                         } else {
                             p.name.to_string()
@@ -467,7 +467,7 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Vec(_) => {
                         if p.is_ref {
-                            // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
+                            // `&Vec<T>` derefs to `&[T]`, which is what sample_core core
                             // takes for `&[String]` callers.
                             format!("&{}", p.name)
                         } else {

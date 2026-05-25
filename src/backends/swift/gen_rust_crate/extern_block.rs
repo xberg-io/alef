@@ -198,7 +198,7 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
     // (`cargo build` succeeds) because `Vec<EnumName>` is valid Rust.  The
     // Vectorizable conformance only causes failures when the *Swift* side is
     // compiled (Xcode / full XCFramework build) and the enum is not a Swift
-    // class type.  `cargo build -p liter-llm-swift` only exercises the Rust
+    // class type.  `cargo build -p sample-llm-swift` only exercises the Rust
     // compilation step, so the Vectorizable symbols do not surface there.
     //
     // Getters that *return* enum-typed fields use `String` (the serde variant
@@ -474,7 +474,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
         let mut start_params: Vec<String> = vec![format!("client: &{owner_type}")];
         for p in &adapter.params {
             // Adapter param types are stored as Rust path strings (e.g.
-            // `liter_llm::ChatCompletionRequest`). Strip any module prefix —
+            // `sample_llm::ChatCompletionRequest`). Strip any module prefix —
             // the swift-bridge extern sees only the simple wrapper-newtype name.
             let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
             let param_name = swift_ident(&p.name.to_snake_case());

@@ -11,7 +11,7 @@
 //! ever appears across the fixture corpus, plus the static set declared by the
 //! `HtmlVisitor` trait. We hardcode the canonical list here to keep the
 //! generated code self-contained — see
-//! `crates/html-to-markdown/src/visitor/traits.rs` for the source of truth.
+//! `crates/sample-markdown/src/visitor/traits.rs` for the source of truth.
 
 use super::dart::escape_dart;
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};

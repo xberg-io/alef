@@ -11,7 +11,7 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::template_versions::toolchain;
 
 /// The JVM-style Kotlin package for the emitted bindings (e.g.
-/// `dev.kreuzberg`). Falls back to a sanitized crate name.
+/// `dev.sample_core`). Falls back to a sanitized crate name.
 pub fn kotlin_package(config: &ResolvedCrateConfig) -> String {
     config
         .kotlin_android
@@ -50,8 +50,8 @@ pub fn aar_group_id(config: &ResolvedCrateConfig) -> String {
         .unwrap_or_else(|| kotlin_package(config))
 }
 
-/// Path-style version of [`kotlin_package`] (`dev.kreuzberg` →
-/// `dev/kreuzberg`).
+/// Path-style version of [`kotlin_package`] (`dev.sample_core` →
+/// `dev/sample_core`).
 pub fn package_path(config: &ResolvedCrateConfig) -> String {
     kotlin_package(config).replace('.', "/")
 }

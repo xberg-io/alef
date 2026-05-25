@@ -121,7 +121,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // Whether any active fixture uses file-based args (`file_path` or
         // `bytes`). Only when true do the generated tests need the working
         // directory to be `test_documents/` at run time. Consumers whose
-        // fixtures are mock-server-only (e.g. kreuzcrawl) have no
+        // fixtures are mock-server-only (e.g. sample-crawler) have no
         // `test_documents/` directory, so emitting `setCwd` for them causes
         // `FileNotFound` at spawn time because zig tries to `chdir` into a
         // directory that does not exist before execing the test binary.
@@ -190,7 +190,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // The Zig backend does not yet support streaming free functions (the
         // generated binding exposes only the unary entry points). Skip any
         // fixture whose resolved call is marked `streaming = true` so we don't
-        // emit calls like `kreuzcrawl.crawl_stream(...)` that fail to compile
+        // emit calls like `sample-crawler.crawl_stream(...)` that fail to compile
         // against a binding that lacks them. Streaming support tracked
         // separately — see streaming-audit notes ("Zig: last-chunk-only").
         let mut test_filenames: Vec<String> = Vec::new();
@@ -661,7 +661,7 @@ pub fn build(b: *std.Build) void {
         //
         // IMPORTANT: `setCwd` is only emitted when `has_file_fixtures` is
         // true. For consumers whose fixtures are mock-server-only (e.g.
-        // kreuzcrawl), there is no `test_documents/` directory. Zig's
+        // sample-crawler), there is no `test_documents/` directory. Zig's
         // RunStep chdirs into the path before execing the test binary; if
         // the directory does not exist, `chdir(2)` returns ENOENT and the
         // spawn fails with `FileNotFound` — even though the binary itself
@@ -1691,7 +1691,7 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
                     }
                     // Non-numeric bracket: HashMap<String, _> key access. FRB / serde
                     // serialize maps as JSON objects, so `field[key]` resolves to
-                    // `.object.get("field").?.object.get("key").?`. Used by h2m's
+                    // `.object.get("field").?.object.get("key").?`. Used by sample-markdown's
                     // `metadata.document.open_graph[title]` alias pattern where
                     // `open_graph` is a `HashMap<String, String>`.
                     expr = format!("{expr}.object.get(\"{key}\").?.object.get(\"{idx}\").?");
@@ -2778,7 +2778,7 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "var {out_err_var}: ?[*:0]u8 = null;");
 
     // arg_expr expands into the argument list for the registration call site:
-    // `kreuzberg.register_fn("test", vtable, &stub, @ptrCast(&out_err))`
+    // `sample_core.register_fn("test", vtable, &stub, @ptrCast(&out_err))`
     // The caller places arg_expr into args_str, which is used as the full argument list
     // of the top-level `{module}.{register_fn}(args_str)` call.
     let arg_expr = format!("\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var})");

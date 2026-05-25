@@ -2520,15 +2520,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
         emit_path_overload(func, &all_names, out);
     }
 
-    // Emit e2e-test wrappers when the api surface exposes the legacy extraction
-    // helper types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`). These
-    // wrappers depend on the JSON-factory shims emitted by the Rust bridge crate
-    // (`extractionConfigFromJson`, `batchBytesItemFromJson`, `batchFileItemFromJson`),
-    // which are gated by the same structural check in `gen_rust_crate::emit_lib_rs`.
-    // No-op for binding crates that don't expose these specific types.
-    if api_has_e2e_helper_types(api) {
-        emit_e2e_wrappers(out);
-    }
+    let _ = api;
 }
 
 /// Emit public Swift forwarding functions for every serde-enabled, non-opaque type
@@ -2554,11 +2546,10 @@ fn emit_from_json_forwarders(
     // serde-enabled, non-opaque, non-trait type in the api surface.  This must
     // stay a strict superset of the union of types for which the Rust crate side
     // (`gen_rust_crate::emit_lib_rs`) emits `{type_snake}_from_json` swift-bridge
-    // shims, which is itself the union of four sets:
-    //   1. e2e helper types (ExtractionConfig, BatchBytesItem, BatchFileItem)
-    //   2. `collect_serde_param_types` (types used as method/free-fn params)
-    //   3. streaming item types
-    //   4. `json_fallback_types` (types Swift's `intoRust()` JSON-encodes)
+    // shims, which is itself the union of three sets:
+    //   1. `collect_serde_param_types` (types used as method/free-fn params)
+    //   2. streaming item types
+    //   3. `json_fallback_types` (types Swift's `intoRust()` JSON-encodes)
     // The previous filter mirrored only (2), so types that participate purely
     // as nested fields / return types (LayoutDetectionConfig, PdfConfig,
     // PostProcessorConfig, etc.) — but are still first-class Codable structs on
@@ -2566,15 +2557,11 @@ fn emit_from_json_forwarders(
     // shared structural predicate (`!is_trait && !is_opaque && has_serde`) so
     // every Swift e2e fixture that names a config type can decode JSON without
     // routing through `RustBridge.`.
-    let e2e_covered = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
-    let e2e_covered_set: std::collections::HashSet<&str> = e2e_covered.iter().copied().collect();
-
     let struct_candidates: Vec<&str> = api
         .types
         .iter()
         .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde)
         .filter(|t| !exclude_types.contains(&t.name))
-        .filter(|t| !e2e_covered_set.contains(t.name.as_str()))
         .map(|t| t.name.as_str())
         .collect();
 
@@ -3296,7 +3283,7 @@ fn emit_swift_bridge_files(
 
     let sources_rust_bridge = package_root.join("Sources").join("RustBridge");
     let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
-    // Use crate_name (e.g. "liter-llm") for the filename, not binding_crate_name.
+    // Use crate_name (e.g. "sample-llm") for the filename, not binding_crate_name.
     // swift-bridge names the sub-directory after the binding crate, but the output
     // Swift file is conventionally named after the crate being bridged.
     let _ = crate_name; // used via binding_crate_name for path, crate_name kept for clarity
@@ -3935,8 +3922,8 @@ fn return_uses_json_bridge(ty: &TypeRef) -> bool {
 /// forwarder must JSON-decode rather than apply a chained `?.toString()` — the
 /// latter is a type error against the non-optional `RustString`.
 ///
-/// Covers `Option<String>` (kreuzberg tslp `detect_language_from_extension`)
-/// and `Option<Primitive>` (liter-llm `completion_cost` returning
+/// Covers `Option<String>` (sample_core parser-pack `detect_language_from_extension`)
+/// and `Option<Primitive>` (sample-llm `completion_cost` returning
 /// `Option<f64>`). Other shapes (`Option<Named>`, `Option<Vec<…>>`) hit the
 /// same bridge but the JSON payload decodes to a Codable target — extend the
 /// match arms as new shapes surface.
@@ -3964,7 +3951,7 @@ struct ForwarderArg {
 /// produce the (optional) conversion line + call argument used to pass it to the
 /// swift-bridge runtime.
 ///
-/// The pairings are intentionally narrow: only conversions used by kreuzberg's
+/// The pairings are intentionally narrow: only conversions used by sample_core's
 /// public free functions are materialised. Anything not handled defaults to
 /// passing the Swift value through unchanged (sufficient for `String`,
 /// primitives, opaque `Named` types).
@@ -4077,7 +4064,7 @@ fn forwarder_param_signature(
             }
             _ => {
                 // Fall back to passing the Swift-side array directly; swift-bridge
-                // accepts `RustVec<T>` for opaque T but kreuzberg does not currently
+                // accepts `RustVec<T>` for opaque T but sample_core does not currently
                 // expose such free functions, so the simpler passthrough is fine.
                 let swift_ty = make_optional(&swift_type_name(ty));
                 (
@@ -4246,7 +4233,7 @@ fn forwarder_return_conversion_suffix_inner(
         // the hardcoded e2e paths and DTO-aware free-function bodies; the
         // generic forwarder doesn't have a chainable suffix that can wrap a
         // bare class value into `try {Name}(value)` because there's no `.map`
-        // entry point on a non-Optional/non-Sequence value. If kreuzberg ever
+        // entry point on a non-Optional/non-Sequence value. If sample_core ever
         // adds such a free function the forwarder body itself will need to
         // change shape (binding the result to a local first). Until then,
         // emit an empty suffix and let the type check fail loudly rather than

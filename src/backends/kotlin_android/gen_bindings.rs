@@ -371,12 +371,12 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
 /// Opaque handle types appear in two shapes in the API:
 ///
 /// 1. **Client shape** — an opaque type with instance methods (e.g.
-///    `DefaultClient` in liter-llm).  This is handled by
+///    `DefaultClient` in sample-llm).  This is handled by
 ///    `emit_jni_client_class` which emits a `DefaultClient.kt` class with one
 ///    `suspend fun` per method.  Top-level free functions that return this
 ///    type produce the same class.
 /// 2. **Handle shape** — an opaque type with no instance methods (e.g.
-///    `CrawlEngineHandle` in kreuzcrawl).  All operations on the handle are
+///    `CrawlEngineHandle` in sample-crawler).  All operations on the handle are
 ///    top-level free functions taking the handle as their first parameter.
 ///    This emitter generates a one-off `<TypeName>.kt` wrapper class
 ///    implementing `AutoCloseable` whose `close()` calls the bridge's

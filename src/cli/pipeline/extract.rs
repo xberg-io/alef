@@ -243,7 +243,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 
     // Build a set of known rust_paths for types and enums.
     // This enables disambiguation of types with the same short name but different
-    // module paths (e.g., `kreuzberg::types::OutputFormat` vs `kreuzberg::OutputFormat`).
+    // module paths (e.g., `sample_core::types::OutputFormat` vs `sample_core::OutputFormat`).
     // Normalize hyphens to underscores in paths for consistent comparison.
     let known_type_paths: AHashSet<String> = api.types.iter().map(|t| t.rust_path.replace('-', "_")).collect();
     let known_enum_paths: AHashSet<String> = api.enums.iter().map(|e| e.rust_path.replace('-', "_")).collect();
@@ -270,7 +270,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
                         if known_types.contains(name.as_str()) || known_enums.contains(name.as_str()) {
                             // Check if the full path's last segment matches any known type/enum path's last segment.
                             // This handles cases where module paths differ but the type is the same
-                            // (e.g., crate::metadata::HtmlMetadata vs html-to-markdown-rs::HtmlMetadata).
+                            // (e.g., crate::metadata::HtmlMetadata vs sample-markdown-rs::HtmlMetadata).
                             let path_type_name = normalized_path.rsplit("::").next().unwrap_or("");
                             let path_matches = known_type_paths
                                 .iter()
@@ -732,7 +732,7 @@ fn dedup_api_surface(api: &mut ApiSurface) {
     api.types.retain(|t| !error_names.contains(&t.name));
 
     // Dedup types by name — prefer shorter rust_path (closer to crate root).
-    // This handles name collisions like kreuzberg::Table vs kreuzberg::extraction::docx::parser::Table.
+    // This handles name collisions like sample_core::Table vs sample_core::extraction::docx::parser::Table.
     {
         let mut best: AHashMap<String, usize> = AHashMap::new();
         for (i, t) in api.types.iter().enumerate() {
@@ -776,9 +776,9 @@ fn dedup_api_surface(api: &mut ApiSurface) {
 
     // Dedup functions by name — prefer shorter rust_path (closer to crate root).
     // This resolves C2: when the same function name exists at multiple definition
-    // sites (e.g. kreuzberg::utils::clean_extracted_text and
-    // kreuzberg::text::quality::clean_extracted_text), prefer the one re-exported
-    // nearest to the crate root, which is the one users call via module = kreuzberg.
+    // sites (e.g. sample_core::utils::clean_extracted_text and
+    // sample_core::text::quality::clean_extracted_text), prefer the one re-exported
+    // nearest to the crate root, which is the one users call via module = sample_core.
     {
         let mut best: AHashMap<String, usize> = AHashMap::new();
         for (i, f) in api.functions.iter().enumerate() {
@@ -815,7 +815,7 @@ fn dedup_api_surface(api: &mut ApiSurface) {
 /// ```toml
 /// [crates.exclude]
 /// types = [
-///   "kreuzberg::core::config::formats::OutputFormat",  # internal; matched by rust_path
+///   "sample_core::core::config::formats::OutputFormat",  # internal; matched by rust_path
 ///   "OutputFormat",                                    # would match by name (all variants)
 /// ]
 /// ```
@@ -865,7 +865,7 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
     // Capture rust_paths of excluded types BEFORE dropping them, so trait_bridge
     // codegen can still reference them by qualified path when they appear in trait
     // method signatures (preserves `impl Trait for Wrapper { fn render(&self,
-    // doc: &kreuzberg::types::internal::InternalDocument) }`).
+    // doc: &sample_core::types::internal::InternalDocument) }`).
     for typ in &api.types {
         if is_type_excluded(&typ.name, &typ.rust_path, &exclude.types) {
             api.excluded_type_paths
@@ -915,7 +915,7 @@ fn expand_include_list(api: &ApiSurface, include_types: &[String], include_funct
     // before the fixed-point loop. The user has explicitly opted into these functions
     // via `include.functions`, so the types they expose at their public boundary must
     // survive the include-list filter — otherwise the function's return type gets
-    // sanitized away to `String` later in the pipeline (regression for kreuzcrawl's
+    // sanitized away to `String` later in the pipeline (regression for sample-crawler's
     // `BatchScrapeResults` / `BatchCrawlResults` wrapper structs).
     let include_function_set: AHashSet<&str> = include_functions.iter().map(String::as_str).collect();
     if !include_function_set.is_empty() {
@@ -1142,8 +1142,8 @@ mod tests {
     /// Fully-qualified entries match only the specific rust_path, not any type
     /// that merely shares the same short name.
     ///
-    /// Regression: kreuzberg::core::config::formats::OutputFormat must be excluded
-    /// while kreuzberg::types::OutputFormat is retained.
+    /// Regression: sample_core::core::config::formats::OutputFormat must be excluded
+    /// while sample_core::types::OutputFormat is retained.
     #[test]
     fn is_type_excluded_qualified_entry_matches_rust_path_not_name() {
         let exclude = vec!["kreuzberg::core::config::formats::OutputFormat".to_string()];
@@ -1257,7 +1257,7 @@ mod tests {
         }
     }
 
-    /// Regression for kreuzcrawl's `BatchScrapeResults` bug: a function listed in
+    /// Regression for sample-crawler's `BatchScrapeResults` bug: a function listed in
     /// `[crates.include].functions` returns a wrapper struct that is NOT in
     /// `[crates.include].types`. Before the fix, the include filter dropped the
     /// wrapper struct (it was unreachable from the included types), and the later
