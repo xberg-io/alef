@@ -170,7 +170,17 @@ _FIXTURES_DIR = _E2E_DIR.parent / "fixtures"
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_server() -> Generator[str, None, None]:
-    """Spawn the mock HTTP server binary and set MOCK_SERVER_URL."""
+    """Spawn the mock HTTP server binary and set MOCK_SERVER_URL.
+
+    If MOCK_SERVER_URL is already set, a parent process (e.g. `alef test-apps
+    run`) started a shared mock-server and exported its URL (plus any
+    MOCK_SERVERS / MOCK_SERVER_<FIXTURE_ID> vars). Use it as-is and do NOT spawn
+    our own server.
+    """
+    existing = os.environ.get("MOCK_SERVER_URL")
+    if existing:
+        yield existing
+        return
     proc = subprocess.Popen(  # noqa: S603
         [str(_MOCK_SERVER_BIN), str(_FIXTURES_DIR)],
         stdout=subprocess.PIPE,

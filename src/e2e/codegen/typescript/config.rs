@@ -238,4 +238,21 @@ mod tests {
         assert!(out.contains("child.once('close'"), "got: {out}");
         assert!(out.contains("child.kill('SIGKILL')"), "got: {out}");
     }
+
+    #[test]
+    fn render_global_setup_honors_preset_mock_server_url() {
+        let out = render_global_setup();
+        // When MOCK_SERVER_URL is pre-set by the test runner, reuse it and skip
+        // spawning the local binary. The early return must precede the spawn().
+        assert!(
+            out.contains("if (process.env.MOCK_SERVER_URL)"),
+            "globalSetup must short-circuit on a pre-set MOCK_SERVER_URL, got: {out}"
+        );
+        let guard = out.find("if (process.env.MOCK_SERVER_URL)").expect("guard present");
+        let spawn = out.find("spawn(").expect("spawn present");
+        assert!(
+            guard < spawn,
+            "the pre-set MOCK_SERVER_URL guard must come before the spawn() call, got: {out}"
+        );
+    }
 }

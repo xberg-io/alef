@@ -332,6 +332,22 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "\t// If MOCK_SERVER_URL is already set, a parent process (e.g. `alef test-apps run`)"
+    );
+    let _ = writeln!(
+        out,
+        "\t// started a shared mock-server and exported its URL (plus any MOCK_SERVERS /"
+    );
+    let _ = writeln!(
+        out,
+        "\t// MOCK_SERVER_<FIXTURE_ID> vars). Use it as-is and do NOT spawn our own server."
+    );
+    let _ = writeln!(out, "\tif os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
+    let _ = writeln!(out, "\t\tos.Exit(m.Run())");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out);
     let _ = writeln!(out, "\t// Start the mock HTTP server if it exists.");
     let _ = writeln!(
         out,
