@@ -334,8 +334,7 @@ pub(crate) fn emit_function_shim(
                     let bound_name = format!("__{}_ahash", p.name);
                     let name = p.name.to_snake_case();
                     pre_call_bindings.push(format!(
-                        "    let {bound_name} = {}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());",
-                        name
+                        "    let {bound_name} = {name}.map(|json_str| {{ let hm = ::serde_json::from_str::<std::collections::HashMap<String, String>>(&json_str).expect(\"valid JSON for {name}\"); hm.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>() }});"
                     ));
                 }
             }

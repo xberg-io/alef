@@ -64,7 +64,7 @@ pub(super) fn gen_input_dto_for_type(
                 ty => &dto_ty,
                 core_name => &f.name,
                 serde_rename => &camel_case_name,
-                conv => dto_field_conversion(&f.ty),
+                conv => dto_field_conversion(&f.ty, f.sanitized),
             }
         })
         .collect::<Vec<_>>();
@@ -139,11 +139,20 @@ fn type_ref_to_dto_type(ty: &crate::core::ir::TypeRef, core_import: &str) -> Str
 /// the constructed value in `Into::into` keeps the same optional-field papering
 /// as the default branch, so the expression is valid whether the core field is
 /// `T` or `Option<T>`.
-fn dto_field_conversion(ty: &crate::core::ir::TypeRef) -> String {
+///
+/// When a field is sanitized (e.g., `Option<ConcurrencyConfig>` represented as
+/// `Option<String>` for JSON serialization), use JSON deserialization instead
+/// of `.into()`, which doesn't impl for the target type.
+fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool) -> String {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Duration => "Into::into(std::time::Duration::from_millis(v))".to_string(),
         TypeRef::Path => "Into::into(std::path::PathBuf::from(v))".to_string(),
+        TypeRef::String if sanitized => {
+            // Sanitized String field: the core type is a structured type (e.g., ConversionOptions)
+            // serialized as JSON. Deserialize instead of using .into().
+            "serde_json::from_str(&v).unwrap_or_default()".to_string()
+        }
         _ => "v.into()".to_string(),
     }
 }
@@ -1384,6 +1393,26 @@ mod tests {
         assert!(
             conv_opt.contains("collect::<Vec<Vec<String>>>"),
             "optional variant must also have explicit type: {conv_opt}"
+        );
+    }
+
+    #[test]
+    fn sanitized_string_field_uses_json_deserialize() {
+        // Bug fix: when a field is sanitized to Option<String> (e.g., ConversionOptions,
+        // ConcurrencyConfig, CancellationToken), the From impl must JSON-deserialize
+        // instead of using .into() (which has no impl for these structured types).
+        let ty_string = TypeRef::String;
+
+        // Non-sanitized String field: use .into()
+        let conv_normal = dto_field_conversion(&ty_string, false);
+        assert_eq!(conv_normal, "v.into()", "non-sanitized String should use .into()");
+
+        // Sanitized String field: use JSON deserialization
+        let conv_sanitized = dto_field_conversion(&ty_string, true);
+        assert_eq!(
+            conv_sanitized,
+            "serde_json::from_str(&v).unwrap_or_default()",
+            "sanitized String should use JSON deserialization: {conv_sanitized}"
         );
     }
 }
