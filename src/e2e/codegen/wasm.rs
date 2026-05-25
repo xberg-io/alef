@@ -444,23 +444,43 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
 fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
-    // Wasm module async init — must run before any wasm export is called.
-    // The published wasm-bindgen package exports a default async `init()`.
-    // wasm-pack `--target nodejs` bundles are synchronously self-initializing;
-    // the try/catch + typeof guard is a no-op for them.
-    out.push_str("// Pre-initialize the wasm-bindgen module so that exports are callable.\n");
-    out.push_str("// Published packages built with wasm-bindgen export a default async\n");
-    out.push_str("// `init()` that must be awaited before any wasm export is callable.\n");
-    out.push_str("// wasm-pack `--target nodejs` CJS bundles are self-initializing and\n");
-    out.push_str("// the try/catch is a no-op for them.\n");
+    // Wasm module init — must run before any wasm export is called.
+    // Published wasm-bindgen packages export `initSync` (synchronous, takes a
+    // WebAssembly.Module or ArrayBuffer) and a default async `__wbg_init`.
+    // Node.js built-in `fetch` does not support `file://` URLs, so the async
+    // default fails when called without a path in a Node.js context. We
+    // instead locate the `.wasm` binary via `createRequire`, read it with
+    // `readFileSync`, and call `initSync` with the buffer. This is always safe
+    // and works in both Node.js test workers and browser contexts.
+    // For wasm-pack `--target nodejs` bundles that self-initialize synchronously
+    // the import succeeds but `initSync` may be absent — the try/catch is a no-op.
+    out.push_str("import { createRequire } from 'module';\n");
+    out.push_str("import { readFileSync } from 'fs';\n");
+    out.push_str("import { fileURLToPath } from 'url';\n\n");
+    out.push_str("// Pre-initialize the wasm-bindgen module so that exports are callable\n");
+    out.push_str("// in every vitest worker. The async default export uses fetch() which\n");
+    out.push_str("// does not support file:// URLs in Node.js; use initSync with a\n");
+    out.push_str("// readFileSync buffer instead.\n");
     let _ = writeln!(out, "try {{");
-    let _ = writeln!(out, "  const wasmModule = await import('{pkg_name}');");
-    out.push_str("  const init = wasmModule.default ?? (wasmModule as unknown as Record<string, unknown>).init;\n");
-    out.push_str("  if (typeof init === 'function') {\n");
-    out.push_str("    await (init as () => Promise<unknown>)();\n");
+    let _ = writeln!(out, "  const _require = createRequire(import.meta.url);");
+    let _ = writeln!(out, "  const wasmPkgDir = _require.resolve('{pkg_name}');");
+    let _ = writeln!(out, "  const wasmModule = await import(/* @vite-ignore */ wasmPkgDir);");
+    out.push_str("  const initSync = (wasmModule as unknown as Record<string, unknown>).initSync as ((mod: WebAssembly.Module | BufferSource) => unknown) | undefined;\n");
+    out.push_str("  if (typeof initSync === 'function') {\n");
+    out.push_str("    // Locate the .wasm binary next to the JS entry.\n");
+    out.push_str("    const wasmJsPath = fileURLToPath(new URL(wasmPkgDir, 'file://'));\n");
+    out.push_str("    const wasmBinPath = wasmJsPath.replace(/\\.js$/, '_bg.wasm');\n");
+    out.push_str("    const wasmBytes = readFileSync(wasmBinPath);\n");
+    out.push_str("    // Pass as object form to avoid wasm-bindgen deprecation warning.\n");
+    out.push_str("    initSync({ module: wasmBytes });\n");
+    out.push_str("  } else {\n");
+    out.push_str("    // Fallback: try the async default init (wasm-pack --target nodejs bundles).\n");
+    out.push_str("    const initDefault = (wasmModule as unknown as Record<string, unknown>).default as (() => Promise<unknown>) | undefined;\n");
+    out.push_str("    if (typeof initDefault === 'function') await initDefault();\n");
     out.push_str("  }\n");
-    out.push_str("} catch {\n");
-    out.push_str("  // Module may not export a top-level init — continue anyway.\n");
+    out.push_str("} catch (err) {\n");
+    out.push_str("  // Module may not require explicit init — continue anyway.\n");
+    out.push_str("  console.warn('[alef wasm setup] init skipped:', (err as Error).message);\n");
     out.push_str("}\n\n");
     if include_file_setup {
         let file_only = render_file_setup(test_documents_dir);

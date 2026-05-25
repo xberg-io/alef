@@ -498,7 +498,11 @@ fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
 }
 
 #[test]
-fn wasm_global_setup_awaits_wasm_init_before_mock_server_setup() {
+fn wasm_global_setup_does_not_contain_init_call() {
+    // The wasm init is handled per-worker in setup.ts (setupFiles). The
+    // globalSetup.ts is responsible only for spawning the mock-server and
+    // should NOT duplicate the init call (which would run in the main process
+    // and be invisible to worker processes anyway).
     let files = generate_all(
         &WasmCodegen,
         "wasm",
@@ -508,31 +512,20 @@ fn wasm_global_setup_awaits_wasm_init_before_mock_server_setup() {
         .iter()
         .find(|f| f.path.ends_with("globalSetup.ts"))
         .expect("wasm globalSetup.ts not found");
-    // The init block must appear before the MOCK_SERVER_URL guard so the wasm
-    // module is ready before any test — even when running with a pre-set server.
     assert!(
-        global_setup.content.contains("await init()"),
-        "wasm globalSetup.ts must await wasm init() before tests run:\n{}",
-        global_setup.content
-    );
-    let init_pos = global_setup.content.find("await init()").expect("init present");
-    let guard_pos = global_setup
-        .content
-        .find("if (process.env.MOCK_SERVER_URL)")
-        .expect("mock server guard present");
-    assert!(
-        init_pos < guard_pos,
-        "wasm init must precede the MOCK_SERVER_URL guard:\n{}",
+        global_setup.content.contains("if (process.env.MOCK_SERVER_URL)"),
+        "globalSetup.ts must honor a pre-set MOCK_SERVER_URL:\n{}",
         global_setup.content
     );
 }
 
 #[test]
-fn wasm_setup_ts_awaits_wasm_init_per_worker() {
-    // The wasm init MUST also appear in setup.ts (vitest setupFiles, per-worker)
+fn wasm_setup_ts_initializes_wasm_per_worker() {
+    // The wasm init MUST appear in setup.ts (vitest setupFiles, per-worker)
     // because globalSetup runs only in the main process; worker processes spawn
     // their own module graph and would hit __wbindgen_add_to_stack_pointer crashes
-    // without a per-worker init call.
+    // without a per-worker init call. Uses initSync + readFileSync to bypass
+    // Node.js fetch() not supporting file:// URLs.
     let files = generate_all(
         &WasmCodegen,
         "wasm",
@@ -543,8 +536,13 @@ fn wasm_setup_ts_awaits_wasm_init_per_worker() {
         .find(|f| f.path.ends_with("setup.ts"))
         .expect("wasm setup.ts not found — it must be emitted for HTTP fixtures");
     assert!(
-        setup_ts.content.contains("await init()") || setup_ts.content.contains("await (init"),
-        "wasm setup.ts must await wasm init() per worker:\n{}",
+        setup_ts.content.contains("initSync"),
+        "wasm setup.ts must call initSync to initialize the wasm module per worker:\n{}",
+        setup_ts.content
+    );
+    assert!(
+        setup_ts.content.contains("readFileSync"),
+        "wasm setup.ts must use readFileSync to load the wasm binary (fetch() doesn't support file://):\n{}",
         setup_ts.content
     );
 }
