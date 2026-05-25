@@ -65,8 +65,10 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     // no async functions never reference it — list it as ignored. Same for
     // `async-trait`, which is added when the umbrella declares
     // `trait_bridges` but goes unreferenced when the resulting trait shim
-    // does not use `#[async_trait]` after JSON-bridging.
-    let mut machete_ignored: Vec<&str> = vec!["tokio"];
+    // does not use `#[async_trait]` after JSON-bridging. `ahash` is added when
+    // any parameter uses AHashMap<Cow, _>, but the PHP wrapper never directly
+    // uses ahash—it's used only in the Rust core for type field marshalling.
+    let mut machete_ignored: Vec<&str> = vec!["tokio", "ahash"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
     }
@@ -91,7 +93,7 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
-# `futures-util` is conditionally referenced: only when streaming adapters are declared.
+# `ahash` and `futures-util` are conditionally included but not directly used in PHP code.
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
