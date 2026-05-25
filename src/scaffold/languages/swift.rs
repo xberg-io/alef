@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let module = config.swift_module();
+    let repository_url = config.github_repo();
     // Strip the minor version component: "13.0" → "13", "16.0" → "16".
     // Swift PackageDescription uses e.g. `.v13` and `.v16`.
     let min_macos_major = swift_min_macos(config).split('.').next().unwrap_or("13").to_string();
@@ -248,7 +249,7 @@ let package = Package(
     // The binary includes C headers for swift-bridge interop.
     .binaryTarget(
       name: "RustBridge",
-      url: "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v__ALEF_SWIFT_VERSION__/{module}-rs.artifactbundle.zip",
+      url: "{repository_url}/releases/download/v__ALEF_SWIFT_VERSION__/{module}-rs.artifactbundle.zip",
       checksum: "__ALEF_SWIFT_CHECKSUM__"
     ),
     .target(
@@ -262,6 +263,7 @@ let package = Package(
         module = module,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
+        repository_url = repository_url,
     );
 
     Ok(vec![

@@ -33,7 +33,7 @@ impl E2eCodegen for PhpExtCodegen {
         &self,
         _groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _config: &ResolvedCrateConfig,
+        config: &ResolvedCrateConfig,
         _type_defs: &[crate::core::ir::TypeDef],
         _enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
@@ -54,21 +54,23 @@ impl E2eCodegen for PhpExtCodegen {
         let pkg_name = pkg
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| "kreuzberg-dev/html-to-markdown-ext".to_string());
+            .unwrap_or_else(|| format!("example/{}-ext", config.name));
         let version = pkg
             .and_then(|p| p.version.as_ref())
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
 
+        let extension_name = config.php_extension_name();
+
         Ok(vec![
             GeneratedFile {
                 path: output_base.join("run_tests.sh"),
-                content: render_run_tests(&pkg_name, &version),
+                content: render_run_tests(&pkg_name, &version, &extension_name),
                 generated_header: true,
             },
             GeneratedFile {
                 path: output_base.join("main.php"),
-                content: render_main_php(),
+                content: render_main_php(&extension_name),
                 generated_header: true,
             },
             GeneratedFile {
@@ -92,7 +94,7 @@ fn stub_readme() -> String {
 }
 
 /// Render `run_tests.sh`.
-fn render_run_tests(pkg_name: &str, version: &str) -> String {
+fn render_run_tests(pkg_name: &str, version: &str, extension_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -121,7 +123,7 @@ fn render_run_tests(pkg_name: &str, version: &str) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "# Locate the installed extension.");
     let _ = writeln!(out, "EXT_DIR=\"$(php -r 'echo ini_get(\"extension_dir\");')\"");
-    let _ = writeln!(out, "EXT_NAME=\"html_to_markdown\"");
+    let _ = writeln!(out, "EXT_NAME=\"{extension_name}\"");
     let _ = writeln!(out);
     let _ = writeln!(out, "# Determine OS-specific extension suffix.");
     let _ = writeln!(out, "case \"$(uname -s)\" in");
@@ -142,8 +144,9 @@ fn render_run_tests(pkg_name: &str, version: &str) -> String {
 }
 
 /// Render `main.php`.
-fn render_main_php() -> String {
+fn render_main_php(extension_name: &str) -> String {
     let mut out = String::new();
+    let convert_function = format!("{extension_name}_convert");
     let header = hash::header(CommentStyle::DoubleSlash);
     out.push_str("<?php\n\n");
     out.push_str(&header);
@@ -151,25 +154,25 @@ fn render_main_php() -> String {
     let _ = writeln!(out, "declare(strict_types=1);");
     let _ = writeln!(out);
     let _ = writeln!(out, "// Verify the extension is loaded.");
-    let _ = writeln!(out, "if (!extension_loaded('html_to_markdown')) {{");
+    let _ = writeln!(out, "if (!extension_loaded('{extension_name}')) {{");
     let _ = writeln!(
         out,
-        "    fwrite(STDERR, \"FAIL: html_to_markdown extension is not loaded\\n\");"
+        "    fwrite(STDERR, \"FAIL: {extension_name} extension is not loaded\\n\");"
     );
     let _ = writeln!(out, "    exit(1);");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "// Verify the convert function exists.");
-    let _ = writeln!(out, "if (!function_exists('html_to_markdown_convert')) {{");
+    let _ = writeln!(out, "if (!function_exists('{convert_function}')) {{");
     let _ = writeln!(
         out,
-        "    fwrite(STDERR, \"FAIL: html_to_markdown_convert() not found\\n\");"
+        "    fwrite(STDERR, \"FAIL: {convert_function}() not found\\n\");"
     );
     let _ = writeln!(out, "    exit(1);");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "// Smoke-test: convert a heading.");
-    let _ = writeln!(out, "$result = html_to_markdown_convert('<h1>Hi</h1>');");
+    let _ = writeln!(out, "$result = {convert_function}('<h1>Hi</h1>');");
     let _ = writeln!(out);
     let _ = writeln!(out, "if (!str_contains($result, 'Hi')) {{");
     let _ = writeln!(
@@ -181,7 +184,7 @@ fn render_main_php() -> String {
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "echo \"PASS: html_to_markdown_convert('<h1>Hi</h1>') => $result\\n\";"
+        "echo \"PASS: {convert_function}('<h1>Hi</h1>') => $result\\n\";"
     );
     let _ = writeln!(out, "exit(0);");
     out
