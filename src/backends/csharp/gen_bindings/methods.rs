@@ -12,7 +12,7 @@ use crate::codegen::generators::trait_bridge::find_bridge_field;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::core::config::AdapterConfig;
 use crate::core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Skip methods that take opaque handle FFI pointers as first arg but operate on non-opaque types.
@@ -274,6 +274,50 @@ pub(super) fn gen_wrapper_class(
     for adapter in adapters {
         if matches!(adapter.pattern, crate::core::config::AdapterPattern::Streaming) {
             out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
+        }
+    }
+
+    // Emit Register* and Unregister* facade methods for trait bridges.
+    // These are static methods on KreuzbergLib that forward to NativeMethods P/Invoke.
+    for bridge_cfg in trait_bridges {
+        let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
+        let trait_snake = bridge_cfg.trait_name.to_snake_case();
+
+        // Register{TraitName} — takes IntPtr handle, returns void
+        let register_method_name = format!("Register{trait_pascal}");
+        out.push_str(&format!(
+            "    /// <summary>Register a {trait_pascal} implementation via native handle</summary>\n"
+        ));
+        out.push_str(&format!("    public static void {}(IntPtr handle)\n", register_method_name));
+        out.push_str("    {\n");
+        out.push_str(&format!(
+            "        var ec = NativeMethods.Register{}(handle, out var outError);\n",
+            trait_pascal
+        ));
+        out.push_str("        if (ec != 0) {\n");
+        out.push_str("            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? \"Register failed\";\n");
+        out.push_str("            throw new KreuzbergException(ec, msg);\n");
+        out.push_str("        }\n");
+        out.push_str("    }\n\n");
+
+        // Unregister{TraitName} — only if unregister_fn is configured
+        if bridge_cfg.unregister_fn.is_some() {
+            let unregister_method_name = format!("Unregister{trait_pascal}");
+            out.push_str(&format!(
+                "    /// <summary>Unregister a {trait_pascal} implementation by name</summary>\n"
+            ));
+            out.push_str(&format!("    public static void {}(string name)\n", unregister_method_name));
+            out.push_str("    {\n");
+            out.push_str("        ArgumentNullException.ThrowIfNull(name);\n");
+            out.push_str(&format!(
+                "        var ec = NativeMethods.Unregister{}(name, out var outError);\n",
+                trait_pascal
+            ));
+            out.push_str("        if (ec != 0) {\n");
+            out.push_str("            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? \"Unregister failed\";\n");
+            out.push_str("            throw new KreuzbergException(ec, msg);\n");
+            out.push_str("        }\n");
+            out.push_str("    }\n\n");
         }
     }
 

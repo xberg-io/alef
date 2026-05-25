@@ -6,8 +6,8 @@
 /// path is ignored. Returns `None` when the URL is missing a host or path segment.
 ///
 /// Examples:
-/// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("com.github.kreuzberg_dev")`
-/// - `https://github.com/spikard-rs/spikard`     → `Some("com.github.spikard_rs")`
+/// - `https://github.com/sample_core-dev/sample_core` → `Some("com.github.sample_core_dev")`
+/// - `https://github.com/sample_project-rs/sample_project`     → `Some("com.github.sample_project_rs")`
 /// - `https://gitlab.com/foo/bar`                → `Some("com.gitlab.foo")`
 /// - `https://example.invalid/x`                 → `Some("invalid.example.x")`
 /// - `https://github.com/`                       → `None` (no org segment)
@@ -39,7 +39,7 @@ pub fn derive_reverse_dns_package(repo_url: &str) -> Option<String> {
 /// the URL has no host or no path segment beyond the host.
 ///
 /// Examples:
-/// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("github.com/kreuzberg-dev/kreuzberg")`
+/// - `https://github.com/sample_core-dev/sample_core` → `Some("github.com/sample_core-dev/sample_core")`
 /// - `https://github.com/foo/bar/` → `Some("github.com/foo/bar")`
 /// - `https://github.com/` → `None`
 pub fn derive_go_module_from_repo(repo_url: &str) -> Option<String> {
@@ -65,7 +65,7 @@ pub fn derive_go_module_from_repo(repo_url: &str) -> Option<String> {
 /// missing a host or org segment.
 ///
 /// Examples:
-/// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("kreuzberg-dev")`
+/// - `https://github.com/sample_core-dev/sample_core` → `Some("sample_core-dev")`
 /// - `https://github.com/`                       → `None`
 pub fn derive_repo_org(repo_url: &str) -> Option<String> {
     let after_scheme = repo_url.split_once("://").map(|(_, rest)| rest).unwrap_or(repo_url);

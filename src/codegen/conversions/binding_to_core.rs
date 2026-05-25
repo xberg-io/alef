@@ -217,9 +217,9 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         };
         // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
         // wrap the binding value back into the newtype for the core struct.
-        // e.g. `source: val.source` → `source: kreuzberg::NodeIndex(val.source)`
-        //      `parent: val.parent` → `parent: val.parent.map(kreuzberg::NodeIndex)`
-        //      `children: val.children` → `children: val.children.into_iter().map(kreuzberg::NodeIndex).collect()`
+        // e.g. `source: val.source` → `source: sample_core::NodeIndex(val.source)`
+        //      `parent: val.parent` → `parent: val.parent.map(sample_core::NodeIndex)`
+        //      `children: val.children` → `children: val.children.into_iter().map(sample_core::NodeIndex).collect()`
         let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
                 // When `optional=true` and `ty` is a plain Primitive (not TypeRef::Optional), the core

@@ -417,7 +417,7 @@ pub fn sync_versions(
     // because the cache key was only the version string. CI runs without
     // the cache, so it produced a different result and the alef-sync-versions
     // hook failed for downstream consumers. The scan is fast (sub-second
-    // on kreuzberg-sized repos) and the work is idempotent when nothing
+    // on sample_core-sized repos) and the work is idempotent when nothing
     // is actually stale.
     let last_path = std::path::Path::new(".alef").join("last_synced_version");
     info!("Syncing version {version}");
@@ -437,7 +437,7 @@ pub fn sync_versions(
 
     // Workspace Cargo.toml files: sync [package] version in both members and excluded crates.
     // After updating [package] version, also patch intra-workspace dep version pins so that
-    // entries like `kreuzberg = { path = "...", version = "X.Y.Z" }` get bumped to match.
+    // entries like `sample_core = { path = "...", version = "X.Y.Z" }` get bumped to match.
     if let Ok(root_content) = std::fs::read_to_string("Cargo.toml") {
         if let Ok(root_toml) = root_content.parse::<toml::Table>() {
             let empty_vec = vec![];
@@ -536,7 +536,7 @@ pub fn sync_versions(
     //   3. "{config.output_for("python")}/pyproject.toml" — the maturin-build
     //      pyproject that lives alongside the PyO3 source crate (e.g.
     //      "crates/{lib}-py/src/pyproject.toml").  This was the missed case that
-    //      caused version drift in kreuzcrawl rc.24 (job 77612730306).
+    //      caused version drift in sample-crawler rc.24 (job 77612730306).
     let python_version = to_pep440(&version);
     {
         let pkg_dir = config.package_dir(Language::Python);
@@ -862,7 +862,7 @@ pub fn sync_versions(
     }
 
     // Go e2e go.mod — discover the module path fragment from the file itself
-    // so this logic works for any consumer repo (not just kreuzcrawl).
+    // so this logic works for any consumer repo (not just sample-crawler).
     // We look for a `require` line whose module path ends with `/packages/go`
     // and update its version.
     for entry in glob::glob("e2e/go/go.mod").into_iter().flatten().flatten() {
@@ -1163,7 +1163,7 @@ pub fn sync_versions(
             .ffi
             .as_ref()
             .and_then(|p| {
-                // Output path is like "crates/html-to-markdown-ffi/src/" — get the crate dir name
+                // Output path is like "crates/sample-markdown-ffi/src/" — get the crate dir name
                 let p = p.to_string_lossy();
                 let trimmed = p.trim_end_matches('/');
                 let trimmed = trimmed.strip_suffix("/src").unwrap_or(trimmed);
@@ -1492,11 +1492,11 @@ fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option<String> {
 /// The e2e `pom.xml` carries a `<dependency>` block like:
 /// ```xml
 /// <dependency>
-///   <groupId>dev.kreuzberg.kreuzcrawl</groupId>
-///   <artifactId>kreuzcrawl</artifactId>
+///   <groupId>dev.sample_core.sample-crawler</groupId>
+///   <artifactId>sample-crawler</artifactId>
 ///   <version>0.3.0-rc.27</version>
 ///   <scope>system</scope>
-///   <systemPath>.../kreuzcrawl-0.3.0-rc.27.jar</systemPath>
+///   <systemPath>.../sample-crawler-0.3.0-rc.27.jar</systemPath>
 /// </dependency>
 /// ```
 /// Unlike `packages/java/pom.xml`, this file has a *separate* `<version>0.1.0</version>`
@@ -1578,11 +1578,11 @@ fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<String> {
 ///
 /// The e2e `go.mod` has a line like:
 /// ```
-/// github.com/kreuzberg-dev/kreuzcrawl/packages/go v0.3.0-rc.27
+/// github.com/sample_core-dev/sample-crawler/packages/go v0.3.0-rc.27
 /// ```
 /// We want to update ONLY lines whose module path matches `module_path_fragment`
 /// — a substring that uniquely identifies the library module (e.g.
-/// `"kreuzberg-dev/kreuzcrawl/packages/go"`). All other `require` entries are
+/// `"sample_core-dev/sample-crawler/packages/go"`). All other `require` entries are
 /// left untouched.
 ///
 /// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
@@ -1626,7 +1626,7 @@ fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_version: &str)
 ///
 /// Dart's pub lockfile has entries like:
 /// ```yaml
-///   kreuzcrawl:
+///   sample-crawler:
 ///     dependency: "direct main"
 ///     description:
 ///       path: "../../packages/dart"
@@ -2633,7 +2633,7 @@ BUNDLED WITH
 
     /// End-to-end: `sync_versions` must rewrite both `package.json` (root) and
     /// every `crates/*-node/package.json` file alongside the existing manifests.
-    /// Regression test for the kreuzberg publish.yaml dry-run failure where the
+    /// Regression test for the sample_core publish.yaml dry-run failure where the
     /// root manifest stayed at 4.9.5 while Cargo.toml jumped to 5.0.0-rc.1.
     #[test]
     fn sync_versions_writes_root_and_node_crate_package_json() {
@@ -3542,7 +3542,7 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
 
     /// `sync_registry_package_versions` must update all language entries with
     /// both a plain prefix-less version and a prefixed constraint in a single call,
-    /// covering the kreuzcrawl-style alef.toml shape used in production.
+    /// covering the sample-crawler-style alef.toml shape used in production.
     #[test]
     fn sync_registry_package_versions_handles_go_and_bare_semver_langs() {
         let tmp = tempfile::tempdir().expect("tempdir");

@@ -136,7 +136,7 @@ impl Backend for DartBackend {
                 },
             ));
             for f in &visible_functions {
-                emit_function(f, &mut body, &mut imports);
+                emit_function(f, &api.types, &api.enums, &mut body, &mut imports);
                 body.push('\n');
             }
             // Emit static register/unregister/clear wrapper methods for each active

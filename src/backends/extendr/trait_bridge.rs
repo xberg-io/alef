@@ -15,7 +15,7 @@ use std::collections::HashMap;
 /// Extendr-specific trait bridge generator.
 /// Implements code generation for bridging R objects to Rust traits.
 pub struct ExtendrBridgeGenerator {
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,

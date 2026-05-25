@@ -52,13 +52,13 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     let base_features = config.features_for_language(Language::Swift);
     // The IR records `any(feature = "ocr", feature = "ocr-wasm")` as the cfg condition for
     // TesseractWasmBackend (inherited from `pub mod ocr` in lib.rs). The concrete type,
-    // however, lives in `kreuzberg::ocr::TesseractWasmBackend` which requires `ocr-wasm`.
+    // however, lives in `sample_core::ocr::TesseractWasmBackend` which requires `ocr-wasm`.
     // `ocr` is transitively enabled by `full`; ensure `ocr-wasm` is also included whenever
     // the OCR module would be active so the bridge compiles correctly.
     //
     // Only do this when the source crate actually exposes an `ocr-wasm` feature — otherwise
     // we would inject an unknown feature into Cargo.toml for crates that have no OCR module
-    // at all (e.g. liter-llm). We probe by reading the on-disk Cargo.toml of the umbrella
+    // at all (e.g. sample-llm). We probe by reading the on-disk Cargo.toml of the umbrella
     // crate.
     let mut features_owned: Vec<String>;
     let ocr_active = base_features.iter().any(|f| f == "ocr" || f == "full");
@@ -333,7 +333,7 @@ fn emit_lib_rs(
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
             // Only emit the `create_<type>` constructor when the user provides an explicit
             // `client_constructor_body` override in alef.toml. The default
-            // `(api_key, base_url)` signature only fits liter_llm-style clients; for plugin
+            // `(api_key, base_url)` signature only fits sample_llm-style clients; for plugin
             // types like `HwpxExtractor::new()` or utilities like
             // `TessdataManager::new(Option<PathBuf>)` it produces calls that don't match
             // the real Rust signature. Opaque types without an override are returned by
@@ -423,22 +423,11 @@ fn emit_lib_rs(
         extern_blocks.push(streaming_block);
     }
 
-    // Detect legacy extraction e2e types: when the api surface exposes
-    // `ExtractionConfig`, `BatchBytesItem`, and `BatchFileItem` (all serde-enabled),
-    // emit JSON factory shims so the e2e test layer can deserialise fixture JSON
-    // into the corresponding opaque swift-bridge types. This is structural — no
-    // crate-name hardcoding — and is a no-op for binding crates that don't expose
-    // these specific types.
-    let has_e2e_types = api_has_e2e_types(api);
-
-    // Collect serde-enabled non-opaque types that appear as method parameters but
-    // are NOT already covered by the kreuzberg e2e shims above. These need their
-    // own `{type_snake}_from_json` free-function shims so Swift e2e tests can
-    // deserialise fixture JSON into the strongly-typed request objects expected by
-    // the swift-bridge wrappers.
-    let e2e_type_names = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
-    let extra_serde_param_types: Vec<&TypeDef> =
-        collect_serde_param_types(api, &visible_types, &visible_functions, &e2e_type_names);
+    // Collect serde-enabled non-opaque types that appear as method parameters.
+    // These need their own `{type_snake}_from_json` free-function shims so Swift
+    // e2e tests can deserialise fixture JSON into the strongly-typed request
+    // objects expected by the swift-bridge wrappers.
+    let extra_serde_param_types: Vec<&TypeDef> = collect_serde_param_types(api, &visible_types, &visible_functions, &[]);
 
     // Collect streaming item types that have serde derives.  The Swift streaming
     // wrapper uses `RustBridge.{itemType}FromJson(json)` — a Rust-side free
@@ -447,7 +436,6 @@ fn emit_lib_rs(
     // The `from_json` shim must be emitted even when the type is NOT a param type.
     let extra_serde_param_names: std::collections::HashSet<&str> =
         extra_serde_param_types.iter().map(|t| t.name.as_str()).collect();
-    let e2e_type_name_set: std::collections::HashSet<&str> = e2e_type_names.iter().copied().collect();
     let streaming_item_types: Vec<&TypeDef> = {
         let streaming_item_names: std::collections::HashSet<&str> = config
             .adapters
@@ -462,7 +450,6 @@ fn emit_lib_rs(
             .filter(|ty| ty.has_serde && !ty.is_opaque && !ty.is_trait)
             // Skip types already covered by the other from_json shim sets.
             .filter(|ty| !extra_serde_param_names.contains(ty.name.as_str()))
-            .filter(|ty| !e2e_type_name_set.contains(ty.name.as_str()))
             .collect()
     };
 
@@ -490,7 +477,6 @@ fn emit_lib_rs(
         .filter(|ty| ty.has_serde && !ty.is_opaque && !ty.is_trait)
         .filter(|ty| !extra_serde_param_names.contains(ty.name.as_str()))
         .filter(|ty| !streaming_item_names.contains(ty.name.as_str()))
-        .filter(|ty| !e2e_type_name_set.contains(ty.name.as_str()))
         .collect();
 
     // Enums with serde derives also need a matching Rust-side `*_from_json` shim
@@ -503,19 +489,6 @@ fn emit_lib_rs(
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
     for block in &extern_blocks {
         out.push_str(block);
-    }
-    if has_e2e_types {
-        out.push_str(concat!(
-            "    extern \"Rust\" {\n",
-            "\n",
-            "        #[swift_bridge(swift_name = \"extractionConfigFromJson\")]\n",
-            "        fn extraction_config_from_json(json: String) -> Result<ExtractionConfig, String>;\n",
-            "        #[swift_bridge(swift_name = \"batchBytesItemFromJson\")]\n",
-            "        fn batch_bytes_item_from_json(json: String) -> Result<BatchBytesItem, String>;\n",
-            "        #[swift_bridge(swift_name = \"batchFileItemFromJson\")]\n",
-            "        fn batch_file_item_from_json(json: String) -> Result<BatchFileItem, String>;\n",
-            "    }\n",
-        ));
     }
     if !extra_serde_param_types.is_empty() {
         out.push_str("    extern \"Rust\" {\n\n");
@@ -714,12 +687,6 @@ fn emit_lib_rs(
         out.push_str(&streaming_shims);
     }
 
-    // Emit JSON-factory shims for legacy extraction e2e types when present.
-    // The matching extern declarations are emitted in the ffi module above.
-    if has_e2e_types {
-        emit_json_factory_shims(&source_crate, &mut out);
-    }
-
     // Emit from_json shim implementations for extra serde param types.
     // These allow Swift e2e tests to deserialise fixture JSON into the strongly-typed
     // request objects (e.g. ChatCompletionRequest) that the swift-bridge wrappers require.
@@ -795,29 +762,6 @@ fn emit_from_json_shim(out: &mut String, snake_name: &str, wrapper_name: &str, s
     ));
 }
 
-/// Returns `true` when the api surface exposes the legacy extraction e2e helper
-/// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
-/// Used to gate emission of JSON-factory shims and Swift e2e wrapper helpers.
-fn api_has_e2e_types(api: &ApiSurface) -> bool {
-    let required = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
-    required
-        .iter()
-        .all(|name| api.types.iter().any(|t| !t.is_trait && t.has_serde && t.name == *name))
-}
-
-/// Emits JSON factory functions for legacy extraction opaque swift-bridge types
-/// (`extraction_config_from_json`, `batch_bytes_item_from_json`, `batch_file_item_from_json`).
-/// Wired into `emit_lib_rs` only when the api surface exposes all three serde-enabled
-/// types — see `api_has_e2e_types`. Crate-agnostic by structure.
-fn emit_json_factory_shims(source_crate: &str, out: &mut String) {
-    out.push_str(&crate::backends::swift::template_env::render(
-        "json_factory_shims.rs.jinja",
-        minijinja::context! {
-            source_crate => source_crate,
-        },
-    ));
-}
-
 /// Returns `true` when the `cfg` condition is satisfied by `configured_features`.
 ///
 /// Handles:
@@ -881,7 +825,7 @@ fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool
 
 /// Collect serde-enabled, non-opaque types from `visible_types` that appear as
 /// parameters in either free functions or type methods, excluding those already
-/// covered by the static kreuzberg e2e shims (`already_covered`).
+/// covered by the static sample_core e2e shims (`already_covered`).
 ///
 /// These types need `{type_snake}_from_json` shims so Swift e2e tests can
 /// deserialise fixture JSON into the strongly-typed request objects required by

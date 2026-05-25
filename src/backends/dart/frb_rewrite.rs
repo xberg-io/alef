@@ -69,7 +69,7 @@ const ALEF_LOADER_MARKER: &str = "_alefResolveExternalLibrary";
 /// `package_name` is the pub package name (used to build the `package:` URI),
 /// `module_name` is the bridge module stem (the `<module>_bridge_generated`
 /// directory), and `stem` is the native library file stem
-/// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `spikard_dart`).
+/// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `sample_project_dart`).
 pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, module_name: &str, stem: &str) -> String {
     if source.contains(ALEF_LOADER_MARKER) {
         return source.to_string();
@@ -683,7 +683,7 @@ class Foo {
 
     #[test]
     fn realistic_kreuzberg_format_metadata_block() {
-        // Mirror the actual frb output shape from the kreuzberg fixture.
+        // Mirror the actual frb output shape from the sample_core fixture.
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
 

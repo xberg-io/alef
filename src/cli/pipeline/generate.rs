@@ -299,7 +299,7 @@ pub fn normalize_content(path: &Path, content: &str) -> String {
 /// trailing newline.
 ///
 /// Markdown files get an aggressive 1-blank-line cap because the canonical
-/// h2m/kreuzberg-dev pre-commit pipeline runs `rumdl-fmt` after every commit,
+/// sample-markdown/sample_core-dev pre-commit pipeline runs `rumdl-fmt` after every commit,
 /// and rumdl's MD012 rule collapses any multi-blank run to a single blank.
 /// Without the matching cap inside alef, `alef all` output (which goes
 /// through pre-commit `rumdl-fmt` before being committed) diverges from the
@@ -820,7 +820,7 @@ mod write_scaffold_normalize_tests {
     /// Regression: a file that contains loose "auto-generated" or "DO NOT EDIT"
     /// markers but lacks the `alef:hash:` line must NOT be deleted by
     /// `sweep_orphans`. This protects consumer-vendored files such as
-    /// kreuzcrawl's `packages/go/include/kreuzcrawl.h` cgo header.
+    /// sample-crawler's `packages/go/include/sample-crawler.h` cgo header.
     #[test]
     fn sweep_orphans_preserves_loose_marker_file_without_hash() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1000,7 +1000,7 @@ mod write_scaffold_normalize_tests {
     /// preserved, while `alef readme` (which always uses `overwrite=true`) writes
     /// fresh compact content.  The two commands then produce different bytes for
     /// the same README — the root cause of the `alef generate`/`alef readme`
-    /// divergence surfaced on html-to-markdown regen.
+    /// divergence surfaced on sample-markdown regen.
     #[test]
     fn readme_overwrite_false_preserves_existing_content_producing_divergence() {
         let dir = tempfile::tempdir().expect("tempdir");

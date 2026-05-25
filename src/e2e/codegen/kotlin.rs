@@ -229,12 +229,12 @@ pub(crate) fn render_build_gradle(
         crate::e2e::config::DependencyMode::Registry => {
             // Registry mode: maven central with group:artifact:version.
             //
-            // `pkg_name` is the published artifactId only (e.g. `spikard-kotlin`);
+            // `pkg_name` is the published artifactId only (e.g. `sample_project-kotlin`);
             // the group is `kotlin_pkg_id` (the `[kotlin] package`, e.g.
-            // `dev.spikard`). Guard against a `pkg_name` that already embeds the
-            // group (e.g. `dev.spikard:spikard-kotlin`) so the group is never
+            // `dev.sample_project`). Guard against a `pkg_name` that already embeds the
+            // group (e.g. `dev.sample_project:sample_project-kotlin`) so the group is never
             // prepended twice — otherwise gradle resolves a nonexistent
-            // `dev.spikard:dev.spikard:spikard-kotlin` coordinate.
+            // `dev.sample_project:dev.sample_project:sample_project-kotlin` coordinate.
             let coordinate = if pkg_name.starts_with(&format!("{kotlin_pkg_id}:")) {
                 format!("{pkg_name}:{pkg_version}")
             } else {
@@ -696,7 +696,7 @@ fn render_test_file_inner(
     }
     // Effective binding package for FQN imports. When the binding `class_name` is
     // not fully-qualified, fall back to `kotlin_pkg_id` — the kotlin binding emits
-    // top-level typealiases at that package (e.g. `package com.github.kreuzberg_dev`)
+    // top-level typealiases at that package (e.g. `package com.github.sample_core_dev`)
     // while the test files live at `<kotlin_pkg_id>.e2e`. Child packages do NOT
     // import their parent's symbols implicitly, so explicit imports are required.
     let binding_pkg_for_imports: String = if !import_path.is_empty() {
@@ -1576,7 +1576,7 @@ fn build_args_and_setup(
 
                     // If there's a super-trait, also collect its methods.
                     if let Some(super_trait) = &trait_bridge.super_trait {
-                        // Extract the simple name from the full path (e.g., "Plugin" from "kreuzberg::plugins::Plugin").
+                        // Extract the simple name from the full path (e.g., "Plugin" from "sample_core::plugins::Plugin").
                         let super_trait_simple = super_trait.rsplit("::").next().unwrap_or(super_trait.as_str());
                         if let Some(super_type) = type_defs.iter().find(|t| t.name == super_trait_simple) {
                             for method in &super_type.methods {
@@ -2853,7 +2853,7 @@ mod tests {
 
     /// Regression: a `pkg_name` that already embeds the group must NOT have the
     /// group prepended a second time (previously produced the unresolvable
-    /// `dev.spikard:dev.spikard:spikard:<version>` coordinate).
+    /// `dev.sample_project:dev.sample_project:sample_project:<version>` coordinate).
     #[test]
     fn registry_dep_does_not_double_the_group_prefix() {
         let out = render_build_gradle(

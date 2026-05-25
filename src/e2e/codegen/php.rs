@@ -102,7 +102,7 @@ impl E2eCodegen for PhpCodegen {
         // Derive the e2e composer project metadata from the consumer-binding
         // pkg_name (`<vendor>/<crate>`) and the configured PHP autoload
         // namespace — alef is vendor-neutral, so we don't fall back to a
-        // fixed "kreuzberg" string.
+        // fixed "sample_core" string.
         let e2e_vendor = pkg_name.split('/').next().unwrap_or(&pkg_name).to_string();
         let e2e_pkg_name = format!("{e2e_vendor}/e2e-php");
         // PSR-4 autoload keys appear inside a JSON document, so each PHP
@@ -147,7 +147,7 @@ impl E2eCodegen for PhpCodegen {
         });
 
         // Check if any fixture needs a mock HTTP server (either http-shape or
-        // liter-llm mock_response-shape) so bootstrap.php spawns it.
+        // sample-llm mock_response-shape) so bootstrap.php spawns it.
         let has_http_fixtures = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
@@ -200,7 +200,7 @@ impl E2eCodegen for PhpCodegen {
         // different scalarness (e.g. `CrawlConfig.content: ContentConfig` vs
         // `MarkdownResult.content: String`). A bare-name union would force every
         // `->content` access to `->getContent()` even on types where it is a scalar
-        // property — see kreuzcrawl regression where `MarkdownResult::getContent()`
+        // property — see sample-crawler regression where `MarkdownResult::getContent()`
         // does not exist.
         let php_enum_names: HashSet<String> = enums.iter().map(|e| e.name.clone()).collect();
 
@@ -1297,7 +1297,7 @@ fn render_test_method(
     // Use a BTreeMap (sorted by key) so the emitted accessor extraction lines
     // appear in a stable order across regens. A HashMap here previously leaked
     // its randomized iteration order into the generated PHP source, causing
-    // e.g. tslp's `e2e/php/tests/ProcessTest.php` to flip the relative order
+    // e.g. parser-pack's `e2e/php/tests/ProcessTest.php` to flip the relative order
     // of `$imports` vs `$structure` bindings between back-to-back
     // `alef e2e generate` invocations.
     let mut fields_array_bindings: std::collections::BTreeMap<String, (String, String)> =
@@ -2682,7 +2682,7 @@ mod trait_bridge_tests {
     }
 
     /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait
-    /// must not reference any kreuzberg-domain names in setup_block or arg_expr.
+    /// must not reference any sample_core-domain names in setup_block or arg_expr.
     #[test]
     fn test_backend_emission_is_generic() {
         let trait_bridge = TraitBridgeConfig {
@@ -2703,7 +2703,7 @@ mod trait_bridge_tests {
         let methods = vec![&do_thing];
         let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
 
-        // setup_block must not reference any kreuzberg-domain trait or method names.
+        // setup_block must not reference any sample_core-domain trait or method names.
         assert!(
             !emission.setup_block.contains("OcrBackend"),
             "setup_block must not hardcode domain trait names, got:\n{}",

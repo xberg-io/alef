@@ -5,7 +5,7 @@
 //!
 //! Replaces:
 //! - `actions/check-registry/action.yml`
-//! - `kreuzberg/scripts/publish/check_*.sh`
+//! - `sample_core/scripts/publish/check_*.sh`
 
 use anyhow::{Context, Result};
 use serde_json::json;

@@ -57,12 +57,12 @@ fn method_with_excluded_substituted(method: &MethodDef, excluded: &HashSet<&str>
 ///
 /// Generate the complete trait_bridges.go file content for all configured trait bridges.
 ///
-/// `pkg_name`: Go package name (e.g., `"kreuzberg"`).
-/// `ffi_prefix`: C function prefix (e.g., `"kreuzberg"`).
-/// `ffi_header`: C header filename (e.g., `"kreuzberg.h"`).
+/// `pkg_name`: Go package name (e.g., `"sample_core"`).
+/// `ffi_prefix`: C function prefix (e.g., `"sample_core"`).
+/// `ffi_header`: C header filename (e.g., `"sample_core.h"`).
 /// `ffi_crate_dir`: path from go output dir to the FFI crate dir.
 /// `to_root`: relative path from go output dir to the repo root.
-/// `crate_name`: Rust FFI crate name (e.g., `"kreuzberg"`), used to derive C type names.
+/// `crate_name`: Rust FFI crate name (e.g., `"sample_core"`), used to derive C type names.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridges_file(
     api: &ApiSurface,
@@ -213,8 +213,8 @@ fn gen_trait_bridge(
     let trait_pascal = trait_name.to_pascal_case();
 
     // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
-    // E.g., for crate="kreuzberg", trait="OcrBackend": KREUZBERGKreuzbergOcrBackendVTable
-    // Hyphens in crate names (e.g. "html-to-markdown") are not valid in C identifiers;
+    // E.g., for crate="sample_core", trait="OcrBackend": KREUZBERGKreuzbergOcrBackendVTable
+    // Hyphens in crate names (e.g. "sample-markdown") are not valid in C identifiers;
     // normalize the same way ffi_prefix does (`-` → `_`) before uppercasing.
     let crate_normalized = crate_name.replace('-', "_");
     let crate_upper = crate_normalized.to_uppercase();

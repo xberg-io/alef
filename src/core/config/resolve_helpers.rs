@@ -74,7 +74,7 @@ pub fn resolve_output_dir(config_path: Option<&PathBuf>, crate_name: &str, defau
 
 /// Detect whether `serde` and `serde_json` are available in a binding crate's Cargo.toml.
 ///
-/// `output_dir` is the generated source directory (e.g., `crates/spikard-py/src/`).
+/// `output_dir` is the generated source directory (e.g., `crates/sample_project-py/src/`).
 /// The function walks up to find the crate's Cargo.toml and checks its `[dependencies]`
 /// for both `serde` and `serde_json`.
 pub fn detect_serde_available(output_dir: &str) -> bool {

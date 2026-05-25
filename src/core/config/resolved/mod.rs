@@ -101,7 +101,7 @@ pub struct ResolvedCrateConfig {
     pub exclude: ExcludeConfig,
     pub include: IncludeConfig,
 
-    /// Resolved output directory per language code (`"python"` → `packages/python/spikard/`).
+    /// Resolved output directory per language code (`"python"` → `packages/python/sample_project/`).
     /// Only contains entries for languages this crate actually targets.
     pub output_paths: HashMap<String, PathBuf>,
 

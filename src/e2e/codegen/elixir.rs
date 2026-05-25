@@ -42,7 +42,7 @@ impl E2eCodegen for ElixirCodegen {
             .cloned()
             .unwrap_or_else(|| call.module.clone());
         // Convert module path to Elixir PascalCase if it looks like snake_case
-        // (e.g., "html_to_markdown" -> "HtmlToMarkdown").
+        // (e.g., "sample_markdown" -> "HtmlToMarkdown").
         // If the override already contains "." (e.g., "Elixir.HtmlToMarkdown"), use as-is.
         let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase()) {
             raw_module.clone()
@@ -2667,7 +2667,7 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify that no kreuzberg-domain names leak into the generated output when
+    /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
     fn elixir_stub_contains_no_kreuzberg_domain_names() {

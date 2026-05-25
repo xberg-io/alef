@@ -176,7 +176,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
-    // FFI backend uses fully qualified paths (e.g. html_to_markdown_rs::ConversionOptions)
+    // FFI backend uses fully qualified paths (e.g. sample_markdown_rs::ConversionOptions)
     // for all core type references, so no named or glob imports from the core crate are
     // needed. Trait imports (collected above) are sufficient for method dispatch.
 
@@ -599,7 +599,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // - OptionsField bridge: VTable + options setter + correct convert implementation.
     // - FunctionParam bridge (legacy): VisitorCallbacks struct + convert_with_visitor.
     //
-    // When both flags are active simultaneously (e.g. html-to-markdown with
+    // When both flags are active simultaneously (e.g. sample-markdown with
     // `visitor_callbacks = true` and an `[[trait_bridges]]` entry using
     // `bind_via = "options_field"`), we emit BOTH:
     //   1. The OptionsField vtable / options-setter / {prefix}_convert  (used by Go, C)
@@ -2360,7 +2360,7 @@ header_name = "mylib.h"
     ///   - The visitor-callbacks symbols: {prefix}_visitor_create, {prefix}_visitor_free,
     ///     {prefix}_convert_with_visitor
     ///
-    /// This is the configuration used by html-to-markdown where Go/C use the OptionsField
+    /// This is the configuration used by sample-markdown where Go/C use the OptionsField
     /// path and Java uses the callbacks-struct path.
     #[test]
     fn test_both_options_field_and_visitor_callbacks_emit_both_symbol_sets() {
@@ -2431,11 +2431,11 @@ options_type = "ConversionOptions"
     }
 
     /// Fix 1 regression test: `type_ref_to_rust_type` must use the configured `core_import`
-    /// for `TypeRef::Named` variants, not a hard-coded `"kreuzberg"` prefix.
+    /// for `TypeRef::Named` variants, not a hard-coded `"sample_core"` prefix.
     ///
     /// When a crate uses `core_import = "my_custom_lib"`, generated Vec/Map turbofish type
     /// annotations that reference Named types must use `my_custom_lib::TypeName`, not
-    /// `kreuzberg::TypeName`.
+    /// `sample_core::TypeName`.
     #[test]
     fn test_core_import_parameterization_uses_configured_import_not_hardcoded_kreuzberg() {
         let config = resolved_one(
@@ -2455,7 +2455,7 @@ core_import = "my_custom_lib"
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-        // The generated code must not contain the old hard-coded kreuzberg prefix
+        // The generated code must not contain the old hard-coded sample_core prefix
         // in any type annotation position.  (It may legitimately appear in doc comments
         // or string literals, but never as a Rust path qualifier in generated code.)
         assert!(
@@ -2790,7 +2790,7 @@ type = "*const std::ffi::c_char"
 
     /// Build an `ApiSurface` with a free function whose `metadata` param is
     /// `Option<&AHashMap<Cow<'static, str>, serde_json::Value>>` — the shape that
-    /// `kreuzberg::text::quality::calculate_quality_score` uses. The IR records
+    /// `sample_core::text::quality::calculate_quality_score` uses. The IR records
     /// `map_is_ahash=true` and `map_key_is_cow=true` on the param.
     fn ahashmap_cow_api() -> ApiSurface {
         ApiSurface {

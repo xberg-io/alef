@@ -336,10 +336,10 @@ fn emit_error_assertion(
             // Match against EITHER the rendered exception message OR the
             // exception class name. Different downstream crates use different
             // fixture-shape conventions:
-            //   * kreuzcrawl: fixture values like "max_depth", "proxy", "urls"
+            //   * sample-crawler: fixture values like "max_depth", "proxy", "urls"
             //     are substrings of the user-facing error message, never of
             //     a class name like `InvalidConfigError`.
-            //   * liter-llm: fixture values like "Authentication", "BadRequest",
+            //   * sample-llm: fixture values like "Authentication", "BadRequest",
             //     "ContentPolicy" are class-name prefixes (`AuthenticationError`,
             //     `BadRequestError`, `ContentPolicyError`), not message text.
             // The disjunction lets a single codegen path satisfy both.

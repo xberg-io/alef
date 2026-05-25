@@ -76,8 +76,8 @@ pub fn destructor_method_name(owner: &str) -> String {
 ///
 /// # Examples
 /// ```
-/// let sym = alef::core::jni::jni_symbol("dev.kreuzberg.demo", "DemoBridge", "nativeFoo");
-/// assert_eq!(sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeFoo");
+/// let sym = alef::core::jni::jni_symbol("dev.sample_core.demo", "DemoBridge", "nativeFoo");
+/// assert_eq!(sym, "Java_dev_sample_core_demo_DemoBridge_nativeFoo");
 /// ```
 pub fn jni_symbol(package: &str, class: &str, method: &str) -> String {
     let encode = |s: &str| s.replace('_', "_1").replace('.', "_");

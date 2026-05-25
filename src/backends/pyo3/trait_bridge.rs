@@ -26,7 +26,7 @@ fn exported_pyfunction_symbol(fn_name: &str) -> String {
 /// PyO3-specific trait bridge generator.
 /// Implements code generation for bridging Python objects to Rust traits.
 pub struct Pyo3BridgeGenerator {
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
@@ -194,8 +194,8 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             return String::new();
         };
         // Derive the FQN of the host crate's `unregister_*` function from the
-        // bridge's `registry_getter` path: `kreuzberg::plugins::registry::get_*`
-        // → `kreuzberg::plugins::*::unregister_*`. When `registry_getter` is not
+        // bridge's `registry_getter` path: `sample_core::plugins::registry::get_*`
+        // → `sample_core::plugins::*::unregister_*`. When `registry_getter` is not
         // set we fall back to `{core}::plugins::{unregister_fn}` and trust the
         // caller's wiring.
         let host_path = host_function_path(spec, unregister_fn);

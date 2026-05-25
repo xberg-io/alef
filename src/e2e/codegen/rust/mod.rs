@@ -56,13 +56,13 @@ impl E2eCodegen for RustE2eCodegen {
             .any(|a| a.arg_type == "json_object" || a.arg_type == "handle");
 
         // Check if any fixture in any group requires a mock HTTP server.
-        // This includes both liter-llm mock_response fixtures and spikard http fixtures.
+        // This includes both sample-llm mock_response fixtures and sample_project http fixtures.
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
             .any(|f| !is_skipped(f, "rust") && f.needs_mock_server());
 
-        // Check if any fixture uses the http integration test pattern (spikard http fixtures).
+        // Check if any fixture uses the http integration test pattern (sample_project http fixtures).
         let needs_http_tests = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
@@ -85,7 +85,7 @@ impl E2eCodegen for RustE2eCodegen {
 
         // anyhow is needed when any fixture uses a `test_backend` arg: the generated
         // Rust trait-bridge stubs reference `anyhow::Error` in their method signatures
-        // because kreuzberg plugin traits declare `-> Result<T, anyhow::Error>`.
+        // because sample_core plugin traits declare `-> Result<T, anyhow::Error>`.
         // Without this direct dependency the stubs fail to compile with E0433.
         let all_call_args_for_anyhow = std::iter::once(&e2e_config.call)
             .chain(e2e_config.calls.values())
@@ -232,8 +232,8 @@ pub fn emit_test_backend(
 
     let mut setup = String::new();
 
-    // Derive the crate module name from the super_trait path (e.g. "kreuzberg::plugins::Plugin"
-    // → "kreuzberg"). Used to qualify single-arg `Result<T>` return types so that stub method
+    // Derive the crate module name from the super_trait path (e.g. "sample_core::plugins::Plugin"
+    // → "sample_core"). Used to qualify single-arg `Result<T>` return types so that stub method
     // signatures match the trait declaration (which uses a crate-level `Result` alias).
     let crate_module: Option<&str> = trait_bridge
         .super_trait
@@ -377,7 +377,7 @@ fn rust_type_name(ty: &crate::core::ir::TypeRef) -> String {
 /// Emit a single method body inside a `impl Trait for Stub` block.
 ///
 /// `crate_module`: when `Some`, used to qualify single-arg `Result<T>` return types
-/// as `{crate_module}::Result<T>`.  Pass the crate root name (e.g. `"kreuzberg"`) when
+/// as `{crate_module}::Result<T>`.  Pass the crate root name (e.g. `"sample_core"`) when
 /// the trait's return type uses a crate-level `Result` type alias rather than the
 /// stdlib two-arg `Result<T, E>`.
 fn emit_rust_stub_method(
@@ -461,7 +461,7 @@ fn emit_rust_stub_method(
                 collect_named_types(&method.return_type, type_imports);
                 let full = if let Some(err) = &method.error_type {
                     // When `error_type` is `"anyhow::Error"` it signals the IR fallback
-                    // for a single-arg `Result<T>` alias (like `kreuzberg::Result<T>`),
+                    // for a single-arg `Result<T>` alias (like `sample_core::Result<T>`),
                     // not a literal `anyhow::Error` in the trait signature.
                     // Use `{crate}::Result<T>` so the stub method type matches the trait.
                     if err == "anyhow::Error" {
@@ -680,7 +680,7 @@ result_var = "result"
             "setup_block should reference trait by name, got: {}",
             emission.setup_block
         );
-        // Must NOT hardcode any kreuzberg-domain trait name.
+        // Must NOT hardcode any sample_core-domain trait name.
         assert!(
             !emission.setup_block.contains("OcrBackend"),
             "setup_block must not hardcode OcrBackend"

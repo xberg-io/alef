@@ -1253,7 +1253,7 @@ pub(super) fn gen_api_py(
     // Emit pass-through wrappers for trait-bridge registration functions.
     // These functions are emitted as #[pyfunction] in the native Rust module but are not in
     // api.functions — they must be re-exported via api.py so callers can use the public package
-    // path (e.g. `kreuzberg.register_ocr_backend`) rather than `kreuzberg._kreuzberg.register_ocr_backend`.
+    // path (e.g. `sample_core.register_ocr_backend`) rather than `sample_core._sample_core.register_ocr_backend`.
     for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(trait_bridges) {
         if emitted_function_names.contains(&register_fn) {
             continue;

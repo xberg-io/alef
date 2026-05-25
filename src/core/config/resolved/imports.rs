@@ -5,7 +5,7 @@ use crate::core::config::extras::Language;
 use crate::core::config::resolve_helpers::find_after_crates_prefix;
 
 impl ResolvedCrateConfig {
-    /// Get the core crate Rust import path (e.g., `"liter_llm"`).
+    /// Get the core crate Rust import path (e.g., `"sample_llm"`).
     ///
     /// Returns `[crate] core_import` if set, otherwise derives it from the
     /// crate name by replacing hyphens with underscores.
@@ -32,8 +32,8 @@ impl ResolvedCrateConfig {
 
     /// Get the directory name of the core crate (derived from sources or falling back to name).
     ///
-    /// For example, if `sources` contains `"crates/html-to-markdown/src/lib.rs"`, this returns
-    /// `"html-to-markdown"`. Used by the scaffold to generate correct `path = "../../crates/…"`
+    /// For example, if `sources` contains `"crates/sample-markdown/src/lib.rs"`, this returns
+    /// `"sample-markdown"`. Used by the scaffold to generate correct `path = "../../crates/…"`
     /// references in binding-crate `Cargo.toml` files.
     pub fn core_crate_dir(&self) -> String {
         // Try to derive from first source path: "crates/foo/src/types/config.rs" → "foo"

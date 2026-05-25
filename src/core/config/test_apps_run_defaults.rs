@@ -73,7 +73,7 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
             // resolver consults `php -m` for `ext-<name>`. Alef emits an
             // `install.sh` next to composer.json that bootstraps PIE
             // (`composer global require php/pie:^1.4`) and runs
-            // `pie install kreuzberg/<crate>:<version>` to drop the .so into
+            // `pie install sample_core/<crate>:<version>` to drop the .so into
             // the running PHP's extension dir. Once the extension is loaded,
             // `composer install` resolves cleanly and `composer test` runs.
             run: Some(StringOrVec::Single(format!(
@@ -125,18 +125,10 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
             ))),
         },
         Language::KotlinAndroid => TestAppRunConfig {
-            // The published AAR contains Android-only native binaries — a
-            // host JVM cannot load them, so `gradle test` on a workstation
-            // without an Android emulator/device fails at runtime. Gate the
-            // run on gradle + adb being installed AND at least one device
-            // showing up in `adb devices` with state `device`. When the
-            // precondition fails, `alef test-apps run` skips gracefully
-            // with a warning rather than reporting a spurious test failure.
-            precondition: Some(format!(
-                "{} && {} && adb devices | grep -q 'device$'",
-                require_tool("gradle"),
-                require_tool("adb")
-            )),
+            // Tests are JUnit unit tests that run via `gradle test` against the
+            // published AAR and JVM-side deps. No Android device/emulator required,
+            // only gradle + JDK.
+            precondition: Some(require_tool("gradle")),
             before: None,
             run: Some(StringOrVec::Single(format!(
                 "cd {test_apps_dir}/kotlin_android && gradle test --no-daemon"

@@ -466,7 +466,7 @@ result_var = "result"
             "setup_block should define the stub class, got: {}",
             emission.setup_block
         );
-        // Must NOT hardcode kreuzberg-domain trait names.
+        // Must NOT hardcode sample_core-domain trait names.
         assert!(
             !emission.setup_block.contains("OcrBackend"),
             "setup_block must not hardcode OcrBackend"

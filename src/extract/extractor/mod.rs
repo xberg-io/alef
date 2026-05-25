@@ -49,8 +49,8 @@ pub fn extract(
 
         // Skip source files already visited via `pub mod` traversal from an earlier
         // source (typically lib.rs). Re-processing them with module_path="" would
-        // produce incorrect rust_paths (e.g. `kreuzberg::CustomProperties` instead
-        // of `kreuzberg::extraction::CustomProperties`).
+        // produce incorrect rust_paths (e.g. `sample_core::CustomProperties` instead
+        // of `sample_core::extraction::CustomProperties`).
         if visited.contains(&canonical) {
             continue;
         }
@@ -85,8 +85,8 @@ pub fn extract(
 
         // For non-root source files, apply re-export shortening from the parent module.
         // When `cache/core.rs` is processed with module_path="cache::core", items get
-        // paths like `kreuzberg::cache::core::GenericCache`. If the parent `cache/mod.rs`
-        // has `pub use core::{GenericCache, ...}`, we shorten to `kreuzberg::cache::GenericCache`.
+        // paths like `sample_core::cache::core::GenericCache`. If the parent `cache/mod.rs`
+        // has `pub use core::{GenericCache, ...}`, we shorten to `sample_core::cache::GenericCache`.
         if !module_path.is_empty() {
             apply_parent_reexport_shortening(
                 source,
@@ -158,9 +158,9 @@ pub fn extract(
 /// Apply named re-export shortening from the parent module file.
 ///
 /// When a source file like `cache/core.rs` produces items with paths like
-/// `kreuzberg::cache::core::GenericCache`, and the parent `cache/mod.rs` has
+/// `sample_core::cache::core::GenericCache`, and the parent `cache/mod.rs` has
 /// `pub use core::{GenericCache, ...}`, this shortens the path to
-/// `kreuzberg::cache::GenericCache`.
+/// `sample_core::cache::GenericCache`.
 fn apply_parent_reexport_shortening(
     source: &Path,
     crate_name: &str,

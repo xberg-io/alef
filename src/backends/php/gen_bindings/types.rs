@@ -161,7 +161,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 // Generate the from_php_object static method that wraps a PHP object
                 // The bridge struct is named Php<TraitName>Bridge (e.g., PhpHtmlVisitorBridge)
                 let bridge_struct_name = format!("Php{}Bridge", bridge.trait_name.to_pascal_case().replace('-', ""));
-                // Use the full path to the trait from the core crate (e.g., html_to_markdown_rs::visitor::HtmlVisitor)
+                // Use the full path to the trait from the core crate (e.g., sample_markdown_rs::visitor::HtmlVisitor)
                 let _trait_path = format!(
                     "{}::visitor::{}",
                     core_import,

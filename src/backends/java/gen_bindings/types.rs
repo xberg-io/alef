@@ -1128,7 +1128,7 @@ pub(crate) fn gen_opaque_handle_class(
     // Streaming method bodies reference java.util.stream.Stream<T> and
     // java.util.stream.StreamSupport via fully-qualified names in the template,
     // so no short-form import is needed. Adding one would trigger Checkstyle's
-    // UnusedImports rule (confirmed in liter-llm DefaultClient.java:12).
+    // UnusedImports rule (confirmed in sample-llm DefaultClient.java:12).
     let _ = has_streaming;
     if has_list_return {
         imports.push("java.util.List");
@@ -1703,7 +1703,7 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
     let method_name = adapter.name.to_lower_camel_case();
     let item_type = adapter.item_type.as_deref().unwrap_or("Object");
     let request_type_full = adapter.params[0].ty.as_str();
-    // Strip any leading module path (e.g. `liter_llm::ChatCompletionRequest` → `ChatCompletionRequest`).
+    // Strip any leading module path (e.g. `sample_llm::ChatCompletionRequest` → `ChatCompletionRequest`).
     let request_type = request_type_full.rsplit("::").next().unwrap_or(request_type_full);
     let request_snake = request_type.to_snake_case();
     let prefix_upper = prefix.to_uppercase();

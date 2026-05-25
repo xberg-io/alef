@@ -201,7 +201,7 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         // JSON. `serde_json::Value` is matched via full-path above; the bare `Value`
         // here covers the idiomatic `use serde_json::Value;` re-import. There is
         // residual ambiguity (a user crate might have its own `Value` type), but
-        // `serde_json::Value` is the overwhelming match in the kreuzberg-dev
+        // `serde_json::Value` is the overwhelming match in the sample_core-dev
         // ecosystem and downstream alef users — qualifying via path is the
         // workaround for the rare collision.
         "JsonValue" | "Value" => TypeRef::Json,

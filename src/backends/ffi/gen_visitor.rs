@@ -316,7 +316,7 @@ fn gen_visitor_ref_methods(specs: &[CallbackSpec], core_import: &str) -> String 
 /// # Parameters
 ///
 /// - `prefix`: the FFI function prefix (e.g. `"htm"`).
-/// - `core_import`: the Rust `use` path for the core crate (e.g. `"html_to_markdown_rs"`).
+/// - `core_import`: the Rust `use` path for the core crate (e.g. `"sample_markdown_rs"`).
 /// - `embed_visitor_in_options`: when `true`, the generated `{prefix}_convert_with_visitor`
 ///   embeds the visitor in `options.visitor` before calling the 2-argument `convert(html,
 ///   options)`.  Set `true` for the OptionsField bridge pattern; `false` for the legacy

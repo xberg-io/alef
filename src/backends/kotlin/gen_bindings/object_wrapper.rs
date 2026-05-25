@@ -1901,7 +1901,7 @@ mod tests {
     ///
     /// Example: `ContentPart::ImageUrl { image_url: ImageUrl }` — inside
     /// `ContentPart`, `ImageUrl` refers to the nested `data class ImageUrl` unless
-    /// the field type is explicitly qualified as `dev.kreuzberg.literllm.android.ImageUrl`.
+    /// the field type is explicitly qualified as `dev.sample_core.literllm.android.ImageUrl`.
     #[test]
     fn sealed_class_variant_field_type_qualified_when_name_clashes_with_sibling_variant() {
         // Mirrors the real ContentPart::ImageUrl { image_url: ImageUrl } case.

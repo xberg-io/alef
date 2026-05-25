@@ -33,8 +33,8 @@ pub struct MagnusBackend;
 
 /// Convert crate name to PascalCase module name.
 ///
-/// Handles both kebab-case (`tree-sitter-language-pack`) and snake_case
-/// (`tree_sitter_language_pack`) inputs, since both are valid Cargo crate
+/// Handles both kebab-case (`parser-language-pack`) and snake_case
+/// (`parser_language_pack`) inputs, since both are valid Cargo crate
 /// name styles. The previous implementation split only on `-`, producing
 /// `Tree_sitter_language_pack` for snake_case crates — which Rubocop
 /// rejects as `Naming/ClassAndModuleCamelCase`.

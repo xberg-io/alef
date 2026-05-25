@@ -834,14 +834,14 @@ fn render_test_method(
     let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
 
     // Infer the stream chunk item type from the function name or default to ChatCompletionChunk.
-    // Streaming adapters define item_type (e.g., "CrawlEvent" in kreuzcrawl).
+    // Streaming adapters define item_type (e.g., "CrawlEvent" in sample-crawler).
     // When the function name contains "stream", infer the concrete item type based on context.
     let chunk_item_type = if is_streaming && !expects_error {
-        // For kreuzcrawl crawl_stream and batch_crawl_stream, the chunk type is CrawlEvent
+        // For sample-crawler crawl_stream and batch_crawl_stream, the chunk type is CrawlEvent
         if call_config.function.contains("stream") {
             match call_config.function.to_lowercase().as_str() {
                 s if s.contains("crawl_stream") || s.contains("crawlstream") => Some("CrawlEvent"),
-                // Default to ChatCompletionChunk for LLM-like streaming (liter-llm pattern)
+                // Default to ChatCompletionChunk for LLM-like streaming (sample-llm pattern)
                 _ => Some("ChatCompletionChunk"),
             }
         } else {
@@ -892,7 +892,7 @@ fn render_test_method(
         collect_snippet
     } else {
         // Replace `[<ItemType>]` with module-qualified `[<Module>.<ItemType>]`
-        // This handles both ChatCompletionChunk (liter-llm) and CrawlEvent (kreuzcrawl).
+        // This handles both ChatCompletionChunk (sample-llm) and CrawlEvent (sample-crawler).
         let re = Regex::new(r"\[([A-Za-z][A-Za-z0-9]*)\]").expect("valid regex");
         let module_qualifier = module_name;
         re.replace_all(&collect_snippet, |caps: &regex::Captures| {
@@ -968,7 +968,9 @@ fn render_test_method(
     };
 
     let options_via_str: Option<&str> = call_overrides.and_then(|o| o.options_via.as_deref());
-    let options_type_str: Option<&str> = call_overrides.and_then(|o| o.options_type.as_deref());
+    let options_type_str: Option<&str> = call_overrides
+        .and_then(|o| o.options_type.as_deref())
+        .or(call_config.options_type.as_deref());
     // Derive the Swift handle-config parsing function from the C override's
     // `c_engine_factory` field. E.g. `"CrawlConfig"` → snake → `"crawl_config_from_json"`
     // → camelCase → `"crawlConfigFromJson"`.
@@ -1177,8 +1179,8 @@ fn render_test_method(
 /// - `bytes` args become `RustVec<UInt8>` — fixture supplies a relative file path
 ///   string which is read at test time and pushed into a `RustVec<UInt8>` setup
 ///   variable. A literal byte array is base64-decoded or UTF-8 encoded inline.
-/// - `json_object` args become opaque `ExtractionConfig` (or sibling) instances —
-///   a JSON string is decoded via `extractionConfigFromJson(...)` in a setup line.
+/// - `json_object` args become opaque config/request instances — a JSON string is
+///   decoded via the matching `{Type}FromJson(...)` helper in a setup line.
 /// - Optional args missing from the fixture must still appear at the call site
 ///   as `nil` whenever a later positional arg is present, otherwise Swift slots
 ///   subsequent values into the wrong parameter.
@@ -1399,13 +1401,7 @@ fn build_args_and_setup(
             } else {
                 // Regular binding: deserialize to an opaque object.
                 let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
-                // Derive the from-json helper name from options_type (set on the call config),
-                // or default to extractionConfigFromJson for backward compatibility.
-                let from_json_fn = if let Some(type_name) = options_type {
-                    format!("{}FromJson", type_name.to_lower_camel_case())
-                } else {
-                    "extractionConfigFromJson".to_string()
-                };
+                let from_json_fn = from_json_helper_for_arg(arg, options_type);
                 // Qualify with module name to avoid ambiguity when both Kreuzberg and RustBridge are imported.
                 setup_lines.push(format!(
                     "let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"
@@ -2785,6 +2781,11 @@ fn is_scalar_element_type(element_type: Option<&str>) -> bool {
     )
 }
 
+fn from_json_helper_for_arg(arg: &crate::e2e::config::ArgMapping, options_type: Option<&str>) -> String {
+    let type_name = options_type.unwrap_or_else(|| arg.name.as_str());
+    format!("{}FromJson", type_name.to_lower_camel_case())
+}
+
 fn json_to_swift(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => format!("\"{}\"", escape_swift(s)),
@@ -3402,7 +3403,7 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify that no kreuzberg-domain names leak into the generated output when
+    /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
     fn swift_stub_contains_no_kreuzberg_domain_names() {

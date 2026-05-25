@@ -205,7 +205,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         ));
     }
     // Runtime imports for unit enums — needed both for monkey-patching aliases and for
-    // users who import from options.py (e.g. `from html_to_markdown.options import NewlineStyle`).
+    // users who import from options.py (e.g. `from sample_markdown.options import NewlineStyle`).
     if !runtime_native_imports.is_empty() {
         // Blank line separates stdlib imports from the relative package import (isort E401).
         out.push('\n');

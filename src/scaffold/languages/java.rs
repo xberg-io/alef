@@ -8,7 +8,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let meta = scaffold_meta(config);
     // `name` here is the Maven artifactId. Prefer the explicit `[java] artifact_id`
     // override so the published artifactId can differ from the source crate name
-    // (e.g. crate `html-to-markdown-rs` publishes as artifactId `html-to-markdown`).
+    // (e.g. crate `sample-markdown-rs` publishes as artifactId `sample-markdown`).
     let name = config.java_artifact_id();
     let name = name.as_str();
     let version = &api.version;

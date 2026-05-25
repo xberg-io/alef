@@ -200,7 +200,7 @@ pub struct MethodDef {
     #[serde(default)]
     pub sanitized: bool,
     /// Fully qualified trait path if this method comes from a trait impl
-    /// (e.g. "liter_llm::LlmClient"). None for inherent methods.
+    /// (e.g. "sample_llm::LlmClient"). None for inherent methods.
     #[serde(default)]
     pub trait_source: Option<String>,
     /// True if the core function returns a reference (`&T`, `Option<&T>`, etc.).

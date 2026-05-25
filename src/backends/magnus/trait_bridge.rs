@@ -275,7 +275,7 @@ fn build_magnus_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &TraitBridgeConfi
 /// Magnus-specific trait bridge generator.
 /// Implements code generation for bridging Ruby objects to Rust traits.
 struct MagnusBridgeGenerator {
-    /// Core crate import path (e.g., `"kreuzberg"`).
+    /// Core crate import path (e.g., `"sample_core"`).
     core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     type_paths: HashMap<String, String>,

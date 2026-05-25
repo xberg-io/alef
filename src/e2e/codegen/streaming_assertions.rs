@@ -168,7 +168,7 @@ impl StreamingFieldResolver {
     /// This is a backward-compatible wrapper; it forwards to
     /// [`Self::accessor_with_streaming_context`] with the legacy default item
     /// type `"CrawlEvent"` so existing callers continue to emit correct code for
-    /// kreuzcrawl without changes. Consumers whose streaming union type differs
+    /// sample-crawler without changes. Consumers whose streaming union type differs
     /// should call [`Self::accessor_with_streaming_context`] directly.
     pub fn accessor_with_module_qualifier(
         field: &str,
@@ -183,7 +183,7 @@ impl StreamingFieldResolver {
 
     /// Same as [`Self::accessor_with_module_qualifier`] but also accepts the
     /// unqualified name of the streaming union item type (e.g. `"CrawlEvent"`
-    /// for kreuzcrawl, or any other tagged-union name a consumer defines).
+    /// for sample-crawler, or any other tagged-union name a consumer defines).
     ///
     /// When `item_type` is `None` the `stream.has_*_event` branches fall back
     /// to the legacy default supplied by the originating consumer — callers
@@ -367,7 +367,7 @@ impl StreamingFieldResolver {
             // Streaming union event-variant predicates.
             //
             // Each chunk is a tagged union whose concrete type name is given by
-            // `item_type` (e.g. `"CrawlEvent"` for kreuzcrawl). The accessor
+            // `item_type` (e.g. `"CrawlEvent"` for sample-crawler). The accessor
             // returns a language-native boolean expression that is `true` iff
             // any chunk in the collected list matches the named variant.
             //
@@ -650,7 +650,7 @@ impl StreamingFieldResolver {
     /// Collect stream into a list, with optional item_type for languages that need the concrete type.
     ///
     /// When item_type is None, defaults to ChatCompletionChunk for backward compatibility with
-    /// liter-llm. For other projects like kreuzcrawl, item_type should be provided (e.g., "CrawlEvent").
+    /// sample-llm. For other projects like sample-crawler, item_type should be provided (e.g., "CrawlEvent").
     pub fn collect_snippet_typed(
         lang: &str,
         stream_var: &str,
@@ -735,7 +735,7 @@ impl StreamingFieldResolver {
                 // so consumers drain it with `for try await chunk in stream { ... }`. The
                 // chunk type is decoded from the bridge-boundary JSON inside the wrapper —
                 // here we just collect the typed Swift values.
-                // When item_type is provided (e.g., "CrawlEvent" from kreuzcrawl adapters),
+                // When item_type is provided (e.g., "CrawlEvent" from sample-crawler adapters),
                 // use it; otherwise default to "ChatCompletionChunk" for backward compatibility.
                 Some(format!(
                     "var {chunks_var}: [{item_type}] = []\n        for try await _chunk in {stream_var} {{ {chunks_var}.append(_chunk) }}"
@@ -857,7 +857,7 @@ impl EventVariant {
 /// `chunks_var` matches the given streaming-union variant.
 ///
 /// `item_type` is the unqualified name of the streaming union type (e.g.
-/// `"CrawlEvent"` for kreuzcrawl).  `module_qualifier` is the per-project
+/// `"CrawlEvent"` for sample-crawler).  `module_qualifier` is the per-project
 /// module/namespace prefix required by Rust and C# to form a fully-qualified
 /// type path.
 ///

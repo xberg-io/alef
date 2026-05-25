@@ -4,7 +4,7 @@ use std::collections::HashMap;
 /// Build a lookup map from short type name to its fully-qualified Rust path.
 ///
 /// Types in the IR carry a `rust_path` field containing the path as extracted from
-/// the source file (e.g. `kreuzberg::extraction::docx::drawing::AnchorProperties`).
+/// the source file (e.g. `sample_core::extraction::docx::drawing::AnchorProperties`).
 /// Backends that emit source-crate references must use this path rather than
 /// naively constructing `{source_crate}::{name}`, which only works for types
 /// re-exported at the crate root.
@@ -35,8 +35,8 @@ pub fn build_type_path_lookup(api: &ApiSurface) -> HashMap<String, String> {
     // IMPORTANT: use `entry().or_insert()` rather than `insert()` so that a visible binding
     // type (already inserted from api.types/api.enums above) is never overwritten by an
     // excluded internal type with the same short name. Example: `Table` is a public type at
-    // `kreuzberg::Table` *and* an excluded internal type at
-    // `kreuzberg::extraction::docx::parser::Table`; the public path must win.
+    // `sample_core::Table` *and* an excluded internal type at
+    // `sample_core::extraction::docx::parser::Table`; the public path must win.
     for (name, path) in &api.excluded_type_paths {
         if !path.is_empty() {
             paths.entry(name.clone()).or_insert_with(|| path.replace('-', "_"));

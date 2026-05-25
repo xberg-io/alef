@@ -390,11 +390,11 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
 }
 
 /// Extract the fully qualified Rust path for a field's type when it uses a multi-segment
-/// path (e.g., `crate::types::OutputFormat` → `kreuzberg::types::OutputFormat`).
+/// path (e.g., `crate::types::OutputFormat` → `sample_core::types::OutputFormat`).
 /// Returns `None` for simple single-segment types like `OutputFormat` or primitives.
 ///
 /// When `crate_name` is provided, `crate::` prefixes are resolved to the crate name
-/// (e.g., `crate::types::OutputFormat` → `kreuzberg::types::OutputFormat`).
+/// (e.g., `crate::types::OutputFormat` → `sample_core::types::OutputFormat`).
 /// `super::` paths are still skipped since they require full module context.
 pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&str>) -> Option<String> {
     // Unwrap Option<T> to look at inner type
@@ -457,7 +457,7 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&s
         if type_path.path.segments.len() >= 2 {
             let first_segment = type_path.path.segments[0].ident.to_string();
             // Skip `super::` paths — these require full module context and would produce
-            // invalid paths like `kreuzberg::super::super::pdf::PdfConfig` in codegen.
+            // invalid paths like `sample_core::super::super::pdf::PdfConfig` in codegen.
             if first_segment == "super" {
                 return None;
             }

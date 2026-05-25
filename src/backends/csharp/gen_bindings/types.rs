@@ -229,7 +229,7 @@ fn gen_opaque_streaming_method(
     let item_pascal = csharp_type_name(&meta.item_type);
 
     // Resolve the request parameter: first Named parameter is the JSON-serialised request payload.
-    // (Streaming adapters in liter-llm pass exactly one `req: ChatCompletionRequest` argument.)
+    // (Streaming adapters in sample-llm pass exactly one `req: ChatCompletionRequest` argument.)
     let req_param = method.params.iter().find(|p| matches!(&p.ty, TypeRef::Named(_)));
     let (req_pascal, req_param_name) = match req_param {
         Some(p) => match &p.ty {

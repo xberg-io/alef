@@ -5,7 +5,7 @@ use crate::core::config::ResolvedCrateConfig;
 /// Get the PHP Composer autoload namespace.
 ///
 /// If `[crates.php] namespace` is configured, uses that verbatim.
-/// Otherwise, derives the namespace from the extension name (e.g. `html_to_markdown_rs` → `Html\\To\\Markdown\\Rs`).
+/// Otherwise, derives the namespace from the extension name (e.g. `sample_markdown_rs` → `Html\\To\\Markdown\\Rs`).
 pub fn php_autoload_namespace(config: &ResolvedCrateConfig) -> String {
     use heck::ToPascalCase;
 

@@ -222,7 +222,7 @@ fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<Callba
 ///
 /// - `pkg_name`: Go package name (e.g. `"htmltomarkdown"`).
 /// - `ffi_prefix`: C function prefix (e.g. `"htm"`).
-/// - `ffi_header`: C header filename (e.g. `"html_to_markdown.h"`).
+/// - `ffi_header`: C header filename (e.g. `"sample_markdown.h"`).
 /// - `ffi_crate_dir`: path from go output dir to the FFI crate dir.
 /// - `to_root`: relative path from go output dir to the repo root.
 /// - `vtable_trait_name`: Rust trait name used to derive the VTable struct name

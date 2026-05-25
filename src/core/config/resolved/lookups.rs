@@ -673,7 +673,7 @@ sources = ["src/lib.rs"]
 
     #[test]
     fn package_dir_html_to_markdown_scenario_with_both_overrides() {
-        // Reproduce the STY-4 scenario: h2m strips `-rs` for Node and Wasm
+        // Reproduce the STY-4 scenario: sample-markdown strips `-rs` for Node and Wasm
         // so the actual crate dirs don't follow the default formula.
         let r = resolved_one(
             r#"
@@ -691,7 +691,7 @@ crate_dir = "crates/html-to-markdown-node"
 crate_dir = "crates/html-to-markdown-wasm"
 "#,
         );
-        // Without overrides, the formula would produce html-to-markdown-rs-{node,wasm}
+        // Without overrides, the formula would produce sample-markdown-rs-{node,wasm}
         // (WRONG). With overrides, we get the correct stripped names.
         assert_eq!(
             r.package_dir(Language::Node),

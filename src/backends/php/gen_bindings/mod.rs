@@ -1253,7 +1253,7 @@ impl Backend for PhpBackend {
 
         // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
         // This is intentionally separate from config.output.php, which controls the Rust binding
-        // crate output directory (e.g., crates/kreuzcrawl-php/src/).
+        // crate output directory (e.g., crates/sample-crawler-php/src/).
         let output_dir = config
             .php
             .as_ref()

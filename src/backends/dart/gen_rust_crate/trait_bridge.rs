@@ -214,7 +214,7 @@ pub(crate) fn emit_trait_bridge(
     if uses_type_alias {
         let type_alias = bridge_config.type_alias.as_deref().unwrap_or("");
         // Locate the local opaque-wrapper TypeDef so we can pull its `rust_path` (the
-        // qualified core path, e.g. `html_to_markdown_rs::visitor::VisitorHandle`).
+        // qualified core path, e.g. `sample_markdown_rs::visitor::VisitorHandle`).
         let alias_def = api.types.iter().find(|t| t.name == type_alias);
         let inner_path = match alias_def {
             Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
@@ -747,7 +747,7 @@ fn emit_trait_bridge_method(
 /// before codegen, but their NAME may still appear in surviving trait method return
 /// signatures (e.g. `DocumentExtractor::as_sync_extractor() -> Option<&dyn SyncExtractor>`).
 /// Without this fallback, the bridge struct would emit a closure field with the trait
-/// path used as a TYPE (`Option<kreuzberg::extractors::SyncExtractor>`), producing
+/// path used as a TYPE (`Option<sample_core::extractors::SyncExtractor>`), producing
 /// `error[E0782]: expected a type, found a trait`. Restricting the check to trait-shaped
 /// excluded items (not all excluded items) keeps methods returning excluded structs
 /// (`extract_bytes -> Result<InternalDocument>`) emitted, since `InternalDocument` is a

@@ -185,7 +185,7 @@ pub(crate) fn swift_call_arg(
         let native_ty = swift_bridge_rust_type(&p.ty);
         let deser = format!("::serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
         if p.is_ref {
-            // When the kreuzberg function expects a reference (e.g. &[Vec<String>]),
+            // When the sample_core function expects a reference (e.g. &[Vec<String>]),
             // we must borrow the deserialized value.
             return format!("&{deser}");
         }
@@ -231,7 +231,7 @@ pub(crate) fn swift_call_arg(
         if let TypeRef::Named(_) = inner.as_ref() {
             if p.optional {
                 if p.is_ref {
-                    // kreuzberg expects Option<&[T]>. We collect to a temporary Vec
+                    // sample_core expects Option<&[T]>. We collect to a temporary Vec
                     // and call as_deref(). The temporary lives for the enclosing
                     // statement (function call) so the reference is valid.
                     return format!(
@@ -241,7 +241,7 @@ pub(crate) fn swift_call_arg(
                 return format!("{name}.map(|v| v.into_iter().map(|w| w.0).collect::<Vec<_>>())");
             }
             if p.is_ref {
-                // kreuzberg expects &[T]. Collect to a temporary Vec and slice it.
+                // sample_core expects &[T]. Collect to a temporary Vec and slice it.
                 return format!(
                     "{{ let __tmp = {name}.iter().map(|w| w.0.clone()).collect::<Vec<_>>(); __tmp.as_slice() }}"
                 );
@@ -474,7 +474,7 @@ pub(crate) fn emit_function_shim(
                 }
             }
             None => {
-                // No wrapping needed — but the kreuzberg function might return `&str`
+                // No wrapping needed — but the sample_core function might return `&str`
                 // when the IR says `String`, or `Vec<&str>` when the IR says `Vec<String>`.
                 // Apply coercions to match the declared return type.
                 match &f.return_type {

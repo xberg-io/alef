@@ -506,7 +506,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
             // whose only "sanitized" param is a configured trait_bridge param (e.g.
-            // Option<VisitorHandle> in html-to-markdown) are emitted via gen_bridge_function.
+            // Option<VisitorHandle> in sample-markdown) are emitted via gen_bridge_function.
             if func.sanitized && bridge_param.is_none() && options_field_bridge.is_none() {
                 continue;
             }

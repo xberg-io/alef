@@ -554,8 +554,8 @@ pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
 pub fn core_type_path_remapped(typ: &TypeDef, core_import: &str, remaps: &[(&str, &str)]) -> String {
     // Always use rust_path (post path-mapping) — this is the import name that
     // binding crates can actually resolve. The original_rust_path preserves the
-    // pre-mapping crate name (e.g. "html_to_markdown") which may not be importable
-    // when the dependency is renamed (e.g. "html-to-markdown-rs" in Cargo.toml).
+    // pre-mapping crate name (e.g. "sample_markdown") which may not be importable
+    // when the dependency is renamed (e.g. "sample-markdown-rs" in Cargo.toml).
     let path = typ.rust_path.replace('-', "_");
     if path.contains("::") {
         apply_crate_remaps(&path, remaps)

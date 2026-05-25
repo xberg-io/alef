@@ -300,7 +300,7 @@ pub(crate) fn gen_sync_function_method(
 
     // Trait-bridge clear_fn functions are special: they return Result<()> in Rust
     // (so return_type == Unit in the IR) but are exported as
-    // `kreuzberg_clear_X(char **out_error) -> i32` in the FFI.
+    // `sample_core_clear_X(char **out_error) -> i32` in the FFI.
     // We detect them via the clear_fn_handles map and treat them as i32 returns
     // with error handling (allocate out-error, invoke, check result code).
     let is_clear_fn = clear_fn_handles.contains_key(&func.name);
@@ -329,7 +329,7 @@ pub(crate) fn gen_sync_function_method(
         out.push_str("        }\n");
     } else if is_clear_fn {
         // Trait-bridge clear_fn: allocate out-error, invoke with error pointer, check result.
-        // The FFI function signature is: int kreuzberg_clear_X(char **out_error)
+        // The FFI function signature is: int sample_core_clear_X(char **out_error)
         // Pattern: allocate MemorySegment for address, pass to FFI, check return code.
         out.push_str("            var outErr = arena.allocate(ValueLayout.ADDRESS);\n");
         out.push_str(&crate::backends::java::template_env::render(

@@ -83,8 +83,8 @@ impl Backend for JniBackend {
 ///
 /// `crate-base` is `config.jni_crate_base()`: `[crates.jni] crate_dir` when
 /// set, otherwise `config.name`.  The override lets consumers whose name
-/// carries a language suffix (e.g. `"html-to-markdown-rs"`) produce a crate
-/// at `crates/html-to-markdown-jni/` that matches all other binding crates.
+/// carries a language suffix (e.g. `"sample-markdown-rs"`) produce a crate
+/// at `crates/sample-markdown-jni/` that matches all other binding crates.
 fn jni_output_path(config: &ResolvedCrateConfig) -> PathBuf {
     let jni_crate = format!("{}-jni", config.jni_crate_base());
     PathBuf::from(format!("crates/{jni_crate}/src/lib.rs"))
@@ -1644,7 +1644,7 @@ fn resolve_error_class(config: &ResolvedCrateConfig, package: &str) -> String {
 /// Return the `use` path for the core crate from the JNI shim.
 ///
 /// Uses the `name` field of the config (which is the crate name, e.g.
-/// `liter-llm`), converting hyphens to underscores per Rust convention.
+/// `sample-llm`), converting hyphens to underscores per Rust convention.
 fn core_use_path(config: &ResolvedCrateConfig) -> String {
     config.name.replace('-', "_")
 }

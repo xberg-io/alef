@@ -2104,7 +2104,7 @@ fn build_args_and_setup(
                             }
                         } else if is_array {
                             // Array type — unmarshal into a Go slice. Honor `go_type` for a
-                            // fully explicit Go type (e.g. `"kreuzberg.BatchBytesItem"`), fall
+                            // fully explicit Go type (e.g. `"sample_core.BatchBytesItem"`), fall
                             // back to deriving the slice type from `element_type`, defaulting
                             // to `[]string` for unknown types.
                             let go_slice_type = if let Some(go_t) = arg.go_type.as_deref() {
@@ -2114,7 +2114,7 @@ fn build_args_and_setup(
                                 if go_t.starts_with('[') {
                                     go_t.to_string()
                                 } else {
-                                    // Qualify unqualified types (e.g., "BatchBytesItem" → "kreuzberg.BatchBytesItem")
+                                    // Qualify unqualified types (e.g., "BatchBytesItem" → "sample_core.BatchBytesItem")
                                     let qualified = if go_t.contains('.') {
                                         go_t.to_string()
                                     } else {
@@ -3491,7 +3491,7 @@ fn element_type_to_go_slice(element_type: Option<&str>, import_alias: &str) -> S
 }
 
 /// Map a small subset of Rust scalar / `Vec<T>` types to their Go equivalents.
-/// For unknown types, qualify with the import alias (e.g., "kreuzberg.BatchBytesItem").
+/// For unknown types, qualify with the import alias (e.g., "sample_core.BatchBytesItem").
 fn rust_type_to_go(rust: &str, import_alias: &str) -> String {
     let trimmed = rust.trim();
     if let Some(inner) = trimmed.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
@@ -3998,7 +3998,7 @@ mod trait_bridge_tests {
     }
 
     /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait
-    /// must not reference any kreuzberg-domain names in setup_block or arg_expr.
+    /// must not reference any sample_core-domain names in setup_block or arg_expr.
     #[test]
     fn test_backend_emission_is_generic() {
         let trait_bridge = TraitBridgeConfig {
@@ -4019,7 +4019,7 @@ mod trait_bridge_tests {
         let methods = vec![&do_thing];
         let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
 
-        // setup_block must not reference any kreuzberg-domain trait or method names.
+        // setup_block must not reference any sample_core-domain trait or method names.
         assert!(
             !emission.setup_block.contains("OcrBackend"),
             "setup_block must not hardcode domain trait names, got:\n{}",
@@ -4276,7 +4276,7 @@ mod tests {
 
     #[test]
     fn test_streaming_with_client_factory_and_json_arg() {
-        // Mimics the real liter-llm setup: no returns_result on the call,
+        // Mimics the real sample-llm setup: no returns_result on the call,
         // json_object arg (binding_returns_error=true), and client_factory from
         // the default Go call override.
         use crate::core::config::e2e::{ArgMapping, CallOverride};

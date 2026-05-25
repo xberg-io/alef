@@ -406,7 +406,7 @@ mod tests {
         assert!(out.contains("fn initialize(&self)"), "must have initialize()");
         assert!(out.contains("fn shutdown(&self)"), "must have shutdown()");
         // Default (no plugin_error_constructor configured) emits the generic
-        // `From<String>` fallback so non-kreuzberg downstreams compile.
+        // `From<String>` fallback so non-sample_core downstreams compile.
         assert!(
             out.contains("<my_lib::MyError as ::core::convert::From<String>>::from(msg)"),
             "default plugin error path must use From<String> fallback;\n\
@@ -421,8 +421,8 @@ mod tests {
 
     /// When the FFI config provides an explicit `plugin_error_constructor`
     /// expression, the plugin shim emits that verbatim instead of the
-    /// `From<String>` fallback. This is the kreuzberg compatibility path —
-    /// kreuzberg's `KreuzbergError::Plugin` is a struct variant with two
+    /// `From<String>` fallback. This is the sample_core compatibility path —
+    /// sample_core's `KreuzbergError::Plugin` is a struct variant with two
     /// fields and cannot be constructed via `From<String>`.
     #[test]
     fn gen_ffi_plugin_impl_uses_configured_plugin_error_constructor() {

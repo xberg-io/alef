@@ -277,7 +277,7 @@ impl Backend for RustlerBackend {
 
         // Build a name → TypeDef map so codegen can resolve full rust_paths for
         // types that are not re-exported at the crate root (e.g. DrawingType lives
-        // at kreuzberg::extraction::docx::drawing::DrawingType, not kreuzberg::DrawingType).
+        // at sample_core::extraction::docx::drawing::DrawingType, not sample_core::DrawingType).
         let types_by_name: ahash::AHashMap<&str, &crate::core::ir::TypeDef> =
             api.types.iter().map(|t| (t.name.as_str(), t)).collect();
 

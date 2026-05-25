@@ -9,7 +9,6 @@
 //! the generator.
 //!
 //! Allowed contexts (not flagged):
-//! - Lines inside doc comments (`///`, `//!`) and regular line comments (`//`).
 //! - Lines inside `#[cfg(test)]` mod blocks (tracked by brace depth).
 //! - Files named `tests.rs` (convention for inline-tests-by-file).
 //! - Anything under `tests/`, `examples/`, `benches/`, `target/` (not scanned).
@@ -20,7 +19,12 @@ use walkdir::WalkDir;
 
 const FORBIDDEN_TOKENS: &[&str] = &[
     "kreuzberg",
+    "kreuzbreg",
     "kreuzcrawl",
+    "h2m",
+    "lllm",
+    "tslp",
+    "ts-pack",
     "html_to_markdown",
     "html-to-markdown",
     "tree_sitter_language_pack",
@@ -32,7 +36,15 @@ const FORBIDDEN_TOKENS: &[&str] = &[
 
 /// Source directories scanned by this guard. Paths are relative to the
 /// workspace root (resolved via `CARGO_MANIFEST_DIR`).
-const SCAN_ROOTS: &[&str] = &["src/codegen", "src/extract", "src/cli"];
+const SCAN_ROOTS: &[&str] = &[
+    "src/backends",
+    "src/core",
+    "src/e2e",
+    "src/scaffold",
+    "src/cli",
+    "src/codegen",
+    "src/extract",
+];
 
 /// Known existing violations grandfathered in pending follow-up cleanup. Each
 /// entry is `(relative_file_path, line_substring)` — the line must match
@@ -68,7 +80,7 @@ fn no_project_name_special_casing_in_production_code() {
 fn scan_directory(root: &Path, violations: &mut Vec<Violation>) {
     for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
         let path = entry.path();
-        if !is_scannable_rust_file(path) {
+        if !is_scannable_file(path) {
             continue;
         }
         let Ok(content) = std::fs::read_to_string(path) else {
@@ -78,18 +90,22 @@ fn scan_directory(root: &Path, violations: &mut Vec<Violation>) {
     }
 }
 
-fn is_scannable_rust_file(path: &Path) -> bool {
+fn is_scannable_file(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
-    if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+
+    let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if file_name == "tests.rs" {
         return false;
     }
-    // Skip inline-test files by convention.
-    if path.file_name().and_then(|n| n.to_str()) == Some("tests.rs") {
-        return false;
-    }
-    true
+
+    matches!(
+        path.extension().and_then(|ext| ext.to_str()),
+        Some("rs" | "jinja")
+    )
 }
 
 fn scan_file(path: &Path, content: &str, violations: &mut Vec<Violation>) {
@@ -104,14 +120,11 @@ fn scan_file(path: &Path, content: &str, violations: &mut Vec<Violation>) {
             continue;
         }
 
-        let trimmed = raw_line.trim_start();
-        // Skip all line-comment forms: `//`, `///`, `//!`.
-        if trimmed.starts_with("//") {
-            continue;
-        }
-
         for token in FORBIDDEN_TOKENS {
-            if raw_line.contains(token) {
+            if contains_forbidden_token(raw_line, token) {
+                if is_allowed_provenance(path, raw_line) {
+                    continue;
+                }
                 if is_grandfathered(path, raw_line) {
                     continue;
                 }
@@ -216,6 +229,16 @@ fn is_grandfathered(path: &Path, raw_line: &str) -> bool {
     false
 }
 
+fn is_allowed_provenance(path: &Path, raw_line: &str) -> bool {
+    let workspace_root = workspace_root();
+    let Ok(rel) = path.strip_prefix(&workspace_root) else {
+        return false;
+    };
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+    rel_str == "src/core/hash.rs" && raw_line.contains("https://github.com/kreuzberg-dev/alef")
+}
+
 fn is_cfg_test_attribute(trimmed: &str) -> bool {
     // Matches `#[cfg(test)]`, `#[cfg(all(test, ...))]`, `#[cfg(any(test, ...))]`,
     // `#[test]` (single-fn test attribute) — anything declaring a test-only
@@ -230,6 +253,30 @@ fn is_cfg_test_attribute(trimmed: &str) -> bool {
         return true;
     }
     false
+}
+
+fn contains_forbidden_token(line: &str, token: &str) -> bool {
+    let mut search_start = 0;
+    while let Some(relative_index) = line[search_start..].find(token) {
+        let start = search_start + relative_index;
+        let end = start + token.len();
+        if is_token_boundary(line, start, end) {
+            return true;
+        }
+        search_start = end;
+    }
+    false
+}
+
+fn is_token_boundary(line: &str, start: usize, end: usize) -> bool {
+    let before = line[..start].chars().next_back();
+    let after = line[end..].chars().next();
+
+    !before.is_some_and(is_identifier_char) && !after.is_some_and(is_identifier_char)
+}
+
+fn is_identifier_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn count_unescaped(line: &str, target: char) -> usize {

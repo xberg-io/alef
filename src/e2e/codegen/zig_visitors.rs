@@ -11,7 +11,7 @@
 //!
 //! Callbacks not present in the fixture stay null in the
 //! `HTMHtmVisitorCallbacks` struct; the FFI defaults those to `Continue`
-//! behaviour (see `crates/html-to-markdown-ffi/src/lib.rs` HtmVisitor impl).
+//! behaviour (see `crates/sample-markdown-ffi/src/lib.rs` HtmVisitor impl).
 
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};
 use heck::ToSnakeCase;
@@ -20,7 +20,7 @@ use std::fmt::Write as FmtWrite;
 /// Parameter list (typed Zig signature) for the C callback that backs a
 /// `HtmVisitorCallbacks::visit_*` slot. The shape mirrors the cbindgen-
 /// emitted function pointer type — see
-/// `crates/html-to-markdown-ffi/include/html_to_markdown.h` for the
+/// `crates/sample-markdown-ffi/include/sample_markdown.h` for the
 /// canonical signatures.
 fn callback_params(method: &str) -> &'static str {
     match method {

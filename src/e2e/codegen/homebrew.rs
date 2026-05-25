@@ -1,8 +1,8 @@
 //! Homebrew test_app generator.
 //!
 //! Generates a registry-mode-only test_app at `test_apps/homebrew/` that
-//! exercises both the CLI formula (`html-to-markdown`) and the FFI formula
-//! (`libhtml-to-markdown`) from the kreuzberg Homebrew tap.
+//! exercises both the CLI formula (`sample-markdown`) and the FFI formula
+//! (`libsample-markdown`) from the sample_core Homebrew tap.
 //!
 //! Emits four files:
 //!
@@ -284,7 +284,7 @@ fn render_ffi_smoke_c() -> String {
 fn render_readme(tap: &str, cli_formula: &str, ffi_formula: &str, version: &str) -> String {
     format!(
         "# homebrew test_app\n\n\
-         Exercises the html-to-markdown Homebrew formulae from tap `{tap}` at version `{version}`.\n\n\
+         Exercises the configured Homebrew formulae from tap `{tap}` at version `{version}`.\n\n\
          | Formula | Purpose |\n\
          |---------|--------|\n\
          | `{cli_formula}` | CLI binary: converts HTML from stdin to Markdown on stdout |\n\

@@ -194,7 +194,7 @@ pub(super) fn trait_impl_return_conversion(ty: &TypeRef, _source_crate_name: &st
         TypeRef::Named(_) => {
             // Mirror type → core type: the mirror DartFnFuture returns a mirror struct
             // (e.g. `VisitResult`), but the trait method must return the core type
-            // (e.g. `html_to_markdown_rs::VisitResult`). Convert via the
+            // (e.g. `sample_markdown_rs::VisitResult`). Convert via the
             // `From<Mirror> for Core` impl emitted by `emit_from_mirror_to_core_enum` /
             // `emit_from_mirror_to_core_struct` — the type is added to the
             // `param_types_needing_from` closure in `gen_rust_crate::mod` so the impl

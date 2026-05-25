@@ -219,7 +219,7 @@ pub(crate) fn emit_trait_bridge_wrapper(
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
 
-    // Derive the fully-qualified dyn trait path from rust_path (e.g. kreuzberg::plugins::OcrBackend).
+    // Derive the fully-qualified dyn trait path from rust_path (e.g. sample_core::plugins::OcrBackend).
     let trait_path = if trait_def.rust_path.is_empty() {
         format!("{source_crate}::{trait_name}")
     } else {
@@ -363,7 +363,7 @@ pub(crate) fn trait_call_arg(
 
     // Named types not in the visible set (e.g. excluded internal types like `InternalDocument`)
     // are JSON-bridged as `String` at the boundary. Deserialise back to the source type — the
-    // type must implement `serde::Deserialize` (true for all kreuzberg internal types passed
+    // type must implement `serde::Deserialize` (true for all sample_core internal types passed
     // across plugin trait method boundaries). Resolve the fully-qualified Rust path via
     // `type_paths` so the deserialise compiles even when the type is not re-exported from the
     // source crate root.
@@ -382,7 +382,7 @@ pub(crate) fn trait_call_arg(
     }
 
     // Named types in trait bridges are swift-bridge wrapper newtypes (e.g. `OcrConfig` wrapper
-    // which holds `pub kreuzberg::OcrConfig`). The trait method expects the inner type (possibly
+    // which holds `pub sample_core::OcrConfig`). The trait method expects the inner type (possibly
     // behind a reference). Extract `.0` and apply the appropriate reference.
     if matches!(p.ty, TypeRef::Named(_)) {
         if p.optional {

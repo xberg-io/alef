@@ -210,10 +210,10 @@ impl E2eCodegen for CCodegen {
 
         // Resolve FFI crate path for local repo builds.
         // Default to `../../crates/{name}-ffi` derived from the crate name so that
-        // projects like `liter-llm` resolve to `../../crates/liter-llm-ffi/include/`
+        // projects like `sample-llm` resolve to `../../crates/sample-llm-ffi/include/`
         // rather than the generic (incorrect) `../../crates/ffi`.
         // When `[crates.output] ffi` is set explicitly, derive the crate path from
-        // that value so that renamed FFI crates (e.g. `ts-pack-core-ffi`) resolve
+        // that value so that renamed FFI crates (e.g. `parser-core-core-ffi`) resolve
         // correctly without any hardcoded special cases.
         let ffi_crate_path = c_pkg
             .as_ref()
@@ -437,7 +437,7 @@ fn render_makefile(
     let _ = writeln!(out);
 
     // Rust's cdylib output normalizes hyphens to underscores in the filename
-    // (e.g. crate "html-to-markdown-ffi" → "libhtml_to_markdown_ffi.dylib").
+    // (e.g. crate "sample-markdown-ffi" → "libsample_markdown_ffi.dylib").
     // The -l linker flag must therefore use the underscore form, while the
     // pkg-config package name retains the original form (as declared in the .pc file).
     let link_lib_name = lib_name.replace('-', "_");
@@ -1171,7 +1171,7 @@ fn render_test_function(
 
     let prefix_upper = prefix.to_uppercase();
 
-    // Engine-factory pattern: used when c_engine_factory is configured (e.g. kreuzcrawl).
+    // Engine-factory pattern: used when c_engine_factory is configured (e.g. sample-crawler).
     // Creates a config handle from JSON, builds an engine, calls {prefix}_{function}(engine, url),
     // frees result and engine.
     if let Some(config_type) = c_engine_factory {
@@ -1236,7 +1236,7 @@ fn render_test_function(
         }
     }
 
-    // Client pattern: used when client_factory is configured (e.g. liter-llm).
+    // Client pattern: used when client_factory is configured (e.g. sample-llm).
     // Builds typed request handles from json_object args, creates a client via the
     // factory function, calls {prefix}_default_client_{function_name}(client, req),
     // then frees result, request handles, and client.
@@ -1717,7 +1717,7 @@ fn render_test_function(
     }
 
     // Legacy (non-client) path: call the function directly.
-    // Used for libraries like html-to-markdown that expose standalone FFI functions.
+    // Used for libraries like sample-markdown that expose standalone FFI functions.
 
     // Use the function name directly — the override already includes the prefix
     // (e.g. "htm_convert"), so we must NOT prepend it again.
@@ -3940,7 +3940,7 @@ fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str) -
 /// C function-pointer parameter list for a given visitor callback method.
 ///
 /// Mirrors the cbindgen-emitted `HTMHtmVisitorCallbacks` slot signatures from
-/// `crates/html-to-markdown-ffi/include/html_to_markdown.h`.  Named parameters
+/// `crates/sample-markdown-ffi/include/sample_markdown.h`.  Named parameters
 /// are prefixed with `_` so the C compiler does not warn about unused params when
 /// the callback body ignores them.
 fn c_visitor_callback_params(method: &str) -> &'static str {

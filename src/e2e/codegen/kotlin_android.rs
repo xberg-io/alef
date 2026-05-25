@@ -1,7 +1,7 @@
 //! Kotlin Android e2e test generator using kotlin.test and JUnit 5.
 //!
 //! Generates host-JVM tests that validate the AAR-bundled Java facade and Kotlin wrapper
-//! via JNA against libkreuzberg_ffi. Tests are emitted to `e2e/kotlin_android/src/test/kotlin/`
+//! via JNA against libsample_core_ffi. Tests are emitted to `e2e/kotlin_android/src/test/kotlin/`
 //! without requiring an Android emulator — the tests run directly on the host JVM against
 //! the shared library.
 
@@ -78,7 +78,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
 
         // Construct the Maven coordinate for the published Android AAR.
-        // Format: `group_id:artifact_id:version` (e.g., `dev.kreuzberg:kreuzberg-android:5.0.0-rc.1`)
+        // Format: `group_id:artifact_id:version` (e.g., `dev.sample_core:sample_core-android:5.0.0-rc.1`)
         let maven_group_id = naming::aar_group_id(config);
         let maven_artifact_id = naming::aar_artifact_id(config);
         let maven_coordinate = format!("{}:{}:{}", maven_group_id, maven_artifact_id, kotlin_android_version);
@@ -597,7 +597,7 @@ mod tests {
     /// not just the artifact name. The coordinate is resolved from
     /// `naming::aar_group_id()` and `naming::aar_artifact_id()` so it respects
     /// the `[crates.kotlin_android]` config. Credentials: Maven Central requires
-    /// the fully-qualified coordinate (e.g., `dev.kreuzberg:kreuzberg-android:5.0.0-rc.1`).
+    /// the fully-qualified coordinate (e.g., `dev.sample_core:sample_core-android:5.0.0-rc.1`).
     #[test]
     fn build_gradle_kotlin_android_registry_mode_emits_full_maven_coordinate() {
         let output = render_build_gradle_kotlin_android(
@@ -814,7 +814,7 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify that no kreuzberg-domain names leak into the generated output when
+    /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
     fn kotlin_android_stub_contains_no_kreuzberg_domain_names() {

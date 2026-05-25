@@ -669,7 +669,7 @@ fn unwrap_return_expr(
             // NUL-scan and removes the dependency on the sentinel terminator.
             //
             // Defensive null check: the error-code probe above gates on the FFI
-            // `_<fn>` setting `kreuzberg_last_error_code()`, but the matching
+            // `_<fn>` setting `sample_core_last_error_code()`, but the matching
             // `_<fn>_len()` companion calls `clear_last_error()` on entry and
             // some implementations forget to re-`set_last_error` on the error
             // path (returning 0 silently). When that happens the error-code

@@ -7,7 +7,7 @@
 //! Both tags are pushed to the remote with `--force-with-lease` (or printed in
 //! dry-run mode).
 //!
-//! Ports: `kreuzberg/scripts/publish/go/tag-and-push-go-module.sh`
+//! Ports: `sample_core/scripts/publish/go/tag-and-push-go-module.sh`
 
 use crate::core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};

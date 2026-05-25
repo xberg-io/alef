@@ -18,19 +18,19 @@
 //! clear_fn        = "clear_ocr_backends"
 //! ```
 //!
-//! …and a Java package `dev.kreuzberg`, the generator emits:
+//! …and a Java package `dev.sample_core`, the generator emits:
 //!
 //! ```kotlin
-//! fun registerOcrBackend(impl: dev.kreuzberg.IOcrBackend) {
-//!     dev.kreuzberg.OcrBackendBridge.registerOcrBackend(impl)
+//! fun registerOcrBackend(impl: dev.sample_core.IOcrBackend) {
+//!     dev.sample_core.OcrBackendBridge.registerOcrBackend(impl)
 //! }
 //!
 //! fun unregisterOcrBackend(name: String) {
-//!     dev.kreuzberg.OcrBackendBridge.unregisterOcrBackend(name)
+//!     dev.sample_core.OcrBackendBridge.unregisterOcrBackend(name)
 //! }
 //!
 //! fun clearOcrBackends() {
-//!     dev.kreuzberg.OcrBackendBridge.clearAllOcrBackend()
+//!     dev.sample_core.OcrBackendBridge.clearAllOcrBackend()
 //! }
 //! ```
 //!
@@ -47,7 +47,7 @@ use super::{to_lower_camel, to_pascal_case};
 /// Emits thin Kotlin wrapper functions that delegate registration, unregistration,
 /// and clear operations to the generated Java bridge class for a trait.
 pub struct KotlinJvmBridgeGenerator {
-    /// Java package (e.g. `"dev.kreuzberg"`) — used to qualify the bridge class.
+    /// Java package (e.g. `"dev.sample_core"`) — used to qualify the bridge class.
     pub java_package: String,
 }
 

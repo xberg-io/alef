@@ -9,11 +9,11 @@ impl ResolvedCrateConfig {
     ///
     /// Resolution order:
     /// 1. `[crates.jni] crate_dir` explicit override — allows consumers whose
-    ///    `config.name` carries a language suffix (e.g. `"html-to-markdown-rs"`)
+    ///    `config.name` carries a language suffix (e.g. `"sample-markdown-rs"`)
     ///    to place the JNI crate at `crates/<override>-jni/` instead.
     /// 2. `config.name` fallback — preserves the existing behaviour and keeps
-    ///    tslp's `tree-sitter-language-pack-jni` working correctly even though
-    ///    its `core_crate_dir()` differs (`ts-pack-core`).
+    ///    parser-pack's `parser-language-pack-jni` working correctly even though
+    ///    its `core_crate_dir()` differs (`parser-core-core`).
     pub fn jni_crate_base(&self) -> &str {
         self.jni
             .as_ref()
@@ -48,7 +48,7 @@ impl ResolvedCrateConfig {
         self
     }
 
-    /// Get the FFI prefix (e.g., `"kreuzberg"`). Used by FFI, Go, Java, C# backends.
+    /// Get the FFI prefix (e.g., `"sample_core"`). Used by FFI, Go, Java, C# backends.
     ///
     /// Returns `[ffi] prefix` if set, otherwise derives from the crate name by
     /// replacing hyphens with underscores.
@@ -65,8 +65,8 @@ impl ResolvedCrateConfig {
     /// Resolution order:
     /// 1. `[ffi] lib_name` explicit override
     /// 2. Directory name of the user-supplied `[crates.output] ffi` path with
-    ///    hyphens replaced by underscores (e.g. `crates/html-to-markdown-ffi/src/`
-    ///    → `html_to_markdown_ffi`). Walks components from the end and skips
+    ///    hyphens replaced by underscores (e.g. `crates/sample-markdown-ffi/src/`
+    ///    → `sample_markdown_ffi`). Walks components from the end and skips
     ///    `src`/`lib`/`include` to find the crate directory.
     /// 3. `{ffi_prefix}_ffi` fallback
     pub fn ffi_lib_name(&self) -> String {

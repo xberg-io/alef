@@ -555,7 +555,7 @@ impl FieldResolver {
     /// Returns `true` when the resolved path's first segment is in `result_fields`,
     /// or when the path uses a single virtual namespace prefix (e.g. `"browser."`,
     /// `"interaction."`) whose second segment IS in `result_fields`.  The namespace
-    /// prefix pattern is common in kreuzcrawl-style fixtures where authors group
+    /// prefix pattern is common in sample-crawler-style fixtures where authors group
     /// related assertion fields under an organizational prefix that does not
     /// correspond to a real struct field on the return type.
     pub fn is_valid_for_result(&self, fixture_field: &str) -> bool {
@@ -2802,7 +2802,7 @@ mod tests {
     }
 
     // Regression: bare-name HashSet classification produced false getters when two
-    // types shared a field name with different scalarness (kreuzcrawl `content`
+    // types shared a field name with different scalarness (sample-crawler `content`
     // collision between CrawlConfig.content: ContentConfig and MarkdownResult.content: String).
     #[test]
     fn render_php_with_getters_distinguishes_same_field_name_on_different_types() {
