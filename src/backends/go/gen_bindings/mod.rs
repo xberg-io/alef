@@ -274,11 +274,15 @@ impl Backend for GoBackend {
 
         // Generate the download tool under cmd/download_ffi/main.go
         let crate_version = api.version.to_string();
+        let repo_url = config.github_repo();
+        let asset_prefix = config.name.clone();
         let download_tool_content = crate::backends::go::template_env::render(
             "cmd_download_ffi_main.go.jinja",
             minijinja::context! {
                 ffi_lib_name => &ffi_lib_name,
                 crate_version => &crate_version,
+                repo_url => &repo_url,
+                asset_prefix => &asset_prefix,
             },
         );
         files.push(GeneratedFile {

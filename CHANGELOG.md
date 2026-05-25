@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef version bumped to 0.19.10** (`Cargo.toml`, `alef.toml`, `src/core/template_versions.rs`).
 
+- **alef doc-comment generalization across C#, Dart, Go backends.** Replaced binding-crate-specific words and example identifiers in inline doc comments with generic phrasing (e.g. `KreuzbergLib` → `the facade`, `lib_name = "sample"` example removed) so the codegen library carries no host-application bias in its source. No behavioural change. (`src/backends/csharp/gen_bindings/methods.rs`, `src/backends/dart/gen_bindings/mod.rs`, `src/backends/go/gen_bindings/mod.rs`)
+
 ### Fixed
 
 - **C# binding: emit `KreuzbergLib.Register{Trait}(IntPtr handle)` / `Unregister{Trait}(string name)` forwarders.** Test-app trait-bridge plugin-registration tests call `KreuzbergLib.RegisterDocumentExtractor(handle)`, `KreuzbergLib.UnregisterDocumentExtractor(name)`, etc. for all six plugin trait families, but the binding generator was emitting only the `NativeMethods` P/Invoke layer with no managed wrappers. The wrapper-class emitter now iterates `trait_bridges` and emits one `Register{Pascal}` + `Unregister{Pascal}` pair per trait, mirroring the Java/Kotlin pattern. (`src/backends/csharp/gen_bindings/methods.rs`)

@@ -50,8 +50,8 @@ impl Backend for DartBackend {
         }
 
         let module_name = dart_module_name(&config.name);
-        // D9: the barrel file should use `lib_name` when configured (e.g. `lib_name = "sample"`
-        // produces `lib/sample.dart`), falling back to the crate-name-derived module name.
+        // The barrel file should use `lib_name` when configured, falling back to
+        // the crate-name-derived module name.
         let barrel_name = config
             .dart
             .as_ref()

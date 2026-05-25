@@ -35,7 +35,7 @@ impl E2eCodegen for HomebrewCodegen {
         &self,
         _groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _config: &ResolvedCrateConfig,
+        config: &ResolvedCrateConfig,
         _type_defs: &[crate::core::ir::TypeDef],
         _enums: &[crate::core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
@@ -55,15 +55,15 @@ impl E2eCodegen for HomebrewCodegen {
         let tap = pkg
             .and_then(|p| p.tap.as_ref())
             .cloned()
-            .unwrap_or_else(|| "kreuzberg-dev/tap".to_string());
+            .unwrap_or_else(|| "example/tap".to_string());
         let cli_formula = pkg
             .and_then(|p| p.cli_formula.as_ref())
             .cloned()
-            .unwrap_or_else(|| "html-to-markdown".to_string());
+            .unwrap_or_else(|| config.name.clone());
         let ffi_formula = pkg
             .and_then(|p| p.ffi_formula.as_ref())
             .cloned()
-            .unwrap_or_else(|| "libhtml-to-markdown".to_string());
+            .unwrap_or_else(|| format!("lib{cli_formula}"));
         let version = pkg
             .and_then(|p| p.version.as_ref())
             .cloned()

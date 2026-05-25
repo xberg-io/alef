@@ -278,7 +278,7 @@ pub(super) fn gen_wrapper_class(
     }
 
     // Emit Register* and Unregister* facade methods for trait bridges.
-    // Bridge factory returns an IntPtr handle; KreuzbergLib.Register* completes the registration.
+    // Bridge factory returns an IntPtr handle; the facade completes the registration.
     for bridge_cfg in trait_bridges {
         let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
         let has_super = bridge_cfg.super_trait.is_some();
@@ -343,7 +343,7 @@ pub(super) fn gen_wrapper_class(
     }
 
     // Emit Clear* facade methods for trait bridges with clear_fn configured.
-    // These are static methods on KreuzbergLib that forward to the {Trait}Registry.Clear() methods.
+    // These static methods forward to the {Trait}Registry.Clear() methods.
     // The method name is derived from clear_fn (e.g., "clear_ocr_backends" → "ClearOcrBackends"),
     // not from the trait name, to match the Rust FFI free-function naming convention.
     for bridge_cfg in trait_bridges {

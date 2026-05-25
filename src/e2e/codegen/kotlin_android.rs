@@ -192,16 +192,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
 
         // kotlin_android lacks a JNI trait-handle bridge (see alef-backend-jni TODO), so
         // [crates.kotlin_android] excludes the visitor function. Fixtures whose payload uses
-        // a visitor cannot be exercised through this binding — emitting them produces tests
-        // that call convert(html, null) and then assert on visitor-transformed output, which
-        // always fails. Skip any visitor-using fixture for kotlin_android.
-        //
-        // In Registry mode (published Maven AAR), the AAR contains only Kotlin/Java facade code
-        // without bundled JNI libraries. Emitting host-JVM tests that call System.loadLibrary()
-        // would fail with UnsatisfiedLinkError. Skip host-JVM test generation in Registry mode;
-        // only emit instrumented tests for on-device/emulator execution where JNI is available.
-        let should_emit_host_jvm_tests = e2e_config.dep_mode == crate::e2e::config::DependencyMode::Local;
-
+        // a visitor cannot be exercised through this binding — skip any visitor-using fixture.
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
