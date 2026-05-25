@@ -160,6 +160,52 @@ pub(crate) fn gen_facade_class(
         })
         .collect();
 
+    // Emit static facade methods for trait bridges (register/unregister/clear).
+    // These provide convenient access to trait bridge methods without requiring
+    // callers to reference the individual Bridge classes.
+    let mut trait_bridge_wrappers = String::new();
+    for bridge in &config.trait_bridges {
+        if bridge
+            .exclude_languages
+            .contains(&crate::core::config::Language::Java.to_string())
+        {
+            continue;
+        }
+        let trait_pascal = bridge.trait_name.as_str().to_string();
+        let bridge_class = format!("{}Bridge", trait_pascal);
+
+        // register method
+        if let Some(register_fn) = &bridge.register_fn {
+            let java_register_fn = to_java_name(register_fn);
+            let trait_ident = format!("I{}", trait_pascal);
+            let method_code = format!(
+                "    public static void {}(final {} impl) throws {}Exception {{\n        {}.{}(impl);\n    }}\n\n",
+                java_register_fn, trait_ident, raw_class, bridge_class, java_register_fn
+            );
+            trait_bridge_wrappers.push_str(&method_code);
+        }
+
+        // unregister method
+        if let Some(unregister_fn) = &bridge.unregister_fn {
+            let java_unregister_fn = to_java_name(unregister_fn);
+            let method_code = format!(
+                "    public static void {}(final String name) throws {}Exception {{\n        {}.{}(name);\n    }}\n\n",
+                java_unregister_fn, raw_class, bridge_class, java_unregister_fn
+            );
+            trait_bridge_wrappers.push_str(&method_code);
+        }
+
+        // clear method
+        if let Some(clear_fn) = &bridge.clear_fn {
+            let java_clear_fn = to_java_name(clear_fn);
+            let method_code = format!(
+                "    public static void {}() throws {}Exception {{\n        {}.{}();\n    }}\n\n",
+                java_clear_fn, raw_class, bridge_class, java_clear_fn
+            );
+            trait_bridge_wrappers.push_str(&method_code);
+        }
+    }
+
     // Emit static facade methods for streaming adapters with an owner_type.
     // These wrap the instance methods on the owner handle, exposing a convenient
     // module-level API (e.g., `Kreuzcrawl.crawlStream(engine, req)` instead of
@@ -237,6 +283,7 @@ pub(crate) fn gen_facade_class(
             class_name => public_class,
             raw_class => raw_class,
             functions => functions,
+            trait_bridge_wrappers => trait_bridge_wrappers,
             streaming_wrappers => streaming_wrappers,
         },
     );
