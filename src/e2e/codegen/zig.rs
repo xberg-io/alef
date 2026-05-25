@@ -73,12 +73,17 @@ impl E2eCodegen for ZigE2eCodegen {
         let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
         // Use the crate name for constructing the release URL (hyphenated form).
         let crate_name = &config.name;
-        let github_repo = e2e_config
+        // Resolve the full `https://<host>/<org>/<repo>` URL.  Prefer the
+        // explicit `[e2e.registry] github_repo` override when set; otherwise
+        // fall back to `config.github_repo()` (which reads `[scaffold]
+        // repository`).  An org-only URL like `https://github.com/foo` is NOT
+        // a valid release host — the asset URL needs the repo segment.
+        let github_repo_owned = e2e_config
             .registry
             .github_repo
-            .as_deref()
-            .unwrap_or("https://github.com/kreuzberg-dev");
-        let github_repo = github_repo.trim_end_matches('/');
+            .clone()
+            .unwrap_or_else(|| config.github_repo());
+        let github_repo = github_repo_owned.trim_end_matches('/');
 
         // Resolve the content multihash for registry mode:
         //   1. explicit hash in alef.toml → use verbatim
@@ -2927,7 +2932,7 @@ mod zig_hash_tests {
             "1.4.0-rc.32",
             Some(hash),
             "liter-llm",
-            "https://github.com/kreuzberg-dev",
+            "https://github.com/kreuzberg-dev/liter-llm",
         );
         assert!(
             content.contains(&format!(".hash = \"{hash}\"")),
@@ -2950,11 +2955,34 @@ mod zig_hash_tests {
             "1.4.0-rc.32",
             None,
             "liter-llm",
-            "https://github.com/kreuzberg-dev",
+            "https://github.com/kreuzberg-dev/liter-llm",
         );
         assert!(
             content.contains(".hash = \"TODO\""),
             "build.zig.zon must fall back to TODO when no hash is available, got:\n{content}"
+        );
+    }
+
+    /// Regression test for the malformed asset URL bug: the rendered URL must
+    /// include the repo segment (`<org>/<repo>/releases/...`).  Previously the
+    /// codegen defaulted `github_repo` to `https://github.com/<org>` (no
+    /// repo), producing `https://github.com/<org>/releases/...` which 404s.
+    #[test]
+    fn build_zig_zon_emits_full_release_url_with_repo_segment() {
+        let content = render_build_zig_zon(
+            "html_to_markdown",
+            "../../packages/zig",
+            DependencyMode::Registry,
+            "3.5.1",
+            None,
+            "html-to-markdown-rs",
+            "https://github.com/kreuzberg-dev/html-to-markdown",
+        );
+        let expected_url =
+            "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v3.5.1/html-to-markdown-rs-zig-v3.5.1.tar.gz";
+        assert!(
+            content.contains(expected_url),
+            "build.zig.zon must emit the full release URL with repo segment; got:\n{content}"
         );
     }
 }
