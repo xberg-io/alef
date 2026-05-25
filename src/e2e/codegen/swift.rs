@@ -225,6 +225,13 @@ fn render_test_helpers_swift() -> String {
     let ignore = SWIFT_FORMAT_IGNORE_DIRECTIVE;
     format!(
         r#"{header}{ignore}import Foundation
+#if canImport(FoundationNetworking)
+// URLSession, URLRequest, HTTPURLResponse, and URLSessionTaskDelegate live in
+// the FoundationNetworking submodule on swift-corelibs-foundation (Linux). On
+// Apple platforms these types remain in plain Foundation and this submodule
+// does not exist; the canImport guard skips the import there.
+import FoundationNetworking
+#endif
 import RustBridge
 
 // Make `RustString` print its content in XCTest failure output. Without this,
@@ -446,6 +453,12 @@ fn render_test_file(
     out.push_str(SWIFT_FORMAT_IGNORE_DIRECTIVE);
     let _ = writeln!(out, "import XCTest");
     let _ = writeln!(out, "import Foundation");
+    // URLSession et al. are in FoundationNetworking on Linux (swift-corelibs-foundation)
+    // but in plain Foundation on Apple platforms. The canImport guard makes the import
+    // a no-op where the submodule is absent.
+    let _ = writeln!(out, "#if canImport(FoundationNetworking)");
+    let _ = writeln!(out, "import FoundationNetworking");
+    let _ = writeln!(out, "#endif");
     let _ = writeln!(out, "import {module_name}");
     // RustBridge is needed for low-level types (RustVec<UInt8>, RustString) constructed
     // in bytes/string argument setup. It is exposed as a product by the swift package
