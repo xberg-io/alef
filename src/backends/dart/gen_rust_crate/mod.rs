@@ -54,7 +54,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
             &exclude_types,
             &stub_methods,
         ),
-        emit_build_rs(&rust_dir),
+        emit_build_rs(&rust_dir, &config.dart_pubspec_name(), &module_name, &source_crate_name),
         emit_frb_yaml(&rust_dir, &module_name),
     ])
 }

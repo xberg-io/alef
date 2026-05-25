@@ -296,7 +296,7 @@ unexpected_cfgs = {{ level = "warn", check-cfg = ['cfg(frb_expand)'] }}"#
     }
 }
 
-pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
+pub(crate) fn emit_build_rs(rust_dir: &str, package_name: &str, module_name: &str, stem: &str) -> GeneratedFile {
     // Invoke `flutter_rust_bridge_codegen generate` at `cargo build` time so that
     // `src/frb_generated.rs` is always present before rustc tries to compile
     // `mod frb_generated;` in lib.rs. The invocation is conditional: when the
@@ -304,7 +304,16 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
     // the committed generated sources. This keeps `cargo check --workspace` and
     // `cargo build` working in CI environments and downstream projects that do
     // not have FRB installed.
-    let content = r#"fn main() {
+    //
+    // After codegen, the generated `frb_generated.dart` is patched so the
+    // published package can locate its native library from its own installed
+    // location (see `patch_published_loader`) instead of flutter_rust_bridge's
+    // build-tree-relative default `ioDirectory`.
+    let loader_patch = render_loader_patch_fn(package_name, module_name, stem);
+    let content = format!(
+        r#"use std::path::Path;
+
+fn main() {{
     // Re-run whenever any Rust source changes.
     println!("cargo:rerun-if-changed=src");
 
@@ -314,42 +323,207 @@ pub(crate) fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
     match std::process::Command::new("flutter_rust_bridge_codegen")
         .args(["generate", "--config-file", "flutter_rust_bridge.yaml"])
         .status()
-    {
-        Ok(status) if status.success() => {
+    {{
+        Ok(status) if status.success() => {{
             // FRB v2.12+ emits `use` lists in an order rustfmt 2024 edition rewrites
-            // (e.g. `{transform_result_dco, Lifetimeable, Lockable}` →
-            // `{Lifetimeable, Lockable, transform_result_dco}`). Run rustfmt against
+            // (e.g. `{{transform_result_dco, Lifetimeable, Lockable}}` →
+            // `{{Lifetimeable, Lockable, transform_result_dco}}`). Run rustfmt against
             // the generated file so committed output is fmt-clean and `cargo fmt --check`
             // stays green in CI.
             match std::process::Command::new("rustfmt")
                 .args(["--edition", "2024", "src/frb_generated.rs"])
                 .status()
-            {
-                Ok(s) if s.success() => {}
-                Ok(s) => println!("cargo:warning=rustfmt on src/frb_generated.rs exited {s}"),
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            {{
+                Ok(s) if s.success() => {{}}
+                Ok(s) => println!("cargo:warning=rustfmt on src/frb_generated.rs exited {{s}}"),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {{
                     println!(
                         "cargo:warning=rustfmt not on PATH — skipping post-FRB format. Install rustfmt via rustup to keep generated bridge sources fmt-clean."
                     );
-                }
-                Err(err) => println!("cargo:warning=failed to spawn rustfmt: {err}"),
-            }
-        }
-        Ok(status) => panic!("flutter_rust_bridge_codegen generate failed (exit code: {status})"),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                }}
+                Err(err) => println!("cargo:warning=failed to spawn rustfmt: {{err}}"),
+            }}
+
+            // Patch the generated Dart entrypoint so the published package resolves
+            // its native library from its own installed location.
+            patch_published_loader();
+        }}
+        Ok(status) => panic!("flutter_rust_bridge_codegen generate failed (exit code: {{status}})"),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {{
             println!(
                 "cargo:warning=flutter_rust_bridge_codegen not on PATH — skipping codegen. Install via `dart pub global activate flutter_rust_bridge_codegen` to regenerate FRB artifacts at build time."
             );
-        }
-        Err(err) => panic!("failed to spawn flutter_rust_bridge_codegen: {err}"),
-    }
-}
+        }}
+        Err(err) => panic!("failed to spawn flutter_rust_bridge_codegen: {{err}}"),
+    }}
+}}
+
+{loader_patch}
 "#
-    .to_string();
+    );
     GeneratedFile {
         path: PathBuf::from(format!("{rust_dir}/build.rs")),
         content,
         generated_header: false,
+    }
+}
+
+/// Render the `patch_published_loader` Rust function embedded in the generated
+/// dart bridge crate's `build.rs`.
+///
+/// flutter_rust_bridge's default loader uses a build-tree-relative `ioDirectory`
+/// (e.g. `rust/target/release/`) resolved against the *consumer's* current
+/// working directory — a path that is not shipped in the published pub tarball.
+/// Consuming the package from pub.dev therefore fails to find the library and
+/// falls back to opening a relative framework path (rejected by hardened
+/// runtimes). This patcher injects a loader that resolves the prebuilt library
+/// from the package's own installed location (`lib/src/<module>_bridge_generated/`,
+/// resolved via `Isolate.resolvePackageUri`) as an absolute path, falling back
+/// to flutter_rust_bridge's default loader when that library is absent (e.g.
+/// local development builds). The patch is idempotent (keyed off a marker) and a
+/// no-op when the FRB entrypoint signature is absent.
+fn render_loader_patch_fn(package_name: &str, module_name: &str, stem: &str) -> String {
+    // The Dart loader-helper method + patched `init` prologue, computed once and
+    // embedded as a raw literal in the generated build.rs. The original FRB
+    // `init` prologue is matched verbatim and replaced.
+    let dart_replacement = dart_init_prologue_replacement(package_name, module_name, stem);
+    format!(
+        r##"const FRB_GENERATED_DART: &str = "../lib/src/{module_name}_bridge_generated/frb_generated.dart";
+const LOADER_MARKER: &str = "_alefResolveExternalLibrary";
+const FRB_INIT_PROLOGUE: &str = "  /// Initialize flutter_rust_bridge\n  static Future<void> init({{\n    RustLibApi? api,\n    BaseHandler? handler,\n    ExternalLibrary? externalLibrary,\n    bool forceSameCodegenVersion = true,\n  }}) async {{\n";
+const FRB_INIT_REPLACEMENT: &str = r#"{dart_replacement}"#;
+
+/// Inject the published-package native-library loader into `frb_generated.dart`.
+/// Idempotent: a no-op when the marker is already present or the FRB entrypoint
+/// signature is absent.
+fn patch_published_loader() {{
+    let path = Path::new(FRB_GENERATED_DART);
+    let Ok(source) = std::fs::read_to_string(path) else {{
+        println!("cargo:warning=published-loader patch skipped: {{}} not found", FRB_GENERATED_DART);
+        return;
+    }};
+    if source.contains(LOADER_MARKER) {{
+        return;
+    }}
+    if !source.contains(FRB_INIT_PROLOGUE) {{
+        println!("cargo:warning=published-loader patch skipped: FRB init prologue not found");
+        return;
+    }}
+
+    let mut patched = source.replacen(FRB_INIT_PROLOGUE, FRB_INIT_REPLACEMENT, 1);
+
+    // Ensure the helper's `File`/`Isolate` dependencies are imported.
+    for (probe, line) in [
+        ("import 'dart:io';", "import 'dart:io';\n"),
+        ("import 'dart:isolate';", "import 'dart:isolate';\n"),
+    ] {{
+        if patched.contains(probe) {{
+            continue;
+        }}
+        if let Some(pos) = patched.find("\nimport ") {{
+            patched.insert_str(pos + 1, line);
+        }} else {{
+            patched.insert_str(0, line);
+        }}
+    }}
+
+    if patched != source {{
+        if let Err(err) = std::fs::write(path, patched) {{
+            println!("cargo:warning=failed to write published-loader patch: {{err}}");
+        }}
+    }}
+}}
+"##
+    )
+}
+
+/// Build the patched `RustLib.init` prologue Dart source: the loader helper
+/// method followed by the original `init` signature with a resolution line that
+/// prefers the package-relative library.
+///
+/// Kept in sync with the FRB 2.x `RustLib.init` signature. The candidate library
+/// filenames cover the three desktop platforms shipped via pub
+/// (`lib<stem>.dylib`, `lib<stem>.so`, `<stem>.dll`).
+fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
+    format!(
+        r#"  /// Resolve the prebuilt native library from this package's own installed
+  /// location so the load works from any working directory and under hardened
+  /// runtimes. Returns `null` to defer to flutter_rust_bridge's default loader.
+  static Future<ExternalLibrary?> _alefResolveExternalLibrary() async {{
+    try {{
+      final packageRoot =
+          await Isolate.resolvePackageUri(Uri.parse('package:{package_name}/{package_name}.dart'));
+      if (packageRoot != null) {{
+        final libDir = packageRoot.resolve('src/{module_name}_bridge_generated/');
+        const candidates = <String>[
+          'lib{stem}.dylib',
+          'lib{stem}.so',
+          '{stem}.dll',
+        ];
+        for (final candidate in candidates) {{
+          final libPath = libDir.resolve(candidate).toFilePath();
+          if (File(libPath).existsSync()) {{
+            return ExternalLibrary.open(libPath);
+          }}
+        }}
+      }}
+    }} catch (_) {{
+      // Fall through to the default loader on any resolution failure.
+    }}
+    return null;
+  }}
+
+  /// Initialize flutter_rust_bridge
+  static Future<void> init({{
+    RustLibApi? api,
+    BaseHandler? handler,
+    ExternalLibrary? externalLibrary,
+    bool forceSameCodegenVersion = true,
+  }}) async {{
+    externalLibrary ??= await _alefResolveExternalLibrary();
+"#
+    )
+}
+
+#[cfg(test)]
+mod build_rs_tests {
+    use super::*;
+
+    #[test]
+    fn emitted_build_rs_is_valid_rust() {
+        let file = emit_build_rs("packages/dart/rust", "spikard", "spikard", "spikard_dart");
+        syn::parse_file(&file.content).expect("generated build.rs must be valid Rust");
+    }
+
+    #[test]
+    fn emitted_build_rs_patches_published_loader_after_codegen() {
+        let file = emit_build_rs("packages/dart/rust", "spikard", "spikard", "spikard_dart");
+        // The patch runs only on a successful FRB codegen.
+        assert!(
+            file.content.contains("patch_published_loader();"),
+            "build.rs must invoke the loader patch after codegen"
+        );
+        assert!(
+            file.content.contains("fn patch_published_loader()"),
+            "build.rs must define the loader patch"
+        );
+        // Targets the generated dart entrypoint by module name.
+        assert!(
+            file.content
+                .contains(r#"../lib/src/spikard_bridge_generated/frb_generated.dart"#),
+            "build.rs must target the generated frb dart file"
+        );
+        // The injected Dart resolves the package-relative library.
+        assert!(
+            file.content
+                .contains("Isolate.resolvePackageUri(Uri.parse('package:spikard/spikard.dart'))"),
+            "build.rs replacement must resolve the package URI"
+        );
+        assert!(
+            file.content
+                .contains("externalLibrary ??= await _alefResolveExternalLibrary();"),
+            "build.rs replacement must prefer the package-relative library"
+        );
     }
 }
 
