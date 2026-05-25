@@ -460,17 +460,27 @@ impl Backend for WasmBackend {
         let mut input_dto_code = String::new();
 
         for func in &api.functions {
-            if !exclude_functions.contains(&func.name) && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
-                let refs_excluded = func.params.iter().any(|p| field_references_excluded_type(&p.ty, &exclude_types))
+            if !exclude_functions.contains(&func.name)
+                && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
+                    &func.name,
+                    &config.trait_bridges,
+                )
+            {
+                let refs_excluded = func
+                    .params
+                    .iter()
+                    .any(|p| field_references_excluded_type(&p.ty, &exclude_types))
                     || field_references_excluded_type(&func.return_type, &exclude_types);
                 if !refs_excluded {
                     for p in &func.params {
                         if let TypeRef::Named(name) = &p.ty {
                             if !opaque_types.contains(name.as_str())
                                 && functions::should_have_input_dto(name)
-                                && !emitted_input_dtos.contains(name) {
+                                && !emitted_input_dtos.contains(name)
+                            {
                                 if let Some(type_def) = api.types.iter().find(|t| t.name == *name) {
-                                    let (dto_code, _dto_name) = functions::gen_input_dto_for_type(name, &core_import, type_def);
+                                    let (dto_code, _dto_name) =
+                                        functions::gen_input_dto_for_type(name, &core_import, type_def);
                                     if !dto_code.is_empty() {
                                         input_dto_code.push_str(&dto_code);
                                         input_dto_code.push_str("\n\n");

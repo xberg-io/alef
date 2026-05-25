@@ -613,13 +613,16 @@ fn detect_map_metadata(ty: &syn::Type) -> (bool, bool) {
 
     // Check whether the key generic arg is `Cow<...>`.
     let map_key_is_cow = if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-        args.args.iter().find_map(|a| {
-            if let syn::GenericArgument::Type(syn::Type::Path(tp)) = a {
-                tp.path.segments.last().map(|s| s.ident == "Cow")
-            } else {
-                None
-            }
-        }).unwrap_or(false)
+        args.args
+            .iter()
+            .find_map(|a| {
+                if let syn::GenericArgument::Type(syn::Type::Path(tp)) = a {
+                    tp.path.segments.last().map(|s| s.ident == "Cow")
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false)
     } else {
         false
     };

@@ -188,7 +188,8 @@ pub(crate) fn emit_cargo_toml(
     } else {
         ""
     };
-    let extra_deps = format!("{ahash_dep}{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}");
+    let extra_deps =
+        format!("{ahash_dep}{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
         .scaffold

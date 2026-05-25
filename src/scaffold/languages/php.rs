@@ -33,10 +33,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
     // PHP wrapper emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
-    let needs_ahash = api
-        .functions
-        .iter()
-        .any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
     let mut all_deps = extra_deps;
     if needs_ahash && !all_deps.contains("ahash") {
         if !all_deps.is_empty() {

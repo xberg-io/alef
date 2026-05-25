@@ -2710,18 +2710,15 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
             name: "LinkMetadata".to_string(),
             rust_path: "test_lib::LinkMetadata".to_string(),
             original_rust_path: String::new(),
-            fields: vec![
-                make_field("href", TypeRef::String, false),
-                {
-                    let mut f = make_field(
-                        "attributes",
-                        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
-                        false,
-                    );
-                    f.sanitized = true;
-                    f
-                },
-            ],
+            fields: vec![make_field("href", TypeRef::String, false), {
+                let mut f = make_field(
+                    "attributes",
+                    TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+                    false,
+                );
+                f.sanitized = true;
+                f
+            }],
             methods: vec![],
             is_opaque: false,
             is_clone: true,

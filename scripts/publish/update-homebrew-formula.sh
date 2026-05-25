@@ -17,8 +17,8 @@ tap_dir="${TAP_DIR:?TAP_DIR is required (path to homebrew-tap checkout)}"
 formula="${tap_dir}/Formula/alef.rb"
 
 [[ -f "$formula" ]] || {
-	echo "Missing $formula" >&2
-	exit 1
+  echo "Missing $formula" >&2
+  exit 1
 }
 
 work_dir="$(mktemp -d)"
@@ -30,8 +30,8 @@ curl -fsSL "$source_url" -o "$work_dir/source.tar.gz"
 source_sha="$(shasum -a 256 "$work_dir/source.tar.gz" | awk '{print $1}')"
 
 if [[ ! "$source_sha" =~ ^[a-f0-9]{64}$ ]]; then
-	echo "Computed invalid sha256: $source_sha" >&2
-	exit 1
+  echo "Computed invalid sha256: $source_sha" >&2
+  exit 1
 fi
 
 echo "Source tarball sha256: $source_sha" >&2

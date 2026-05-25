@@ -253,11 +253,7 @@ fn magnus_ahash_pre_call_bindings(params: &[ParamDef]) -> Vec<String> {
 
 /// Build call argument string, substituting AHashMap pre-bound variables for
 /// any AHashMap<Cow, Value> params (which were re-bound in magnus_ahash_pre_call_bindings).
-fn magnus_call_args_with_ahash(
-    params: &[ParamDef],
-    _opaque_types: &AHashSet<String>,
-    base_call_args: &str,
-) -> String {
+fn magnus_call_args_with_ahash(params: &[ParamDef], _opaque_types: &AHashSet<String>, base_call_args: &str) -> String {
     // If no AHashMap params, return as-is.
     if !params
         .iter()

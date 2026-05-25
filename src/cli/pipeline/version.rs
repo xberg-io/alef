@@ -665,6 +665,29 @@ pub fn sync_versions(
         }
     }
 
+    // Elixir NIF crate Cargo.lock: a Rustler NIF crate lives under the Elixir
+    // package's `native/<nif>/` directory and ships a committed `Cargo.lock`
+    // inside the Hex source tarball. The NIF `Cargo.toml` is bumped elsewhere
+    // (workspace member pass or a `[sync].extra_paths` entry), but its committed
+    // lockfile keeps the OLD version on every local/path-source entry — the
+    // consumer's own crates plus the NIF crate itself — which makes `cargo build`
+    // from the published tarball fail with a lock/manifest version mismatch.
+    // Glob the lockfiles under the Elixir package's `native/` tree (the NIF crate
+    // name is consumer-specific) and rewrite only their sourceless entries.
+    {
+        let elixir_pkg = config.package_dir(Language::Elixir);
+        let nif_lock_glob = format!("{elixir_pkg}/native/*/Cargo.lock");
+        for entry in glob::glob(&nif_lock_glob).into_iter().flatten().flatten() {
+            if let Ok(content) = std::fs::read_to_string(&entry) {
+                if let Some(new_content) = sync_cargo_lock_path_versions(&content, &version) {
+                    std::fs::write(&entry, &new_content)
+                        .with_context(|| format!("failed to write {}", entry.display()))?;
+                    updated.push(entry.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
     // Go: go.mod (no version field, skip)
 
     // Java: pom.xml
@@ -686,6 +709,20 @@ pub fn sync_versions(
                 std::fs::write(&entry, &new_content)?;
                 updated.push(entry.to_string_lossy().to_string());
             }
+        }
+    }
+
+    // Kotlin (JVM/Multiplatform): packages/kotlin/build.gradle.kts carries a
+    // top-level `version = "..."` (Gradle `Project.version`) used by the
+    // maven-publish task. It is distinct from the e2e Gradle build (handled via
+    // the e2e codegen path) and from plugin/extension `version` constructs in the
+    // same file, which `replace_gradle_project_version` deliberately skips.
+    let kotlin_gradle = std::path::Path::new(&config.package_dir(Language::Kotlin)).join("build.gradle.kts");
+    if let Ok(content) = std::fs::read_to_string(&kotlin_gradle) {
+        if let Some(new_content) = replace_gradle_project_version(&content, &version) {
+            std::fs::write(&kotlin_gradle, &new_content)
+                .with_context(|| format!("failed to write {}", kotlin_gradle.display()))?;
+            updated.push(kotlin_gradle.to_string_lossy().to_string());
         }
     }
 
@@ -987,6 +1024,17 @@ pub fn sync_versions(
                 }
             }
         }
+    }
+
+    // Docs API-reference version badges: `alef docs` injects the workspace
+    // version into the `<span class="version-badge">v…</span>` heading marker,
+    // but consumers bump via `alef sync-versions`, which regenerates READMEs and
+    // not the docs tree. Without this, the badge stays pinned at the previous
+    // version after a sync-only bump. The default docs output directory mirrors
+    // the `alef docs` default (`docs/reference`). Updated files are added to
+    // `updated`, so finalize_hashes below refreshes their alef:hash headers.
+    for badge_file in sync_docs_version_badges(std::path::Path::new("docs/reference"), &version) {
+        updated.push(badge_file);
     }
 
     // Refresh lockfiles for any ecosystem whose manifests were rewritten.
@@ -1497,6 +1545,162 @@ fn extract_version_literal(matched: &str) -> Option<&str> {
         return Some(matched[eq + 1..].trim());
     }
     None
+}
+
+/// Bump the top-level project `version = "..."` assignment in a Gradle Kotlin
+/// DSL build file (`build.gradle.kts`).
+///
+/// Gradle build files embed several version-bearing constructs that must NOT be
+/// touched:
+///   - plugin declarations:  `kotlin("jvm") version "2.3.21"`,
+///     `id("org.jlleitschuh.gradle.ktlint") version "1.0.0"`
+///   - extension config:      `version.set("1.0.0")` (e.g. the ktlint block)
+///   - dependency coordinates: `api("net.java.dev.jna:jna:5.14.0")`
+///
+/// Only the project version is expressed as a start-of-line `version = "..."`
+/// assignment (Gradle Kotlin DSL `Project.version`). The regex anchors to the
+/// line start (after optional leading whitespace) and requires the `=`
+/// assignment form, so the plugin/extension/coordinate shapes above — which use
+/// a space-delimited `version "..."`, a `version.set(...)` call, or no `version`
+/// token at all — are left intact.
+///
+/// Returns the rewritten content when the project version changed, or `None`
+/// when the file has no such line or it already matches `new_version`.
+fn replace_gradle_project_version(content: &str, new_version: &str) -> Option<String> {
+    static GRADLE_VERSION_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#"(?m)^(\s*)version\s*=\s*"[^"]*""#).expect("valid regex"));
+    let captures = GRADLE_VERSION_RE.captures(content)?;
+    let matched = captures.get(0)?.as_str();
+    if matched_version_equals(matched, new_version) {
+        return None;
+    }
+    let indent = captures.get(1).map(|m| m.as_str()).unwrap_or("");
+    let replacement = format!(r#"{indent}version = "{new_version}""#);
+    let new_content = GRADLE_VERSION_RE.replace(content, replacement.as_str()).into_owned();
+    if new_content == content {
+        return None;
+    }
+    Some(new_content)
+}
+
+/// Rewrite the `version = "..."` field of every local/path-source `[[package]]`
+/// entry in a committed `Cargo.lock` so it matches the freshly-bumped manifests.
+///
+/// A binding that ships a committed `Cargo.lock` inside its source tarball (e.g.
+/// a Rustler NIF crate packaged into a Hex release) must keep that lockfile in
+/// step with the workspace version, otherwise `cargo build` from the published
+/// tarball fails with a lock/manifest version mismatch.
+///
+/// Registry dependencies carry a `source = "registry+..."` (or `git+...`) key
+/// and an upstream-pinned version that must never be rewritten. Local crates —
+/// the consumer's own workspace members and the NIF crate itself — have NO
+/// `source` key and share the workspace version. We bump only those, leaving
+/// every registry/git entry untouched.
+///
+/// The lockfile is line-oriented and `cargo` rewrites it deterministically, so a
+/// targeted line rewrite (rather than a full TOML re-serialize) preserves the
+/// canonical formatting and avoids reordering. Returns the rewritten content
+/// when at least one local entry changed, else `None`.
+fn sync_cargo_lock_path_versions(content: &str, new_version: &str) -> Option<String> {
+    let mut out = String::with_capacity(content.len());
+    let mut changed = false;
+
+    // Split into `[[package]]` blocks while preserving any preamble (the lock
+    // header + `version = 3`/`version = 4` format line) verbatim. We collect
+    // each block's lines, decide whether it is a local (sourceless) package, and
+    // only then rewrite its `version = "..."` line.
+    let mut block: Vec<&str> = Vec::new();
+    let mut in_package_block = false;
+
+    // Flush the buffered block to `out`, rewriting the version line only when the
+    // block is a `[[package]]` entry with no `source` key.
+    let flush = |block: &mut Vec<&str>, out: &mut String, changed: &mut bool| {
+        if block.is_empty() {
+            return;
+        }
+        let is_package = block.first().is_some_and(|l| l.trim() == "[[package]]");
+        let has_source = block.iter().any(|l| l.trim_start().starts_with("source = "));
+        for line in block.iter() {
+            if is_package && !has_source && line.trim_start().starts_with("version = ") {
+                let indent_len = line.len() - line.trim_start().len();
+                let indent = &line[..indent_len];
+                let rewritten = format!(r#"{indent}version = "{new_version}""#);
+                if rewritten != *line {
+                    *changed = true;
+                }
+                out.push_str(&rewritten);
+            } else {
+                out.push_str(line);
+            }
+            out.push('\n');
+        }
+        block.clear();
+    };
+
+    for line in content.lines() {
+        if line.trim() == "[[package]]" {
+            // Starting a new package block: flush whatever came before (preamble
+            // or the previous block).
+            flush(&mut block, &mut out, &mut changed);
+            in_package_block = true;
+            block.push(line);
+        } else if in_package_block {
+            block.push(line);
+        } else {
+            // Preamble before the first `[[package]]`: emit verbatim.
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    flush(&mut block, &mut out, &mut changed);
+
+    if !changed {
+        return None;
+    }
+    // Preserve the original trailing-newline shape: `str::lines()` drops the
+    // final newline, and we re-add one per line above. If the source did not end
+    // in a newline, trim the extra one we appended.
+    if !content.ends_with('\n') {
+        out.pop();
+    }
+    Some(out)
+}
+
+/// Bump the `version-badge` span in generated docs API-reference pages.
+///
+/// `alef docs` injects the workspace version into the `<span class="version-badge">v…</span>`
+/// marker when it regenerates each `api-{lang}.md` heading. A `sync-versions`-only
+/// bump (the path consumers take on every release) regenerates READMEs but not
+/// the docs tree, so without this the badge stays pinned at the previous version.
+/// This rewrites the badge text in-place across all `{docs_reference_dir}/api-*.md`
+/// pages so a plain `alef sync-versions` leaves a fully version-consistent tree.
+///
+/// The match is anchored to the literal `version-badge` span class and the `v`
+/// prefix the docs template emits, so unrelated `v…` text in prose is untouched.
+/// Returns the list of files whose badge was rewritten.
+fn sync_docs_version_badges(docs_reference_dir: &std::path::Path, new_version: &str) -> Vec<String> {
+    static BADGE_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#"(<span class="version-badge">v)[^<]*(</span>)"#).expect("valid regex"));
+    let mut updated = Vec::new();
+    let pattern = docs_reference_dir.join("api-*.md");
+    let Some(pattern_str) = pattern.to_str() else {
+        return updated;
+    };
+    for entry in glob::glob(pattern_str).into_iter().flatten().flatten() {
+        let Ok(content) = std::fs::read_to_string(&entry) else {
+            continue;
+        };
+        let replacement = format!("${{1}}{new_version}${{2}}");
+        let new_content = BADGE_RE.replace_all(&content, replacement.as_str()).into_owned();
+        if new_content != content {
+            if let Err(e) = std::fs::write(&entry, &new_content) {
+                debug!("Could not write {}: {e}", entry.display());
+            } else {
+                updated.push(entry.to_string_lossy().to_string());
+            }
+        }
+    }
+    updated
 }
 
 #[cfg(test)]
@@ -2407,5 +2611,298 @@ tokio = { version = "1.0", features = ["full"] }
         // Verify that run_optional can run a simple builtin command (echo) successfully.
         super::super::helpers::run_optional("echo", &["test"]);
         // If we reach here without panicking, the test passes.
+    }
+
+    // --- Kotlin Gradle project version ------------------------------------
+
+    const GRADLE_BUILD_SAMPLE: &str = r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+  `java-library`
+  kotlin("jvm") version "2.3.21"
+  `maven-publish`
+  id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
+}
+
+group = "dev.example"
+version = "0.15.6-rc.2"
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  api("net.java.dev.jna:jna:5.14.0")
+}
+
+ktlint {
+  version.set("1.0.1")
+}
+"#;
+
+    #[test]
+    fn replace_gradle_project_version_bumps_only_project_version() {
+        let out = replace_gradle_project_version(GRADLE_BUILD_SAMPLE, "0.15.6-rc.3").expect("project version bumped");
+        assert!(
+            out.contains("version = \"0.15.6-rc.3\""),
+            "project version must be bumped:\n{out}"
+        );
+        // Plugin version strings must be untouched.
+        assert!(
+            out.contains(r#"kotlin("jvm") version "2.3.21""#),
+            "kotlin plugin version must not change:\n{out}"
+        );
+        assert!(
+            out.contains(r#"id("org.jlleitschuh.gradle.ktlint") version "12.1.0""#),
+            "ktlint plugin version must not change:\n{out}"
+        );
+        // ktlint extension version must be untouched.
+        assert!(
+            out.contains(r#"version.set("1.0.1")"#),
+            "ktlint extension version must not change:\n{out}"
+        );
+        // Dependency coordinate must be untouched.
+        assert!(
+            out.contains(r#"api("net.java.dev.jna:jna:5.14.0")"#),
+            "jna coordinate must not change:\n{out}"
+        );
+        assert!(!out.contains("0.15.6-rc.2"), "old version must be gone:\n{out}");
+    }
+
+    #[test]
+    fn replace_gradle_project_version_is_idempotent() {
+        let first = replace_gradle_project_version(GRADLE_BUILD_SAMPLE, "0.15.6-rc.3").unwrap();
+        assert!(
+            replace_gradle_project_version(&first, "0.15.6-rc.3").is_none(),
+            "second call with same version must return None"
+        );
+    }
+
+    #[test]
+    fn replace_gradle_project_version_no_project_version_returns_none() {
+        // A build file with only plugin/extension version constructs — no
+        // top-level `version = "..."` assignment to bump.
+        let content = "plugins {\n  kotlin(\"jvm\") version \"2.3.21\"\n}\n";
+        assert!(replace_gradle_project_version(content, "1.0.0").is_none());
+    }
+
+    // --- NIF Cargo.lock path-source versions ------------------------------
+
+    const NIF_CARGO_LOCK_SAMPLE: &str = r#"# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 4
+
+[[package]]
+name = "example_core"
+version = "0.15.6-rc.2"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "example_nif"
+version = "0.15.6-rc.2"
+dependencies = [
+ "example_core",
+ "rustler",
+]
+
+[[package]]
+name = "serde"
+version = "1.0.219"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
+"#;
+
+    #[test]
+    fn sync_cargo_lock_path_versions_bumps_only_sourceless_entries() {
+        let out = sync_cargo_lock_path_versions(NIF_CARGO_LOCK_SAMPLE, "0.15.6-rc.3").expect("lock updated");
+        // The lock-format preamble must be preserved verbatim.
+        assert!(
+            out.contains("version = 4"),
+            "lock format version line must be preserved:\n{out}"
+        );
+        // Local/path crates (no source key) get bumped.
+        assert_eq!(
+            out.matches("version = \"0.15.6-rc.3\"").count(),
+            2,
+            "both local crates must be bumped:\n{out}"
+        );
+        assert!(!out.contains("0.15.6-rc.2"), "old version must be gone:\n{out}");
+        // Registry dependency must be untouched.
+        assert!(
+            out.contains("version = \"1.0.219\""),
+            "registry dep version must not change:\n{out}"
+        );
+        assert!(
+            out.contains("source = \"registry+https://github.com/rust-lang/crates.io-index\""),
+            "registry source line must be preserved:\n{out}"
+        );
+    }
+
+    #[test]
+    fn sync_cargo_lock_path_versions_is_idempotent() {
+        let first = sync_cargo_lock_path_versions(NIF_CARGO_LOCK_SAMPLE, "0.15.6-rc.3").unwrap();
+        assert!(
+            sync_cargo_lock_path_versions(&first, "0.15.6-rc.3").is_none(),
+            "second call with same version must return None"
+        );
+    }
+
+    #[test]
+    fn sync_cargo_lock_path_versions_preserves_no_trailing_newline() {
+        let no_newline = NIF_CARGO_LOCK_SAMPLE.trim_end_matches('\n');
+        let out = sync_cargo_lock_path_versions(no_newline, "0.15.6-rc.3").unwrap();
+        assert!(
+            !out.ends_with('\n'),
+            "absence of trailing newline must be preserved:\n{out:?}"
+        );
+    }
+
+    #[test]
+    fn sync_cargo_lock_path_versions_all_registry_returns_none() {
+        // Lockfile where every package has a source — nothing local to bump.
+        let content = "version = 4\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.219\"\nsource = \"registry+x\"\n";
+        assert!(sync_cargo_lock_path_versions(content, "9.9.9").is_none());
+    }
+
+    // --- Docs version badge -----------------------------------------------
+
+    #[test]
+    fn sync_docs_version_badges_updates_api_files_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        std::fs::write(
+            dir.join("api-rust.md"),
+            "## Rust API Reference <span class=\"version-badge\">v0.15.6-rc.2</span>\n\nbody\n",
+        )
+        .expect("write api-rust.md");
+        std::fs::write(
+            dir.join("api-python.md"),
+            "## Python API Reference <span class=\"version-badge\">v0.15.6-rc.2</span>\n",
+        )
+        .expect("write api-python.md");
+        // A non-api doc must not be touched even if it has a badge.
+        std::fs::write(
+            dir.join("configuration.md"),
+            "## Configuration <span class=\"version-badge\">v0.15.6-rc.2</span>\n",
+        )
+        .expect("write configuration.md");
+
+        let updated = sync_docs_version_badges(dir, "0.15.6-rc.3");
+        assert_eq!(
+            updated.len(),
+            2,
+            "only the two api-*.md files must be updated: {updated:?}"
+        );
+
+        let rust = std::fs::read_to_string(dir.join("api-rust.md")).unwrap();
+        assert!(
+            rust.contains("<span class=\"version-badge\">v0.15.6-rc.3</span>"),
+            "rust badge must be bumped:\n{rust}"
+        );
+        let config = std::fs::read_to_string(dir.join("configuration.md")).unwrap();
+        assert!(
+            config.contains("v0.15.6-rc.2"),
+            "non-api doc must not be touched:\n{config}"
+        );
+    }
+
+    #[test]
+    fn sync_docs_version_badges_is_idempotent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        std::fs::write(
+            dir.join("api-go.md"),
+            "## Go API Reference <span class=\"version-badge\">v1.0.0</span>\n",
+        )
+        .expect("write api-go.md");
+        let _ = sync_docs_version_badges(dir, "1.0.0");
+        let second = sync_docs_version_badges(dir, "1.0.0");
+        assert!(second.is_empty(), "second call with same version must be a no-op");
+    }
+
+    /// End-to-end: a `sync_versions` bump must update the Kotlin package gradle
+    /// project version, the NIF crate's committed Cargo.lock path entries, and
+    /// the docs API-reference version badges — the three coverage gaps.
+    #[test]
+    fn sync_versions_bumps_kotlin_gradle_nif_lock_and_docs_badges() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"0.15.6-rc.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Kotlin package build.gradle.kts, stale.
+        std::fs::create_dir_all(root.join("packages/kotlin")).expect("mkdir packages/kotlin");
+        std::fs::write(root.join("packages/kotlin/build.gradle.kts"), GRADLE_BUILD_SAMPLE)
+            .expect("write build.gradle.kts");
+
+        // Elixir NIF crate committed Cargo.lock, stale.
+        std::fs::create_dir_all(root.join("packages/elixir/native/example_nif")).expect("mkdir native");
+        std::fs::write(
+            root.join("packages/elixir/native/example_nif/Cargo.lock"),
+            NIF_CARGO_LOCK_SAMPLE,
+        )
+        .expect("write Cargo.lock");
+
+        // Docs API-reference page, stale badge.
+        std::fs::create_dir_all(root.join("docs/reference")).expect("mkdir docs/reference");
+        std::fs::write(
+            root.join("docs/reference/api-elixir.md"),
+            "## Elixir API Reference <span class=\"version-badge\">v0.15.6-rc.2</span>\n",
+        )
+        .expect("write api-elixir.md");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"kotlin\", \"elixir\"]\n[[crates]]\nname = \"example\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let gradle = std::fs::read_to_string(root.join("packages/kotlin/build.gradle.kts")).expect("read gradle");
+        assert!(
+            gradle.contains("version = \"0.15.6-rc.3\""),
+            "kotlin gradle project version must be bumped:\n{gradle}"
+        );
+        assert!(
+            gradle.contains(r#"kotlin("jvm") version "2.3.21""#),
+            "kotlin plugin version must not change:\n{gradle}"
+        );
+
+        let lock =
+            std::fs::read_to_string(root.join("packages/elixir/native/example_nif/Cargo.lock")).expect("read lock");
+        assert_eq!(
+            lock.matches("version = \"0.15.6-rc.3\"").count(),
+            2,
+            "both local NIF lock entries must be bumped:\n{lock}"
+        );
+        assert!(
+            lock.contains("version = \"1.0.219\""),
+            "registry dep in lock must not change:\n{lock}"
+        );
+
+        let badge = std::fs::read_to_string(root.join("docs/reference/api-elixir.md")).expect("read api-elixir.md");
+        assert!(
+            badge.contains("<span class=\"version-badge\">v0.15.6-rc.3</span>"),
+            "docs version badge must be bumped:\n{badge}"
+        );
     }
 }
