@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Removed
+
+## [0.19.6] - 2026-05-25
+
+### Added
+
+### Changed
+
+### Fixed
+
 - **alef-e2e-swift: import `FoundationNetworking` on Linux for URLSession-family types.** The generated `TestHelpers.swift` and per-test `Test*.swift` files emitted only `import Foundation`. On swift-corelibs-foundation (Linux), `URLSession`, `URLRequest`, `URLSessionTaskDelegate`, and `HTTPURLResponse` live in the `FoundationNetworking` submodule, so the Swift e2e suite failed to compile on Ubuntu runners with `cannot find type 'URLRequest' in scope` and `URLSession is unavailable: This type has moved to the FoundationNetworking module`. Both emitters in `src/e2e/codegen/swift.rs` now wrap the additional import in `#if canImport(FoundationNetworking)` so Apple platforms (where the submodule is absent) remain unaffected. (`src/e2e/codegen/swift.rs`)
 
 - **alef-format: exclude TOML from the Node `oxfmt` pass so it stops fighting `pyproject-fmt`/`cargo-sort`.** The Node formatter runs `pnpm dlx oxfmt .` from the repo root to normalize JS/TS/JSON/CSS across the package, e2e, and registry-mode test apps — but oxfmt also reformats every `.toml` (collapsing multi-line arrays, stripping the inner-bracket spaces that `pyproject-fmt` adds, e.g. `[ "x" ]` → `["x"]`). On a consumer that runs `pyproject-fmt` (which pins inner-bracket spacing) or `cargo-sort`, those hooks re-add the spacing after `finalize_hashes`, mutating the alef-hash-tracked `pyproject.toml`/`Cargo.toml` and breaking `alef verify`. The oxfmt invocation now appends a `!**/*.toml` exclude glob (the FFI/Ruby formatters already avoid oxfmt-on-TOML for the same reason). (`src/cli/pipeline/format.rs`)
