@@ -69,7 +69,8 @@ impl E2eCodegen for ZigE2eCodegen {
             .cloned()
             .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
-        let pkg_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
+        // Explicit hash override from alef.toml takes precedence over auto-fetch.
+        let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
         // Use the crate name for constructing the release URL (hyphenated form).
         let crate_name = &config.name;
         let github_repo = e2e_config
@@ -78,6 +79,20 @@ impl E2eCodegen for ZigE2eCodegen {
             .as_deref()
             .unwrap_or("https://github.com/kreuzberg-dev");
         let github_repo = github_repo.trim_end_matches('/');
+
+        // Resolve the content multihash for registry mode:
+        //   1. explicit hash in alef.toml → use verbatim
+        //   2. cached in ~/.cache/alef/zig-hashes.json → use from cache
+        //   3. shell out to `zig fetch <URL>` → parse + cache + use
+        //   4. zig fetch fails (offline / asset not yet published) → fall back to "TODO"
+        let pkg_hash = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            let url = format!(
+                "{github_repo}/{crate_name}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz"
+            );
+            resolve_zig_hash(explicit_hash.as_deref(), &url)
+        } else {
+            explicit_hash
+        };
 
         // Generate build.zig.zon (Zig package manifest).
         files.push(GeneratedFile {
@@ -268,6 +283,142 @@ impl E2eCodegen for ZigE2eCodegen {
 
     fn language_name(&self) -> &'static str {
         "zig"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Zig content-multihash resolution
+// ---------------------------------------------------------------------------
+
+/// Path to the on-disk hash cache: `~/.cache/alef/zig-hashes.json` on Unix /
+/// `%LOCALAPPDATA%\alef\zig-hashes.json` on Windows.
+///
+/// Returns `None` when the home / local-app-data environment variable is unset.
+fn zig_hash_cache_path() -> Option<std::path::PathBuf> {
+    // XDG_CACHE_HOME takes precedence on Linux.
+    if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        if !xdg.is_empty() {
+            return Some(std::path::PathBuf::from(xdg).join("alef").join("zig-hashes.json"));
+        }
+    }
+    // macOS and Linux: $HOME/.cache/alef/zig-hashes.json
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return Some(std::path::PathBuf::from(home).join(".cache").join("alef").join("zig-hashes.json"));
+        }
+    }
+    // Windows: %LOCALAPPDATA%\alef\zig-hashes.json
+    if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+        if !local_app.is_empty() {
+            return Some(std::path::PathBuf::from(local_app).join("alef").join("zig-hashes.json"));
+        }
+    }
+    None
+}
+
+/// Read the (URL → hash) cache. Returns an empty map on any I/O error.
+fn read_zig_hash_cache() -> std::collections::HashMap<String, String> {
+    let Some(path) = zig_hash_cache_path() else {
+        return std::collections::HashMap::new();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return std::collections::HashMap::new();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+/// Persist a single (url → hash) entry into the cache.
+fn write_zig_hash_cache_entry(url: &str, hash: &str) {
+    let Some(path) = zig_hash_cache_path() else {
+        return;
+    };
+    let mut map = read_zig_hash_cache();
+    map.insert(url.to_string(), hash.to_string());
+    let Ok(json) = serde_json::to_string_pretty(&map) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(&path, json).ok();
+}
+
+/// Fetch the content multihash for a Zig package tarball URL by shelling out
+/// to `zig fetch <url>` from a scratch directory.
+///
+/// Returns the hash string (printed by `zig fetch` on stdout) on success, or
+/// `None` when `zig fetch` is unavailable / returns a non-zero exit code /
+/// produces no recognisable hash output.
+fn fetch_zig_hash_from_network(url: &str) -> Option<String> {
+    let tmp = tempfile::tempdir().ok()?;
+    // Write a minimal stub build.zig.zon so `zig fetch` has a valid package
+    // context to operate from. Without it, older zig versions refuse to run.
+    let stub = r#".{
+    .name = .zig_hash_fetch_stub,
+    .version = "0.0.0",
+    .fingerprint = 0x0000000000000001,
+    .dependencies = .{},
+    .paths = .{"build.zig.zon"},
+}
+"#;
+    std::fs::write(tmp.path().join("build.zig.zon"), stub).ok()?;
+
+    let output = std::process::Command::new("zig")
+        .arg("fetch")
+        .arg(url)
+        .current_dir(tmp.path())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    // `zig fetch` prints the content multihash on stdout as a single line.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Resolve the content multihash for a Zig registry tarball URL.
+///
+/// Resolution order:
+/// 1. `explicit` — a `hash` value set directly in `alef.toml` under
+///    `[crates.e2e.registry.packages.zig]`. Takes precedence over everything.
+/// 2. Cache — `~/.cache/alef/zig-hashes.json` keyed by URL.
+/// 3. Network — shells out to `zig fetch <url>`, parses the printed hash,
+///    writes the result back to the cache, and returns it.
+/// 4. Fallback — logs a warning and returns `None` so the caller emits
+///    `.hash = "TODO"`. This covers pre-release dry-runs and offline regens
+///    where the asset isn't yet published.
+fn resolve_zig_hash(explicit: Option<&str>, url: &str) -> Option<String> {
+    // 1. Explicit override wins.
+    if let Some(h) = explicit {
+        return Some(h.to_string());
+    }
+
+    // 2. On-disk cache.
+    let cache = read_zig_hash_cache();
+    if let Some(h) = cache.get(url) {
+        return Some(h.clone());
+    }
+
+    // 3. Network fetch.
+    match fetch_zig_hash_from_network(url) {
+        Some(h) => {
+            write_zig_hash_cache_entry(url, &h);
+            Some(h)
+        }
+        None => {
+            tracing::warn!(
+                "zig hash skipped — asset {} not yet published; regen after release",
+                url
+            );
+            None
+        }
     }
 }
 
@@ -2741,5 +2892,67 @@ mod tests_trait_bridge {
                 emission.setup_block
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod zig_hash_tests {
+    use super::{render_build_zig_zon, resolve_zig_hash};
+    use crate::e2e::config::DependencyMode;
+
+    /// When an explicit hash is supplied via alef.toml it must be emitted
+    /// verbatim — no network fetch, no cache lookup.
+    #[test]
+    fn explicit_hash_override_is_used_verbatim() {
+        let url = "https://github.com/kreuzberg-dev/liter-llm/releases/download/v1.4.0/liter-llm-zig-v1.4.0.tar.gz";
+        let pinned = "1220abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
+        let result = resolve_zig_hash(Some(pinned), url);
+        assert_eq!(
+            result.as_deref(),
+            Some(pinned),
+            "explicit hash must be returned unchanged; got: {result:?}"
+        );
+    }
+
+    /// When the explicit hash is used it must be emitted in build.zig.zon.
+    #[test]
+    fn build_zig_zon_emits_explicit_hash() {
+        let hash = "12208badf00d";
+        let content = render_build_zig_zon(
+            "liter_llm",
+            "../../packages/zig",
+            DependencyMode::Registry,
+            "1.4.0-rc.32",
+            Some(hash),
+            "liter-llm",
+            "https://github.com/kreuzberg-dev",
+        );
+        assert!(
+            content.contains(&format!(".hash = \"{hash}\"")),
+            "build.zig.zon must embed the explicit hash, got:\n{content}"
+        );
+        assert!(
+            !content.contains(".hash = \"TODO\""),
+            "build.zig.zon must not emit TODO when hash is provided, got:\n{content}"
+        );
+    }
+
+    /// When no hash is available (None) the fallback `.hash = "TODO"` must be
+    /// emitted along with the comment directing the user to regenerate.
+    #[test]
+    fn build_zig_zon_falls_back_to_todo_when_no_hash() {
+        let content = render_build_zig_zon(
+            "liter_llm",
+            "../../packages/zig",
+            DependencyMode::Registry,
+            "1.4.0-rc.32",
+            None,
+            "liter-llm",
+            "https://github.com/kreuzberg-dev",
+        );
+        assert!(
+            content.contains(".hash = \"TODO\""),
+            "build.zig.zon must fall back to TODO when no hash is available, got:\n{content}"
+        );
     }
 }
