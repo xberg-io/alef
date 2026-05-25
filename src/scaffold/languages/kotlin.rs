@@ -57,15 +57,77 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     // so we exclude it here rather than reformatting in the backend.
     let binding_class = config.name.to_pascal_case();
 
+    // Maven Central publishing metadata (vanniktech plugin). Mirrors the
+    // kotlin-android backend, adapted to a Kotlin/JVM library: the publication
+    // is signed and uploaded with publishingType=AUTOMATIC so the Central Portal
+    // deployment auto-releases (the bare `maven-publish` plugin can only stage).
+    let vanniktech = maven::VANNIKTECH_MAVEN_PUBLISH;
+    let repo_url = meta.repository.clone();
+    let repo_path = repo_url
+        .strip_prefix("https://github.com/")
+        .or_else(|| repo_url.strip_prefix("http://github.com/"))
+        .unwrap_or_else(|| repo_url.trim_start_matches("https://"))
+        .to_string();
+    let license_url = match meta.license.as_str() {
+        "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
+        "MIT" => "https://opensource.org/licenses/MIT",
+        "Apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
+        _ => "",
+    };
+    // Values flow into Kotlin string literals, so escape backslash/quote/dollar
+    // (NOT XML — the author "Na'aman Hirschfeld" must keep its apostrophe).
+    let kt = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$");
+    // 2-space indentation matches this file's `.editorconfig` (ktlintKotlinScriptCheck
+    // reads it), unlike the 4-space kotlin-android emitter.
+    let licenses_block = if license_url.is_empty() {
+        format!(
+            "    licenses {{\n      license {{\n        name.set(\"{}\")\n      }}\n    }}\n",
+            kt(&meta.license)
+        )
+    } else {
+        format!(
+            "    licenses {{\n      license {{\n        name.set(\"{}\")\n        url.set(\"{}\")\n      }}\n    }}\n",
+            kt(&meta.license),
+            kt(license_url)
+        )
+    };
+    let developers_block = if meta.authors.is_empty() {
+        String::new()
+    } else {
+        let devs: Vec<String> = meta
+            .authors
+            .iter()
+            .map(|a| {
+                let (name, email) = parse_author(a);
+                format!(
+                    "      developer {{\n        name.set(\"{}\")\n        email.set(\"{}\")\n      }}",
+                    kt(name),
+                    kt(email)
+                )
+            })
+            .collect();
+        format!("    developers {{\n{}\n    }}\n", devs.join("\n"))
+    };
+    let description = kt(&meta.description);
+    let repo_url = kt(&repo_url);
+
     // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
     // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
     let build_gradle = format!(
-        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+        r#"import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.KotlinJvm
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+buildscript {{
+  dependencies {{
+    classpath("com.vanniktech:gradle-maven-publish-plugin:{vanniktech}")
+  }}
+}}
 
 plugins {{
   `java-library`
   kotlin("jvm") version "{kotlin_plugin}"
-  `maven-publish`
+  id("com.vanniktech.maven.publish") version "{vanniktech}"
   id("org.jlleitschuh.gradle.ktlint") version "{ktlint_gradle_plugin}"
 }}
 
@@ -159,13 +221,37 @@ tasks.withType<Test>().configureEach {{
   useJUnit()
 }}
 
-// Publish under a Kotlin-specific artifactId so consumers can disambiguate
-// the Kotlin module from the sibling Java facade in the same Maven group.
-publishing {{
-  publications {{
-    create<MavenPublication>("maven") {{
-      artifactId = "{kotlin_artifact_id}"
-      from(components["java"])
+// Publish to Maven Central via the vanniktech plugin: signs all publications
+// and uploads with publishingType=AUTOMATIC, so `publishAndReleaseToMavenCentral`
+// auto-releases the Central Portal deployment (the bare `maven-publish` plugin
+// can only stage, leaving the artifact unreleased). The Kotlin-specific
+// artifactId disambiguates this module from the sibling Java facade in the same
+// Maven group; the version is inherited from the top-level `version` above
+// (kept current by `alef sync-versions`), so it is omitted from `coordinates`.
+mavenPublishing {{
+  configure(
+    KotlinJvm(
+      javadocJar = JavadocJar.Empty(),
+      sourcesJar = true,
+    )
+  )
+
+  publishToMavenCentral()
+  signAllPublications()
+
+  coordinates(
+    groupId = "{package}",
+    artifactId = "{kotlin_artifact_id}",
+  )
+
+  pom {{
+    name.set("{kotlin_artifact_id}")
+    description.set("{description}")
+    url.set("{repo_url}")
+{licenses_block}{developers_block}    scm {{
+      url.set("{repo_url}")
+      connection.set("scm:git:git://github.com/{repo_path}.git")
+      developerConnection.set("scm:git:ssh://git@github.com:{repo_path}.git")
     }}
   }}
 }}
