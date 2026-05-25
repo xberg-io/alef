@@ -147,12 +147,24 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
     // Phantom Vec<Swift{Trait}Box> in extern "Rust" to force swift-bridge-build to emit
     // the Vec accessor C symbols. This must come BEFORE the extern "Swift" block so the
     // type is visible when the "Swift" block declares methods that use it.
+    //
+    // trait_phantom_fn.jinja appends a hardcoded `Box` suffix to `trait_name`, so we
+    // pass the *unboxed* `Swift{Trait}` prefix here. Passing `box_name` (which already
+    // ends in `Box`) would produce a malformed `Vec<Swift{Trait}BoxBox>` reference and
+    // make swift-bridge-build's parser bail with "Type must be declared with `type >`".
+    //
+    // The phantom_trait_snake must also be distinct from the matching outbound
+    // (Rust-side) trait's snake (e.g., `html_visitor`) — otherwise the impl-side
+    // `pub fn alef_phantom_vec_{snake}` collides with the outbound phantom emitted
+    // by trait_bridge.rs at module scope.
+    let phantom_trait_name = format!("Swift{trait_name}");
+    let phantom_trait_snake = heck::AsSnakeCase(phantom_trait_name.as_str()).to_string();
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "trait_phantom_fn.jinja",
         minijinja::context! {
-            trait_name => &box_name,
-            trait_snake => &trait_snake,
+            trait_name => &phantom_trait_name,
+            trait_snake => &phantom_trait_snake,
         },
     ));
     block.push_str("    }\n\n");
@@ -247,16 +259,14 @@ pub(crate) fn emit_inbound_wrapper(
     let emit_plugin = has_plugin_super(bridge_config);
     let mut out = String::new();
 
-    // Phantom Vec<Swift{Trait}Box> implementation: forces swift-bridge-build to emit
-    // the Vec accessor C symbols (`__swift_bridge__$Vec_Swift{Trait}Box$len`, etc.)
-    // that the auto-generated Swift Vec extension method references.
-    out.push_str(&crate::backends::swift::template_env::render(
-        "trait_phantom_impl.jinja",
-        minijinja::context! {
-            trait_name => &box_name,
-            trait_snake => &trait_snake,
-        },
-    ));
+    // No module-scope phantom impl for the inbound (Swift-side) trait: the matching
+    // `extern "Rust" { fn alef_phantom_vec_swift_{trait}() -> Vec<Swift{Trait}Box>; }`
+    // inside the bridge module is enough to force swift-bridge-build to emit the
+    // Vec accessor C symbols. `Swift{Trait}Box` is an `extern "Swift" type`, not a
+    // Rust-side type, so a module-level `pub fn ... -> Vec<Swift{Trait}Box>` would
+    // not compile ("cannot find type … in this scope"). The outbound Rust trait's
+    // phantom_impl (in trait_bridge.rs) is unaffected since `{Trait}Box` is a real
+    // Rust struct there.
 
     // 1. Wrapper struct with name cache + Send/Sync.
     // The name_cache field is only needed for Plugin super-trait (which returns &str from name()).
