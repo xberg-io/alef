@@ -261,6 +261,32 @@ impl Backend for GoBackend {
             }
         }
 
+        // Generate generate.go with //go:generate directive for FFI library download
+        let generate_go_content = crate::backends::go::template_env::render(
+            "generate_cgo_flags.go.jinja",
+            minijinja::context! {},
+        );
+        files.push(GeneratedFile {
+            path: PathBuf::from(format!("{output_dir}generate.go")),
+            content: generate_go_content,
+            generated_header: false,
+        });
+
+        // Generate the download tool under cmd/download_ffi/main.go
+        let crate_version = api.version.to_string();
+        let download_tool_content = crate::backends::go::template_env::render(
+            "cmd_download_ffi_main.go.jinja",
+            minijinja::context! {
+                ffi_lib_name => &ffi_lib_name,
+                crate_version => &crate_version,
+            },
+        );
+        files.push(GeneratedFile {
+            path: PathBuf::from(format!("{output_dir}cmd/download_ffi/main.go")),
+            content: download_tool_content,
+            generated_header: false,
+        });
+
         Ok(files)
     }
 

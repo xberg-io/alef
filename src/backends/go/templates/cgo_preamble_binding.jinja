@@ -1,6 +1,10 @@
 /*
 #cgo CFLAGS: -I${SRCDIR}/include
-#cgo LDFLAGS: -L${SRCDIR}/{{ to_root }}target/release -l{{ ffi_lib_name }}
+#cgo darwin,arm64 LDFLAGS: -L${HOME}/.html-to-markdown/{{ ffi_lib_name }}-macos-arm64 -l{{ ffi_lib_name }}
+#cgo darwin,amd64 LDFLAGS: -L${HOME}/.html-to-markdown/{{ ffi_lib_name }}-macos-amd64 -l{{ ffi_lib_name }}
+#cgo linux,amd64 LDFLAGS: -L${HOME}/.html-to-markdown/{{ ffi_lib_name }}-linux-amd64 -l{{ ffi_lib_name }}
+#cgo linux,arm64 LDFLAGS: -L${HOME}/.html-to-markdown/{{ ffi_lib_name }}-linux-arm64 -l{{ ffi_lib_name }}
+#cgo windows,amd64 LDFLAGS: -L${HOME}/.html-to-markdown/{{ ffi_lib_name }}-windows-amd64 -l{{ ffi_lib_name }}
 #include "{{ ffi_header }}"
 */
 import "C"

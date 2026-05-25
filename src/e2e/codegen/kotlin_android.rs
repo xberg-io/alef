@@ -337,19 +337,18 @@ fn render_build_gradle_kotlin_android(
 
     // In registry mode: depend on the published Maven artifact and declare
     // mavenCentral()/google() repos explicitly so the test_app is standalone.
+    // No host-JVM tests are emitted (the AAR lacks JNI libraries for host machines).
     // In local mode: wire workspace sources directly via sourceSets so no
     // publish step is needed during development.
     let (source_sets_block, artifact_dep, tasks_block) = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         let artifact = format!(
-            r#"    // Published Android AAR from Maven Central
-    testImplementation("{maven_coordinate}")"#
+            r#"    // Published Android AAR from Maven Central (verifies artifact resolution)
+    implementation("{maven_coordinate}")"#
         );
-        // In registry mode tests run against the published AAR; the native
-        // library is bundled inside it so no java.library.path wiring is needed.
-        let tasks = r#"tasks.withType<Test> {
-    useJUnitPlatform()
-}"#;
-        (String::new(), artifact, tasks.to_string())
+        // In registry mode no host-JVM tests run (see generate() for rationale).
+        // A simple compile check verifies the AAR resolves correctly.
+        let tasks = String::new();
+        (String::new(), artifact, tasks)
     } else {
         let src_sets = r#"
     sourceSets {
@@ -377,14 +376,38 @@ fn render_build_gradle_kotlin_android(
         (src_sets.to_string(), String::new(), tasks.to_string())
     };
 
-    // JNA is only needed in local mode (the AAR bundles the native lib in registry mode).
-    let jna_dep = if dep_mode == crate::e2e::config::DependencyMode::Registry {
+    // Test dependencies are only needed in local mode (host-JVM tests).
+    // In registry mode, no tests are emitted so these dependencies are unnecessary.
+    let test_deps = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         String::new()
     } else {
         format!(
-            r#"    // JNA for loading the native library from java.library.path
-    testImplementation("net.java.dev.jna:jna:{jna}")
+            r#"    // Jackson for JSON assertion helpers
+    testImplementation("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
 
+    // jackson-module-kotlin registers constructors/properties for Kotlin data
+    // classes, which have no default constructor and cannot be deserialized by
+    // plain Jackson without this module.
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")
+
+    // jspecify for null-safety annotations on wrapped types
+    testImplementation("org.jspecify:jspecify:{jspecify}")
+
+    // Kotlin coroutines for async test helpers
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{coroutines}")
+
+    // JUnit 5 API and engine
+    testImplementation("org.junit.jupiter:junit-jupiter-api:{junit}")
+    testImplementation("org.junit.jupiter:junit-jupiter-engine:{junit}")
+{launcher_dep}
+
+    // Kotlin stdlib test helpers
+    testImplementation(kotlin("test"))
+
+    // JNA for loading the native library from java.library.path
+    testImplementation("net.java.dev.jna:jna:{jna}")
 "#
         )
     };
@@ -439,30 +462,8 @@ kotlin {{
 // here triggers Gradle "repository was added by build file" errors.
 
 dependencies {{
-{jna_dep}{artifact_dep}
-    // Jackson for JSON assertion helpers
-    testImplementation("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
-    testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
-    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
-
-    // jackson-module-kotlin registers constructors/properties for Kotlin data
-    // classes, which have no default constructor and cannot be deserialized by
-    // plain Jackson without this module.
-    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")
-
-    // jspecify for null-safety annotations on wrapped types
-    testImplementation("org.jspecify:jspecify:{jspecify}")
-
-    // Kotlin coroutines for async test helpers
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{coroutines}")
-
-    // JUnit 5 API and engine
-    testImplementation("org.junit.jupiter:junit-jupiter-api:{junit}")
-    testImplementation("org.junit.jupiter:junit-jupiter-engine:{junit}")
-{launcher_dep}
-
-    // Kotlin stdlib test helpers
-    testImplementation(kotlin("test"))
+{artifact_dep}
+{test_deps}
 }}
 
 {tasks_block}
