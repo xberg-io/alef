@@ -37,6 +37,7 @@ impl ResolvedCrateConfig {
         //   - Swift:         `packages/swift/Sources/<Module>/`
         //   - Zig:           `packages/zig/src/`
         //   - Dart:          `packages/dart/lib/` (when overridden) or root
+        //   - Kotlin:        `packages/kotlin/src/main/kotlin/.../`
         //   - KotlinAndroid: `packages/kotlin-android/src/main/kotlin/.../`
         // These languages fall through to the hardcoded defaults below, which
         // return the package root that `publish validate` and packager helpers
@@ -51,6 +52,7 @@ impl ResolvedCrateConfig {
                 | Language::Swift
                 | Language::Zig
                 | Language::Dart
+                | Language::Kotlin
                 | Language::KotlinAndroid
         ) && let Some(output_path) = self.output_paths.get(&lang.to_string())
         {
@@ -523,7 +525,34 @@ tokio = "1"
         assert_eq!(r.package_dir(Language::Ruby), "packages/ruby");
         assert_eq!(r.package_dir(Language::Go), "packages/go");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
+        assert_eq!(r.package_dir(Language::Kotlin), "packages/kotlin");
         assert_eq!(r.package_dir(Language::KotlinAndroid), "packages/kotlin-android");
+    }
+
+    #[test]
+    fn package_dir_kotlin_ignores_source_output_override() {
+        // The JVM Kotlin `[crates.output]` points at the deep source tree
+        // (`packages/kotlin/src/main/kotlin/.../`), but the publish manifest
+        // (`build.gradle.kts`) lives at the package root. package_dir must return
+        // the root so sync-versions and the kotlin packager find the manifest.
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["kotlin"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.kotlin]
+package = "dev.demo"
+target = "jvm"
+
+[crates.output]
+kotlin = "packages/kotlin/src/main/kotlin/dev/demo/kt/"
+"#,
+        );
+        assert_eq!(r.package_dir(Language::Kotlin), "packages/kotlin");
     }
 
     #[test]
