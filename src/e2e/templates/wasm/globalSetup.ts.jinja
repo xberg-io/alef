@@ -1,27 +1,12 @@
 {{ header }}import { spawn } from 'child_process';
 import { resolve } from 'path';
+import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 
 let serverProcess;
 
 export async function setup() {
-  // Pre-initialize the wasm-bindgen module. Published wasm packages built with
-  // wasm-bindgen (non-wasm-pack-nodejs) export a default async `init()` that
-  // must be awaited before any wasm export is callable. Without this, the first
-  // test that touches a wasm export fails with
-  // "Cannot read properties of undefined (reading '__wbindgen_add_to_stack_pointer')".
-  // If the module does not export `init` (e.g. a self-initializing wasm-pack
-  // --target nodejs CJS bundle), this import resolves to `undefined` and the
-  // conditional is a no-op.
-  try {
-    const wasmModule = await import('{{ pkg_name }}');
-    const init = wasmModule.default ?? wasmModule.init;
-    if (typeof init === 'function') {
-      await init();
-    }
-  } catch {
-    // Module may not export a top-level init — continue anyway.
-  }
-
   // Honor a pre-set MOCK_SERVER_URL: when the test runner (e.g. `alef test-apps
   // run`) has already built and started the shared mock-server, it exports
   // MOCK_SERVER_URL into our environment. In that case, reuse it and skip
