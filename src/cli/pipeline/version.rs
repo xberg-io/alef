@@ -1149,7 +1149,151 @@ pub fn sync_versions(
         }
     }
 
+    // Sync [crates.e2e.registry.packages.*].version fields in alef.toml so that
+    // registry-mode e2e test apps always reference the current workspace version.
+    match sync_registry_package_versions(config_path, &version) {
+        Ok(true) => {
+            info!("Updated registry package versions in {}", config_path.display());
+        }
+        Ok(false) => {}
+        Err(e) => {
+            warn!(
+                "Could not sync registry package versions in {}: {e}",
+                config_path.display()
+            );
+        }
+    }
+
     Ok(())
+}
+
+/// Render the version string for a registry package entry in `alef.toml`.
+///
+/// The existing `version` value carries both a constraint prefix (e.g., `>=`,
+/// `~>`, `^`, `v`) and the version number.  This function:
+///
+/// 1. Strips the known prefix from `existing_version`.
+/// 2. Re-renders the bare version using the appropriate per-language formatter
+///    (`to_pep440` for Python, `to_rubygems_prerelease` for Ruby,
+///    `to_r_version` for R, identity for everything else).
+/// 3. Re-attaches the original prefix.
+///
+/// Returns `None` when the rendered version is already current (no write needed).
+pub(crate) fn render_registry_version(lang: &str, workspace_version: &str, existing_version: &str) -> Option<String> {
+    // Extract the prefix: any leading non-alphanumeric, non-dot characters
+    // (e.g., ">=", "~> ", "^", "v") that precede the semver digits.
+    let prefix_len = existing_version.find(|c: char| c.is_ascii_digit()).unwrap_or(0);
+    let prefix = &existing_version[..prefix_len];
+
+    // Render the bare version core using the per-language formatter.
+    let rendered_core: String = match lang {
+        "python" => to_pep440(workspace_version),
+        "ruby" => to_rubygems_prerelease(workspace_version),
+        "r" => to_r_version(workspace_version),
+        _ => workspace_version.to_string(),
+    };
+
+    let new_version = format!("{prefix}{rendered_core}");
+    if new_version == existing_version {
+        None
+    } else {
+        Some(new_version)
+    }
+}
+
+/// Rewrite `version` fields under `[crates.<name>.e2e.registry.packages.<lang>]`
+/// in `alef.toml` to track the current workspace version.
+///
+/// Uses `toml_edit` for format-preserving surgery: comments, blank lines, and
+/// key ordering are all preserved.  Only entries that already have a `version`
+/// field are touched — this function never inserts a new `version` field.
+///
+/// Returns `true` when at least one field was rewritten.
+pub(crate) fn sync_registry_package_versions(
+    config_path: &std::path::Path,
+    workspace_version: &str,
+) -> anyhow::Result<bool> {
+    use toml_edit::{DocumentMut, Item};
+
+    let content =
+        std::fs::read_to_string(config_path).with_context(|| format!("failed to read {}", config_path.display()))?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("failed to parse {} as TOML", config_path.display()))?;
+
+    let mut changed = false;
+
+    // Walk `[[crates]]` array (new-style) and `[crates]` table (old-style).
+    // Both shapes may carry `.e2e.registry.packages` sub-tables.
+    let crate_keys: Vec<String> = doc.iter().map(|(k, _)| k.to_string()).collect();
+    for key in &crate_keys {
+        if key != "crates" {
+            continue;
+        }
+        let crates_item = match doc.get_mut(key.as_str()) {
+            Some(item) => item,
+            None => continue,
+        };
+
+        // Helper closure: given a mutable reference to a single crate table,
+        // walk its `.e2e.registry.packages.*` and update `version` fields.
+        fn patch_crate_table(crate_table: &mut dyn toml_edit::TableLike, workspace_version: &str) -> bool {
+            let e2e = match crate_table.get_mut("e2e").and_then(|i| i.as_table_like_mut()) {
+                Some(t) => t,
+                None => return false,
+            };
+            let registry = match e2e.get_mut("registry").and_then(|i| i.as_table_like_mut()) {
+                Some(t) => t,
+                None => return false,
+            };
+            let packages = match registry.get_mut("packages").and_then(|i| i.as_table_like_mut()) {
+                Some(t) => t,
+                None => return false,
+            };
+            let lang_keys: Vec<String> = packages.iter().map(|(k, _)| k.to_string()).collect();
+            let mut any = false;
+            for lang in &lang_keys {
+                let pkg = match packages.get_mut(lang.as_str()).and_then(|i| i.as_table_like_mut()) {
+                    Some(t) => t,
+                    None => continue,
+                };
+                let existing = match pkg.get("version").and_then(|i| i.as_str()) {
+                    Some(v) => v.to_string(),
+                    None => continue, // no version field — skip (don't insert)
+                };
+                if let Some(new_ver) = render_registry_version(lang, workspace_version, &existing) {
+                    if let Some(ver_item) = pkg.get_mut("version") {
+                        *ver_item = toml_edit::value(new_ver);
+                        any = true;
+                    }
+                }
+            }
+            any
+        }
+
+        // `[[crates]]` is an array of tables.
+        if let Some(arr) = crates_item.as_array_of_tables_mut() {
+            for crate_table in arr.iter_mut() {
+                if patch_crate_table(crate_table, workspace_version) {
+                    changed = true;
+                }
+            }
+        }
+        // `[crates]` is a plain table (single-crate config style).
+        else if let Item::Table(tbl) = crates_item {
+            if patch_crate_table(tbl as &mut dyn toml_edit::TableLike, workspace_version) {
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        let new_content = doc.to_string();
+        std::fs::write(config_path, &new_content)
+            .with_context(|| format!("failed to write {}", config_path.display()))?;
+    }
+
+    Ok(changed)
 }
 
 /// Internal helper to regenerate READMEs after a version sync.
@@ -2903,6 +3047,251 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
         assert!(
             badge.contains("<span class=\"version-badge\">v0.15.6-rc.3</span>"),
             "docs version badge must be bumped:\n{badge}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // render_registry_version unit tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn render_registry_version_python_pep440_rc_prerelease() {
+        // PEP 440: ">=0.1.0rc9" → ">=0.3.0rc28"
+        let result = render_registry_version("python", "0.3.0-rc.28", ">=0.1.0rc9");
+        assert_eq!(result, Some(">=0.3.0rc28".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_python_pep440_release() {
+        let result = render_registry_version("python", "1.0.0", ">=0.9.0");
+        assert_eq!(result, Some(">=1.0.0".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_python_already_current_is_none() {
+        let result = render_registry_version("python", "0.3.0-rc.28", ">=0.3.0rc28");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn render_registry_version_node_semver_rc() {
+        // npm: "^0.1.0-rc.9" → "^0.3.0-rc.28"
+        let result = render_registry_version("node", "0.3.0-rc.28", "^0.1.0-rc.9");
+        assert_eq!(result, Some("^0.3.0-rc.28".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_elixir_hex_constraint() {
+        // Hex: "~> 0.1.0-rc.9" → "~> 0.3.0-rc.28"
+        let result = render_registry_version("elixir", "0.3.0-rc.28", "~> 0.1.0-rc.9");
+        assert_eq!(result, Some("~> 0.3.0-rc.28".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_ruby_rubygems_prerelease() {
+        // RubyGems: ">= 0.1.0.pre.rc.9" → ">= 0.3.0.pre.rc.28"
+        let result = render_registry_version("ruby", "0.3.0-rc.28", ">= 0.1.0.pre.rc.9");
+        assert_eq!(result, Some(">= 0.3.0.pre.rc.28".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_ruby_already_current_is_none() {
+        let result = render_registry_version("ruby", "0.3.0-rc.28", ">= 0.3.0.pre.rc.28");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn render_registry_version_go_module_version() {
+        // Go: "v0.1.0-rc.9" → "v0.3.0-rc.28"
+        let result = render_registry_version("go", "0.3.0-rc.28", "v0.1.0-rc.9");
+        assert_eq!(result, Some("v0.3.0-rc.28".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_rust_bare_semver() {
+        // crates.io: "0.1.0-rc.9" → "0.3.0-rc.28"
+        let result = render_registry_version("rust", "0.3.0-rc.28", "0.1.0-rc.9");
+        assert_eq!(result, Some("0.3.0-rc.28".to_string()));
+    }
+
+    #[test]
+    fn render_registry_version_php_composer_range() {
+        // Composer: ">=0.1.0-rc.9" → ">=0.3.0-rc.28"
+        let result = render_registry_version("php", "0.3.0-rc.28", ">=0.1.0-rc.9");
+        assert_eq!(result, Some(">=0.3.0-rc.28".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // sync_registry_package_versions integration tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sync_registry_package_versions_rewrites_all_language_entries() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let alef_toml_path = tmp.path().join("alef.toml");
+        std::fs::write(
+            &alef_toml_path,
+            concat!(
+                "[workspace]\nalef_version = \"0.19.0\"\nlanguages = []\n\n",
+                "[[crates]]\nname = \"mylib\"\nsources = []\n\n",
+                "[crates.e2e.registry]\noutput = \"test_apps\"\n\n",
+                "[crates.e2e.registry.packages.python]\n",
+                "name = \"mylib\"\n",
+                "version = \">=0.1.0rc9\"\n\n",
+                "[crates.e2e.registry.packages.node]\n",
+                "name = \"@myorg/mylib\"\n",
+                "version = \"^0.1.0-rc.9\"\n\n",
+                "[crates.e2e.registry.packages.elixir]\n",
+                "name = \"mylib\"\n",
+                "version = \"~> 0.1.0-rc.9\"\n\n",
+                "[crates.e2e.registry.packages.ruby]\n",
+                "name = \"mylib\"\n",
+                "version = \">= 0.1.0.pre.rc.9\"\n",
+            ),
+        )
+        .expect("write alef.toml");
+
+        let changed = sync_registry_package_versions(&alef_toml_path, "0.3.0-rc.28").expect("sync ok");
+        assert!(changed, "must report at least one change");
+
+        let updated = std::fs::read_to_string(&alef_toml_path).expect("read alef.toml");
+
+        assert!(
+            updated.contains("version = \">=0.3.0rc28\""),
+            "python version must be PEP 440 formatted: {updated}"
+        );
+        assert!(
+            updated.contains("version = \"^0.3.0-rc.28\""),
+            "node version must preserve ^ prefix: {updated}"
+        );
+        assert!(
+            updated.contains("version = \"~> 0.3.0-rc.28\""),
+            "elixir version must preserve ~> prefix: {updated}"
+        );
+        assert!(
+            updated.contains("version = \">= 0.3.0.pre.rc.28\""),
+            "ruby version must be RubyGems formatted: {updated}"
+        );
+        // Names must be untouched.
+        assert!(updated.contains("name = \"mylib\""), "package names must be preserved");
+        assert!(
+            updated.contains("name = \"@myorg/mylib\""),
+            "node name must be preserved"
+        );
+    }
+
+    #[test]
+    fn sync_registry_package_versions_skips_entries_without_version_field() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let alef_toml_path = tmp.path().join("alef.toml");
+        let original = concat!(
+            "[workspace]\nlanguages = []\n\n",
+            "[[crates]]\nname = \"mylib\"\nsources = []\n\n",
+            "[crates.e2e.registry.packages.go]\n",
+            "module = \"github.com/myorg/mylib\"\n",
+            // No version field here — must not be inserted.
+        );
+        std::fs::write(&alef_toml_path, original).expect("write");
+
+        let changed = sync_registry_package_versions(&alef_toml_path, "0.3.0-rc.28").expect("sync ok");
+        assert!(!changed, "no version field → no change");
+
+        let content = std::fs::read_to_string(&alef_toml_path).expect("read");
+        assert!(!content.contains("version"), "version must not be inserted: {content}");
+    }
+
+    #[test]
+    fn sync_registry_package_versions_is_idempotent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let alef_toml_path = tmp.path().join("alef.toml");
+        std::fs::write(
+            &alef_toml_path,
+            concat!(
+                "[workspace]\nlanguages = []\n\n",
+                "[[crates]]\nname = \"mylib\"\nsources = []\n\n",
+                "[crates.e2e.registry.packages.python]\n",
+                "version = \">=0.3.0rc28\"\n",
+            ),
+        )
+        .expect("write");
+
+        // First call: already current → no change.
+        let changed = sync_registry_package_versions(&alef_toml_path, "0.3.0-rc.28").expect("sync ok");
+        assert!(!changed, "already-current version must be a no-op");
+    }
+
+    #[test]
+    fn sync_registry_package_versions_preserves_toml_comments_and_order() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let alef_toml_path = tmp.path().join("alef.toml");
+        let original = concat!(
+            "# Top-level comment\n",
+            "[workspace]\nlanguages = []\n\n",
+            "[[crates]]\nname = \"mylib\"\nsources = []\n\n",
+            "# Registry section comment\n",
+            "[crates.e2e.registry.packages.python]\n",
+            "name = \"mylib\"\n",
+            "version = \">=0.1.0rc9\"\n",
+        );
+        std::fs::write(&alef_toml_path, original).expect("write");
+
+        sync_registry_package_versions(&alef_toml_path, "0.3.0-rc.28").expect("sync ok");
+
+        let updated = std::fs::read_to_string(&alef_toml_path).expect("read");
+        assert!(
+            updated.contains("# Top-level comment"),
+            "top-level comment must be preserved: {updated}"
+        );
+        assert!(
+            updated.contains("# Registry section comment"),
+            "registry section comment must be preserved: {updated}"
+        );
+        // name must appear before version (key order preserved).
+        let name_pos = updated.find("name = ").expect("name field present");
+        let ver_pos = updated.find("version = ").expect("version field present");
+        assert!(name_pos < ver_pos, "name must appear before version in output");
+    }
+
+    /// `sync_registry_package_versions` must update all language entries with
+    /// both a plain prefix-less version and a prefixed constraint in a single call,
+    /// covering the kreuzcrawl-style alef.toml shape used in production.
+    #[test]
+    fn sync_registry_package_versions_handles_go_and_bare_semver_langs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let alef_toml_path = tmp.path().join("alef.toml");
+        std::fs::write(
+            &alef_toml_path,
+            concat!(
+                "[workspace]\nlanguages = []\n\n",
+                "[[crates]]\nname = \"mylib\"\nsources = []\n\n",
+                "[crates.e2e.registry.packages.go]\n",
+                "module = \"github.com/myorg/mylib\"\n",
+                "version = \"v0.1.0-rc.9\"\n\n",
+                "[crates.e2e.registry.packages.rust]\n",
+                "name = \"mylib\"\n",
+                "version = \"0.1.0-rc.9\"\n\n",
+                "[crates.e2e.registry.packages.php]\n",
+                "name = \"myorg/mylib\"\n",
+                "version = \">=0.1.0-rc.9\"\n",
+            ),
+        )
+        .expect("write alef.toml");
+
+        let changed = sync_registry_package_versions(&alef_toml_path, "0.3.0-rc.28").expect("sync ok");
+        assert!(changed, "must report at least one change");
+
+        let updated = std::fs::read_to_string(&alef_toml_path).expect("read alef.toml");
+        assert!(
+            updated.contains("version = \"v0.3.0-rc.28\""),
+            "go version must have v prefix: {updated}"
+        );
+        assert!(
+            updated.contains("version = \"0.3.0-rc.28\""),
+            "rust bare semver must be updated: {updated}"
+        );
+        assert!(
+            updated.contains("version = \">=0.3.0-rc.28\""),
+            "php composer constraint must be updated: {updated}"
         );
     }
 }
