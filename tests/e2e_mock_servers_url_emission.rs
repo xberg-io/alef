@@ -15,6 +15,7 @@ use alef::e2e::codegen::php::PhpCodegen;
 use alef::e2e::codegen::python::PythonE2eCodegen;
 use alef::e2e::codegen::ruby::RubyCodegen;
 use alef::e2e::codegen::typescript::TypeScriptCodegen;
+use alef::e2e::codegen::wasm::WasmCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
 // ── fixture/config helpers ────────────────────────────────────────────────────
@@ -389,5 +390,77 @@ fn elixir_test_helper_emits_mock_servers_parsing() {
         test_helper.content.contains("MOCK_SERVERS="),
         "expected MOCK_SERVERS= parsing in test_helper.exs:\n{}",
         test_helper.content
+    );
+}
+
+// ── Install isolation + pre-set MOCK_SERVER_URL (node / wasm) ──────────────────
+
+#[test]
+fn typescript_emits_isolated_pnpm_workspace() {
+    let files = generate_all(&TypeScriptCodegen, "node", vec![make_plain_fixture("basic_crawl")]);
+    let workspace = files
+        .iter()
+        .find(|f| f.path.ends_with("pnpm-workspace.yaml"))
+        .expect("node codegen must emit pnpm-workspace.yaml so pnpm install does not sweep the test app into an outer workspace and skip its devDependencies");
+    assert!(
+        workspace.content.contains("packages:"),
+        "pnpm-workspace.yaml must declare an isolated workspace root:\n{}",
+        workspace.content
+    );
+}
+
+#[test]
+fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
+    let files = generate_all(
+        &TypeScriptCodegen,
+        "node",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let global_setup = files
+        .iter()
+        .find(|f| f.path.ends_with("globalSetup.ts"))
+        .expect("globalSetup.ts not found");
+    assert!(
+        global_setup.content.contains("if (process.env.MOCK_SERVER_URL)"),
+        "globalSetup.ts must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
+        global_setup.content
+    );
+    let guard = global_setup
+        .content
+        .find("if (process.env.MOCK_SERVER_URL)")
+        .expect("guard present");
+    let spawn = global_setup.content.find("spawn(").expect("spawn present");
+    assert!(
+        guard < spawn,
+        "the pre-set MOCK_SERVER_URL guard must precede the spawn() call:\n{}",
+        global_setup.content
+    );
+}
+
+#[test]
+fn wasm_global_setup_skips_spawn_when_mock_server_url_preset() {
+    let files = generate_all(
+        &WasmCodegen,
+        "wasm",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let global_setup = files
+        .iter()
+        .find(|f| f.path.ends_with("globalSetup.ts"))
+        .expect("wasm globalSetup.ts not found");
+    assert!(
+        global_setup.content.contains("if (process.env.MOCK_SERVER_URL)"),
+        "wasm globalSetup.ts must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
+        global_setup.content
+    );
+    let guard = global_setup
+        .content
+        .find("if (process.env.MOCK_SERVER_URL)")
+        .expect("guard present");
+    let spawn = global_setup.content.find("spawn(").expect("spawn present");
+    assert!(
+        guard < spawn,
+        "the pre-set MOCK_SERVER_URL guard must precede the spawn() call:\n{}",
+        global_setup.content
     );
 }

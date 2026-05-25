@@ -102,6 +102,20 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
+        // Emit a local `pnpm-workspace.yaml` declaring `e2e/node/` as its own
+        // pnpm workspace root. Without it, `pnpm install` walks up to the
+        // repo-root `pnpm-workspace.yaml` and treats this test app as a member
+        // of the outer workspace — so its own devDependencies (vitest) are
+        // hoisted/deduped against the root and never installed into
+        // `e2e/node/node_modules`, breaking `pnpm test` with a missing-vitest
+        // error. An empty `packages: []` makes the directory self-rooted so
+        // `pnpm install` installs the test app's deps in isolation.
+        files.push(GeneratedFile {
+            path: output_base.join("pnpm-workspace.yaml"),
+            content: "packages: []\n".to_string(),
+            generated_header: false,
+        });
+
         // globalSetup spawns the mock-server binary and exposes its URL via
         // MOCK_SERVER_URL. Required whenever any fixture's call uses the mock
         // server — either via http blocks (real HTTP test fixtures), via
@@ -404,8 +418,21 @@ result_var = "result"
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = TypeScriptCodegen;
         let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
-        // package.json, tsconfig.json, vitest.config.ts
+        // package.json, tsconfig.json, vitest.config.ts, pnpm-workspace.yaml
         assert!(files.len() >= 3, "got {} files", files.len());
+
+        // The node test app must emit its own pnpm-workspace.yaml so that
+        // `pnpm install` does not sweep it into an outer workspace and skip
+        // installing its devDependencies (vitest) locally.
+        let workspace = files
+            .iter()
+            .find(|f| f.path.ends_with("pnpm-workspace.yaml"))
+            .expect("node codegen must emit pnpm-workspace.yaml for install isolation");
+        assert!(
+            workspace.content.contains("packages:"),
+            "pnpm-workspace.yaml must declare an isolated workspace root, got: {}",
+            workspace.content
+        );
     }
 
     #[test]
