@@ -1566,7 +1566,7 @@ fn build_args_and_setup(
                     if let Some(super_trait) = &trait_bridge.super_trait {
                         // Extract the simple name from the full path (e.g., "Plugin" from "kreuzberg::plugins::Plugin").
                         let super_trait_simple = super_trait.rsplit("::").next().unwrap_or(super_trait.as_str());
-                        if let Some(super_type) = type_defs.iter().find(|t| &t.name == super_trait_simple) {
+                        if let Some(super_type) = type_defs.iter().find(|t| t.name == super_trait_simple) {
                             for method in &super_type.methods {
                                 // Only add if not already present (avoid duplicates).
                                 if !methods.iter().any(|m| m.name == method.name) {
