@@ -1359,15 +1359,24 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        1,
-        "FRB config must have exactly one PostProcessFile step"
+        2,
+        "FRB config must have exactly two PostProcessFile steps (exclude_functions and sealed_variants)"
     );
 
-    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[0] {
+    // First step: exclude functions
+    if let PostBuildStep::PostProcessFile { processor, .. } = post_process_steps[0] {
+        assert!(
+            matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
+            "First PostProcessFile must use FrbDartExcludeFunctions processor"
+        );
+    }
+
+    // Second step: sealed variants
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[1] {
         assert_eq!(
             *processor,
             PostProcessor::FrbDartSealedVariants,
-            "PostProcessFile must use FrbDartSealedVariants processor"
+            "Second PostProcessFile must use FrbDartSealedVariants processor"
         );
         let expected_path = PathBuf::from("packages")
             .join("dart")
@@ -1391,8 +1400,8 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
         .build_config_for(&config)
         .expect("FRB style must yield a BuildConfig");
 
-    // RunCommand (flutter_rust_bridge_codegen) must run before PostProcessFile so the
-    // generated lib.dart exists when the rewriter runs.
+    // RunCommand (flutter_rust_bridge_codegen) must run before PostProcessFile steps so the
+    // generated lib.dart exists when the rewriters run.
     let steps: Vec<&str> = bc
         .post_build
         .iter()
@@ -1405,8 +1414,8 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
 
     assert_eq!(
         steps,
-        vec!["RunCommand", "PostProcessFile"],
-        "RunCommand must come before PostProcessFile in post_build steps"
+        vec!["RunCommand", "PostProcessFile", "PostProcessFile"],
+        "RunCommand must come before all PostProcessFile steps in post_build steps"
     );
 }
 
