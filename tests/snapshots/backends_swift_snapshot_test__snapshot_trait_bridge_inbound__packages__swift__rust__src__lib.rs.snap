@@ -66,10 +66,6 @@ mod ffi {
         fn unregister_ocr_backend(name: String) -> Result<(), String>;
     }
 
-    extern "Rust" {
-        fn alef_phantom_vec_ocr_backend() -> Vec<SwiftOcrBackendBox>;
-    }
-
     extern "Swift" {
         type SwiftOcrBackendBox;
         fn alef_name(&self) -> String;
@@ -171,8 +167,6 @@ where
         Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"))),
     }
 }
-#[doc(hidden)]
-pub fn alef_phantom_vec_ocr_backend() -> Vec<SwiftOcrBackendBox> { Vec::new() }
 /// Rust-side wrapper around a Swift class implementing the `OcrBackend` plugin protocol.
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains

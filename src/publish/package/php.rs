@@ -355,7 +355,10 @@ sources = ["src/lib.rs"]
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let opts = nts_options("8.5");
         let name = pie_archive_name("html_to_markdown", "3.4.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_html_to_markdown-3.4.0_php8.5-x86_64-linux-glibc-nodebug-nts.tgz");
+        assert_eq!(
+            name,
+            "php_html_to_markdown-3.4.0_php8.5-x86_64-linux-glibc-nodebug-nts.tgz"
+        );
     }
 
     #[test]
