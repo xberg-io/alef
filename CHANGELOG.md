@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-publish-go: package Go FFI archives with a `-go-` infix instead of `-ffi-`.** `alef publish package --lang go` was emitting `{crate}-ffi-v{version}-{platform}.tar.gz`, the exact same prefix used by the C FFI packager. The two asset families became indistinguishable to downstream `asset-prefix:` probes (e.g. `kreuzberg-dev/actions/check-registry`) and to `verify-release-assets` pattern lists that gate on `*-go-*.tar.gz` vs `*-ffi-*.tar.gz`. h2m's v3.5.0-rc.3 publish hit this — Go archives uploaded fine but `verify-release-assets` failed on `html-to-markdown-rs-go-*.tar.gz` because every Go tarball carried the C-FFI prefix. Renamed to `{crate}-go-v{version}-{platform}.tar.gz`. (`src/publish/package/go.rs`)
+
 - **alef-swift-rust-crate: ignore `ahash` in `cargo-machete` metadata of the generated Swift Rust crate.** The Swift Rust shim depends on `ahash` only when the umbrella crate exposes `AHashMap<Cow<str>, _>` parameters (the conditional `__*_ahash` shim rebuilds in `gen_rust_crate/shims.rs`). On consumers without such parameters (e.g. tslp), `ahash` is listed in `[dependencies]` for manifest stability but goes unreferenced, and `cargo-machete` then fails `prek run --all-files` with `unused dependencies: ahash`. `ahash` now joins `async-trait`, `serde`, and `tokio` in the `[package.metadata.cargo-machete] ignored` list and the doc comment is updated accordingly. (`src/backends/swift/gen_rust_crate/cargo.rs`)
 
 ### Removed

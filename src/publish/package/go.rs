@@ -9,9 +9,15 @@ use std::path::Path;
 
 /// Package Go FFI artifacts into a distributable tarball.
 ///
-/// Produces: `{name}-ffi-v{version}-{platform}.tar.gz` containing:
+/// Produces: `{name}-go-v{version}-{platform}.tar.gz` containing:
 /// - `lib/` — shared library (and optionally static library)
 /// - `include/` — C header
+///
+/// Uses a `-go-` infix (not `-ffi-`) so that Go and C FFI tarballs do not
+/// collide in shared release-asset prefix matchers — the C FFI packager
+/// emits `{crate_name}-ffi-v{version}-{rust-triple}.tar.gz` and the two
+/// asset families need to be distinguishable for downstream verifiers
+/// (asset-prefix probes, verify-release-assets pattern lists).
 pub fn package_go_ffi(
     config: &ResolvedCrateConfig,
     target: &RustTarget,
@@ -24,7 +30,7 @@ pub fn package_go_ffi(
     let crate_name = &config.name;
     let platform = target.platform_for(crate::core::config::extras::Language::Go);
 
-    let pkg_name = format!("{crate_name}-ffi-v{version}-{platform}");
+    let pkg_name = format!("{crate_name}-go-v{version}-{platform}");
     let staging = output_dir.join(&pkg_name);
 
     if staging.exists() {
