@@ -26,11 +26,27 @@ fn format_toml_array(entries: &[String]) -> String {
     }
 }
 
+/// PEP 508 version specifiers that may legally lead a version string.  When a
+/// caller passes an already-qualified version (e.g. `">=1.0"`, `"==1.4.0-rc.32"`,
+/// `"~=2.0"`), we leave it intact; when they pass a bare version (`"1.4.0-rc.32"`)
+/// we prepend `==` so the resulting PEP 508 requirement is valid.
+const PEP508_COMPARATORS: &[&str] = &["==", "!=", ">=", "<=", "~=", "===", ">", "<"];
+
+fn normalize_python_version(pkg_version: &str) -> String {
+    let trimmed = pkg_version.trim_start();
+    if PEP508_COMPARATORS.iter().any(|c| trimmed.starts_with(c)) {
+        pkg_version.to_string()
+    } else {
+        format!("=={pkg_version}")
+    }
+}
+
 pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: DependencyMode) -> String {
     let (deps_line, uv_sources_block) = match dep_mode {
         DependencyMode::Registry => {
+            let normalized_version = normalize_python_version(pkg_version);
             let entries = vec![
-                format!("\"{pkg_name}{pkg_version}\""),
+                format!("\"{pkg_name}{normalized_version}\""),
                 "\"pytest>=7.4\"".to_string(),
                 "\"pytest-asyncio>=0.23\"".to_string(),
                 "\"pytest-timeout>=2.1\"".to_string(),
@@ -363,6 +379,33 @@ mod tests {
             pkg_idx < pytest_idx,
             "my-pkg should come before pytest. got: {deps_block}",
         );
+    }
+
+    #[test]
+    fn render_pyproject_registry_bare_version_gets_eq_comparator() {
+        // When a caller passes a bare version (no PEP 508 comparator) we
+        // auto-prepend `==` so the resulting requirement is a valid PEP 508
+        // specifier. Bare `1.4.0-rc.30` previously rendered as
+        // `"my-pkg1.4.0-rc.30"` which pip/uv reject.
+        let out = render_pyproject("my-pkg", "../../packages/python", "1.4.0-rc.30", DependencyMode::Registry);
+        let deps_start = out.find("dependencies = [").expect("dependencies array");
+        let deps_block = &out[deps_start..];
+        assert!(
+            deps_block.contains("\"my-pkg==1.4.0-rc.30\""),
+            "bare version should be normalised to `==1.4.0-rc.30`. got: {deps_block}",
+        );
+    }
+
+    #[test]
+    fn render_pyproject_registry_preserves_existing_comparator() {
+        // Already-qualified versions pass through unchanged.
+        for spec in ["==1.2.3", ">=1.0", "~=2.0", "!=1.5", "<3.0", ">1.0"] {
+            let out = render_pyproject("my-pkg", "../../packages/python", spec, DependencyMode::Registry);
+            assert!(
+                out.contains(&format!("\"my-pkg{spec}\"")),
+                "version `{spec}` should pass through unchanged. got: {out}",
+            );
+        }
     }
 
     #[test]

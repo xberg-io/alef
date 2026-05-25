@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **alef-update: the default Python `update`/`upgrade` commands pass `--no-install-project`.** `uv sync --upgrade` previously built the project, which fails when the uv project dir differs from the maturin build dir (e.g. the extension's `manifest-path` is relative to the deployed package dir, not the uv project dir). A relock only needs to update dependencies; the extension is built separately via `maturin develop`. Matches the Python `install` default, which already skips the build. (`src/core/config/update_defaults.rs`)
+- **alef-test-apps (Python): registry pyproject auto-prepends `==` to bare versions.** `render_pyproject` previously interpolated `"{pkg_name}{pkg_version}"` and required the caller to pass a PEP 508 specifier (`"==1.2.3"`, `">=1.2"`). When `[crates.e2e.registry.packages.python].version` in `alef.toml` was a bare version (`"1.4.0-rc.30"`), output was `"liter-llm1.4.0-rc.30"` — an invalid requirement that pip and uv both reject. The renderer now detects whether `pkg_version` starts with a PEP 508 comparator (`==`, `!=`, `>=`, `<=`, `~=`, `===`, `>`, `<`) and prepends `==` when it doesn't; already-qualified specifiers pass through unchanged. The mod.rs fallback no longer pre-applies `==` since normalisation lives in the renderer. (`src/e2e/codegen/python/config.rs`, `src/e2e/codegen/python/mod.rs`)
 
 ### Removed
 
