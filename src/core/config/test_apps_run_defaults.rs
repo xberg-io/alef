@@ -270,7 +270,7 @@ mod tests {
     fn cfg(lang: Language, dir: &str) -> TestAppRunConfig {
         let tools = ToolsConfig::default();
         let ctx = LangContext::default(&tools);
-        default_test_apps_run_config(lang, dir, &ctx)
+        default_test_apps_run_config(lang, dir, &ctx, None)
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod tests {
                 ..Default::default()
             };
             let ctx = LangContext::default(&tools);
-            let c = default_test_apps_run_config(Language::Python, "test_apps", &ctx);
+            let c = default_test_apps_run_config(Language::Python, "test_apps", &ctx, None);
             assert_eq!(c.precondition.as_deref(), Some(expected_pre), "{pm} precondition");
             let run = c.run.unwrap().commands().join(" ");
             assert!(run.contains(expected_cmd), "{pm}: expected {expected_cmd}, got: {run}");
@@ -356,7 +356,7 @@ mod tests {
                 ..Default::default()
             };
             let ctx = LangContext::default(&tools);
-            let c = default_test_apps_run_config(Language::Node, "test_apps", &ctx);
+            let c = default_test_apps_run_config(Language::Node, "test_apps", &ctx, None);
             assert_eq!(c.precondition.as_deref(), Some(expected_pre), "{pm} precondition");
             let run = c.run.unwrap().commands().join(" ");
             assert!(run.contains(expected_cmd), "{pm}: expected {expected_cmd}, got: {run}");
