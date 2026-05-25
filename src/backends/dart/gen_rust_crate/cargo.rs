@@ -428,8 +428,17 @@ fn patch_published_loader() {{
     }}
 
     if patched != source {{
-        if let Err(err) = std::fs::write(path, patched) {{
+        if let Err(err) = std::fs::write(path, &patched) {{
             println!("cargo:warning=failed to write published-loader patch: {{err}}");
+            return;
+        }}
+        match std::process::Command::new("dart").args(["format", FRB_GENERATED_DART]).status() {{
+            Ok(s) if s.success() => {{}}
+            Ok(s) => println!("cargo:warning=dart format on {{}} exited {{}}", FRB_GENERATED_DART, s),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {{
+                println!("cargo:warning=dart not on PATH — skipping post-patch format. Install Dart SDK to keep generated FRB Dart sources fmt-clean.");
+            }}
+            Err(err) => println!("cargo:warning=failed to spawn dart format: {{err}}"),
         }}
     }}
 }}
@@ -549,6 +558,16 @@ mod build_rs_tests {
             file.content
                 .contains("externalLibrary ??= await _alefResolveExternalLibrary();"),
             "build.rs replacement must prefer the package-relative library"
+        );
+    }
+
+    #[test]
+    fn emitted_build_rs_runs_dart_format_after_patch() {
+        let file = emit_build_rs("packages/dart/rust", "spikard", "spikard", "spikard_dart");
+        assert!(
+            file.content
+                .contains(r#"Command::new("dart").args(["format", FRB_GENERATED_DART])"#),
+            "build.rs must run `dart format` on the patched frb_generated.dart"
         );
     }
 }
