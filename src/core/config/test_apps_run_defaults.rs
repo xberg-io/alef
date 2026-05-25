@@ -82,7 +82,13 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
         Language::Go => TestAppRunConfig {
             precondition: Some(require_tool("go")),
             before: None,
-            run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/go && go test ./..."))),
+            // GOWORK=off prevents a consumer repo's go.work from absorbing
+            // test_apps/go into the outer workspace, which would cause `go test
+            // ./...` to resolve the module graph via the workspace root and
+            // reject the test app's go.mod as a non-member module.
+            run: Some(StringOrVec::Single(format!(
+                "cd {test_apps_dir}/go && GOWORK=off go test ./..."
+            ))),
         },
         Language::Java => TestAppRunConfig {
             precondition: Some(require_tool("mvn")),
@@ -338,10 +344,14 @@ mod tests {
     }
 
     #[test]
-    fn go_runs_go_test() {
+    fn go_runs_go_test_with_gowork_off() {
         let c = cfg(Language::Go, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
-        assert!(run.contains("cd test_apps/go && go test ./..."), "got: {run}");
+        assert!(
+            run.contains("GOWORK=off go test ./..."),
+            "expected GOWORK=off in go run command, got: {run}"
+        );
+        assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
     }
 
     #[test]

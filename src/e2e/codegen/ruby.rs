@@ -251,8 +251,13 @@ require 'json'
 require 'open3'
 
 # Spawn the mock-server binary and set MOCK_SERVER_URL for all tests.
+# If MOCK_SERVER_URL is already set, a parent process (e.g. `alef test-apps
+# run`) started a shared mock-server and exported its URL (plus any
+# MOCK_SERVERS / MOCK_SERVER_<FIXTURE_ID> vars). Use it as-is and do NOT
+# spawn our own server.
 RSpec.configure do |config|
   config.before(:suite) do
+    next if ENV['MOCK_SERVER_URL'] && !ENV['MOCK_SERVER_URL'].empty?
     bin = File.expand_path('../../rust/target/release/mock-server', __dir__)
     fixtures_dir = File.expand_path('../../../fixtures', __dir__)
     unless File.exist?(bin)
