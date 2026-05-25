@@ -431,11 +431,7 @@ mod tests {
         let tools = ToolsConfig::default();
         let ctx = LangContext::default(&tools);
         let c = default_test_apps_run_config_for_name("homebrew", "test_apps", &ctx);
-        let run = c
-            .run
-            .expect("homebrew should have a run command")
-            .commands()
-            .join(" ");
+        let run = c.run.expect("homebrew should have a run command").commands().join(" ");
         assert_eq!(c.precondition.as_deref(), Some("command -v brew >/dev/null 2>&1"));
         assert!(run.contains("cd test_apps/homebrew && bash run_tests.sh"), "got: {run}");
         assert!(
