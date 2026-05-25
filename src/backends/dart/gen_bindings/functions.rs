@@ -111,6 +111,15 @@ pub(super) fn emit_function(
             .collect();
         let default_expr =
             default_expression_for_named_type(cfg_type, type_defs, enums).unwrap_or_else(|| format!("{cfg_type}()"));
+        // The default expression may embed `dart:typed_data` constructors
+        // (Int64List, Uint8List, Float64List, ...) emitted by
+        // `empty_vec_literal` to match FRB's typed-list mapping. Those
+        // symbols are visible inside the FRB-generated lib.dart but are
+        // NOT re-exported, so consumers of the facade need an explicit
+        // import. Detect any embedded typed-data symbol and add it.
+        if TYPED_DATA_CTORS.iter().any(|ctor| default_expr.contains(ctor)) {
+            imports.insert("import 'dart:typed_data';".to_string());
+        }
         let config_default = format!("config ?? {default_expr}");
         let config_arg = format!("config: {config_default}");
         if non_config.is_empty() {
@@ -237,6 +246,12 @@ fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -
 /// typed-list parameter, so we emit the typed-list constructor matching the
 /// widened FRB type. Non-primitive element types (Strings, named structs,
 /// nested Vecs, etc.) stay as `List<T>` in FRB and accept `[]`.
+/// `dart:typed_data` constructors that may appear in default expressions.
+/// Used by `emit_function` to add the `dart:typed_data` import whenever any
+/// of these symbols is embedded in a rendered default. Keep in sync with
+/// [`empty_vec_literal`] and the `TypeRef::Bytes` arm of [`zero_value_for_type`].
+const TYPED_DATA_CTORS: &[&str] = &["Int64List", "Uint8List", "Float64List"];
+
 fn empty_vec_literal(inner: &TypeRef) -> String {
     match inner {
         TypeRef::Primitive(PrimitiveType::U8) => "Uint8List(0)".to_string(),
