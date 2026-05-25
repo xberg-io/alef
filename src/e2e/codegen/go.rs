@@ -73,16 +73,44 @@ impl E2eCodegen for GoCodegen {
             .and_then(|p| p.path.as_ref())
             .cloned()
             .or_else(|| Some(format!("../../{}", config.package_dir(Language::Go))));
-        let go_version = go_pkg
-            .as_ref()
-            .and_then(|p| p.version.as_ref())
-            .cloned()
-            .unwrap_or_else(|| {
-                config
-                    .resolved_version()
-                    .map(|v| format!("v{v}"))
+        // In Local mode the version field is a placeholder for the
+        // `require <module> <version>` line that pairs with a `replace`
+        // directive — `v0.0.0` is the common idiom and gets corrected by
+        // `fix_go_major_version` if the module is `/vN` for N >= 2.
+        //
+        // In Registry mode the test app is consuming the published module
+        // from the Go proxy, so the version must match the real release tag.
+        // The merged `PackageRef.version` falls through to the Local-mode
+        // `[crates.e2e.packages.go].version` placeholder when no
+        // `[crates.e2e.registry.packages.go].version` is configured, which
+        // wrote `v0.0.0` into the published test_app's go.mod. Prefer the
+        // crate-wide resolved version (from `version_from`) in Registry mode
+        // and fall back to the package's version only if no resolved version
+        // is available.
+        let go_version = match e2e_config.dep_mode {
+            crate::e2e::config::DependencyMode::Registry => {
+                let registry_version = e2e_config
+                    .registry
+                    .packages
+                    .get("go")
+                    .and_then(|p| p.version.as_ref())
+                    .cloned();
+                registry_version
+                    .or_else(|| config.resolved_version().map(|v| format!("v{v}")))
+                    .or_else(|| go_pkg.as_ref().and_then(|p| p.version.as_ref()).cloned())
                     .unwrap_or_else(|| "v0.0.0".to_string())
-            });
+            }
+            crate::e2e::config::DependencyMode::Local => go_pkg
+                .as_ref()
+                .and_then(|p| p.version.as_ref())
+                .cloned()
+                .unwrap_or_else(|| {
+                    config
+                        .resolved_version()
+                        .map(|v| format!("v{v}"))
+                        .unwrap_or_else(|| "v0.0.0".to_string())
+                }),
+        };
         // Generate go.mod. In registry mode, omit the `replace` directive so the
         // module is fetched from the Go module proxy.
         let effective_replace = match e2e_config.dep_mode {
