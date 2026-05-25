@@ -509,6 +509,16 @@ impl Drop for MockServerHandle {
     }
 }
 
+/// Check if the given Cargo.toml defines a [[bin]] target named "mock-server".
+fn has_mock_server_bin(manifest_path: &std::path::Path) -> anyhow::Result<bool> {
+    let content = std::fs::read_to_string(manifest_path)
+        .context("failed to read Cargo.toml to check for mock-server bin target")?;
+    // Simple heuristic: look for the line `name = "mock-server"` within a [[bin]] section.
+    // TOML parsing is more complex, but for generated files we know the format is
+    // `[[bin]]\nname = "mock-server"\npath = "src/main.rs"` when the bin is present.
+    Ok(content.contains("[[bin]]") && content.contains("name = \"mock-server\""))
+}
+
 /// Build and start the shared e2e mock-server, returning a handle whose env vars
 /// (`MOCK_SERVER_URL`, optional `MOCK_SERVERS`) must be injected into every
 /// test-app `run` command.
@@ -536,6 +546,16 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
     if !manifest_path.exists() {
         info!(
             "No e2e mock-server crate at {} — running test apps without MOCK_SERVER_URL",
+            manifest_path.display()
+        );
+        return Ok(None);
+    }
+
+    // Check if the Cargo.toml actually defines a mock-server bin target.
+    // It won't exist if no fixtures required a mock server (needs_mock_server was false).
+    if !has_mock_server_bin(&manifest_path)? {
+        info!(
+            "No [[bin]] mock-server target in {} — running test apps without MOCK_SERVER_URL",
             manifest_path.display()
         );
         return Ok(None);
