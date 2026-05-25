@@ -101,9 +101,8 @@ fn init_prologue_regex() -> &'static Regex {
         // Match the init prologue with flexible whitespace indentation and parameter order.
         // FRB generates: `static Future<void> init({ ... }) async {`
         // We match from "Initialize flutter_rust_bridge" comment through the opening brace.
-        Regex::new(
-            r"(?m)^\s*/// Initialize flutter_rust_bridge\n\s*static Future<void> init\((?s:.)*?\}\) async \{\n"
-        ).expect("init prologue regex must compile")
+        Regex::new(r"(?m)^\s*/// Initialize flutter_rust_bridge\n\s*static Future<void> init\((?s:.)*?\}\) async \{\n")
+            .expect("init prologue regex must compile")
     })
 }
 

@@ -2978,8 +2978,7 @@ mod zig_hash_tests {
             "html-to-markdown-rs",
             "https://github.com/kreuzberg-dev/html-to-markdown",
         );
-        let expected_url =
-            "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v3.5.1/html-to-markdown-rs-zig-v3.5.1.tar.gz";
+        let expected_url = "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v3.5.1/html-to-markdown-rs-zig-v3.5.1.tar.gz";
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the full release URL with repo segment; got:\n{content}"

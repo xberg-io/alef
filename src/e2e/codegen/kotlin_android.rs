@@ -5,6 +5,7 @@
 //! without requiring an Android emulator — the tests run directly on the host JVM against
 //! the shared library.
 
+use crate::backends::kotlin_android::naming;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::template_versions::{maven, toolchain};
@@ -75,6 +76,13 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             .cloned()
             .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
+
+        // Construct the Maven coordinate for the published Android AAR.
+        // Format: `group_id:artifact_id:version` (e.g., `dev.kreuzberg:kreuzberg-android:5.0.0-rc.1`)
+        let maven_group_id = naming::aar_group_id(config);
+        let maven_artifact_id = naming::aar_artifact_id(config);
+        let maven_coordinate = format!("{}:{}:{}", maven_group_id, maven_artifact_id, kotlin_android_version);
+
         // Use the kotlin_android crate's `package` config — not the generic
         // `config.kotlin_package()` accessor — so the generated tests live in
         // the same JVM package as the AAR's emitted types and can reference
@@ -110,6 +118,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
                 &pkg_name,
                 &kotlin_pkg_id,
                 &kotlin_android_version,
+                &maven_coordinate,
                 e2e_config.dep_mode,
                 needs_mock_server,
             ),
@@ -276,7 +285,7 @@ fn is_enum_typed(ty: &crate::core::ir::TypeRef, struct_names: &HashSet<&str>) ->
 ///
 /// In local mode: sources from `../../packages/kotlin-android/` are compiled
 /// directly into the test project via `sourceSets`. In registry mode: the
-/// published Maven artifact (`{pkg_name}:{pkg_version}`) is declared as a
+/// published Maven artifact (from `maven_coordinate`) is declared as a
 /// `testImplementation` dependency and `sourceSets` are not emitted.
 ///
 /// This is an Android library project (applies `com.android.library`) so that
@@ -284,9 +293,10 @@ fn is_enum_typed(ty: &crate::core::ir::TypeRef, struct_names: &HashSet<&str>) ->
 /// Kotlin script compile time. The host-JVM test sources live in
 /// `src/test/kotlin/` and run against the shared native library via JNA.
 fn render_build_gradle_kotlin_android(
-    pkg_name: &str,
+    _pkg_name: &str,
     kotlin_pkg_id: &str,
-    pkg_version: &str,
+    _pkg_version: &str,
+    maven_coordinate: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     needs_mock_server: bool,
 ) -> String {
@@ -319,7 +329,7 @@ fn render_build_gradle_kotlin_android(
     let (source_sets_block, artifact_dep, tasks_block) = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         let artifact = format!(
             r#"    // Published Android AAR from Maven Central
-    testImplementation("{pkg_name}:{pkg_version}")"#
+    testImplementation("{maven_coordinate}")"#
         );
         // In registry mode tests run against the published AAR; the native
         // library is bundled inside it so no java.library.path wiring is needed.
