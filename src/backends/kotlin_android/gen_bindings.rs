@@ -269,6 +269,13 @@ fn emit_trait_interfaces(
     package: &str,
     files: &mut Vec<GeneratedFile>,
 ) {
+    // Check if the bridge function parameter is excluded from kotlin_android.
+    let kotlin_android_excluded_function_names: std::collections::HashSet<&str> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
     for bridge in &config.trait_bridges {
         if bridge
             .exclude_languages
@@ -276,6 +283,14 @@ fn emit_trait_interfaces(
             .any(|language| language == "kotlin_android")
         {
             continue;
+        }
+
+        // Skip if the bridge function parameter is excluded from kotlin_android
+        // (e.g., visitor function excluded because JNI trait-handle bridge is unimplemented)
+        if let Some(param_name) = &bridge.param_name {
+            if kotlin_android_excluded_function_names.contains(param_name.as_str()) {
+                continue;
+            }
         }
         let Some(trait_def) = api
             .types
