@@ -1,17 +1,19 @@
-//! Enforce and synchronise the `[workspace] alef_version` pin in `alef.toml`.
+//! Synchronise the alef version pin in `alef.toml` and the `.pre-commit-config.yaml`
+//! alef hook `rev:` with the running alef CLI.
 //!
 //! Every alef.toml may carry a `[workspace] alef_version = "X.Y.Z"` field that
-//! pins the alef CLI version a project expects. Two invariants:
+//! records the alef CLI version a project was last generated with. The generation
+//! commands (`generate`, `all`, `scaffold`) make the running CLI the source of
+//! truth:
 //!
-//! 1. The pinned version must never be greater than the running CLI version.
-//!    Trying to regenerate with an older binary against a config that already
-//!    moved forward is a recipe for partial output and missing features.
-//! 2. After a successful generate, the pin is rewritten to the CLI version so
-//!    install-alef and downstream consumers know exactly which alef produced
-//!    the on-disk output.
-//!
-//! The two functions in this module are the only entry points used by the
-//! `Generate`, `All`, and `Init` command handlers.
+//! 1. [`check_alef_toml_version`] compares the pin to the running CLI and logs an
+//!    INFO on upgrade (running newer) or a WARN on downgrade (running older). It
+//!    never errors — regenerating with an older binary is allowed, just flagged.
+//! 2. [`write_alef_toml_version`] rewrites the pin to the CLI version so install-alef
+//!    and downstream consumers know exactly which alef produced the on-disk output.
+//! 3. [`sync_precommit_alef_rev`] bumps the alef hook `rev:` in the consumer's
+//!    `.pre-commit-config.yaml` to `v{cli}` so the pre-commit hook tracks the same
+//!    version.
 
 use crate::core::config::WorkspaceConfig;
 use anyhow::{Context, Result};
@@ -23,27 +25,33 @@ pub fn cli_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Error if `workspace.alef_version` is set and > CLI version.
-///
-/// A missing pin is treated as compatible (no constraint).
+/// Compare `workspace.alef_version` against the running CLI and log the direction
+/// of any change. Never errors: a downgrade is warned, an upgrade is info-logged,
+/// an equal/missing/unparseable pin is silent (the pin is reconciled later by
+/// [`write_alef_toml_version`]).
 pub fn check_alef_toml_version(workspace: &WorkspaceConfig) -> Result<()> {
     let Some(pin) = workspace.alef_version.as_deref() else {
         return Ok(());
     };
     let cli = cli_version();
-    let pin_v = semver::Version::parse(pin).with_context(|| {
-        format!(
-            "alef.toml `[workspace] alef_version = \"{pin}\"` is not a valid semver — expected MAJOR.MINOR.PATCH[-prerelease]"
-        )
-    })?;
-    let cli_v =
-        semver::Version::parse(cli).with_context(|| format!("CLI version {cli} is not a valid semver (impossible)"))?;
-
-    if pin_v > cli_v {
-        anyhow::bail!(
-            "alef.toml pins `[workspace] alef_version = \"{pin}\"` but installed alef CLI is {cli}. \
-             Upgrade alef (cargo install alef-cli --version {pin}) before re-running."
+    let (Ok(pin_v), Ok(cli_v)) = (semver::Version::parse(pin), semver::Version::parse(cli)) else {
+        tracing::warn!(
+            "alef.toml `[workspace] alef_version = \"{pin}\"` is not valid semver; it will be reset to the running CLI version {cli}"
         );
+        return Ok(());
+    };
+
+    match cli_v.cmp(&pin_v) {
+        std::cmp::Ordering::Greater => {
+            tracing::info!("Upgrading alef pin {pin} → {cli} (running a newer alef)");
+        }
+        std::cmp::Ordering::Less => {
+            tracing::warn!(
+                "Running alef {cli} is older than the pinned alef_version {pin} in alef.toml; \
+                 the pin will be lowered to {cli}"
+            );
+        }
+        std::cmp::Ordering::Equal => {}
     }
     Ok(())
 }
@@ -88,6 +96,91 @@ pub fn write_alef_toml_version(config_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Substring that identifies the alef hooks repo in a `.pre-commit-config.yaml`
+/// `repo:` line (alef's own hooks live in `github.com/kreuzberg-dev/alef`).
+const ALEF_HOOKS_REPO_MARKER: &str = "kreuzberg-dev/alef";
+
+/// Bump the alef hook `rev:` in `<repo_root>/.pre-commit-config.yaml` to `v{cli}`.
+///
+/// Surgical, format-preserving line edit: only the `rev:` line of the alef hook
+/// block is rewritten; the rest of the file (other hooks, comments, spacing) is
+/// untouched. No-ops silently when the file is absent, when the alef hooks are
+/// `local` (no `rev:`), or when the rev already matches. Quote style of the
+/// existing value is preserved.
+pub fn sync_precommit_alef_rev(repo_root: &Path) -> Result<()> {
+    let path = repo_root.join(".pre-commit-config.yaml");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Ok(()); // absent or unreadable — nothing to sync
+    };
+    let cli = cli_version();
+    let new_rev = format!("v{cli}");
+
+    let mut lines: Vec<String> = content.lines().map(str::to_owned).collect();
+
+    // Locate the alef hooks repo block.
+    let Some(repo_idx) = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("- repo:") && l.contains(ALEF_HOOKS_REPO_MARKER))
+    else {
+        return Ok(()); // no remote alef hook block (e.g. local hooks) — nothing to do
+    };
+
+    // Find the block's `rev:` line, before the next `- repo:` entry.
+    let mut rev_idx = None;
+    for (idx, line) in lines.iter().enumerate().skip(repo_idx + 1) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("- repo:") {
+            break;
+        }
+        if trimmed.starts_with("rev:") {
+            rev_idx = Some(idx);
+            break;
+        }
+    }
+    let Some(rev_idx) = rev_idx else {
+        return Ok(()); // local hooks / no pinned rev
+    };
+
+    let line = &lines[rev_idx];
+    let indent_len = line.len() - line.trim_start().len();
+    let indent = line[..indent_len].to_owned();
+    let raw_value = line.trim_start().strip_prefix("rev:").unwrap_or("").trim();
+    let quoted = raw_value.starts_with('"');
+    let old_rev = raw_value.trim_matches('"').to_owned();
+
+    if old_rev == new_rev {
+        return Ok(()); // already current
+    }
+
+    // Log the direction of the change (best-effort semver compare, sans `v`).
+    let parse = |s: &str| semver::Version::parse(s.trim_start_matches('v')).ok();
+    match (parse(&old_rev), parse(cli)) {
+        (Some(old), Some(new)) if new > old => {
+            tracing::info!(
+                "Upgrading alef pre-commit hook rev {old_rev} → {new_rev} in {}",
+                path.display()
+            );
+        }
+        (Some(old), Some(new)) if new < old => {
+            tracing::warn!(
+                "Lowering alef pre-commit hook rev {old_rev} → {new_rev} in {} (running an older alef)",
+                path.display()
+            );
+        }
+        _ => {}
+    }
+
+    let new_value = if quoted { format!("\"{new_rev}\"") } else { new_rev };
+    lines[rev_idx] = format!("{indent}rev: {new_value}");
+
+    let mut out = lines.join("\n");
+    if content.ends_with('\n') {
+        out.push('\n');
+    }
+    std::fs::write(&path, out).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,19 +213,22 @@ mod tests {
     }
 
     #[test]
-    fn pin_higher_than_cli_errors() {
-        // Bump the major past anything the CLI could plausibly be.
+    fn pin_higher_than_cli_warns_not_errors() {
+        // A pin newer than the running CLI (downgrade) is allowed — warned, not rejected.
         let ws = workspace_with_version(Some("999.0.0"));
-        let err = check_alef_toml_version(&ws).expect_err("higher pin must reject");
-        let msg = format!("{err}");
-        assert!(msg.contains("999.0.0"), "error must mention the offending pin: {msg}");
-        assert!(msg.contains(cli_version()), "error must mention the CLI version: {msg}");
+        assert!(
+            check_alef_toml_version(&ws).is_ok(),
+            "a downgrade must warn, not hard-error"
+        );
     }
 
     #[test]
-    fn pin_invalid_semver_errors() {
+    fn pin_invalid_semver_warns_not_errors() {
         let ws = workspace_with_version(Some("not-a-version"));
-        assert!(check_alef_toml_version(&ws).is_err());
+        assert!(
+            check_alef_toml_version(&ws).is_ok(),
+            "an unparseable pin must warn and continue, not error"
+        );
     }
 
     #[test]
@@ -209,6 +305,66 @@ mod tests {
         assert!(
             !updated.contains("alef_version = \"0.0.1\""),
             "old alef_version must be replaced: {updated}"
+        );
+    }
+
+    #[test]
+    fn precommit_sync_bumps_alef_rev_and_leaves_other_repos_untouched() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(".pre-commit-config.yaml");
+        fs::write(
+            &path,
+            "repos:\n  - repo: https://github.com/astral-sh/ruff-pre-commit\n    rev: v0.14.0\n    hooks:\n      - id: ruff\n  - repo: https://github.com/kreuzberg-dev/alef\n    rev: v0.0.1\n    hooks:\n      - id: alef-verify\n      - id: alef-sync-versions\n",
+        )
+        .unwrap();
+
+        sync_precommit_alef_rev(dir.path()).expect("sync ok");
+        let updated = fs::read_to_string(&path).unwrap();
+
+        assert!(
+            updated.contains(&format!("rev: v{}", cli_version())),
+            "alef hook rev must be bumped to v<cli>: {updated}"
+        );
+        assert!(!updated.contains("rev: v0.0.1"), "old alef rev must be gone: {updated}");
+        assert!(
+            updated.contains("rev: v0.14.0"),
+            "the ruff hook's rev must be untouched: {updated}"
+        );
+    }
+
+    #[test]
+    fn precommit_sync_preserves_quoted_rev_style() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(".pre-commit-config.yaml");
+        fs::write(
+            &path,
+            "repos:\n  - repo: https://github.com/kreuzberg-dev/alef\n    rev: \"v0.0.1\"\n    hooks:\n      - id: alef-verify\n",
+        )
+        .unwrap();
+
+        sync_precommit_alef_rev(dir.path()).expect("sync ok");
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(
+            updated.contains(&format!("rev: \"v{}\"", cli_version())),
+            "quoted rev style must be preserved: {updated}"
+        );
+    }
+
+    #[test]
+    fn precommit_sync_noops_when_absent_or_local() {
+        // Absent file: no error.
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(sync_precommit_alef_rev(dir.path()).is_ok());
+
+        // Local alef hooks (no remote repo / no rev): file left unchanged.
+        let path = dir.path().join(".pre-commit-config.yaml");
+        let local = "repos:\n  - repo: local\n    hooks:\n      - id: alef-verify\n        entry: alef verify\n        language: system\n";
+        fs::write(&path, local).unwrap();
+        sync_precommit_alef_rev(dir.path()).expect("sync ok");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            local,
+            "local-hook config must be untouched"
         );
     }
 }
