@@ -209,21 +209,28 @@ struct Demo {{
         module = module,
     );
 
-    // Root-level Package.swift shim — SwiftPM requires a `Package.swift` at the
-    // root of the git URL when resolving `.package(url: "https://github.com/.../X.git", from: "v...")`.
-    // The canonical manifest lives in `packages/swift/Package.swift` so in-tree
-    // developers can keep using `cd packages/swift && swift build`; this shim mirrors
-    // the same target layout but with paths and linker `-L` adjusted to the repo
-    // root so external consumers can `swift package resolve` against the GitHub URL.
+    // Root-level Package.swift — SwiftPM requires a `Package.swift` at the root of the
+    // git URL when resolving `.package(url: "https://github.com/.../X.git", from: "v...")`.
     //
-    // testTarget is intentionally omitted from the root shim — external consumers
-    // never want to compile the package's own tests. Linker `-L` paths point at
-    // `target/{release,debug}` relative to repo root.
+    // This is the **distributed** manifest for external consumers. It uses `.binaryTarget`
+    // to reference pre-built XCFramework/artifact bundles published as release assets.
+    // No `unsafeFlags`, no source compilation required — just linking pre-built binaries.
+    //
+    // For in-tree development, developers use `packages/swift/Package.swift` directly,
+    // which contains the unsafeFlags and in-tree build workflow.
+    //
+    // The placeholder URL `https://github.com/kreuzberg-dev/{repo}/releases/download/{tag}/{archive}`
+    // is replaced during publish by the actual release asset URL. The checksum is computed
+    // by `swift package compute-checksum` and wired in by the release pipeline.
     let root_package_swift = format!(
         r#"// swift-tools-version: 6.0
-// Root-level Package.swift shim — alef-generated for SwiftPM URL consumers.
-// The canonical manifest lives at packages/swift/Package.swift; see that file
-// (and packages/swift/README.md) for the in-tree development workflow.
+// Root-level Package.swift — alef-generated for published distributions.
+//
+// This manifest uses `.binaryTarget` for pre-built XCFramework/artifact bundles.
+// External consumers depend on this via `.package(url: "...", from: "...")`.
+//
+// For in-tree development, see `packages/swift/Package.swift` and
+// `packages/swift/README.md` for the source-based workflow.
 import PackageDescription
 
 let package = Package(
@@ -236,34 +243,27 @@ let package = Package(
     .library(name: "{module}", targets: ["{module}"])
   ],
   targets: [
-    .target(
-      name: "RustBridgeC",
-      path: "packages/swift/Sources/RustBridgeC",
-      publicHeadersPath: "."
-    ),
-    .target(
+    // RustBridge: pre-built binary target containing the compiled Rust library
+    // for macOS (arm64, x86_64), iOS (device, simulator), and Linux (arm64, x86_64).
+    // The binary includes C headers for swift-bridge interop.
+    .binaryTarget(
       name: "RustBridge",
-      dependencies: ["RustBridgeC"],
-      path: "packages/swift/Sources/RustBridge",
-      linkerSettings: [
-        .unsafeFlags([
-          "-Ltarget/release",
-          "-Ltarget/debug",
-        ]),
-        .linkedLibrary("{binding_underscore}"),
-        .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
-        .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
-        .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
-      ]
+      url: "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v{placeholder_version}/{module}-rs.artifactbundle.zip",
+      checksum: "{placeholder_checksum}"
     ),
-    .target(name: "{module}", dependencies: ["RustBridge"], path: "packages/swift/Sources/{module}"),
+    .target(
+      name: "{module}",
+      dependencies: ["RustBridge"],
+      path: "packages/swift/Sources/{module}"
+    ),
   ]
 )
 "#,
         module = module,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
-        binding_underscore = binding_crate_underscore,
+        placeholder_version = "VERSION",
+        placeholder_checksum = "CHECKSUM",
     );
 
     Ok(vec![

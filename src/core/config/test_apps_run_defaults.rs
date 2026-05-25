@@ -182,16 +182,21 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
 }
 
 /// Default run config for a registry test-app target that is NOT a [`Language`]
-/// enum variant — i.e. a string-only `[e2e].languages` entry. Today that is the
-/// Homebrew formula app (`brew`), whose generated `run_tests.sh` installs the
-/// published CLI via `brew install` and exercises it. Unknown names get no run.
+/// enum variant — i.e. a string-only `[e2e].languages` entry. Today those are
+/// the Homebrew formula apps: the legacy CLI-only `brew` target (emitted by
+/// `BrewCodegen` under `test_apps/brew/`) and the newer combined CLI+FFI
+/// `homebrew` target (emitted by `HomebrewCodegen` under `test_apps/homebrew/`).
+/// Each `run_tests.sh` installs the published formulas via `brew install` and
+/// exercises them. The target name is the subdir name — `name="brew"` cds into
+/// `test_apps/brew`, `name="homebrew"` cds into `test_apps/homebrew`. Unknown
+/// names get no run.
 pub fn default_test_apps_run_config_for_name(name: &str, test_apps_dir: &str, _ctx: &LangContext) -> TestAppRunConfig {
     match name {
         "brew" | "homebrew" => TestAppRunConfig {
             precondition: Some(require_tool("brew")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/brew && bash run_tests.sh"
+                "cd {test_apps_dir}/{name} && bash run_tests.sh"
             ))),
         },
         _ => TestAppRunConfig {
@@ -406,6 +411,37 @@ mod tests {
         let c = cfg(Language::Go, "my/custom/apps");
         let run = c.run.unwrap().commands().join(" ");
         assert!(run.contains("cd my/custom/apps/go"), "got: {run}");
+    }
+
+    #[test]
+    fn brew_target_runs_under_brew_subdir() {
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        let c = default_test_apps_run_config_for_name("brew", "test_apps", &ctx);
+        let run = c.run.expect("brew should have a run command").commands().join(" ");
+        assert_eq!(c.precondition.as_deref(), Some("command -v brew >/dev/null 2>&1"));
+        assert!(run.contains("cd test_apps/brew && bash run_tests.sh"), "got: {run}");
+    }
+
+    #[test]
+    fn homebrew_target_runs_under_homebrew_subdir() {
+        // The newer combined CLI+FFI Homebrew target (HomebrewCodegen) writes to
+        // `test_apps/homebrew/`, not `test_apps/brew/`. The default run command
+        // must cd into the matching subdir.
+        let tools = ToolsConfig::default();
+        let ctx = LangContext::default(&tools);
+        let c = default_test_apps_run_config_for_name("homebrew", "test_apps", &ctx);
+        let run = c
+            .run
+            .expect("homebrew should have a run command")
+            .commands()
+            .join(" ");
+        assert_eq!(c.precondition.as_deref(), Some("command -v brew >/dev/null 2>&1"));
+        assert!(run.contains("cd test_apps/homebrew && bash run_tests.sh"), "got: {run}");
+        assert!(
+            !run.contains("cd test_apps/brew "),
+            "must not use brew/ subdir for homebrew target, got: {run}"
+        );
     }
 
     #[test]

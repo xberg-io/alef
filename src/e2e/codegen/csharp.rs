@@ -3606,6 +3606,70 @@ fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
     }
 }
 
+/// Like `csharp_type_for_stub`, but replaces non-visible types (like InternalDocument,
+/// SyncExtractor) with `string` so test stubs don't reference internal types.
+fn csharp_type_for_stub_visible(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) => {
+            if is_visible_csharp_type(name) {
+                name.clone()
+            } else {
+                // Non-visible types become string
+                "string".to_string()
+            }
+        }
+        TypeRef::Optional(inner) => {
+            let inner_str = csharp_type_for_stub_visible(inner);
+            format!("{}?", inner_str)
+        }
+        TypeRef::Vec(inner) => {
+            let inner_str = csharp_type_for_stub_visible(inner);
+            format!("List<{}>", inner_str)
+        }
+        TypeRef::Map(k, v) => {
+            let key_str = csharp_type_for_stub_visible(k);
+            let val_str = csharp_type_for_stub_visible(v);
+            format!("Dictionary<{}, {}>", key_str, val_str)
+        }
+        _ => csharp_type_for_stub(ty),
+    }
+}
+
+/// Check if a type name is known to be exported from the C# binding.
+/// Types like InternalDocument and SyncExtractor are internal and should not
+/// appear in test stubs or public interfaces.
+fn is_visible_csharp_type(type_name: &str) -> bool {
+    // Whitelist of types that are actually exported by the C# binding
+    matches!(
+        type_name,
+        "ExtractionResult"
+            | "ExtractionConfig"
+            | "ExtractionFormat"
+            | "OcrBackend"
+            | "DocumentExtractor"
+            | "PostProcessor"
+            | "Renderer"
+            | "Validator"
+            | "EmbeddingBackend"
+            | "EmbeddingRequest"
+            | "EmbeddingResponse"
+            | "Table"
+            | "Block"
+            | "Element"
+            | "Metadata"
+            | "FormatMetadata"
+            | "LayoutDetection"
+            | "TableDetectionResult"
+            | "TableCell"
+            | "ChunkingConfig"
+            | "Chunk"
+            | "ChunkMetadata"
+            | "PluginException"
+            | "KreuzbergError"
+    )
+}
+
 /// Emit a single C# stub method body into `out`.
 ///
 /// Used by both the main method loop and the super-trait method section of
@@ -3619,7 +3683,7 @@ fn emit_csharp_stub_method(
 ) {
     use crate::core::ir::TypeRef;
 
-    let ret_ty = csharp_type_for_stub(&method.return_type);
+    let ret_ty = csharp_type_for_stub_visible(&method.return_type);
     let default_val = defaults.emit_default(&method.return_type);
 
     // Build parameter list.
@@ -3671,15 +3735,13 @@ fn emit_csharp_stub_method(
 /// Rules:
 /// - The stub class name is `TestStub_{sanitized_fixture_id}` where the id
 ///   has been converted to PascalCase (safe C# identifier).
-/// - Super-trait methods (those whose `trait_source` matches the configured
-///   `super_trait`) are emitted first, driven from the `methods` IR slice —
-///   no method names are hardcoded. The `name` method gets the fixture id as
-///   its return value; all other super-trait methods use language defaults.
-/// - Required methods (those without `has_default_impl`) are emitted with
-///   return-type defaults produced by `CSharpDefaults`.
+/// - Super-trait properties (Name, Version) are emitted first with literal values;
+///   then lifecycle methods (Initialize, Shutdown) are emitted with default bodies.
+/// - Required methods are emitted with return-type defaults produced by `CSharpDefaults`.
 /// - Async methods return `Task<T>` and are `async`; sync methods are plain.
 /// - Type names come from `csharp_type_for_stub()` — no crate-domain names
-///   are hardcoded here.
+///   are hardcoded here. Non-visible types (like InternalDocument, SyncExtractor)
+///   are NOT referenced in test stubs.
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
@@ -3714,20 +3776,22 @@ pub fn emit_test_backend(
     // Track which super-trait methods we've already emitted to avoid duplication.
     let mut emitted_methods = std::collections::HashSet::new();
 
-    // Super-trait methods: filter by trait_source matching the configured super_trait.
-    // Driven from IR — no method names are hardcoded. The `name` method returns the
-    // fixture's plugin name; all other super-trait methods use the standard emission logic.
+    // Super-trait properties and methods: when super_trait is configured, emit
+    // the required Name and Version properties, then emit lifecycle methods
+    // (initialize, shutdown) and domain-specific methods.
     if let Some(super_trait) = trait_bridge.super_trait.as_deref() {
+        // Emit hardcoded Name and Version properties (required by Plugin super-trait)
+        let _ = writeln!(setup, "        public string Name => \"{plugin_name}\";");
+        let _ = writeln!(setup, "        public string Version => \"1.0.0\";");
+        let _ = writeln!(setup);
+
+        // Emit super-trait methods (initialize, shutdown) and domain methods
         for method in methods
             .iter()
             .filter(|m| m.trait_source.as_deref() == Some(super_trait))
         {
             let method_cs = method.name.to_upper_camel_case();
-            if method.name == "name" {
-                let _ = writeln!(setup, "        public string {method_cs}() => \"{plugin_name}\";");
-            } else {
-                emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
-            }
+            emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
             emitted_methods.insert(method.name.clone());
         }
     }
@@ -3935,5 +3999,75 @@ mod tests {
                 emission.setup_block
             );
         }
+    }
+
+    #[test]
+    fn test_emit_test_backend_includes_name_version_properties_with_super_trait() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ReceiverKind, TypeRef};
+
+        let method = MethodDef {
+            name: "initialize".to_string(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: Some("Plugin".to_string()),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        };
+
+        let fixture = Fixture {
+            id: "test_ocr".to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({"name": "my_ocr"}),
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+            args: vec![],
+        };
+
+        let methods = vec![&method];
+        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+
+        // Must include Name and Version properties
+        assert!(
+            emission.setup_block.contains("public string Name => \"my_ocr\";"),
+            "setup_block should contain Name property, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("public string Version => \"1.0.0\";"),
+            "setup_block should contain Version property, got:\n{}",
+            emission.setup_block
+        );
+
+        // Must implement the interface
+        assert!(
+            emission.setup_block.contains("IOcrBackend"),
+            "setup_block should reference IOcrBackend, got:\n{}",
+            emission.setup_block
+        );
     }
 }

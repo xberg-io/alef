@@ -104,20 +104,44 @@ fn frb_init_prologue(source: &str) -> Option<&'static str> {
 /// `_alefResolveExternalLibrary` helper method.
 fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
     format!(
-        r#"  /// Resolve the prebuilt native library from this package's own installed
-  /// location so the load works from any working directory and under hardened
-  /// runtimes. Returns `null` to defer to flutter_rust_bridge's default loader.
+        r#"  /// Resolve the prebuilt native library from environment variable,
+  /// package-relative location, or defer to flutter_rust_bridge's default loader.
+  /// Returns `null` to defer to flutter_rust_bridge's default loader.
+  ///
+  /// Checks in order:
+  /// 1. FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR environment variable
+  ///    (allows test harnesses to point to development build paths)
+  /// 2. Package-installed location (lib/src/{module}_bridge_generated/)
+  ///    (for published pub.dev packages with bundled native libraries)
+  /// 3. Returns null (flutter_rust_bridge falls back to its default loader)
   static Future<ExternalLibrary?> {marker}() async {{
     try {{
+      const candidates = <String>[
+        'lib{stem}.dylib',
+        'lib{stem}.so',
+        '{stem}.dll',
+      ];
+
+      // Check FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR env var first.
+      // This allows test harnesses to override library location for development.
+      final envDir = Platform.environment['FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR'];
+      if (envDir != null && envDir.isNotEmpty) {{
+        final libDir = Directory(envDir);
+        if (libDir.existsSync()) {{
+          for (final candidate in candidates) {{
+            final libPath = '$envDir/$candidate';
+            if (File(libPath).existsSync()) {{
+              return ExternalLibrary.open(libPath);
+            }}
+          }}
+        }}
+      }}
+
+      // Check package-installed location.
       final packageRoot =
           await Isolate.resolvePackageUri(Uri.parse('package:{package}/{package}.dart'));
       if (packageRoot != null) {{
         final libDir = packageRoot.resolve('src/{module}_bridge_generated/');
-        const candidates = <String>[
-          'lib{stem}.dylib',
-          'lib{stem}.so',
-          '{stem}.dll',
-        ];
         for (final candidate in candidates) {{
           final libPath = libDir.resolve(candidate).toFilePath();
           if (File(libPath).existsSync()) {{
