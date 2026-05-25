@@ -55,10 +55,23 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         Language::Node => Some(FormatterSpec {
             // Run the Oxc formatter and linter from the repo root so package,
             // e2e, and registry-mode test app output are normalized consistently.
+            //
+            // Exclude TOML: oxfmt also reformats `.toml` (collapsing multi-line
+            // arrays, stripping inner-bracket spaces), which fights the consumer's
+            // own TOML tooling — `pyproject-fmt` (which wants `[ "x" ]`) and
+            // `cargo-sort`/`cargo fmt`. Letting oxfmt touch pyproject.toml/Cargo.toml
+            // strips spacing that those hooks re-add post-`finalize_hashes`, breaking
+            // `alef verify` (and producing a format/regen loop). The `!**/*.toml`
+            // exclude scopes oxfmt to the JS/TS/JSON/CSS files it owns.
             commands: vec![
                 FormatterCommand {
                     command: "pnpm".to_owned(),
-                    args: vec!["dlx".to_owned(), "oxfmt".to_owned(), ".".to_owned()],
+                    args: vec![
+                        "dlx".to_owned(),
+                        "oxfmt".to_owned(),
+                        ".".to_owned(),
+                        "!**/*.toml".to_owned(),
+                    ],
                 },
                 FormatterCommand {
                     command: "pnpm".to_owned(),
@@ -655,6 +668,26 @@ wasm = "crates/ts-pack-core-wasm/src/"
             sort_cmd.args,
             vec!["sort", "crates/ts-pack-core-wasm"],
             "cargo sort arg must match the crate dir derived from the configured output path"
+        );
+    }
+
+    #[test]
+    fn test_node_formatter_excludes_toml_from_oxfmt() {
+        // oxfmt also reformats TOML (collapsing arrays, stripping inner-bracket
+        // spaces), which fights the consumer's pyproject-fmt (`[ "x" ]`) and
+        // cargo-sort, breaking `alef verify` post-finalize. The whole-repo oxfmt
+        // run must exclude `**/*.toml`.
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::Node).expect("should have formatter");
+        let oxfmt_cmd = spec
+            .commands
+            .iter()
+            .find(|c| c.args.iter().any(|a| a == "oxfmt"))
+            .expect("Node formatter must run oxfmt");
+        assert!(
+            oxfmt_cmd.args.iter().any(|a| a == "!**/*.toml"),
+            "oxfmt must exclude TOML so it does not fight pyproject-fmt/cargo-sort, got: {:?}",
+            oxfmt_cmd.args
         );
     }
 
