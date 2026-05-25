@@ -118,6 +118,7 @@ impl E2eCodegen for PhpCodegen {
             content: render_composer_json(
                 &e2e_pkg_name,
                 &e2e_autoload_ns,
+                &extension_name,
                 &pkg_name,
                 &pkg_path,
                 &pkg_version,
@@ -125,6 +126,18 @@ impl E2eCodegen for PhpCodegen {
             ),
             generated_header: false,
         });
+
+        // Generate install.sh (registry mode only) — bootstraps PIE and installs
+        // the extension before `composer install` runs in the verify-install flow.
+        // The file is not marked executable here; the CI step or consumer must run
+        // `chmod +x test_apps/php/install.sh` before invoking it.
+        if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            files.push(GeneratedFile {
+                path: output_base.join("install.sh"),
+                content: render_install_sh(&pkg_name, &extension_name),
+                generated_header: false,
+            });
+        }
 
         // Generate phpunit.xml.
         files.push(GeneratedFile {
@@ -371,26 +384,34 @@ fn is_php_scalar(ty: &TypeRef, enum_names: &HashSet<String>) -> bool {
 fn render_composer_json(
     e2e_pkg_name: &str,
     e2e_autoload_ns: &str,
+    extension_name: &str,
     pkg_name: &str,
     pkg_path: &str,
-    pkg_version: &str,
+    _pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
 ) -> String {
     let (require_section, autoload_section) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // `minimum-stability: "dev"` + `prefer-stable: true` allows composer
-            // to resolve pre-release tags (rc.*, beta.*, alpha.*, dev.*) when the
-            // pinned `pkg_version` is itself a pre-release. With composer's default
-            // `minimum-stability: "stable"` an `rc.*` pin like `"1.4.0-rc.32"`
-            // resolves to "package found but not loaded, likely conflicts with
-            // another require" because rc tags are below the stability floor.
-            // Prefer-stable still picks stable tags when both are eligible, so this
-            // is benign for non-pre-release pins.
+            // For `type: php-ext` packages the canonical consumer shape (mirroring
+            // asgrim/example-pie-extension) declares a platform require on
+            // `ext-<name>: "*"` rather than a direct Composer package require.
+            // Composer's platform resolver checks `php -m` for the extension and
+            // treats the require as satisfied once PIE has installed the .so.
+            //
+            // A direct `"{pkg_name}": "{pkg_version}"` require fails because
+            // Composer's resolver cross-checks `ext-<name>` against `php -m` and
+            // emits "found but not loaded, likely conflicts" when the extension
+            // hasn't been loaded yet — before `pie install` has run.
+            //
+            // `minimum-stability: "dev"` / `prefer-stable: true` are no longer
+            // needed: the platform require `ext-<name>: "*"` carries no stability
+            // constraint, and `php: ">=8.2"` is a platform constraint that is always
+            // satisfied on CI runners. The PIE install step (install.sh) is
+            // responsible for resolving the correct release version.
             let require = format!(
-                r#"  "minimum-stability": "dev",
-  "prefer-stable": true,
-  "require": {{
-    "{pkg_name}": "{pkg_version}"
+                r#"  "require": {{
+    "php": ">=8.2",
+    "ext-{extension_name}": "*"
   }},
   "require-dev": {{
     "phpunit/phpunit": "{phpunit}",
@@ -442,6 +463,57 @@ fn render_composer_json(
             require_section => require_section,
             autoload_section => autoload_section,
         },
+    )
+}
+
+/// Render the `install.sh` script placed next to `composer.json` in the
+/// registry-mode PHP test_app.
+///
+/// The script bootstraps `php/pie` globally (if absent or older than 1.3.7),
+/// runs `pie install <pkg>:<version>`, and verifies the extension binary loads.
+/// CI must `chmod +x install.sh` before invoking it.
+fn render_install_sh(pkg_name: &str, extension_name: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+# alef-generated installer for registry-mode PHP test_app.
+# Installs the {pkg_name} extension via PIE before `composer install` runs.
+# Requires `composer` and `php` on PATH; bootstraps `php/pie` if needed.
+set -euo pipefail
+
+VERSION="${{1:?usage: $0 <version>}}"
+
+# PIE >= 1.3.7 supports the array-form `php-ext.download-url-method`
+# our composer.json emits; 1.4.x is preferred. Install pie globally if
+# we don't already have a recent enough version.
+need_pie_install=true
+if command -v pie >/dev/null 2>&1; then
+  current="$(pie --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '0.0.0')"
+  if printf '%s\n%s\n' "1.3.7" "$current" | sort -V -C; then
+    need_pie_install=false
+  fi
+fi
+if [[ "$need_pie_install" == "true" ]]; then
+  composer global require php/pie:^1.4
+  PIE="$(composer config -g home)/vendor/bin/pie"
+else
+  PIE="pie"
+fi
+
+# Install the extension binary into the running PHP's extension dir.
+"$PIE" install "{pkg_name}:$VERSION" --skip-enable-extension
+
+# Verify the .so loads.
+EXT_DIR="$(php -r 'echo ini_get("extension_dir");')"
+test -f "$EXT_DIR/{extension_name}.so" || test -f "$EXT_DIR/{extension_name}.dylib" || test -f "$EXT_DIR/{extension_name}.dll"
+
+# Load it explicitly for the smoke test (the verify-install action runs
+# phpunit with this same `-dextension=` flag in CI).
+if ! php -dextension={extension_name} -m | grep -qi {extension_name}; then
+  echo "::error::{extension_name} extension failed to load after PIE install" >&2
+  exit 1
+fi
+echo "{extension_name} extension installed and loaded"
+"#
     )
 }
 
@@ -2750,5 +2822,77 @@ mod trait_bridge_tests {
         );
         assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
         assert_eq!(emission.arg_expr, "$stub");
+    }
+}
+
+#[cfg(test)]
+mod composer_json_tests {
+    use super::{render_composer_json, render_install_sh};
+    use crate::e2e::config::DependencyMode;
+
+    #[test]
+    fn registry_composer_json_uses_ext_platform_req() {
+        let content = render_composer_json(
+            "kreuzberg/e2e-php",
+            "LiterLlm\\\\E2e\\\\",
+            "liter_llm",
+            "kreuzberg/liter-llm",
+            "../../packages/php",
+            "1.4.0-rc.32",
+            DependencyMode::Registry,
+        );
+        // Must declare the ext-<name> platform require.
+        assert!(
+            content.contains(r#""ext-liter_llm": "*""#),
+            "registry composer.json must require ext-liter_llm: *, got:\n{content}"
+        );
+        // Must declare the php platform require.
+        assert!(
+            content.contains(r#""php": ">=8.2""#),
+            "registry composer.json must require php >=8.2, got:\n{content}"
+        );
+        // Must NOT contain a direct package require (composer can't resolve it
+        // before PIE has installed the .so).
+        assert!(
+            !content.contains("kreuzberg/liter-llm"),
+            "registry composer.json must not contain a direct package require, got:\n{content}"
+        );
+        // Must NOT carry minimum-stability / prefer-stable (not load-bearing with
+        // platform reqs only).
+        assert!(
+            !content.contains("minimum-stability"),
+            "registry composer.json must not contain minimum-stability, got:\n{content}"
+        );
+        assert!(
+            !content.contains("prefer-stable"),
+            "registry composer.json must not contain prefer-stable, got:\n{content}"
+        );
+        // Must keep require-dev (phpunit + guzzle).
+        assert!(
+            content.contains("phpunit/phpunit"),
+            "registry composer.json must keep phpunit in require-dev, got:\n{content}"
+        );
+        assert!(
+            content.contains("guzzlehttp/guzzle"),
+            "registry composer.json must keep guzzle in require-dev, got:\n{content}"
+        );
+    }
+
+    #[test]
+    fn registry_install_sh_contains_pie_install() {
+        let content = render_install_sh("kreuzberg/liter-llm", "liter_llm");
+        // The script uses $PIE as the resolved pie binary path.
+        assert!(
+            content.contains("\"$PIE\" install"),
+            "install.sh must invoke pie via $PIE install, got:\n{content}"
+        );
+        assert!(
+            content.contains("kreuzberg/liter-llm"),
+            "install.sh must reference the package name, got:\n{content}"
+        );
+        assert!(
+            content.starts_with("#!/usr/bin/env bash"),
+            "install.sh must start with bash shebang, got:\n{content}"
+        );
     }
 }

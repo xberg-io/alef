@@ -1659,13 +1659,14 @@ fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
 
 #[test]
 fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
-    // Packagist indexes the repo-root composer.json and PIE reads its
-    // `extra.pie.binary.url-template` to download prebuilt extension binaries.
-    // The scaffold must emit a root composer.json that mirrors the package
-    // manifest byte-for-byte except that the PSR-4 autoload src path is
-    // repointed from `src/` to `packages/php/src/`, so the same classes
-    // resolve when consumers install the package via Composer/PIE from the
-    // repo root.
+    // Packagist indexes the repo-root composer.json. The scaffold must emit a
+    // root composer.json that mirrors the package manifest byte-for-byte except
+    // that the PSR-4 autoload src path is repointed from `src/` to
+    // `packages/php/src/`, so the same classes resolve when consumers install
+    // the package via Composer/PIE from the repo root.
+    //
+    // Note: the `extra.pie.binary.url-template` block was removed — PIE does
+    // not read that field; it keys off `extra.php-ext.download-url-method`.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
@@ -1686,14 +1687,21 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
         "root composer.json must equal packages/php/composer.json with autoload src repointed to packages/php/src/",
     );
 
+    // Must not carry the dead extra.pie.binary block — PIE ignores it.
     assert!(
-        root_composer.content.contains("\"url-template\":"),
-        "root composer.json must carry the extra.pie.binary url-template — PIE reads it from the indexed manifest; content:\n{}",
+        !root_composer.content.contains("\"pie\""),
+        "root composer.json must not contain dead extra.pie.binary block; content:\n{}",
         root_composer.content,
     );
     assert!(
         root_composer.content.contains("\"name\": \"test/my-lib\""),
         "root composer.json must use <owner>/<repo> as the Packagist package name; content:\n{}",
+        root_composer.content,
+    );
+    // Must still carry the php-ext block that PIE actually reads.
+    assert!(
+        root_composer.content.contains("\"php-ext\""),
+        "root composer.json must carry the php-ext block; content:\n{}",
         root_composer.content,
     );
 }
