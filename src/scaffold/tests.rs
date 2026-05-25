@@ -2114,14 +2114,51 @@ fn test_scaffold_swift() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
-    // Original 6 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift = 10
+    // Original 6 + .editorconfig + .swiftformat + README.md + Examples/Demo/main.swift
+    // + root-level Package.swift shim = 11
     assert_eq!(
         files.len(),
-        10,
-        "Expected 10 files for Swift scaffold (original 6 + 4 new)"
+        11,
+        "Expected 11 files for Swift scaffold (original 6 + 4 new + root Package.swift shim)"
     );
 
-    let package_swift = &files[0];
+    // Root-level Package.swift shim (index 0) — required so SwiftPM URL consumers
+    // (`.package(url: "https://github.com/.../X.git", from: "v...")`) can resolve
+    // a Package.swift from the repo root. Paths point at `packages/swift/Sources/...`
+    // and linker `-L` is relative to repo root.
+    let root_package_swift = &files[0];
+    assert_eq!(root_package_swift.path, PathBuf::from("Package.swift"));
+    assert!(
+        root_package_swift.content.contains("Root-level Package.swift shim"),
+        "Root Package.swift must self-identify; got: {}",
+        root_package_swift.content
+    );
+    assert!(
+        root_package_swift
+            .content
+            .contains("path: \"packages/swift/Sources/RustBridgeC\""),
+        "Root shim must point RustBridgeC at packages/swift/Sources/RustBridgeC; got: {}",
+        root_package_swift.content
+    );
+    assert!(
+        root_package_swift
+            .content
+            .contains("path: \"packages/swift/Sources/RustBridge\""),
+        "Root shim must point RustBridge at packages/swift/Sources/RustBridge; got: {}",
+        root_package_swift.content
+    );
+    assert!(
+        root_package_swift.content.contains("-Ltarget/release"),
+        "Root shim linker -L must be repo-root-relative; got: {}",
+        root_package_swift.content
+    );
+    assert!(
+        !root_package_swift.content.contains(".testTarget"),
+        "Root shim must omit testTarget (external consumers don't compile package tests); got: {}",
+        root_package_swift.content
+    );
+
+    let package_swift = &files[1];
     assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
     // Module name derives to PascalCase of "my-lib" → "MyLib"
     assert!(
@@ -2172,7 +2209,7 @@ fn test_scaffold_swift() {
         package_swift.content
     );
 
-    let gitignore = &files[1];
+    let gitignore = &files[2];
     assert_eq!(gitignore.path, PathBuf::from("packages/swift/.gitignore"));
     assert!(gitignore.content.contains(".build/"), "got: {}", gitignore.content);
     assert!(gitignore.content.contains(".swiftpm/"), "got: {}", gitignore.content);

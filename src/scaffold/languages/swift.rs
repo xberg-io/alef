@@ -209,7 +209,69 @@ struct Demo {{
         module = module,
     );
 
+    // Root-level Package.swift shim — SwiftPM requires a `Package.swift` at the
+    // root of the git URL when resolving `.package(url: "https://github.com/.../X.git", from: "v...")`.
+    // The canonical manifest lives in `packages/swift/Package.swift` so in-tree
+    // developers can keep using `cd packages/swift && swift build`; this shim mirrors
+    // the same target layout but with paths and linker `-L` adjusted to the repo
+    // root so external consumers can `swift package resolve` against the GitHub URL.
+    //
+    // testTarget is intentionally omitted from the root shim — external consumers
+    // never want to compile the package's own tests. Linker `-L` paths point at
+    // `target/{release,debug}` relative to repo root.
+    let root_package_swift = format!(
+        r#"// swift-tools-version: 6.0
+// Root-level Package.swift shim — alef-generated for SwiftPM URL consumers.
+// The canonical manifest lives at packages/swift/Package.swift; see that file
+// (and packages/swift/README.md) for the in-tree development workflow.
+import PackageDescription
+
+let package = Package(
+  name: "{module}",
+  platforms: [
+    .macOS(.v{min_macos}),
+    .iOS(.v{min_ios}),
+  ],
+  products: [
+    .library(name: "{module}", targets: ["{module}"])
+  ],
+  targets: [
+    .target(
+      name: "RustBridgeC",
+      path: "packages/swift/Sources/RustBridgeC",
+      publicHeadersPath: "."
+    ),
+    .target(
+      name: "RustBridge",
+      dependencies: ["RustBridgeC"],
+      path: "packages/swift/Sources/RustBridge",
+      linkerSettings: [
+        .unsafeFlags([
+          "-Ltarget/release",
+          "-Ltarget/debug",
+        ]),
+        .linkedLibrary("{binding_underscore}"),
+        .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+      ]
+    ),
+    .target(name: "{module}", dependencies: ["RustBridge"], path: "packages/swift/Sources/{module}"),
+  ]
+)
+"#,
+        module = module,
+        min_macos = min_macos_major,
+        min_ios = min_ios_major,
+        binding_underscore = binding_crate_underscore,
+    );
+
     Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("Package.swift"),
+            content: root_package_swift,
+            generated_header: false,
+        },
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
             content: package_swift,

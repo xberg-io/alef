@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **alef-cli (`generate`/`all`/`scaffold`): self-sync the alef version pin and the pre-commit hook rev to the running CLI.** `check_alef_toml_version` no longer hard-errors when the running binary is older than `[workspace] alef_version` — it now logs INFO on an upgrade (running newer) and WARN on a downgrade (running older), then `write_alef_toml_version` reconciles the pin to the running version. A new `sync_precommit_alef_rev` rewrites the alef hook `rev:` in the consumer's `.pre-commit-config.yaml` to `v{cli}` (surgical, quote-style-preserving; no-ops on local hooks or an absent file), wired into all three generation commands so the pin and the hook never drift after a regen. (`src/cli/version_pin.rs`, `src/main.rs`)
+- **alef-scaffold (Swift): emit a root-level `Package.swift` shim.** SwiftPM resolves `.package(url: "https://github.com/.../X.git", from: "v...")` by fetching the repo root and parsing the `Package.swift` it finds there. The canonical manifest lives in `packages/swift/Package.swift` so in-tree developers can keep using `cd packages/swift && swift build`; the new root shim mirrors the same target layout but with paths and linker `-L` adjusted to the repo root so external SwiftPM URL consumers can resolve the package. The shim omits the testTarget (external consumers don't compile package tests). (`src/scaffold/languages/swift.rs`)
 
 ### Changed
 
