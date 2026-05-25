@@ -26,10 +26,12 @@ mod dart_visitors;
 pub mod elixir;
 pub mod gleam;
 pub mod go;
+pub mod homebrew;
 pub mod java;
 pub mod kotlin;
 pub mod kotlin_android;
 pub mod php;
+pub mod php_ext;
 pub mod python;
 pub mod r;
 pub mod ruby;
@@ -184,6 +186,7 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(kotlin_android::KotlinAndroidE2eCodegen),
         Box::new(csharp::CSharpCodegen),
         Box::new(php::PhpCodegen),
+        Box::new(php_ext::PhpExtCodegen),
         Box::new(ruby::RubyCodegen),
         Box::new(elixir::ElixirCodegen),
         Box::new(gleam::GleamE2eCodegen),
@@ -194,6 +197,7 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(dart::DartE2eCodegen),
         Box::new(swift::SwiftE2eCodegen),
         Box::new(brew::BrewCodegen),
+        Box::new(homebrew::HomebrewCodegen),
     ]
 }
 
@@ -375,6 +379,8 @@ pub fn emit_test_backend(
         "dart" => dart::emit_test_backend(trait_bridge, methods, fixture),
         "swift" => swift::emit_test_backend(trait_bridge, methods, fixture),
         "brew" => brew::emit_test_backend(trait_bridge, methods, fixture),
+        "php_ext" => php_ext::emit_test_backend(trait_bridge, methods, fixture),
+        "homebrew" => homebrew::emit_test_backend(trait_bridge, methods, fixture),
         _ => TestBackendEmission::unimplemented(language),
     }
 }

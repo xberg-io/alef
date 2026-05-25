@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-e2e-php_ext: new `php_ext` test_app generator for PIE-installed native PHP extensions.** Adds `PhpExtCodegen` (`src/e2e/codegen/php_ext.rs`) that emits `run_tests.sh` (installs via `pie install`), `main.php` (verifies extension loading and calls `html_to_markdown_convert`), and `README.md`. Registry-mode only; local mode emits a stub README. Registered in `all_generators()` and `emit_test_backend` dispatch.
+
+- **alef-e2e-homebrew: new `homebrew` test_app generator for Homebrew formulae.** Adds `HomebrewCodegen` (`src/e2e/codegen/homebrew.rs`) that emits `Brewfile` (tap + CLI + FFI formulae), `run_tests.sh` (installs via `brew bundle`, checks CLI version, pipes HTML through the CLI binary, and compiles/runs `ffi_smoke.c`), `ffi_smoke.c` (minimal C program linking against the FFI formula via `pkg-config`), and `README.md`. Registry-mode only; local mode emits a stub README. Schema: `[crates.e2e.registry.packages.homebrew]` with `tap`, `cli_formula`, `ffi_formula`, `version` fields (three new fields added to `PackageRef`).
+
 ### Changed
 
 ### Fixed

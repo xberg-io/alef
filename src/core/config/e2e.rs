@@ -253,6 +253,10 @@ impl E2eConfig {
                     path: r.path.clone().or_else(|| b.path.clone()),
                     module: r.module.clone().or_else(|| b.module.clone()),
                     version: r.version.clone().or_else(|| b.version.clone()),
+                    hash: r.hash.clone().or_else(|| b.hash.clone()),
+                    tap: r.tap.clone().or_else(|| b.tap.clone()),
+                    cli_formula: r.cli_formula.clone().or_else(|| b.cli_formula.clone()),
+                    ffi_formula: r.ffi_formula.clone().or_else(|| b.ffi_formula.clone()),
                 }),
                 (None, Some(r)) => Some(r.clone()),
                 (Some(b), None) => Some(b.clone()),
@@ -1203,6 +1207,28 @@ pub struct PackageRef {
     /// Package version (e.g., for go.mod require directives).
     #[serde(default)]
     pub version: Option<String>,
+    /// SHA-256 hash of the published tarball (Zig registry mode).
+    ///
+    /// When present, emitted as `.hash = "..."` in `build.zig.zon`.
+    /// When absent in registry mode, alef emits a placeholder comment
+    /// directing the user to run `zig fetch --save <url>` to populate it.
+    #[serde(default)]
+    pub hash: Option<String>,
+    /// Homebrew tap name (e.g., `"kreuzberg-dev/tap"`).
+    ///
+    /// Used by the `homebrew` test_app generator.
+    #[serde(default)]
+    pub tap: Option<String>,
+    /// Homebrew CLI formula name (e.g., `"html-to-markdown"`).
+    ///
+    /// Used by the `homebrew` test_app generator.
+    #[serde(default)]
+    pub cli_formula: Option<String>,
+    /// Homebrew FFI shared-library formula name (e.g., `"libhtml-to-markdown"`).
+    ///
+    /// Used by the `homebrew` test_app generator.
+    #[serde(default)]
+    pub ffi_formula: Option<String>,
 }
 
 #[cfg(test)]
