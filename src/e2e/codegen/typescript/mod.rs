@@ -102,25 +102,33 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
-        // Emit a local `pnpm-workspace.yaml` declaring `e2e/node/` as its own
-        // pnpm workspace root. Without it, `pnpm install` walks up to the
-        // repo-root `pnpm-workspace.yaml` and treats this test app as a member
-        // of the outer workspace — so its own devDependencies (vitest) are
-        // hoisted/deduped against the root and never installed into
-        // `e2e/node/node_modules`, breaking `pnpm test` with a missing-vitest
+        // Emit a local `pnpm-workspace.yaml` declaring the test-app directory
+        // as its own pnpm workspace root. Without it, `pnpm install` walks up
+        // to the repo-root `pnpm-workspace.yaml` and treats this test app as a
+        // member of the outer workspace — so its own devDependencies (vitest)
+        // are hoisted/deduped against the root and never installed into the
+        // test app's `node_modules`, breaking `pnpm test` with a missing-vitest
         // error. An empty `packages: []` makes the directory self-rooted so
         // `pnpm install` installs the test app's deps in isolation.
+        //
+        // Only emit this isolation marker in Registry mode. In Local mode the
+        // test app depends on the binding via `workspace:*`, which can only
+        // resolve through the consumer's root pnpm workspace — emitting the
+        // empty marker would shadow the consumer's workspace and break
+        // `pnpm install` with `ERR_PNPM_NO_MATCHING_VERSION_INSIDE_WORKSPACE`.
         //
         // `allowBuilds` opts the native-build scripts of common transitive
         // deps (`esbuild`, `tree-sitter`) in. pnpm 11 refuses to silently run
         // postinstall/build scripts and fails with `ERR_PNPM_IGNORED_BUILDS`
         // unless they are listed explicitly. These two cover the vast majority
         // of generated test apps; downstream consumers can extend if needed.
-        files.push(GeneratedFile {
-            path: output_base.join("pnpm-workspace.yaml"),
-            content: "packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
-            generated_header: false,
-        });
+        if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            files.push(GeneratedFile {
+                path: output_base.join("pnpm-workspace.yaml"),
+                content: "packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
+                generated_header: false,
+            });
+        }
 
         // globalSetup spawns the mock-server binary and exposes its URL via
         // MOCK_SERVER_URL. Required whenever any fixture's call uses the mock
@@ -420,20 +428,21 @@ result_var = "result"
 "#,
         )
         .unwrap();
-        let e2e = cfg.crates[0].e2e.clone().unwrap();
+        let mut e2e = cfg.crates[0].e2e.clone().unwrap();
+        e2e.dep_mode = crate::e2e::config::DependencyMode::Registry;
         let resolved = cfg.resolve().unwrap().remove(0);
         let codegen = TypeScriptCodegen;
         let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
         // package.json, tsconfig.json, vitest.config.ts, pnpm-workspace.yaml
         assert!(files.len() >= 3, "got {} files", files.len());
 
-        // The node test app must emit its own pnpm-workspace.yaml so that
-        // `pnpm install` does not sweep it into an outer workspace and skip
-        // installing its devDependencies (vitest) locally.
+        // The node test app must emit its own pnpm-workspace.yaml in Registry
+        // mode so that `pnpm install` does not sweep it into an outer
+        // workspace and skip installing its devDependencies (vitest) locally.
         let workspace = files
             .iter()
             .find(|f| f.path.ends_with("pnpm-workspace.yaml"))
-            .expect("node codegen must emit pnpm-workspace.yaml for install isolation");
+            .expect("node codegen in Registry mode must emit pnpm-workspace.yaml for install isolation");
         assert!(
             workspace.content.contains("packages:"),
             "pnpm-workspace.yaml must declare an isolated workspace root, got: {}",

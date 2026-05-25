@@ -456,16 +456,39 @@ fn elixir_test_helper_emits_mock_servers_parsing() {
 // ── Install isolation + pre-set MOCK_SERVER_URL (node / wasm) ──────────────────
 
 #[test]
-fn typescript_emits_isolated_pnpm_workspace() {
-    let files = generate_all(&TypeScriptCodegen, "node", vec![make_plain_fixture("basic_crawl")]);
+fn typescript_emits_isolated_pnpm_workspace_in_registry_mode() {
+    let (mut e2e, resolved) = build_config("node");
+    e2e.dep_mode = alef::e2e::config::DependencyMode::Registry;
+    let groups = groups_with(vec![make_plain_fixture("basic_crawl")]);
+    let files = TypeScriptCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("generation succeeds");
     let workspace = files
         .iter()
         .find(|f| f.path.ends_with("pnpm-workspace.yaml"))
-        .expect("node codegen must emit pnpm-workspace.yaml so pnpm install does not sweep the test app into an outer workspace and skip its devDependencies");
+        .expect("node codegen in Registry mode must emit pnpm-workspace.yaml so pnpm install does not sweep the test app into an outer workspace and skip its devDependencies");
     assert!(
         workspace.content.contains("packages:"),
         "pnpm-workspace.yaml must declare an isolated workspace root:\n{}",
         workspace.content
+    );
+}
+
+#[test]
+fn typescript_omits_pnpm_workspace_in_local_mode() {
+    // In Local (workspace:*) mode the test app depends on the binding via
+    // workspace protocol, which can only resolve through the consumer's root
+    // pnpm-workspace.yaml. Emitting `packages: []` would shadow the consumer's
+    // workspace and break `pnpm install` with no matching version.
+    let (e2e, resolved) = build_config("node");
+    assert_eq!(e2e.dep_mode, alef::e2e::config::DependencyMode::Local);
+    let groups = groups_with(vec![make_plain_fixture("basic_crawl")]);
+    let files = TypeScriptCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("generation succeeds");
+    assert!(
+        files.iter().all(|f| !f.path.ends_with("pnpm-workspace.yaml")),
+        "node codegen in Local mode must not emit pnpm-workspace.yaml — it would shadow the consumer's workspace and break workspace:* resolution"
     );
 }
 
