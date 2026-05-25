@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef e2e (node): pnpm-workspace.yaml isolation marker now gated on Registry mode.** The TypeScript codegen unconditionally emitted `packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n` at the test-app root. That is correct in Registry mode (standalone `test_apps/node/` installing from npm) but broke Local mode (`e2e/node/` with `"@kreuzberg/<crate>": "workspace:*"`): pnpm picks the nearest `pnpm-workspace.yaml` walking up, so the empty marker shadowed the consumer's root workspace and `pnpm install` exited 1 with no matching workspace package. Now only emitted when `dep_mode == Registry`. (`src/e2e/codegen/typescript/mod.rs`)
+
 ## [0.19.10] - 2026-05-25
 
 ### Added
