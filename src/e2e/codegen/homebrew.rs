@@ -77,7 +77,7 @@ impl E2eCodegen for HomebrewCodegen {
             },
             GeneratedFile {
                 path: output_base.join("run_tests.sh"),
-                content: render_run_tests(&cli_formula, &ffi_formula, &version),
+                content: render_run_tests(&tap, &cli_formula, &ffi_formula, &version),
                 generated_header: true,
             },
             GeneratedFile {
@@ -106,17 +106,21 @@ fn stub_readme() -> String {
 }
 
 /// Render `Brewfile`.
+///
+/// Formulae are emitted with their fully-qualified `tap/formula` names so
+/// `brew bundle install` works even when other taps installed on the
+/// developer's machine expose colliding formula short-names.
 fn render_brewfile(tap: &str, cli_formula: &str, ffi_formula: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# Brewfile — managed by alef. DO NOT EDIT.");
     let _ = writeln!(out, "tap \"{tap}\"");
-    let _ = writeln!(out, "brew \"{cli_formula}\"");
-    let _ = writeln!(out, "brew \"{ffi_formula}\"");
+    let _ = writeln!(out, "brew \"{tap}/{cli_formula}\"");
+    let _ = writeln!(out, "brew \"{tap}/{ffi_formula}\"");
     out
 }
 
 /// Render `run_tests.sh`.
-fn render_run_tests(cli_formula: &str, ffi_formula: &str, version: &str) -> String {
+fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -124,8 +128,13 @@ fn render_run_tests(cli_formula: &str, ffi_formula: &str, version: &str) -> Stri
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);
     let _ = writeln!(out, "VERSION=\"{version}\"");
+    let _ = writeln!(out, "TAP=\"{tap}\"");
     let _ = writeln!(out, "CLI_FORMULA=\"{cli_formula}\"");
     let _ = writeln!(out, "FFI_FORMULA=\"{ffi_formula}\"");
+    // Fully-qualified names disambiguate when multiple taps export the same
+    // formula short-name on a developer's machine (e.g. legacy + new tap).
+    let _ = writeln!(out, "CLI_FORMULA_QUALIFIED=\"$TAP/$CLI_FORMULA\"");
+    let _ = writeln!(out, "FFI_FORMULA_QUALIFIED=\"$TAP/$FFI_FORMULA\"");
     let _ = writeln!(out);
     let _ = writeln!(
         out,
@@ -190,7 +199,7 @@ fn render_run_tests(cli_formula: &str, ffi_formula: &str, version: &str) -> Stri
     let _ = writeln!(out, "  # Fallback: use brew --prefix to locate headers and libs.");
     let _ = writeln!(
         out,
-        "  FFI_PREFIX=$(brew --prefix \"$FFI_FORMULA\" 2>/dev/null || true)"
+        "  FFI_PREFIX=$(brew --prefix \"$FFI_FORMULA_QUALIFIED\" 2>/dev/null || true)"
     );
     let _ = writeln!(out, "  FFI_CFLAGS=\"-I$FFI_PREFIX/include\"");
     let _ = writeln!(out, "  FFI_LIBS=\"-L$FFI_PREFIX/lib -lhtml_to_markdown\"");

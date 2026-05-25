@@ -125,7 +125,18 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
             ))),
         },
         Language::KotlinAndroid => TestAppRunConfig {
-            precondition: Some(require_tool("gradle")),
+            // The published AAR contains Android-only native binaries — a
+            // host JVM cannot load them, so `gradle test` on a workstation
+            // without an Android emulator/device fails at runtime. Gate the
+            // run on gradle + adb being installed AND at least one device
+            // showing up in `adb devices` with state `device`. When the
+            // precondition fails, `alef test-apps run` skips gracefully
+            // with a warning rather than reporting a spurious test failure.
+            precondition: Some(format!(
+                "{} && {} && adb devices | grep -q 'device$'",
+                require_tool("gradle"),
+                require_tool("adb")
+            )),
             before: None,
             run: Some(StringOrVec::Single(format!(
                 "cd {test_apps_dir}/kotlin_android && gradle test --no-daemon"

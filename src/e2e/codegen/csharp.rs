@@ -3592,7 +3592,8 @@ fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
             PrimitiveType::I64 => "long".to_string(),
             PrimitiveType::F32 => "float".to_string(),
             PrimitiveType::F64 => "double".to_string(),
-            PrimitiveType::Usize | PrimitiveType::Isize => "long".to_string(),
+            PrimitiveType::Usize => "ulong".to_string(),  // usize maps to ulong in C# (not long!)
+            PrimitiveType::Isize => "long".to_string(),
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path => "string".to_string(),
         TypeRef::Bytes => "byte[]".to_string(),
@@ -3641,6 +3642,7 @@ fn csharp_type_for_stub_visible(ty: &crate::core::ir::TypeRef) -> String {
 /// appear in test stubs or public interfaces.
 fn is_visible_csharp_type(type_name: &str) -> bool {
     // Whitelist of types that are actually exported by the C# binding
+    // Includes public enums returned by trait methods (OcrBackendType, ProcessingStage, etc.)
     matches!(
         type_name,
         "ExtractionResult"
@@ -3667,6 +3669,9 @@ fn is_visible_csharp_type(type_name: &str) -> bool {
             | "ChunkMetadata"
             | "PluginException"
             | "KreuzbergError"
+            | "OcrBackendType"
+            | "ProcessingStage"
+            | "OcrConfig"
     )
 }
 
@@ -3717,43 +3722,28 @@ fn emit_csharp_stub_method(
 ) {
     use crate::core::ir::TypeRef;
 
+    // C# trait bridge interfaces expose synchronous methods even though Rust traits are async.
+    // The bridge implementation blocks on the async Rust call. So stubs must always be sync
+    // (never emit `async Task<T>`). Always use the actual return type.
     let ret_ty = csharp_type_for_stub_visible(&method.return_type);
     // Use the visible type to determine the default value, not the original type
     // (e.g., InternalDocument → string → "")
     let default_val = emit_csharp_stub_default(&method.return_type, &ret_ty, defaults);
 
-    // Build parameter list.
+    // Build parameter list using visible types (internal types like InternalDocument
+    // are mapped to string to avoid stub referencing non-public types).
     let params: Vec<String> = method
         .params
         .iter()
-        .map(|p| format!("{} {}", csharp_type_for_stub(&p.ty), p.name.to_lower_camel_case()))
+        .map(|p| format!("{} {}", csharp_type_for_stub_visible(&p.ty), p.name.to_lower_camel_case()))
         .collect();
     let param_list = params.join(", ");
 
     // 8-space indent for method declarations (class body level); the caller's
     // class declaration is at 4-space, and the emitter adds 4 more — giving 8+4=12
     // for methods and 4+4=8 for the class line in the final file.
-    if method.is_async {
-        // async Task<RetType> or async Task for Unit.
-        if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(
-                out,
-                "        public async System.Threading.Tasks.Task {method_cs}({param_list})"
-            );
-            let _ = writeln!(out, "        {{");
-            let _ = writeln!(out, "            await System.Threading.Tasks.Task.CompletedTask;");
-            let _ = writeln!(out, "        }}");
-        } else {
-            let _ = writeln!(
-                out,
-                "        public async System.Threading.Tasks.Task<{ret_ty}> {method_cs}({param_list})"
-            );
-            let _ = writeln!(out, "        {{");
-            let _ = writeln!(out, "            await System.Threading.Tasks.Task.CompletedTask;");
-            let _ = writeln!(out, "            return {default_val};");
-            let _ = writeln!(out, "        }}");
-        }
-    } else if matches!(method.return_type, TypeRef::Unit) {
+    // ALWAYS emit sync stubs, regardless of is_async in the Rust trait.
+    if matches!(method.return_type, TypeRef::Unit) {
         let _ = writeln!(out, "        public void {method_cs}({param_list}) {{ }}");
     } else {
         let _ = writeln!(out, "        public {ret_ty} {method_cs}({param_list})");

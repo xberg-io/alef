@@ -474,22 +474,30 @@ fn render_composer_json(
 /// The pinned version is baked in at generate time; callers run
 /// `bash install.sh` with no arguments. The default `alef test-apps run`
 /// command for PHP invokes this script before `composer install`.
+/// Strip leading composer-style version constraints (^, >=, ~, etc.) from a version string.
+/// Accepts "1.2.3", ">=1.2.3", "^1.2.3", "~1.2", or any constraint and returns the base version.
+fn strip_version_constraint(version: &str) -> &str {
+    version
+        .trim_start_matches(|c: char| c == '^' || c == '~' || c == '>' || c == '<' || c == '=')
+}
+
 fn render_install_sh(pkg_name: &str, extension_name: &str, pkg_version: &str) -> String {
+    let clean_version = strip_version_constraint(pkg_version);
     format!(
         r#"#!/usr/bin/env bash
 # alef-generated installer for registry-mode PHP test_app.
 # Installs the {pkg_name} extension via PIE before `composer install` runs.
-# Requires `composer` and `php` on PATH; bootstraps `php/pie` if needed.
+# Requires `php` on PATH; downloads and runs PIE if needed.
 # Version is alef-injected at generate time so the script is self-contained.
 set -euo pipefail
 
 # Version override: pass as $1 to test an arbitrary tag; defaults to the
 # alef-pinned version from `[crates.e2e.registry.packages.php].version`.
-VERSION="${{1:-{pkg_version}}}"
+VERSION="${{1:-{clean_version}}}"
 
 # PIE >= 1.3.7 supports the array-form `php-ext.download-url-method`
-# our composer.json emits; 1.4.x is preferred. Install pie globally if
-# we don't already have a recent enough version.
+# our composer.json emits; 1.4.0+ is preferred. Download PIE if we don't
+# already have a recent enough version.
 need_pie_install=true
 if command -v pie >/dev/null 2>&1; then
   current="$(pie --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '0.0.0')"
@@ -498,8 +506,17 @@ if command -v pie >/dev/null 2>&1; then
   fi
 fi
 if [[ "$need_pie_install" == "true" ]]; then
-  composer global require php/pie:^1.4
-  PIE="$(composer config -g home)/vendor/bin/pie"
+  # Download PIE PHAR from latest GitHub release if not already installed.
+  pie_dir="${{HOME}}/.local/bin"
+  mkdir -p "$pie_dir"
+  curl -fL --output "$pie_dir/pie" "https://github.com/php/pie/releases/latest/download/pie.phar" 2>/dev/null || {{
+    echo "::error::Failed to download PIE from GitHub; ensure network access or pre-install PIE." >&2
+    exit 1
+  }}
+  chmod +x "$pie_dir/pie"
+  PIE="$pie_dir/pie"
+  # Ensure newly downloaded PIE is on PATH for this script.
+  export PATH="$pie_dir:$PATH"
 else
   PIE="pie"
 fi
@@ -2903,6 +2920,43 @@ mod composer_json_tests {
         assert!(
             content.contains(r#"VERSION="${1:-1.4.0-rc.32}""#),
             "install.sh must default VERSION to the alef-pinned version, got:\n{content}"
+        );
+    }
+
+    #[test]
+    fn registry_install_sh_strips_version_constraints() {
+        // Test constraint operators are stripped from version strings.
+        let tests = vec![
+            (">=3.5.1", "3.5.1"),
+            ("^1.2.3", "1.2.3"),
+            ("~2.0.0", "2.0.0"),
+            (">1.0", "1.0"),
+            ("<2.0", "2.0"),
+            ("1.4.0-rc.32", "1.4.0-rc.32"), // Already clean
+        ];
+        for (input, expected) in tests {
+            let content = render_install_sh("test/pkg", "ext", input);
+            assert!(
+                content.contains(&format!(r#"VERSION="${{1:-{expected}}}""#)),
+                "install.sh must strip constraint from '{}' to '{}', got:\n{}",
+                input,
+                expected,
+                content
+            );
+        }
+    }
+
+    #[test]
+    fn registry_install_sh_downloads_pie_phar() {
+        let content = render_install_sh("test/pkg", "ext", "1.0.0");
+        // Ensure the script downloads PIE as a PHAR, not via composer require.
+        assert!(
+            content.contains("https://github.com/php/pie/releases/latest/download/pie.phar"),
+            "install.sh must download PIE PHAR from GitHub, got:\n{content}"
+        );
+        assert!(
+            !content.contains("composer global require php/pie"),
+            "install.sh must not use composer to install PIE, got:\n{content}"
         );
     }
 }

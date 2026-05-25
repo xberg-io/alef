@@ -182,7 +182,18 @@ fn gen_single_trait_bridge(
         .methods
         .iter()
         .map(|method| {
-            let return_type = csharp_type_visible(&method.return_type, visible_type_names);
+            // Unwrap async Task<T> to T. C# trait bridge interfaces expose synchronous methods
+            // even though the Rust trait methods are async. The bridge implementation blocks
+            // on the async Rust call.
+            let return_type = if method.is_async {
+                // async Task -> void, async Task<T> -> T
+                match &method.return_type {
+                    TypeRef::Unit => "void".to_string(),
+                    _ => csharp_type_visible(&method.return_type, visible_type_names),
+                }
+            } else {
+                csharp_type_visible(&method.return_type, visible_type_names)
+            };
             let params = method
                 .params
                 .iter()

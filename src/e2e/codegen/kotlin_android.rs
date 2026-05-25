@@ -195,6 +195,13 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
         // a visitor cannot be exercised through this binding — emitting them produces tests
         // that call convert(html, null) and then assert on visitor-transformed output, which
         // always fails. Skip any visitor-using fixture for kotlin_android.
+        //
+        // In Registry mode (published Maven AAR), the AAR contains only Kotlin/Java facade code
+        // without bundled JNI libraries. Emitting host-JVM tests that call System.loadLibrary()
+        // would fail with UnsatisfiedLinkError. Skip host-JVM test generation in Registry mode;
+        // only emit instrumented tests for on-device/emulator execution where JNI is available.
+        let should_emit_host_jvm_tests = e2e_config.dep_mode == crate::e2e::config::DependencyMode::Local;
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -208,29 +215,35 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             }
 
             let class_file_name = format!("{}Test.kt", sanitize_filename(&group.category).to_upper_camel_case());
-            let content = kotlin::render_test_file_android(
-                &group.category,
-                &active,
-                &class_name,
-                &function_name,
-                &kotlin_pkg_id,
-                result_var,
-                &e2e_config.call.args,
-                options_type.as_deref(),
-                result_is_simple,
-                e2e_config,
-                &type_enum_fields,
-                config,
-                type_defs,
-            );
-            files.push(GeneratedFile {
-                path: test_base.join(&class_file_name),
-                content,
-                generated_header: true,
-            });
+
+            // Emit host-JVM tests only in Local mode (workspace sources available).
+            if should_emit_host_jvm_tests {
+                let content = kotlin::render_test_file_android(
+                    &group.category,
+                    &active,
+                    &class_name,
+                    &function_name,
+                    &kotlin_pkg_id,
+                    result_var,
+                    &e2e_config.call.args,
+                    options_type.as_deref(),
+                    result_is_simple,
+                    e2e_config,
+                    &type_enum_fields,
+                    config,
+                    type_defs,
+                );
+                files.push(GeneratedFile {
+                    path: test_base.join(&class_file_name),
+                    content,
+                    generated_header: true,
+                });
+            }
 
             // Instrumented Android test for on-device emulator runs.
             // Lives in src/androidTest/ and uses @RunWith(AndroidJUnit4::class).
+            // Always emitted (both Local and Registry modes) as these run in the Android process
+            // where the JNI library is available.
             let mut android_test_base = output_base.join("src").join("androidTest").join("kotlin");
             for segment in kotlin_pkg_id.split('.') {
                 android_test_base = android_test_base.join(segment);
