@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
 ### Fixed
 
-- **alef-wasm-input-dto: JSON-deserialize structured sub-config fields in From impl.** When a WASM input DTO field is sanitized to `Option<String>` (e.g., `html_options`, `concurrency`, `cancel_token` — types that aren't directly serializable like `Option<ConversionOptions>`, `Option<ConcurrencyConfig>`, `Option<CancellationToken>`), the generated `From<ExtractionConfigInput> for ExtractionConfig` impl was using `v.into()` which has no `From<String>` impl for the target structured type, producing E0277 type errors. Fixed by detecting sanitized String fields in `dto_field_conversion` and emitting `serde_json::from_str(&v).unwrap_or_default()` instead of `.into()`. Both the template context generation and the conversion function were updated to pass the `sanitized` flag. A test was added to `src/backends/wasm/gen_bindings/functions.rs` asserting that sanitized String fields use JSON deserialization. Fixes compilation of `crates/kreuzberg-wasm` when `ExtractionConfig` has non-serializable config sub-types. (`src/backends/wasm/gen_bindings/functions.rs`)
+### Removed
+
+## [0.19.5] - 2026-05-25
+
+### Fixed
+
+- **alef-wasm-emitter: JSON-deserialize structured sub-config fields in From impl.** When a WASM input DTO field is sanitized to `Option<String>` (e.g., `html_options`, `concurrency`, `cancel_token` — types that aren't directly serializable like `Option<ConversionOptions>`, `Option<ConcurrencyConfig>`, `Option<CancellationToken>`), the generated `From<ExtractionConfigInput> for ExtractionConfig` impl was using `v.into()` which has no `From<String>` impl for the target structured type, producing E0277 type errors. Fixed by detecting sanitized String fields in `dto_field_conversion` and emitting `serde_json::from_str(&v).unwrap_or_default()` instead of `.into()`. Both the template context generation and the conversion function were updated to pass the `sanitized` flag. A test was added to `src/backends/wasm/gen_bindings/functions.rs` asserting that sanitized String fields use JSON deserialization. Fixes compilation of `crates/kreuzberg-wasm` when `ExtractionConfig` has non-serializable config sub-types. (`src/backends/wasm/gen_bindings/functions.rs`)
 
 - **alef-swift-bridge: restore JSON deserialization step in pre-call AHashMap binding for `Cow<'static, str>` key map params.** When a Rust core function takes `Option<&AHashMap<Cow<'static, str>, Value>>`, the generated swift-bridge shim receives the parameter as `Option<String>` (JSON-bridged). A regression in the pre-call binding emitter caused the code to call `.into_iter()` directly on the JSON string (`m.into_iter()...`), which fails to type-check because `String` does not have an `into_iter` that yields `(k, v)` tuples. Fixed in `emit_function_shim` (in `src/backends/swift/gen_rust_crate/shims.rs`) by restoring the `serde_json::from_str::<std::collections::HashMap<String, String>>(&json_str).expect(...)` deserialization step before the `.into_iter()` call, so the generated code correctly deserializes JSON → HashMap → AHashMap. The binding now reads: `let {bound_name} = {name}.map(|json_str| { let hm = ::serde_json::from_str::<std::collections::HashMap<String, String>>(&json_str).expect("valid JSON for {name}"); hm.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<...>>() });`. This regression was introduced by the snapshot re-acceptance in commit 778a82fc. (`src/backends/swift/gen_rust_crate/shims.rs`)
 
