@@ -29,9 +29,14 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
                     format!("cd {output_dir} && poetry update"),
                     format!("cd {output_dir} && poetry update --with dev"),
                 ),
+                // `--no-install-project`: an update/upgrade only needs to relock
+                // dependencies. Building the project here (e.g. a maturin extension whose
+                // `manifest-path` is relative to the deployed package dir rather than the
+                // uv project dir) is a separate step (`maturin develop`) and can fail
+                // during a bare relock — the python `install` default already skips it.
                 _ => (
-                    format!("cd {output_dir} && uv sync --upgrade"),
-                    format!("cd {output_dir} && uv sync --all-packages --all-extras --upgrade"),
+                    format!("cd {output_dir} && uv sync --upgrade --no-install-project"),
+                    format!("cd {output_dir} && uv sync --all-packages --all-extras --upgrade --no-install-project"),
                 ),
             };
             UpdateConfig {
@@ -299,6 +304,10 @@ mod tests {
         let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("uv sync"));
         assert!(upgrade.contains("--all-packages"));
+        // A relock must not try to build the project (e.g. a maturin extension whose
+        // manifest-path is relative to the deployed package dir, not the uv project dir).
+        assert!(update.contains("--no-install-project"));
+        assert!(upgrade.contains("--no-install-project"));
     }
 
     #[test]

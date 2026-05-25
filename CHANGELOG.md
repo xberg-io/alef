@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-cli (`generate`/`all`/`scaffold`): self-sync the alef version pin and the pre-commit hook rev to the running CLI.** `check_alef_toml_version` no longer hard-errors when the running binary is older than `[workspace] alef_version` — it now logs INFO on an upgrade (running newer) and WARN on a downgrade (running older), then `write_alef_toml_version` reconciles the pin to the running version. A new `sync_precommit_alef_rev` rewrites the alef hook `rev:` in the consumer's `.pre-commit-config.yaml` to `v{cli}` (surgical, quote-style-preserving; no-ops on local hooks or an absent file), wired into all three generation commands so the pin and the hook never drift after a regen. (`src/cli/version_pin.rs`, `src/main.rs`)
+
 ### Changed
 
 ### Fixed
+
+- **alef-update: the default Python `update`/`upgrade` commands pass `--no-install-project`.** `uv sync --upgrade` previously built the project, which fails when the uv project dir differs from the maturin build dir (e.g. the extension's `manifest-path` is relative to the deployed package dir, not the uv project dir). A relock only needs to update dependencies; the extension is built separately via `maturin develop`. Matches the Python `install` default, which already skips the build. (`src/core/config/update_defaults.rs`)
 
 ### Removed
 
