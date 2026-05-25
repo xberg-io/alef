@@ -247,7 +247,7 @@ impl E2eCodegen for WasmCodegen {
         if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
-                content: render_global_setup(),
+                content: render_global_setup(&pkg_name),
                 generated_header: true,
             });
         }
@@ -570,12 +570,13 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     out
 }
 
-fn render_global_setup() -> String {
+fn render_global_setup(pkg_name: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::e2e::template_env::render(
         "wasm/globalSetup.ts.jinja",
         minijinja::context! {
             header => header,
+            pkg_name => pkg_name,
         },
     )
 }

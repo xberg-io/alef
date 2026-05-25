@@ -845,8 +845,7 @@ pub fn sync_versions(
     let e2e_java_pom = std::path::Path::new("e2e/java/pom.xml");
     if let Ok(content) = std::fs::read_to_string(e2e_java_pom) {
         if let Some(new_content) = sync_e2e_java_pom(&content, &version) {
-            std::fs::write(e2e_java_pom, &new_content)
-                .context("failed to write e2e/java/pom.xml")?;
+            std::fs::write(e2e_java_pom, &new_content).context("failed to write e2e/java/pom.xml")?;
             updated.push("e2e/java/pom.xml".to_string());
         }
     }
@@ -856,8 +855,7 @@ pub fn sync_versions(
     if e2e_ruby_lock.exists() {
         if let Ok(content) = std::fs::read_to_string(e2e_ruby_lock) {
             if let Some(new_content) = sync_gemfile_lock(&content, &ruby_version) {
-                std::fs::write(e2e_ruby_lock, &new_content)
-                    .context("failed to write e2e/ruby/Gemfile.lock")?;
+                std::fs::write(e2e_ruby_lock, &new_content).context("failed to write e2e/ruby/Gemfile.lock")?;
                 updated.push("e2e/ruby/Gemfile.lock".to_string());
             }
         }
@@ -871,11 +869,9 @@ pub fn sync_versions(
         if let Ok(content) = std::fs::read_to_string(&entry) {
             // Find the module path fragment: any require entry ending in /packages/go
             // that pairs with a local `replace` directive.
-            static GO_MOD_REQUIRE_RE: std::sync::LazyLock<regex::Regex> =
-                std::sync::LazyLock::new(|| {
-                    regex::Regex::new(r"(?m)^\s+([\w./\-]+/packages/go)\s+v[\w.\-]+")
-                        .expect("valid regex")
-                });
+            static GO_MOD_REQUIRE_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+                regex::Regex::new(r"(?m)^\s+([\w./\-]+/packages/go)\s+v[\w.\-]+").expect("valid regex")
+            });
             if let Some(caps) = GO_MOD_REQUIRE_RE.captures(&content) {
                 let fragment = caps[1].to_string();
                 if let Some(new_content) = sync_e2e_go_mod(&content, &fragment, &version) {
@@ -892,8 +888,7 @@ pub fn sync_versions(
     if e2e_dart_lock.exists() {
         if let Ok(content) = std::fs::read_to_string(e2e_dart_lock) {
             if let Some(new_content) = sync_e2e_dart_pubspec_lock(&content, &version) {
-                std::fs::write(e2e_dart_lock, &new_content)
-                    .context("failed to write e2e/dart/pubspec.lock")?;
+                std::fs::write(e2e_dart_lock, &new_content).context("failed to write e2e/dart/pubspec.lock")?;
                 updated.push("e2e/dart/pubspec.lock".to_string());
             }
         }
@@ -1520,12 +1515,10 @@ fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option<String> {
 fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<String> {
     use std::sync::LazyLock;
 
-    static DEP_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(?s)<dependency>(.*?)</dependency>").expect("valid regex")
-    });
-    static VERSION_TAG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"<version>([^<]*)</version>").expect("valid regex")
-    });
+    static DEP_BLOCK_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?s)<dependency>(.*?)</dependency>").expect("valid regex"));
+    static VERSION_TAG_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"<version>([^<]*)</version>").expect("valid regex"));
     static SYSTEM_PATH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         regex::Regex::new(r"(<systemPath>[^<]*?-)(\d+\.\d+\.\d+(?:-[A-Za-z0-9._]+)*)(\.[a-zA-Z]+</systemPath>)")
             .expect("valid regex")

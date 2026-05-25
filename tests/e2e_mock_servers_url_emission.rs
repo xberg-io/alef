@@ -356,6 +356,35 @@ fn php_bootstrap_emits_mock_servers_parsing() {
 // ── Ruby ──────────────────────────────────────────────────────────────────────
 
 #[test]
+fn ruby_spec_helper_skips_spawn_when_mock_server_url_preset() {
+    let files = generate_all(
+        &RubyCodegen,
+        "ruby",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let spec_helper = files
+        .iter()
+        .find(|f| f.path.ends_with("spec_helper.rb"))
+        .expect("spec_helper.rb not found");
+    assert!(
+        spec_helper.content.contains("next if ENV['MOCK_SERVER_URL']"),
+        "spec_helper.rb must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
+        spec_helper.content
+    );
+    // Guard must appear before the popen3 spawn call.
+    let guard = spec_helper
+        .content
+        .find("next if ENV['MOCK_SERVER_URL']")
+        .expect("guard present");
+    let spawn = spec_helper.content.find("popen3").expect("popen3 present");
+    assert!(
+        guard < spawn,
+        "the pre-set MOCK_SERVER_URL guard must precede popen3:\n{}",
+        spec_helper.content
+    );
+}
+
+#[test]
 fn ruby_spec_helper_emits_mock_servers_parsing() {
     let files = generate_all(
         &RubyCodegen,
@@ -374,6 +403,37 @@ fn ruby_spec_helper_emits_mock_servers_parsing() {
 }
 
 // ── Elixir ────────────────────────────────────────────────────────────────────
+
+#[test]
+fn elixir_test_helper_skips_spawn_when_mock_server_url_preset() {
+    let files = generate_all(
+        &ElixirCodegen,
+        "elixir",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let test_helper = files
+        .iter()
+        .find(|f| f.path.ends_with("test_helper.exs"))
+        .expect("test_helper.exs not found");
+    assert!(
+        test_helper
+            .content
+            .contains("unless System.get_env(\"MOCK_SERVER_URL\")"),
+        "test_helper.exs must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
+        test_helper.content
+    );
+    // Guard must appear before the Port.open spawn call.
+    let guard = test_helper
+        .content
+        .find("unless System.get_env(\"MOCK_SERVER_URL\")")
+        .expect("guard present");
+    let spawn = test_helper.content.find("Port.open").expect("Port.open present");
+    assert!(
+        guard < spawn,
+        "the pre-set MOCK_SERVER_URL guard must precede Port.open:\n{}",
+        test_helper.content
+    );
+}
 
 #[test]
 fn elixir_test_helper_emits_mock_servers_parsing() {
@@ -433,6 +493,36 @@ fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
     assert!(
         guard < spawn,
         "the pre-set MOCK_SERVER_URL guard must precede the spawn() call:\n{}",
+        global_setup.content
+    );
+}
+
+#[test]
+fn wasm_global_setup_awaits_wasm_init_before_mock_server_setup() {
+    let files = generate_all(
+        &WasmCodegen,
+        "wasm",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let global_setup = files
+        .iter()
+        .find(|f| f.path.ends_with("globalSetup.ts"))
+        .expect("wasm globalSetup.ts not found");
+    // The init block must appear before the MOCK_SERVER_URL guard so the wasm
+    // module is ready before any test — even when running with a pre-set server.
+    assert!(
+        global_setup.content.contains("await init()"),
+        "wasm globalSetup.ts must await wasm init() before tests run:\n{}",
+        global_setup.content
+    );
+    let init_pos = global_setup.content.find("await init()").expect("init present");
+    let guard_pos = global_setup
+        .content
+        .find("if (process.env.MOCK_SERVER_URL)")
+        .expect("mock server guard present");
+    assert!(
+        init_pos < guard_pos,
+        "wasm init must precede the MOCK_SERVER_URL guard:\n{}",
         global_setup.content
     );
 }
