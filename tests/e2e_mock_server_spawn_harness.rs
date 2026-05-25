@@ -14,6 +14,7 @@
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::dart::DartE2eCodegen;
+use alef::e2e::codegen::elixir::ElixirCodegen;
 use alef::e2e::codegen::zig::ZigE2eCodegen;
 use alef::e2e::fixture::{
     Assertion, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest,
@@ -163,4 +164,35 @@ fn zig_http_fixture_build_spawns_mock_server() {
         content.contains("std.process.spawn") || content.contains("std.process.Child"),
         "zig build must spawn a child process for the mock-server. Rendered:\n{content}"
     );
+}
+
+// ── Elixir ────────────────────────────────────────────────────────────────────
+
+#[test]
+fn elixir_http_fixture_forces_http1_on_req() {
+    let files = generate(&ElixirCodegen, "elixir");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_test.exs"))
+        .expect("elixir HTTP test file is emitted");
+    let content = &test_file.content;
+    // The mock server is plain HTTP/1.1; Req's default HTTP/2 negotiation fails
+    // with `:pool_not_available`. Every Req call must pin the connection to
+    // HTTP/1 via `connect_options: [protocols: [:http1]]`.
+    assert!(
+        content.contains("Req."),
+        "elixir test file must emit a Req call. Rendered:\n{content}"
+    );
+    assert!(
+        content.contains("connect_options: [protocols: [:http1]]"),
+        "every Req call must force HTTP/1 against the HTTP/1.1 mock server. Rendered:\n{content}"
+    );
+    // No Req call may be emitted without the HTTP/1 option — otherwise it would
+    // negotiate HTTP/2 and fail.
+    for line in content.lines().filter(|l| l.contains("Req.")) {
+        assert!(
+            line.contains("connect_options: [protocols: [:http1]]"),
+            "Req call missing HTTP/1 option: {line}\nRendered:\n{content}"
+        );
+    }
 }

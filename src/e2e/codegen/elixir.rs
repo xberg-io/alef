@@ -490,6 +490,13 @@ const FINCH_UNSUPPORTED_METHODS: &[&str] = &["TRACE", "CONNECT"];
 /// All others must be called via `Req.request(method: :METHOD, ...)`.
 const REQ_CONVENIENCE_METHODS: &[&str] = &["get", "post", "put", "patch", "delete", "head"];
 
+/// Req option that forces the HTTP/1 protocol on the underlying Finch/Mint
+/// connection. The shared e2e mock server is a plain HTTP/1.1 server, so Req's
+/// default HTTP/2 negotiation fails with `:pool_not_available` (no HTTP/2 Finch
+/// pool is started). Pinning the connection to HTTP/1 makes every request use
+/// the available HTTP/1 pool.
+const REQ_HTTP1_OPT: &str = "connect_options: [protocols: [:http1]]";
+
 /// Thin renderer that emits ExUnit `describe` + `test` blocks targeting a mock
 /// server via `Req`. Satisfies [`client::TestClientRenderer`] so the shared
 /// [`client::http_call::render_http_test`] driver drives the call sequence.
@@ -529,7 +536,9 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
     /// Emit a `Req` request to the mock server using `mock_server_url()/fixtures/<id>`.
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         let method = ctx.method.to_lowercase();
-        let mut opts: Vec<String> = Vec::new();
+        // Force HTTP/1 on every request: the mock server is HTTP/1.1 and Req's
+        // default HTTP/2 negotiation fails with `:pool_not_available`.
+        let mut opts: Vec<String> = vec![REQ_HTTP1_OPT.to_string()];
 
         if let Some(body) = ctx.body {
             let elixir_val = json_to_elixir(body);
@@ -580,15 +589,12 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
         let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{fixture_id}\"");
 
         if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
-            if opts.is_empty() {
-                let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(url: {url_expr})");
-            } else {
-                let opts_str = opts.join(", ");
-                let _ = writeln!(
-                    out,
-                    "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
-                );
-            }
+            // `opts` always carries at least the HTTP/1 protocol option.
+            let opts_str = opts.join(", ");
+            let _ = writeln!(
+                out,
+                "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
+            );
         } else {
             opts.insert(0, format!("method: :{method}"));
             opts.insert(1, format!("url: {url_expr}"));
