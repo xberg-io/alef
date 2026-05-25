@@ -1554,11 +1554,26 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
-                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                    // Collect methods from both the main trait and its super-trait (if present).
+                    // The super-trait methods are needed so stubs implement the full interface.
+                    let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                         .iter()
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
+
+                    // If there's a super-trait, also collect its methods.
+                    if let Some(super_trait) = &trait_bridge.super_trait {
+                        if let Some(super_type) = type_defs.iter().find(|t| &t.name == super_trait) {
+                            for method in &super_type.methods {
+                                // Only add if not already present (avoid duplicates).
+                                if !methods.iter().any(|m| m.name == method.name) {
+                                    methods.push(method);
+                                }
+                            }
+                        }
+                    }
+
                     let emission = super::emit_test_backend("kotlin", trait_bridge, &methods, fixture);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
