@@ -216,50 +216,26 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
 
             let class_file_name = format!("{}Test.kt", sanitize_filename(&group.category).to_upper_camel_case());
 
-            // Emit host-JVM tests only in Local mode (workspace sources available).
-            if should_emit_host_jvm_tests {
-                let content = kotlin::render_test_file_android(
-                    &group.category,
-                    &active,
-                    &class_name,
-                    &function_name,
-                    &kotlin_pkg_id,
-                    result_var,
-                    &e2e_config.call.args,
-                    options_type.as_deref(),
-                    result_is_simple,
-                    e2e_config,
-                    &type_enum_fields,
-                    config,
-                    type_defs,
-                );
-                files.push(GeneratedFile {
-                    path: test_base.join(&class_file_name),
-                    content,
-                    generated_header: true,
-                });
-            }
-
-            // Instrumented Android test for on-device emulator runs.
-            // Lives in src/androidTest/ and uses @RunWith(AndroidJUnit4::class).
-            // Always emitted (both Local and Registry modes) as these run in the Android process
-            // where the JNI library is available.
-            let mut android_test_base = output_base.join("src").join("androidTest").join("kotlin");
-            for segment in kotlin_pkg_id.split('.') {
-                android_test_base = android_test_base.join(segment);
-            }
-            let android_test_base = android_test_base.join("e2e");
+            // Emit JUnit host-JVM tests under src/test/kotlin/.
+            // Tests run via `gradle test` on the host JVM without requiring an Android device/emulator.
+            let content = kotlin::render_test_file_android(
+                &group.category,
+                &active,
+                &class_name,
+                &function_name,
+                &kotlin_pkg_id,
+                result_var,
+                &e2e_config.call.args,
+                options_type.as_deref(),
+                result_is_simple,
+                e2e_config,
+                &type_enum_fields,
+                config,
+                type_defs,
+            );
             files.push(GeneratedFile {
-                path: android_test_base.join(class_file_name),
-                content: render_android_instrumented_test(
-                    &group.category,
-                    &active,
-                    &class_name,
-                    &function_name,
-                    &kotlin_pkg_id,
-                    result_var,
-                    &pkg_name,
-                ),
+                path: test_base.join(&class_file_name),
+                content,
                 generated_header: true,
             });
         }
@@ -413,8 +389,7 @@ fn render_build_gradle_kotlin_android(
     };
 
     format!(
-        r#"import com.android.build.api.dsl.ManagedVirtualDevice
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
     id("com.android.library") version "{android_gradle_plugin}"
@@ -437,16 +412,10 @@ android {{
         targetCompatibility = JavaVersion.VERSION_{jvm_target}
     }}{source_sets_block}
     testOptions {{
-        // Gradle Managed Virtual Devices for on-device instrumented tests.
-        // Run: ./gradlew pixel6api34DebugAndroidTest
-        managedDevices {{
-            devices {{
-                create<ManagedVirtualDevice>("pixel6api34") {{
-                    device = "Pixel 6"
-                    apiLevel = 34
-                    systemImageSource = "aosp"
-                }}
-            }}
+        // Host JVM unit tests: no Android device/emulator required.
+        // Tests run against the published AAR and JVM-side deps via `gradle test`.
+        unitTests {{
+            isReturnDefaultValues = true
         }}
     }}
 }}
@@ -525,48 +494,6 @@ fn sanitize_gradle_project_name(pkg_name: &str) -> String {
 /// The generated class uses `@RunWith(AndroidJUnit4::class)` and loads the
 /// native library via `System.loadLibrary` so tests can run on-device via the
 /// Android emulator.
-fn render_android_instrumented_test(
-    category: &str,
-    fixtures: &[&crate::e2e::fixture::Fixture],
-    class_name: &str,
-    function_name: &str,
-    kotlin_pkg_id: &str,
-    result_var: &str,
-    lib_name: &str,
-) -> String {
-    let test_class = format!("{}Test", category.to_upper_camel_case());
-    let lib_snake = lib_name.replace('-', "_");
-    let mut out = String::new();
-    out.push_str(&format!("package {kotlin_pkg_id}.e2e\n\n"));
-    out.push_str("import androidx.test.ext.junit.runners.AndroidJUnit4\n");
-    out.push_str("import org.junit.BeforeClass\n");
-    out.push_str("import org.junit.Test\n");
-    out.push_str("import org.junit.runner.RunWith\n\n");
-    out.push_str("@RunWith(AndroidJUnit4::class)\n");
-    out.push_str(&format!("class {test_class} {{\n\n"));
-    out.push_str("    companion object {\n");
-    out.push_str("        @BeforeClass\n");
-    out.push_str("        @JvmStatic\n");
-    out.push_str("        fun loadNativeLibrary() {\n");
-    out.push_str(&format!("            System.loadLibrary(\"{lib_snake}_jni\")\n"));
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
-    for fixture in fixtures {
-        let test_name = fixture.id.replace(['-', '.', ' '], "_");
-        out.push_str("    @Test\n");
-        out.push_str(&format!("    fun test_{test_name}() {{\n"));
-        out.push_str(&format!("        val client = {class_name}()\n"));
-        out.push_str(&format!(
-            "        val {result_var} = client.{function_name}(/* fixture: {} */)\n",
-            fixture.id
-        ));
-        out.push_str(&format!("        // TODO: assert {result_var} is not an error\n"));
-        out.push_str("    }\n\n");
-    }
-    out.push_str("}\n");
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

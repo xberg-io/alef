@@ -3592,7 +3592,7 @@ fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
             PrimitiveType::I64 => "long".to_string(),
             PrimitiveType::F32 => "float".to_string(),
             PrimitiveType::F64 => "double".to_string(),
-            PrimitiveType::Usize => "ulong".to_string(),  // usize maps to ulong in C# (not long!)
+            PrimitiveType::Usize => "ulong".to_string(), // usize maps to ulong in C# (not long!)
             PrimitiveType::Isize => "long".to_string(),
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path => "string".to_string(),
@@ -3735,7 +3735,13 @@ fn emit_csharp_stub_method(
     let params: Vec<String> = method
         .params
         .iter()
-        .map(|p| format!("{} {}", csharp_type_for_stub_visible(&p.ty), p.name.to_lower_camel_case()))
+        .map(|p| {
+            format!(
+                "{} {}",
+                csharp_type_for_stub_visible(&p.ty),
+                p.name.to_lower_camel_case()
+            )
+        })
         .collect();
     let param_list = params.join(", ");
 

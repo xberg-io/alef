@@ -347,8 +347,8 @@ impl Backend for SwiftBackend {
         emit_inbound_protocols(api, config, &mut body);
 
         // Emit top-level public forwarders for every free function in `api.functions`
-        // that is not already covered by the bytes/path convenience wrappers, the
-        // hardcoded e2e wrappers, or the `*FromJson` forwarders. Without these,
+        // that is not already covered by the bytes/path convenience wrappers or
+        // the `*FromJson` forwarders. Without these,
         // `embedTexts`, `listEmbeddingPresets`, `getEmbeddingPreset`, `renderPdfPageToPng`,
         // `getExtensionsForMime`, `detectMimeType`, and the various `list_*` registry
         // helpers are only reachable as `RustBridge.fnName(...)` — which requires
@@ -2658,241 +2658,6 @@ fn enum_emits_codable(en: &crate::core::ir::EnumDef, known_dto_names: &std::coll
     all_variants_codable_safe(en, known_dto_names)
 }
 
-/// Returns `true` when the api surface exposes the legacy extraction e2e helper
-/// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
-/// Mirrors `gen_rust_crate::api_has_e2e_types` so the Swift wrapper helpers and
-/// the Rust-side JSON-factory shims are emitted together.
-fn api_has_e2e_helper_types(api: &ApiSurface) -> bool {
-    let required = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
-    required
-        .iter()
-        .all(|name| api.types.iter().any(|t| !t.is_trait && t.has_serde && t.name == *name))
-}
-
-/// Emits the e2e-test helper wrappers used by the generated Swift e2e test layer.
-///
-/// Hardcoded for legacy extraction symbols (`extractBytes`, `extractFile`,
-/// `batchExtract*`, `extractionConfigFromJson`); emission is gated structurally
-/// by `api_has_e2e_helper_types`, so this is a no-op for binding crates that
-/// don't expose those types.
-fn emit_e2e_wrappers(out: &mut String) {
-    out.push_str("// MARK: - E2e Test Convenience Wrappers\n");
-    out.push_str("// JSON-config and file-loading wrappers used exclusively by the generated e2e tests.\n\n");
-
-    // Re-export JSON deserialization helpers from RustBridge so e2e tests can
-    // call them without importing RustBridge (which causes name collision with
-    // first-class Swift types like VisitResult).
-    out.push_str("public func extractionConfigFromJson<GenericIntoRustString: IntoRustString>(\n");
-    out.push_str("    _ json: GenericIntoRustString\n");
-    out.push_str(") throws -> ExtractionConfig {\n");
-    out.push_str("    try RustBridge.extractionConfigFromJson(json)\n");
-    out.push_str("}\n\n");
-    out.push_str("public func batchBytesItemFromJson<GenericIntoRustString: IntoRustString>(\n");
-    out.push_str("    _ json: GenericIntoRustString\n");
-    out.push_str(") throws -> BatchBytesItem {\n");
-    out.push_str("    try RustBridge.batchBytesItemFromJson(json)\n");
-    out.push_str("}\n\n");
-    out.push_str("public func batchFileItemFromJson<GenericIntoRustString: IntoRustString>(\n");
-    out.push_str("    _ json: GenericIntoRustString\n");
-    out.push_str(") throws -> BatchFileItem {\n");
-    out.push_str("    try RustBridge.batchFileItemFromJson(json)\n");
-    out.push_str("}\n\n");
-
-    // Property convenience accessors for ExtractionResult so e2e tests can use
-    // `.mimeType` and `.content` as properties, and convert to String for method access.
-    out.push_str("// MARK: - ExtractionResult Property Accessors\n");
-    out.push_str("extension ExtractionResultRef {\n");
-    out.push_str("    public var mimeType: String {\n");
-    out.push_str("        self.mimeType().toString()\n");
-    out.push_str("    }\n");
-    out.push_str("    public var content: String {\n");
-    out.push_str("        self.content().toString()\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
-
-    // Helper: resolveFixturePath - resolves a fixture file path.
-    // Uses FIXTURES_DIR env var (set by CI / task runner) when available; falls
-    // back to the path as-is (interpreted relative to the process working directory).
-    out.push_str("private func resolveFixturePath(_ name: String) -> URL {\n");
-    out.push_str("    if let dir = ProcessInfo.processInfo.environment[\"FIXTURES_DIR\"] {\n");
-    out.push_str("        return URL(fileURLWithPath: dir).appendingPathComponent(name)\n");
-    out.push_str("    }\n");
-    out.push_str("    return URL(fileURLWithPath: name)\n");
-    out.push_str("}\n\n");
-
-    // extractBytesSync(filePath:mimeType:configJson:)
-    out.push_str("/// E2e wrapper: reads `filePath` into bytes, deserialises `configJson` -> ExtractionConfig.\n");
-    out.push_str("public func extractBytesSync(\n");
-    out.push_str("    _ filePath: String,\n");
-    out.push_str("    _ mimeType: String,\n");
-    out.push_str("    _ configJson: String\n");
-    out.push_str(") throws -> ExtractionResult {\n");
-    out.push_str("    let url = resolveFixturePath(filePath)\n");
-    out.push_str("    let data = try Data(contentsOf: url)\n");
-    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractBytesSync(makeByteVec(data.map { $0 }), mimeType, config)\n");
-    out.push_str("}\n\n");
-
-    // extractBytes(filePath:mimeType:configJson:) - async wrapper for API surface compatibility.
-    out.push_str(
-        "/// E2e wrapper (async): reads `filePath` into bytes, deserialises `configJson` -> ExtractionConfig.\n",
-    );
-    out.push_str("public func extractBytes(\n");
-    out.push_str("    _ filePath: String,\n");
-    out.push_str("    _ mimeType: String,\n");
-    out.push_str("    _ configJson: String\n");
-    out.push_str(") async throws -> ExtractionResult {\n");
-    out.push_str("    let url = resolveFixturePath(filePath)\n");
-    out.push_str("    let data = try Data(contentsOf: url)\n");
-    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractBytesSync(makeByteVec(data.map { $0 }), mimeType, config)\n");
-    out.push_str("}\n\n");
-
-    // extractFileSync(path:mimeType:configJson:) - 3-arg form
-    out.push_str("/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n");
-    out.push_str("public func extractFileSync(\n");
-    out.push_str("    _ path: String,\n");
-    out.push_str("    _ mimeType: String?,\n");
-    out.push_str("    _ configJson: String\n");
-    out.push_str(") throws -> ExtractionResult {\n");
-    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
-    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(resolvedPath, mimeType, config)\n");
-    out.push_str("}\n\n");
-
-    // extractFileSync(path:configJson:) - 2-arg form (no mimeType)
-    out.push_str(
-        "/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n",
-    );
-    out.push_str("public func extractFileSync(\n");
-    out.push_str("    _ path: String,\n");
-    out.push_str("    _ configJson: String\n");
-    out.push_str(") throws -> ExtractionResult {\n");
-    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
-    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(resolvedPath, nil, config)\n");
-    out.push_str("}\n\n");
-
-    // extractFile(path:mimeType:configJson:) - async 3-arg form
-    out.push_str(
-        "/// E2e wrapper (async): resolves fixture path, deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n",
-    );
-    out.push_str("public func extractFile(\n");
-    out.push_str("    _ path: String,\n");
-    out.push_str("    _ mimeType: String?,\n");
-    out.push_str("    _ configJson: String\n");
-    out.push_str(") async throws -> ExtractionResult {\n");
-    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
-    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(resolvedPath, mimeType, config)\n");
-    out.push_str("}\n\n");
-
-    // extractFile(path:configJson:) - async 2-arg form (no mimeType)
-    out.push_str("/// E2e wrapper (async): resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
-    out.push_str("public func extractFile(\n");
-    out.push_str("    _ path: String,\n");
-    out.push_str("    _ configJson: String\n");
-    out.push_str(") async throws -> ExtractionResult {\n");
-    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
-    out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(resolvedPath, nil, config)\n");
-    out.push_str("}\n\n");
-
-    // batchExtractBytesSync(jsonItems:)
-    // Drains the returned `RustVec<ExtractionResult>` into owned `[ExtractionResult]`
-    // via `pop()` so the public signature does not leak `ExtractionResultRef`
-    // (a swift-bridge transport type) to consumers. `pop()` returns owned values
-    // in reverse order; reverse the array before returning to preserve input order.
-    out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` -> BatchBytesItem.\n");
-    out.push_str("public func batchExtractBytesSync(\n");
-    out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") throws -> [ExtractionResult] {\n");
-    out.push_str("    let items = RustVec<BatchBytesItem>()\n");
-    out.push_str("    for json in jsonItems {\n");
-    out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
-    out.push_str("    }\n");
-    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    let vec = try batchExtractBytesSync(items, config)\n");
-    out.push_str("    var owned: [ExtractionResult] = []\n");
-    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
-    out.push_str("    owned.reverse()\n");
-    out.push_str("    return owned\n");
-    out.push_str("}\n\n");
-
-    // batchExtractBytes(jsonItems:) - async wrapper for API surface compatibility.
-    out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` -> BatchBytesItem.\n");
-    out.push_str("public func batchExtractBytes(\n");
-    out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") async throws -> [ExtractionResult] {\n");
-    out.push_str("    let items = RustVec<BatchBytesItem>()\n");
-    out.push_str("    for json in jsonItems {\n");
-    out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
-    out.push_str("    }\n");
-    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    let vec = try batchExtractBytesSync(items, config)\n");
-    out.push_str("    var owned: [ExtractionResult] = []\n");
-    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
-    out.push_str("    owned.reverse()\n");
-    out.push_str("    return owned\n");
-    out.push_str("}\n\n");
-
-    // batchExtractFilesSync(jsonItems:)
-    out.push_str("/// E2e wrapper: deserialises each JSON string in `jsonItems` -> BatchFileItem.\n");
-    out.push_str("public func batchExtractFilesSync(\n");
-    out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") throws -> [ExtractionResult] {\n");
-    out.push_str("    let items = RustVec<BatchFileItem>()\n");
-    out.push_str("    for json in jsonItems {\n");
-    out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
-    out.push_str("    }\n");
-    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    let vec = try batchExtractFilesSync(items, config)\n");
-    out.push_str("    var owned: [ExtractionResult] = []\n");
-    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
-    out.push_str("    owned.reverse()\n");
-    out.push_str("    return owned\n");
-    out.push_str("}\n\n");
-
-    // batchExtractFiles(jsonItems:) - async wrapper for API surface compatibility.
-    out.push_str("/// E2e wrapper (async): deserialises each JSON string in `jsonItems` -> BatchFileItem.\n");
-    out.push_str("public func batchExtractFiles(\n");
-    out.push_str("    _ jsonItems: [String]\n");
-    out.push_str(") async throws -> [ExtractionResult] {\n");
-    out.push_str("    let items = RustVec<BatchFileItem>()\n");
-    out.push_str("    for json in jsonItems {\n");
-    out.push_str("        items.push(value: try batchFileItemFromJson(json))\n");
-    out.push_str("    }\n");
-    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
-    out.push_str("    let vec = try batchExtractFilesSync(items, config)\n");
-    out.push_str("    var owned: [ExtractionResult] = []\n");
-    out.push_str("    while let item = vec.pop() { owned.append(item) }\n");
-    out.push_str("    owned.reverse()\n");
-    out.push_str("    return owned\n");
-    out.push_str("}\n\n");
-
-    // detectMimeTypeFromBytes(_ filePath: String) - e2e file-path overload
-    out.push_str("/// E2e wrapper: reads `filePath` into bytes and calls detectMimeTypeFromBytes.\n");
-    out.push_str("public func detectMimeTypeFromBytes(\n");
-    out.push_str("    _ filePath: String\n");
-    out.push_str(") throws -> String {\n");
-    out.push_str("    let url = resolveFixturePath(filePath)\n");
-    out.push_str("    let data = try Data(contentsOf: url)\n");
-    out.push_str("    return try detectMimeTypeFromBytes(makeByteVec(data.map { $0 })).toString()\n");
-    out.push_str("}\n\n");
-
-    // embedTextsAsync(texts:config:) - async wrapper
-    out.push_str("/// E2e wrapper (async): embed multiple texts with an EmbeddingConfig.\n");
-    out.push_str("public func embedTextsAsync(\n");
-    out.push_str("    texts: [String],\n");
-    out.push_str("    config: EmbeddingConfig\n");
-    out.push_str(") async throws -> [[Float]] {\n");
-    out.push_str("    let _rb_texts: RustVec<RustString> = { let v = RustVec<RustString>(); for s in texts { v.push(value: RustString(s)) }; return v }()\n");
-    out.push_str("    let _rb_json = try await RustBridge.embedTextsAsync(_rb_texts, config).toString()\n");
-    out.push_str("    let _rb_data = _rb_json.data(using: .utf8) ?? Data()\n");
-    out.push_str("    return try JSONDecoder().decode([[Float]].self, from: _rb_data)\n");
-    out.push_str("}\n");
-}
-
 /// Emits String and [UInt8] convenience overloads for a function whose first param
 /// is `TypeRef::Bytes`. The overloads delegate to the function itself via `makeByteVec`.
 ///
@@ -3524,36 +3289,11 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
 // ---------------------------------------------------------------------------
 
 /// Returns the set of public-func names already emitted in `Kreuzberg.swift` by
-/// the earlier emission passes (bytes/path overloads, hardcoded e2e wrappers,
-/// `*FromJson` forwarders). Forwarders for `api.functions` entries that would
+/// earlier emission passes. Forwarders for `api.functions` entries that would
 /// produce an identical Swift function name are skipped to avoid duplicate
 /// declarations.
 fn already_emitted_top_level_names(api: &ApiSurface) -> std::collections::HashSet<String> {
     let mut names: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    // Hardcoded e2e wrappers (see `emit_e2e_wrappers` above). Gated on the same
-    // structural detection used at emission time so the skip-set stays accurate
-    // when `api_has_e2e_helper_types` returns `false`.
-    if api_has_e2e_helper_types(api) {
-        for name in [
-            "extractBytesSync",
-            "extractBytes",
-            "extractFileSync",
-            "extractFile",
-            "batchExtractBytesSync",
-            "batchExtractBytes",
-            "batchExtractFilesSync",
-            "batchExtractFiles",
-            "detectMimeTypeFromBytes",
-            // `emit_e2e_wrappers` unconditionally emits an async `embedTextsAsync`
-            // wrapper. Without this entry the free-function forwarder pass would
-            // emit a second `embedTextsAsync(texts:config:)` with an identical
-            // signature, causing an invalid-redeclaration compile error.
-            "embedTextsAsync",
-        ] {
-            names.insert(name.to_string());
-        }
-    }
 
     // Bytes/path convenience wrappers (`emit_bytes_overloads` / `emit_path_overload`).
     // The wrapper name strips a trailing `Sync` from the camelCased function name;
@@ -4229,10 +3969,9 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::String => String::new(),
             _ => String::new(),
         },
-        // Bare Named DTO return is currently emitted via a per-call wrapper in
-        // the hardcoded e2e paths and DTO-aware free-function bodies; the
-        // generic forwarder doesn't have a chainable suffix that can wrap a
-        // bare class value into `try {Name}(value)` because there's no `.map`
+        // Bare Named DTO return is currently emitted via DTO-aware free-function
+        // bodies; the generic forwarder doesn't have a chainable suffix that can
+        // wrap a bare class value into `try {Name}(value)` because there's no `.map`
         // entry point on a non-Optional/non-Sequence value. If sample_core ever
         // adds such a free function the forwarder body itself will need to
         // change shape (binding the result to a local first). Until then,

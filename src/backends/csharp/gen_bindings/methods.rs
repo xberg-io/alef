@@ -12,7 +12,7 @@ use crate::codegen::generators::trait_bridge::find_bridge_field;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::core::config::AdapterConfig;
 use crate::core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::ToLowerCamelCase;
 use std::collections::{HashMap, HashSet};
 
 /// Skip methods that take opaque handle FFI pointers as first arg but operate on non-opaque types.
@@ -278,20 +278,38 @@ pub(super) fn gen_wrapper_class(
     }
 
     // Emit Register* and Unregister* facade methods for trait bridges.
-    // These are static methods on KreuzbergLib that forward to NativeMethods P/Invoke.
+    // Bridge factory returns an IntPtr handle; KreuzbergLib.Register* completes the registration.
     for bridge_cfg in trait_bridges {
         let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
-        let trait_snake = bridge_cfg.trait_name.to_snake_case();
+        let has_super = bridge_cfg.super_trait.is_some();
 
-        // Register{TraitName} — takes IntPtr handle, returns void
+        // Register{TraitName} — takes IntPtr handle from bridge factory, completes registration
         let register_method_name = format!("Register{trait_pascal}");
         out.push_str(&format!(
-            "    /// <summary>Register a {trait_pascal} implementation via native handle</summary>\n"
+            "    /// <summary>Complete native registration of a {trait_pascal} implementation</summary>\n"
         ));
-        out.push_str(&format!("    public static void {}(IntPtr handle)\n", register_method_name));
-        out.push_str("    {\n");
         out.push_str(&format!(
-            "        var ec = NativeMethods.Register{}(handle, out var outError);\n",
+            "    public static void {}(IntPtr handle)\n",
+            register_method_name
+        ));
+        out.push_str("    {\n");
+        out.push_str("        if (handle == IntPtr.Zero) throw new ArgumentException(\"handle is null\");\n");
+        out.push_str(&format!(
+            "        var bridge = GCHandle.FromIntPtr(handle).Target as {}Bridge ?? throw new InvalidOperationException(\"Invalid bridge handle\");\n",
+            trait_pascal
+        ));
+        out.push_str(&format!(
+            "        var impl = bridge.GetType().GetField(\"_impl\", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(bridge) as I{};\n",
+            trait_pascal
+        ));
+        out.push_str("        if (impl == null) throw new InvalidOperationException(\"Cannot extract impl from bridge\");\n");
+        if has_super {
+            out.push_str("        var name = impl.Name;\n");
+        } else {
+            out.push_str("        var name = System.Guid.NewGuid().ToString();\n");
+        }
+        out.push_str(&format!(
+            "        var ec = NativeMethods.Register{}(name, bridge._vtable, handle, out var outError);\n",
             trait_pascal
         ));
         out.push_str("        if (ec != 0) {\n");
@@ -306,7 +324,10 @@ pub(super) fn gen_wrapper_class(
             out.push_str(&format!(
                 "    /// <summary>Unregister a {trait_pascal} implementation by name</summary>\n"
             ));
-            out.push_str(&format!("    public static void {}(string name)\n", unregister_method_name));
+            out.push_str(&format!(
+                "    public static void {}(string name)\n",
+                unregister_method_name
+            ));
             out.push_str("    {\n");
             out.push_str("        ArgumentNullException.ThrowIfNull(name);\n");
             out.push_str(&format!(

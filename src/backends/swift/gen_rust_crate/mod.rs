@@ -427,7 +427,8 @@ fn emit_lib_rs(
     // These need their own `{type_snake}_from_json` free-function shims so Swift
     // e2e tests can deserialise fixture JSON into the strongly-typed request
     // objects expected by the swift-bridge wrappers.
-    let extra_serde_param_types: Vec<&TypeDef> = collect_serde_param_types(api, &visible_types, &visible_functions, &[]);
+    let extra_serde_param_types: Vec<&TypeDef> =
+        collect_serde_param_types(api, &visible_types, &visible_functions, &[]);
 
     // Collect streaming item types that have serde derives.  The Swift streaming
     // wrapper uses `RustBridge.{itemType}FromJson(json)` — a Rust-side free

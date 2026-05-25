@@ -2622,14 +2622,9 @@ fn make_serde_type(name: &str) -> TypeDef {
 }
 
 #[test]
-fn embed_texts_async_emitted_once_when_e2e_helper_types_present() {
-    // When the API exposes the e2e helper types (ExtractionConfig,
-    // BatchBytesItem, BatchFileItem) AND at least one bytes/path function (so
-    // the convenience-wrapper section is reached), `emit_e2e_wrappers`
-    // unconditionally emits an async `embedTextsAsync` wrapper. The
-    // free-function forwarder pass must skip its own `embedTextsAsync`
-    // forwarder for the `embed_texts_async` API function, or Swift rejects the
-    // file with `invalid redeclaration of 'embedTextsAsync(texts:config:)'`.
+fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
+    // These names used to trigger hardcoded Swift e2e convenience wrappers. They
+    // should now flow through the generic from-json forwarder path only.
     let mut embed_fn = make_sync_fn(
         "embed_texts_async",
         vec![
@@ -2640,8 +2635,7 @@ fn embed_texts_async_emitted_once_when_e2e_helper_types_present() {
     );
     embed_fn.is_async = true;
 
-    // A bytes-first function so `emit_convenience_wrappers` reaches the
-    // `emit_e2e_wrappers` call instead of early-returning.
+    // A bytes-first function so the convenience-wrapper section is reached.
     let bytes_fn = make_sync_fn(
         "analyze_bytes_sync",
         vec![make_param("content", TypeRef::Bytes)],
@@ -2670,6 +2664,14 @@ fn embed_texts_async_emitted_once_when_e2e_helper_types_present() {
     assert_eq!(
         content.matches("func embedTextsAsync(").count(),
         1,
-        "embedTextsAsync must be declared exactly once (e2e wrapper only):\n{content}"
+        "embedTextsAsync must be declared exactly once by the generic free-function forwarder:\n{content}"
+    );
+    assert!(
+        !content.contains("E2e Test Convenience Wrappers"),
+        "legacy extraction type names must not trigger hardcoded e2e wrappers:\n{content}"
+    );
+    assert!(
+        content.contains("public func extractionConfigFromJson(_ json: String) throws -> ExtractionConfig"),
+        "ExtractionConfig should use the generic from-json forwarder:\n{content}"
     );
 }

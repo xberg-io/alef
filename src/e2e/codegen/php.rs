@@ -477,8 +477,7 @@ fn render_composer_json(
 /// Strip leading composer-style version constraints (^, >=, ~, etc.) from a version string.
 /// Accepts "1.2.3", ">=1.2.3", "^1.2.3", "~1.2", or any constraint and returns the base version.
 fn strip_version_constraint(version: &str) -> &str {
-    version
-        .trim_start_matches(|c: char| c == '^' || c == '~' || c == '>' || c == '<' || c == '=')
+    version.trim_start_matches(|c: char| c == '^' || c == '~' || c == '>' || c == '<' || c == '=')
 }
 
 fn render_install_sh(pkg_name: &str, extension_name: &str, pkg_version: &str) -> String {

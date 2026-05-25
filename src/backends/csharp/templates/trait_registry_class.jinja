@@ -10,28 +10,12 @@ public static class {{ trait_pascal }}Registry {
             throw new ArgumentNullException(nameof(impl));
 
         var bridge = new {{ trait_pascal }}Bridge(impl);
+        var userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
+        var userData = GCHandle.ToIntPtr(userDataHandle);
+        var name = {% if has_super_trait %}impl.Name{% else %}"bridge_" + Guid.NewGuid().ToString(){% endif %};
 
-        try {
-            var userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
-            var userData = GCHandle.ToIntPtr(userDataHandle);
-            var vtablePtr = bridge._vtable;
-            var name = {% if has_super_trait %}impl.Name{% else %}"bridge_" + Guid.NewGuid().ToString(){% endif %};
-
-            var result = NativeMethods.Register{{ trait_pascal }}(name, vtablePtr, userData, out var outError);
-            if (result != 0) {
-                userDataHandle.Free();
-                bridge.Dispose();
-                var errorMsg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
-                global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(outError);
-                throw new InvalidOperationException($"Failed to register {name}: {errorMsg}");
-            }
-
-            _bridges.TryAdd(name, bridge);
-            return userData;
-        } catch {
-            bridge.Dispose();
-            throw;
-        }
+        _bridges.TryAdd(name, bridge);
+        return userData;
     }
 
     /// <summary>Register a {{ trait_pascal }} implementation</summary>

@@ -2,7 +2,7 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::{KotlinTarget, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use crate::core::template_versions::{maven, toolchain};
-use crate::scaffold::scaffold_meta;
+use crate::scaffold::{parse_author, scaffold_meta};
 use heck::ToPascalCase;
 
 use std::path::PathBuf;

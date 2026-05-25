@@ -50,8 +50,8 @@ impl Backend for DartBackend {
         }
 
         let module_name = dart_module_name(&config.name);
-        // D9: the barrel file should use `lib_name` when configured (e.g. `lib_name = "h2m"`
-        // produces `lib/h2m.dart`), falling back to the crate-name-derived module name.
+        // D9: the barrel file should use `lib_name` when configured (e.g. `lib_name = "sample"`
+        // produces `lib/sample.dart`), falling back to the crate-name-derived module name.
         let barrel_name = config
             .dart
             .as_ref()
@@ -87,7 +87,7 @@ impl Backend for DartBackend {
         let mut body = String::new();
 
         // For FRB style: all types come from the FRB-generated lib.dart.
-        // We export it so that callers of `kreuzberg.dart` get all types from
+        // We export it so that callers of the package barrel get all types from
         // one import and there are no duplicate-type conflicts.
         //
         // We also import it as `rust_bridge` for calling bridge functions

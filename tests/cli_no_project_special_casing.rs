@@ -102,10 +102,7 @@ fn is_scannable_file(path: &Path) -> bool {
         return false;
     }
 
-    matches!(
-        path.extension().and_then(|ext| ext.to_str()),
-        Some("rs" | "jinja")
-    )
+    matches!(path.extension().and_then(|ext| ext.to_str()), Some("rs" | "jinja"))
 }
 
 fn scan_file(path: &Path, content: &str, violations: &mut Vec<Violation>) {

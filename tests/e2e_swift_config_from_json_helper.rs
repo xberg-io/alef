@@ -1,8 +1,8 @@
 //! Verifies that the Swift e2e codegen derives the config-from-json helper name
-//! from the `options_type` configured in CallOverride, not from a hardcoded kreuzberg name.
+//! from configured or inferred type metadata, not from a hardcoded downstream name.
 //!
 //! For example, with `options_type = "ProcessConfig"`, it should emit
-//! `processConfigFromJson(...)` instead of `extractionConfigFromJson(...)`.
+//! `processConfigFromJson(...)`.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -127,10 +127,37 @@ options_via = "from_json"
     );
 }
 
-/// When options_type is not provided, fall back to the default kreuzberg helper
-/// `extractionConfigFromJson` for backward compatibility.
+/// Call-level `options_type` is binding-agnostic type metadata and should be used
+/// when the Swift override does not provide a more specific wrapper type.
 #[test]
-fn config_from_json_defaults_to_extraction_config_when_options_type_absent() {
+fn config_from_json_uses_call_level_options_type_name() {
+    let base = BASE_TOML.replacen(
+        "[[crates.e2e.call.args]]",
+        "options_type = \"ExampleConfig\"\n\n[[crates.e2e.call.args]]",
+        1,
+    );
+    let toml = format!(
+        r#"{base}
+[crates.e2e.call.overrides.swift]
+options_via = "from_json"
+"#
+    );
+    let files = render_swift(&toml, "smoke_with_config");
+    let rendered = smoke_test_content(&files);
+
+    assert!(
+        rendered.contains("exampleConfigFromJson("),
+        "must emit exampleConfigFromJson when call-level options_type = ExampleConfig. Rendered:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("extractionConfigFromJson("),
+        "must NOT hardcode extractionConfigFromJson when Swift override options_type is absent. Rendered:\n{rendered}"
+    );
+}
+
+/// With no explicit type metadata, derive a neutral helper from the actual arg name.
+#[test]
+fn config_from_json_without_options_type_uses_arg_name() {
     let toml = format!(
         r#"{BASE_TOML}
 [crates.e2e.call.overrides.swift]
@@ -140,9 +167,12 @@ options_via = "from_json"
     let files = render_swift(&toml, "smoke_with_config");
     let rendered = smoke_test_content(&files);
 
-    // Should default to extractionConfigFromJson when options_type is absent
     assert!(
-        rendered.contains("extractionConfigFromJson("),
-        "must emit extractionConfigFromJson when options_type is absent. Rendered:\n{rendered}"
+        rendered.contains("configFromJson("),
+        "must derive configFromJson from arg name when options_type is absent. Rendered:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("extractionConfigFromJson("),
+        "must NOT hardcode extractionConfigFromJson when options_type is absent. Rendered:\n{rendered}"
     );
 }

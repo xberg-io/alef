@@ -42,8 +42,8 @@ pub(crate) fn has_constructor_extern(ty: &TypeDef, exclude_fields: &HashSet<Stri
     // implements `Default`. Without this fast path, serde-enabled primitive-only types
     // (e.g. `Point { row: u32, column: u32 }`, `ByteRange { start: usize, end: usize }`)
     // would slip into the JSON-roundtrip path whose matching Rust-side `*_from_json`
-    // shim is only emitted for hardcoded e2e / param / streaming-item types — leaving
-    // Swift with a dangling `RustBridge.pointFromJson` reference at link time.
+    // shim may be filtered out, leaving Swift with a dangling
+    // `RustBridge.pointFromJson` reference at link time.
     let all_primitive_fields = fields.iter().all(|f| matches!(f.ty, TypeRef::Primitive(_)));
     if all_primitive_fields {
         return true;
