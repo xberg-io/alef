@@ -275,6 +275,14 @@ impl DartBackend {
                 // (`field0`) to payload-derived names so callers get an ergonomic API.
                 let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
                 let lib_dart_path = PathBuf::from(format!("{lib_dart_dir}/{module_name}_bridge_generated/lib.dart"));
+                // `frb_generated.dart` carries flutter_rust_bridge's entrypoint and
+                // its default external-library loader config (the build-tree-relative
+                // `ioDirectory`). Post-processing injects a published-package loader
+                // so the native library resolves from the package's own installed
+                // location instead of a path that only exists in the build tree.
+                let frb_generated_path = PathBuf::from(format!(
+                    "{lib_dart_dir}/{module_name}_bridge_generated/frb_generated.dart"
+                ));
 
                 // Collect excluded functions to pass to the post-processor.
                 let exclude_functions: Vec<String> = config
@@ -300,6 +308,15 @@ impl DartBackend {
 
                 post_build_steps.push(PostBuildStep::PostProcessFile {
                     path: lib_dart_path,
+                    processor: PostProcessor::FrbDartSealedVariants,
+                });
+
+                // Inject the published-package native-library loader into
+                // `frb_generated.dart`. `FrbDartSealedVariants` also applies the
+                // loader fix (keyed off the FRB loader config present only in this
+                // file); it is idempotent and a no-op when already applied.
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: frb_generated_path,
                     processor: PostProcessor::FrbDartSealedVariants,
                 });
 

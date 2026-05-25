@@ -87,7 +87,7 @@ impl E2eCodegen for ZigE2eCodegen {
         //   4. zig fetch fails (offline / asset not yet published) → fall back to "TODO"
         let pkg_hash = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             let url = format!(
-                "{github_repo}/{crate_name}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz"
+                "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz"
             );
             resolve_zig_hash(explicit_hash.as_deref(), &url)
         } else {
@@ -304,7 +304,12 @@ fn zig_hash_cache_path() -> Option<std::path::PathBuf> {
     // macOS and Linux: $HOME/.cache/alef/zig-hashes.json
     if let Ok(home) = std::env::var("HOME") {
         if !home.is_empty() {
-            return Some(std::path::PathBuf::from(home).join(".cache").join("alef").join("zig-hashes.json"));
+            return Some(
+                std::path::PathBuf::from(home)
+                    .join(".cache")
+                    .join("alef")
+                    .join("zig-hashes.json"),
+            );
         }
     }
     // Windows: %LOCALAPPDATA%\alef\zig-hashes.json
@@ -440,7 +445,7 @@ fn render_build_zig_zon(
             // Zig has no official package registry; registry mode downloads a
             // source tarball from the GitHub Release for the published version.
             let url =
-                format!("{github_repo}/{crate_name}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
+                format!("{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
             match hash {
                 Some(h) => {
                     format!(

@@ -30,13 +30,200 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
+/// Idempotency marker injected into `RustLib.init` by
+/// [`rewrite_frb_external_library_loader`]. Presence of this token means the
+/// loader override has already been applied, so the rewrite is a no-op.
+const ALEF_LOADER_MARKER: &str = "_alefResolveExternalLibrary";
+
+/// Inject a published-package-aware native-library loader into the
+/// flutter_rust_bridge-generated `frb_generated.dart`.
+///
+/// # Why
+///
+/// flutter_rust_bridge's default loader (`kDefaultExternalLibraryLoaderConfig`)
+/// uses a build-tree-relative `ioDirectory` (e.g. `rust/target/release/`) that
+/// is resolved against the *consumer's* current working directory and is NOT
+/// shipped in the published pub tarball. When the package is consumed from
+/// pub.dev the default loader fails to find the library at that path and falls
+/// back to opening a relative framework path (`<stem>.framework/<stem>` on
+/// macOS), which a hardened runtime rejects with
+/// "Failed to load dynamic library ... (relative path not allowed)".
+///
+/// # Fix
+///
+/// This rewrite makes `RustLib.init` resolve the prebuilt native library from
+/// the package's *own* installed location (`lib/src/<module>_bridge_generated/`,
+/// resolved at runtime via `Isolate.resolvePackageUri`) as an **absolute** path
+/// before delegating to flutter_rust_bridge. The publish pipeline ships the
+/// prebuilt library alongside the generated bridge sources there. When the
+/// package-relative library cannot be found (e.g. local development where the
+/// library lives under `rust/target/<profile>/`), the override returns `null`
+/// and flutter_rust_bridge falls back to its default loader unchanged — so this
+/// is safe in both published and source-tree builds.
+///
+/// The transform is **idempotent**: a source that already contains the injected
+/// helper is returned verbatim. It is also a no-op on any source that does not
+/// contain the canonical FRB `RustLib.init` prologue (e.g. `lib.dart`), so it is
+/// safe to apply unconditionally to any frb-generated file.
+///
+/// `package_name` is the pub package name (used to build the `package:` URI),
+/// `module_name` is the bridge module stem (the `<module>_bridge_generated`
+/// directory), and `stem` is the native library file stem
+/// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `spikard_dart`).
+pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, module_name: &str, stem: &str) -> String {
+    if source.contains(ALEF_LOADER_MARKER) {
+        return source.to_string();
+    }
+    let Some(prologue) = frb_init_prologue(source) else {
+        return source.to_string();
+    };
+
+    let replacement = frb_init_prologue_replacement(package_name, module_name, stem);
+    let with_loader = source.replacen(prologue, &replacement, 1);
+
+    ensure_loader_imports(&with_loader)
+}
+
+/// Return the exact FRB-generated `RustLib.init` prologue present in `source`,
+/// up to and including the `async {` that opens the method body, or `None` if
+/// the canonical signature is absent.
+///
+/// flutter_rust_bridge emits this method deterministically; matching the literal
+/// signature keeps the rewrite robust without a full Dart parser.
+fn frb_init_prologue(source: &str) -> Option<&'static str> {
+    const PROLOGUE: &str = "  /// Initialize flutter_rust_bridge\n  static Future<void> init({\n    RustLibApi? api,\n    BaseHandler? handler,\n    ExternalLibrary? externalLibrary,\n    bool forceSameCodegenVersion = true,\n  }) async {\n";
+    if source.contains(PROLOGUE) {
+        Some(PROLOGUE)
+    } else {
+        None
+    }
+}
+
+/// Build the patched `RustLib.init` prologue: the original signature plus a
+/// `externalLibrary ??= ...` resolution line, followed by the
+/// `_alefResolveExternalLibrary` helper method.
+fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
+    format!(
+        r#"  /// Resolve the prebuilt native library from this package's own installed
+  /// location so the load works from any working directory and under hardened
+  /// runtimes. Returns `null` to defer to flutter_rust_bridge's default loader.
+  static Future<ExternalLibrary?> {marker}() async {{
+    try {{
+      final packageRoot =
+          await Isolate.resolvePackageUri(Uri.parse('package:{package}/{package}.dart'));
+      if (packageRoot != null) {{
+        final libDir = packageRoot.resolve('src/{module}_bridge_generated/');
+        const candidates = <String>[
+          'lib{stem}.dylib',
+          'lib{stem}.so',
+          '{stem}.dll',
+        ];
+        for (final candidate in candidates) {{
+          final libPath = libDir.resolve(candidate).toFilePath();
+          if (File(libPath).existsSync()) {{
+            return ExternalLibrary.open(libPath);
+          }}
+        }}
+      }}
+    }} catch (_) {{
+      // Fall through to the default loader on any resolution failure.
+    }}
+    return null;
+  }}
+
+  /// Initialize flutter_rust_bridge
+  static Future<void> init({{
+    RustLibApi? api,
+    BaseHandler? handler,
+    ExternalLibrary? externalLibrary,
+    bool forceSameCodegenVersion = true,
+  }}) async {{
+    externalLibrary ??= await {marker}();
+"#,
+        marker = ALEF_LOADER_MARKER,
+        package = package_name,
+        module = module_name,
+        stem = stem,
+    )
+}
+
+/// Ensure `dart:io` and `dart:isolate` are imported (the loader helper uses
+/// `File` and `Isolate`). Inserts the imports after the first existing `import`
+/// line if missing. Idempotent.
+fn ensure_loader_imports(source: &str) -> String {
+    let mut result = source.to_string();
+    let needed = [
+        ("import 'dart:io';", "import 'dart:io';\n"),
+        ("import 'dart:isolate';", "import 'dart:isolate';\n"),
+    ];
+
+    // Find the first import line to anchor insertions so the added imports sit
+    // alongside the existing import block.
+    let anchor = result.find("\nimport ").map(|i| i + 1);
+    for (probe, line) in needed {
+        if result.contains(probe) {
+            continue;
+        }
+        match anchor {
+            Some(pos) => result.insert_str(pos, line),
+            None => result.insert_str(0, line),
+        }
+    }
+    result
+}
+
+/// Extract the native-library stem from the FRB-generated
+/// `kDefaultExternalLibraryLoaderConfig` (the `stem: '<name>'` field), or `None`
+/// if the config block is absent (e.g. for `lib.dart`).
+fn extract_loader_stem(source: &str) -> Option<String> {
+    let re = stem_regex();
+    re.captures(source).map(|c| c["stem"].to_string())
+}
+
+fn stem_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"stem:\s*'(?P<stem>[A-Za-z0-9_]+)'").expect("stem regex must compile"))
+}
+
+/// Apply the published-package loader fix to a frb-generated file, deriving the
+/// package, bridge-module, and library stem from the file's own
+/// `kDefaultExternalLibraryLoaderConfig`.
+///
+/// alef's dart backend names the bridge cdylib `<crate>_dart` (the FRB `stem`),
+/// emits its bridge sources under `lib/src/<crate>_bridge_generated/`, and (by
+/// default) publishes the package as `<crate>`. The shared `<crate>` prefix is
+/// recovered by stripping the trailing `_dart` from the stem, which is the
+/// information needed to resolve the package's own native library at runtime.
+///
+/// No-op when no loader config is present (returns `source` unchanged), so this
+/// is safe to call on `lib.dart` as well as `frb_generated.dart`.
+fn apply_loader_fix_from_stem(source: &str) -> String {
+    let Some(stem) = extract_loader_stem(source) else {
+        return source.to_string();
+    };
+    // Recover the shared crate name from `<crate>_dart`; if the stem does not
+    // follow the convention, fall back to the full stem for both package and
+    // module so the resolution at least targets a plausible path.
+    let crate_base = stem.strip_suffix("_dart").unwrap_or(&stem);
+    let package_name = crate_base;
+    let module_name = crate_base;
+    rewrite_frb_external_library_loader(source, package_name, module_name, &stem)
+}
+
 /// Rewrite all flutter_rust_bridge sealed-class variant parameter names in
 /// `source` from positional (`field0`, `field1`, ...) to payload-derived names.
 ///
 /// Returns the rewritten source. Lines that do not match the variant signature
 /// are returned verbatim, so this function is safe to apply unconditionally to
 /// any frb-generated `lib.dart`.
+///
+/// When applied to `frb_generated.dart` (which carries the FRB external-library
+/// loader config) this also injects the published-package native-library loader
+/// via [`rewrite_frb_external_library_loader`]; the injection is idempotent and a
+/// no-op for files without the loader config.
 pub fn rewrite_frb_sealed_variants(source: &str) -> String {
+    let source = apply_loader_fix_from_stem(source);
+    let source = source.as_str();
     let variant_re = variant_regex();
 
     variant_re
@@ -547,5 +734,136 @@ sealed class OutputFormat with _$OutputFormat {
             "JsonConfig payload (Json prefix → Config remainder) should become `config`, got:\n{out}"
         );
         assert!(!out.contains("field0"), "no `field0` should remain, got:\n{out}");
+    }
+
+    /// A minimal `frb_generated.dart` carrying the FRB entrypoint + loader config,
+    /// mirroring the real flutter_rust_bridge 2.x output shape.
+    fn frb_generated_fixture() -> &'static str {
+        r#"// @generated by `flutter_rust_bridge`@ 2.12.0.
+
+import 'dart:async';
+import 'dart:convert';
+import 'frb_generated.dart';
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+
+class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
+  RustLib._();
+
+  /// Initialize flutter_rust_bridge
+  static Future<void> init({
+    RustLibApi? api,
+    BaseHandler? handler,
+    ExternalLibrary? externalLibrary,
+    bool forceSameCodegenVersion = true,
+  }) async {
+    await instance.initImpl(
+      api: api,
+      handler: handler,
+      externalLibrary: externalLibrary,
+      forceSameCodegenVersion: forceSameCodegenVersion,
+    );
+  }
+
+  static const kDefaultExternalLibraryLoaderConfig =
+      ExternalLibraryLoaderConfig(
+        stem: 'spikard_dart',
+        ioDirectory: 'rust/target/release/',
+        webPrefix: 'pkg/',
+        wasmBindgenName: 'wasm_bindgen',
+      );
+}
+"#
+    }
+
+    #[test]
+    fn loader_rewrite_injects_package_relative_resolution() {
+        let out = rewrite_frb_external_library_loader(frb_generated_fixture(), "spikard", "spikard", "spikard_dart");
+        assert!(
+            out.contains("externalLibrary ??= await _alefResolveExternalLibrary();"),
+            "init must resolve the package-relative library, got:\n{out}"
+        );
+        assert!(
+            out.contains("Isolate.resolvePackageUri(Uri.parse('package:spikard/spikard.dart'))"),
+            "loader must resolve the package URI, got:\n{out}"
+        );
+        assert!(
+            out.contains("src/spikard_bridge_generated/"),
+            "loader must target the bridge-generated dir, got:\n{out}"
+        );
+        assert!(
+            out.contains("'libspikard_dart.dylib'"),
+            "missing macOS candidate, got:\n{out}"
+        );
+        assert!(
+            out.contains("'libspikard_dart.so'"),
+            "missing linux candidate, got:\n{out}"
+        );
+        assert!(
+            out.contains("'spikard_dart.dll'"),
+            "missing windows candidate, got:\n{out}"
+        );
+        assert!(out.contains("import 'dart:io';"), "must import dart:io, got:\n{out}");
+        assert!(
+            out.contains("import 'dart:isolate';"),
+            "must import dart:isolate, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn loader_rewrite_is_idempotent() {
+        let once = rewrite_frb_external_library_loader(frb_generated_fixture(), "spikard", "spikard", "spikard_dart");
+        let twice = rewrite_frb_external_library_loader(&once, "spikard", "spikard", "spikard_dart");
+        assert_eq!(once, twice, "loader rewrite must be idempotent");
+        assert_eq!(
+            twice.matches("import 'dart:io';").count(),
+            1,
+            "imports must not duplicate"
+        );
+        assert_eq!(
+            twice.matches("_alefResolveExternalLibrary() async").count(),
+            1,
+            "helper must not be injected twice"
+        );
+    }
+
+    #[test]
+    fn loader_rewrite_is_noop_without_init_prologue() {
+        // lib.dart has no FRB entrypoint — must round-trip unchanged.
+        let input = "// just some dart\nFuture<int> foo() async => 1;\n";
+        assert_eq!(
+            rewrite_frb_external_library_loader(input, "spikard", "spikard", "spikard_dart"),
+            input
+        );
+    }
+
+    #[test]
+    fn sealed_variant_rewrite_also_applies_loader_fix_via_stem() {
+        // `rewrite_frb_sealed_variants` (the wired post-processor) must apply the
+        // loader fix when the file carries the FRB loader config, deriving the
+        // package/module from the embedded stem.
+        let out = rewrite_frb_sealed_variants(frb_generated_fixture());
+        assert!(
+            out.contains("externalLibrary ??= await _alefResolveExternalLibrary();"),
+            "sealed-variant pass must also inject the loader, got:\n{out}"
+        );
+        assert!(
+            out.contains("Isolate.resolvePackageUri(Uri.parse('package:spikard/spikard.dart'))"),
+            "package derived from stem must be `spikard`, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn sealed_variant_rewrite_leaves_lib_dart_loader_untouched() {
+        // lib.dart (no loader config) must not gain a loader injection.
+        let input = r#"import 'frb_generated.dart';
+
+Future<int> extractBytes({required List<int> content}) =>
+    RustLib.instance.api.crateExtractBytes(content: content);
+"#;
+        let out = rewrite_frb_sealed_variants(input);
+        assert!(
+            !out.contains("_alefResolveExternalLibrary"),
+            "lib.dart must not get a loader, got:\n{out}"
+        );
     }
 }
