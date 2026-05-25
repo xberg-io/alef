@@ -1005,6 +1005,11 @@ fn run_post_build(
                         PostProcessor::FrbDartSealedVariants => {
                             crate::backends::dart::rewrite_frb_sealed_variants(&content)
                         }
+                        PostProcessor::FrbDartExcludeFunctions(excluded) => {
+                            let exclude_set: std::collections::HashSet<&str> =
+                                excluded.iter().map(|s| s.as_str()).collect();
+                            crate::backends::dart::filter_excluded_functions(&content, &exclude_set)
+                        }
                     };
                     if processed != content {
                         std::fs::write(&file_path, &processed)

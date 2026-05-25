@@ -227,6 +227,118 @@ fn is_dart_primitive(type_name: &str) -> bool {
     )
 }
 
+/// Filter out function definitions for excluded function names from FRB-generated `lib.dart`.
+///
+/// FRB generates public `Future<T> functionName(...)` wrappers for all public functions
+/// in the Rust API. This function removes lines that define functions whose names match
+/// the provided exclude set, allowing the Dart wrapper class to honor `exclude_functions`
+/// config without re-parsing the FRB output.
+///
+/// The function is idempotent: running it multiple times produces the same result.
+pub fn filter_excluded_functions(source: &str, exclude_functions: &std::collections::HashSet<&str>) -> String {
+    if exclude_functions.is_empty() {
+        return source.to_string();
+    }
+
+    let lines: Vec<&str> = source.lines().collect();
+    let mut result = String::with_capacity(source.len());
+    let mut i = 0;
+    let mut doc_buffer: Vec<&str> = Vec::new(); // Buffer for doc comments
+
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+
+        // Check if this is a doc/comment line
+        if trimmed.starts_with("///")
+            || trimmed.starts_with("//")
+            || (trimmed.starts_with("*") && !trimmed.starts_with("**/"))
+        {
+            // Buffer the comment line
+            doc_buffer.push(line);
+            i += 1;
+            continue;
+        }
+
+        // Check if this is the start of a function definition we should exclude.
+        // Match function signature lines that contain a function name followed by `(`
+        let mut should_skip_function = false;
+        if !trimmed.is_empty() && !trimmed.starts_with("class") && !trimmed.starts_with("enum") {
+            should_skip_function = exclude_functions.iter().any(|&excluded| {
+                // Convert snake_case to lowerCamelCase to match Dart's function naming
+                let camel_excluded = snake_to_camel(excluded);
+
+                // Match patterns like:
+                // - `Future<double> functionName({`
+                // - `void functionName(`
+                // - `String functionName(`
+                let pattern = format!(" {}(", camel_excluded);
+                line.contains(&pattern)
+            });
+        }
+
+        if should_skip_function {
+            // Clear the buffered doc comments since we're skipping this function
+            doc_buffer.clear();
+            // Skip this line and all continuation lines until we find a line ending with `;`
+            loop {
+                i += 1;
+                if i >= lines.len() {
+                    break;
+                }
+                let check_line = lines[i];
+                if check_line.contains(';') {
+                    i += 1;
+                    break;
+                }
+            }
+        } else {
+            // Keep all buffered doc comments and this line
+            for doc_line in &doc_buffer {
+                result.push_str(doc_line);
+                result.push('\n');
+            }
+            doc_buffer.clear();
+            result.push_str(line);
+            result.push('\n');
+            i += 1;
+        }
+    }
+
+    // Append any remaining buffered comments (shouldn't happen, but be safe)
+    for doc_line in &doc_buffer {
+        result.push_str(doc_line);
+        result.push('\n');
+    }
+
+    result
+}
+
+/// Convert Rust snake_case to Dart lowerCamelCase
+fn snake_to_camel(name: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+
+    for c in name.chars() {
+        if c == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            for upper_c in c.to_uppercase() {
+                result.push(upper_c);
+            }
+            capitalize_next = false;
+        } else if result.is_empty() {
+            for lower_c in c.to_lowercase() {
+                result.push(lower_c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -275,24 +275,39 @@ impl DartBackend {
                 // (`field0`) to payload-derived names so callers get an ergonomic API.
                 let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
                 let lib_dart_path = PathBuf::from(format!("{lib_dart_dir}/{module_name}_bridge_generated/lib.dart"));
+
+                // Collect excluded functions to pass to the post-processor.
+                let exclude_functions: Vec<String> = config
+                    .dart
+                    .as_ref()
+                    .map(|c| c.exclude_functions.clone())
+                    .unwrap_or_default();
+
+                let mut post_build_steps = vec![PostBuildStep::RunCommand {
+                    cmd: "flutter_rust_bridge_codegen",
+                    args: vec![
+                        "generate",
+                        "--config-file",
+                        "packages/dart/rust/flutter_rust_bridge.yaml",
+                    ],
+                }];
+
+                // Use the dedicated post-processor to filter excluded functions.
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: lib_dart_path.clone(),
+                    processor: PostProcessor::FrbDartExcludeFunctions(exclude_functions),
+                });
+
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: lib_dart_path,
+                    processor: PostProcessor::FrbDartSealedVariants,
+                });
+
                 Some(BuildConfig {
                     tool: "cargo",
                     crate_suffix: "-dart",
                     build_dep: BuildDependency::None,
-                    post_build: vec![
-                        PostBuildStep::RunCommand {
-                            cmd: "flutter_rust_bridge_codegen",
-                            args: vec![
-                                "generate",
-                                "--config-file",
-                                "packages/dart/rust/flutter_rust_bridge.yaml",
-                            ],
-                        },
-                        PostBuildStep::PostProcessFile {
-                            path: lib_dart_path,
-                            processor: PostProcessor::FrbDartSealedVariants,
-                        },
-                    ],
+                    post_build: post_build_steps,
                 })
             }
         }

@@ -35,11 +35,14 @@ impl BuildConfig {
 }
 
 /// In-process post-processor applied to a generated file after external build tools run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PostProcessor {
     /// Rewrite frb-generated Dart sealed-class factory params from positional names (`field0`)
     /// to payload-derived names (e.g. `metadata` for a `PdfMetadata` payload).
     FrbDartSealedVariants,
+    /// Filter excluded function definitions from frb-generated Dart lib.dart.
+    /// Stores the set of function names to exclude.
+    FrbDartExcludeFunctions(Vec<String>),
 }
 
 /// A post-build processing step.

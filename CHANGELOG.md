@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e-node: test-backend dimensions() returns 1 not 0.** The test-backend emitter for TypeScript/Node was using generic language defaults which return 0 for all integer types. This violated backend validation that requires `dimensions() > 0` for EmbeddingBackend stubs. The emitter now special-cases numeric types to return 1 for integers and 0.0 for floats in test stubs. (`src/e2e/codegen/typescript/mod.rs`)
+
 - **alef-e2e-php: require trait-bridge test stubs to implement the interface.** Generated PHP e2e tests were creating anonymous classes without explicit interface implementation, causing `TypeError: Argument #1 must be of type DocumentExtractor, class@anonymous given` at runtime because the registerDocumentExtractor/registerEmbeddingBackend/etc. functions enforce type hints. The emitter now declares `new class implements InterfaceName { ... }` instead of `new class { ... }`, matching PHP's requirement that objects passed to type-hinted parameters must explicitly implement the declared interface. Fixes PHP e2e test stubs for DocumentExtractor, EmbeddingBackend, OcrBackend, PostProcessor, Renderer, and Validator trait bridges. (`src/e2e/codegen/php.rs`)
 
 - **alef-e2e-go: include `encoding/json` import for json.RawMessage in test stubs.** Generated Go e2e tests used `json.RawMessage` in stub method signatures without importing `encoding/json`, causing undefined identifier errors. The emitter now checks whether any test method parameter or return type requires json.RawMessage (including Named types and Optional<Named>) and automatically adds the import to the generated test file's import block. (`src/e2e/codegen/go.rs`)

@@ -132,12 +132,31 @@ fn has_plugin_super(bridge_config: &TraitBridgeConfig) -> bool {
 /// Each shim signature is the JSON-bridged form of the trait method: complex types become
 /// `String` (JSON), primitives and `String`/`Vec<u8>` pass through directly. Methods that
 /// can fail return `Result<RetBridge, String>` so the Swift side can surface errors.
+///
+/// Also emits a phantom `Vec<Swift{Trait}Box>` function inside an `extern "Rust"` block
+/// to force swift-bridge-build to generate the Vec accessor symbols (`__swift_bridge__$Vec_*`)
+/// that the auto-generated Swift Vec extension references.
 pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: &TraitBridgeConfig) -> String {
     let trait_name = &trait_def.name;
     let box_name = format!("Swift{trait_name}Box");
+    let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
     let emit_plugin_shims = has_plugin_super(bridge_config);
 
     let mut block = String::new();
+
+    // Phantom Vec<Swift{Trait}Box> in extern "Rust" to force swift-bridge-build to emit
+    // the Vec accessor C symbols. This must come BEFORE the extern "Swift" block so the
+    // type is visible when the "Swift" block declares methods that use it.
+    block.push_str("    extern \"Rust\" {\n");
+    block.push_str(&crate::backends::swift::template_env::render(
+        "trait_phantom_fn.jinja",
+        minijinja::context! {
+            trait_name => &box_name,
+            trait_snake => &trait_snake,
+        },
+    ));
+    block.push_str("    }\n\n");
+
     block.push_str("    extern \"Swift\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "inbound_swift_type.rs.jinja",
@@ -227,6 +246,17 @@ pub(crate) fn emit_inbound_wrapper(
 
     let emit_plugin = has_plugin_super(bridge_config);
     let mut out = String::new();
+
+    // Phantom Vec<Swift{Trait}Box> implementation: forces swift-bridge-build to emit
+    // the Vec accessor C symbols (`__swift_bridge__$Vec_Swift{Trait}Box$len`, etc.)
+    // that the auto-generated Swift Vec extension method references.
+    out.push_str(&crate::backends::swift::template_env::render(
+        "trait_phantom_impl.jinja",
+        minijinja::context! {
+            trait_name => &box_name,
+            trait_snake => &trait_snake,
+        },
+    ));
 
     // 1. Wrapper struct with name cache + Send/Sync.
     // The name_cache field is only needed for Plugin super-trait (which returns &str from name()).

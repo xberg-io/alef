@@ -281,8 +281,15 @@ fn emit_ts_stub_method(
     // `"[object Object]"` — not valid JSON — causing a deserialization error in the
     // bridge.  Return the string literal `"{}"` instead; it round-trips cleanly
     // through `serde_json` as an empty object.
+    //
+    // For numeric types in test backends, use 1 instead of 0 to satisfy validation
+    // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
     let default_val = match &method.return_type {
         crate::core::ir::TypeRef::Named(_) => "\"{}\"".to_string(),
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "false".to_string(),
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => "0.0".to_string(),
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F64) => "0.0".to_string(),
+        crate::core::ir::TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
         other => defaults.emit_default(other),
     };
 
