@@ -3694,6 +3694,9 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "    private class {stub_class} : {iface_name}");
     let _ = writeln!(setup, "    {{");
 
+    // Track which super-trait methods we've already emitted to avoid duplication.
+    let mut emitted_methods = std::collections::HashSet::new();
+
     // Super-trait methods: filter by trait_source matching the configured super_trait.
     // Driven from IR — no method names are hardcoded. The `name` method returns the
     // fixture's plugin name; all other super-trait methods use the standard emission logic.
@@ -3708,17 +3711,15 @@ pub fn emit_test_backend(
             } else {
                 emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
             }
+            emitted_methods.insert(method.name.clone());
         }
     }
 
-    // Required methods only (skip those with default implementations and super-trait methods).
-    for method in methods.iter().filter(|m| !m.has_default_impl) {
-        // Skip super-trait methods already emitted above.
-        if trait_bridge
-            .super_trait
-            .as_deref()
-            .is_some_and(|st| method.trait_source.as_deref() == Some(st))
-        {
+    // All remaining methods (including those with default implementations).
+    // Skip super-trait methods already emitted above.
+    for method in methods.iter() {
+        // Skip methods already emitted.
+        if emitted_methods.contains(&method.name) {
             continue;
         }
         let method_cs = method.name.to_upper_camel_case();
