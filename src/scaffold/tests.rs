@@ -1957,6 +1957,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         cpu_bound_functions: Vec::new(),
+        nif_targets: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: "HtmlVisitor".to_string(),
@@ -2019,6 +2020,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         cpu_bound_functions: Vec::new(),
+        nif_targets: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: "Parser".to_string(),

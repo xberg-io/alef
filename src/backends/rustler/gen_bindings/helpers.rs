@@ -121,12 +121,28 @@ pub(super) fn gen_native_ex(
     // The env var that forces a local source build: {APP_NAME_UPPER}_BUILD
     let build_env_var = format!("{}_BUILD", app_name.to_uppercase());
 
+    // RustlerPrecompiled targets list. Reads from `[languages.elixir]
+    // nif_targets` in alef.toml; falls back to the historical default when
+    // the consumer hasn't customized it. Must agree with the consumer's CI
+    // matrix and `generate-elixir-checksums` action targets input.
+    let default_nif_targets: &[&str] = &[
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-gnu",
+    ];
+    let nif_targets = match config.elixir.as_ref() {
+        Some(elixir) if !elixir.nif_targets.is_empty() => elixir.nif_targets.join(" "),
+        _ => default_nif_targets.join(" "),
+    };
+
     out.push_str(&hash::header(CommentStyle::Hash));
     let ctx = minijinja::context! {
         app_module => app_module,
         app_name => app_name,
         repo_url => repo_url,
         build_env_var => build_env_var,
+        nif_targets => nif_targets,
     };
     out.push_str(&template_env::render("native_module_header.jinja", ctx));
 

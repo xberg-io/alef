@@ -372,6 +372,14 @@ pub struct ElixirConfig {
     /// blocking BEAM scheduler threads.
     #[serde(default)]
     pub cpu_bound_functions: Vec<String>,
+    /// Rust target triples for which precompiled NIFs are uploaded to the
+    /// GitHub release. `RustlerPrecompiled` reads this list to know which
+    /// archives to download at install time. Must agree with the consumer's
+    /// CI build matrix and the `generate-elixir-checksums` action's targets
+    /// input. When empty, falls back to the historical default of
+    /// `aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu`.
+    #[serde(default)]
+    pub nif_targets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
