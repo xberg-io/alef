@@ -1630,7 +1630,7 @@ fn build_args_and_setup(
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
-                    let emission = crate::e2e::codegen::emit_test_backend("php", trait_bridge, &methods, fixture);
+                    let emission = emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace);
                     // Split multi-line setup_block into individual lines so the
                     // Jinja template can indent each line uniformly with `        {{ line }}`.
                     for line in emission.setup_block.lines() {
@@ -2558,6 +2558,17 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
+    emit_test_backend_with_ns(trait_bridge, methods, fixture, "")
+}
+
+/// Namespace-aware variant called directly from the PHP e2e renderer.
+/// `binding_namespace` is the PHP namespace where the binding interfaces live (e.g. `Kreuzberg`).
+pub fn emit_test_backend_with_ns(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+    binding_namespace: &str,
+) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::e2e::escape::sanitize_ident;
 
@@ -2568,8 +2579,15 @@ pub fn emit_test_backend(
     // prefixes each line with 8 spaces (two method-body indent levels in PHPUnit).
     let mut setup = String::new();
     // PHP anonymous class must implement the interface explicitly.
+    // Qualify the interface with the binding namespace to avoid resolution against
+    // the e2e test namespace (e.g. `Kreuzberg\E2e\DocumentExtractor` not found).
     let interface_name = trait_bridge.trait_name.to_upper_camel_case();
-    let _ = writeln!(setup, "$stub = new class implements {interface_name} {{");
+    let qualified_interface = if binding_namespace.is_empty() {
+        interface_name.clone()
+    } else {
+        format!("\\{binding_namespace}\\{interface_name}")
+    };
+    let _ = writeln!(setup, "$stub = new class implements {qualified_interface} {{");
 
     // Plugin super-trait: emit `name()` returning the backend name string.
     if trait_bridge.super_trait.is_some() {
