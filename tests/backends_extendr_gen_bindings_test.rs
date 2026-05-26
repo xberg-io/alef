@@ -1122,7 +1122,7 @@ mod trait_bridge {
 
     #[test]
     fn test_exclude_functions_honored() {
-        use super::*;  // Import helpers from root scope
+        use super::*; // Import helpers from root scope
         let backend = ExtendrBackend;
 
         // Create API surface with two functions
