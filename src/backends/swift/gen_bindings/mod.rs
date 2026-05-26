@@ -2993,7 +2993,47 @@ fn emit_swift_bridge_files(
 ) -> anyhow::Result<Option<Vec<GeneratedFile>>> {
     let out_dir = match find_swift_bridge_out_dir(binding_crate_name) {
         Some(d) => d,
-        None => return Ok(None),
+        None => {
+            // No build output yet.  Upgrade the committed placeholder `RustBridgeC.h` to
+            // include the minimal `RustStr` typedef so that `SwiftBridgeCore.swift` compiles
+            // even before `cargo build -p {binding_crate_name}` has been run.  Without this
+            // typedef the Swift compiler reports "cannot find type 'RustStr' in scope" for
+            // every `extension RustStr` block in the committed `SwiftBridgeCore.swift`.
+            let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
+            let header_path = sources_rust_bridge_c.join("RustBridgeC.h");
+            // Only emit the minimal placeholder when the existing header still matches the
+            // old empty form (no RustStr typedef).  If the full header has already been
+            // written by a prior generate run with build output, leave it alone.
+            let needs_upgrade = header_path
+                .exists()
+                .then(|| std::fs::read_to_string(&header_path).ok())
+                .flatten()
+                .map(|content| !content.contains("RustStr"))
+                .unwrap_or(false);
+            if needs_upgrade {
+                let minimal_header = format!(
+                    "#ifndef RUST_BRIDGE_C_H\n\
+                     #define RUST_BRIDGE_C_H\n\
+                     \n\
+                     // Placeholder header for the RustBridgeC SwiftPM target.\n\
+                     // Run `cargo build -p {binding_crate_name}` and re-run `alef generate` to populate.\n\
+                     // The RustStr typedef below is the minimum required for SwiftBridgeCore.swift\n\
+                     // to compile before the full cargo build has been run.\n\
+                     \n\
+                     #include <stdint.h>\n\
+                     \n\
+                     typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
+                     \n\
+                     #endif /* RUST_BRIDGE_C_H */\n"
+                );
+                return Ok(Some(vec![GeneratedFile {
+                    path: header_path,
+                    content: minimal_header,
+                    generated_header: false,
+                }]));
+            }
+            return Ok(None);
+        }
     };
 
     // SwiftBridgeCore.swift: top-level in out/
