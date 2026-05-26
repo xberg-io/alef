@@ -1333,11 +1333,35 @@ fn main() -> Result<()> {
                 if resolved_cfg.generate.public_api {
                     let public_api_files = pipeline::generate_public_api(&api, resolved_cfg, &languages)?;
                     if !public_api_files.is_empty() {
-                        api_count = pipeline::write_files(&public_api_files, &base_dir)?;
+                        let api_hashes: Vec<(String, String)> = public_api_files
+                            .iter()
+                            .flat_map(|(_, fs)| {
+                                fs.iter().map(|f| {
+                                    let normalized = pipeline::normalize_content(&f.path, &f.content);
+                                    (
+                                        base_dir.join(&f.path).display().to_string(),
+                                        cache::hash_content(&normalized),
+                                    )
+                                })
+                            })
+                            .collect();
+                        let api_cache_key = format!("{}.public_api", resolved_cfg.name);
+                        let stored_api = cache::read_generation_hashes(&api_cache_key).unwrap_or_default();
+                        let api_match =
+                            !api_hashes.is_empty() && api_hashes.iter().all(|(p, h)| stored_api.get(p) == Some(h));
+
                         for (_, files) in &public_api_files {
                             for file in files {
                                 current_gen_paths.insert(base_dir.join(&file.path));
                             }
+                        }
+
+                        if !api_match || clean {
+                            api_count = pipeline::write_files(&public_api_files, &base_dir)?;
+                            eprintln!("Generated {api_count} public API files");
+                            let _ = cache::write_generation_hashes(&api_cache_key, &api_hashes);
+                        } else {
+                            eprintln!("  [public_api] up to date (skipping)");
                         }
                     }
                 }
