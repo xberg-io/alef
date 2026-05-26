@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.20] - 2026-05-26
+
 ### Fixed
 
 - **alef php template_env: register `php_interface_start.jinja` and `php_interface_method.jinja` in the embedded `TEMPLATES` array.** The v0.19.19 PHP trait-bridge interface emission added the two new Jinja templates on disk and referenced them in `src/backends/php/trait_bridge.rs:960`, but forgot to register them in `src/backends/php/template_env.rs::TEMPLATES`. The template loader uses `include_str!` to embed templates at compile time, so the on-disk files are never read at runtime — only entries in `TEMPLATES` are visible to `make_env()`. As shipped, `alef 0.19.19` panicked on every PHP binding generation with `template php_interface_start.jinja not found`, blocking all consumers from upgrading. The fix adds both templates to the `TEMPLATES` array. (`src/backends/php/template_env.rs`)
