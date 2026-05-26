@@ -3845,16 +3845,10 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "    }}");
 
     // Registration expression.
-    let arg_expr = if let Some(reg_fn) = trait_bridge.register_fn.as_deref() {
-        format!(
-            "{}Bridge.{}(new {}())",
-            trait_pascal,
-            reg_fn.to_upper_camel_case(),
-            stub_class
-        )
-    } else {
-        format!("{}Bridge.Register(new {}())", trait_pascal, stub_class)
-    };
+    // Always use the high-level `Bridge.Register(impl)` factory — it handles
+    // FFI registration internally. The low-level `Bridge.RegisterXxx(impl)`
+    // overloads (derived from reg_fn name) return IntPtr and are not the public API.
+    let arg_expr = format!("{}Bridge.Register(new {}())", trait_pascal, stub_class);
 
     super::TestBackendEmission {
         setup_block: setup,
