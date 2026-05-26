@@ -174,17 +174,10 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Elixir);
 
-    // Jason is required whenever visitor bridges are active (options_field or function_param
-    // mode) because the visitor receive loop uses Jason.decode! / Jason.encode!.
-    let has_visitor_bridges = config
-        .trait_bridges
-        .iter()
-        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
-    let jason_dep = if has_visitor_bridges {
-        format!("\n      {{:jason, \"{jason}\"}},", jason = tv::hex::JASON)
-    } else {
-        String::new()
-    };
+    // Jason is always required for Elixir bindings because generated data-class
+    // serialization (pack_config, code_chunk, etc.) uses Jason.encode! / Jason.decode!,
+    // in addition to any visitor bridges that may use it.
+    let jason_dep = format!("\n      {{:jason, \"{jason}\"}},", jason = tv::hex::JASON);
 
     // Determine if the generated Elixir source files live outside the default `lib/`
     // subdirectory. If so, emit an `elixirc_paths` entry so Mix can find them.
