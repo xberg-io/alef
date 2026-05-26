@@ -699,7 +699,7 @@ mod tests {
         let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
-        assert!(content.contains("public static void Register(IOcrBackend impl, string name)"));
+        assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
         // unregister_fn is None — Unregister must not be emitted
         assert!(!content.contains("public static void Unregister(string name)"));
         // No impl.Name reference when interface lacks it
@@ -716,7 +716,7 @@ mod tests {
         let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
-        assert!(content.contains("public static void Register(IOcrBackend impl)"));
+        assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
         assert!(!content.contains("Register(IOcrBackend impl, string name)"));
         assert!(content.contains("impl.Name"));
     }
