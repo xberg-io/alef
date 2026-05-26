@@ -2,7 +2,7 @@
 //!
 //! Emits one Zig extern struct (vtable) and one registration wrapper function
 //! per configured `[[trait_bridges]]` entry.  The Zig consumer fills in the
-//! struct with `callconv(.C)` function pointers and calls `register_*`.
+//! struct with `callconv(.c)` function pointers and calls `register_*`.
 //!
 //! # C symbol convention
 //!
@@ -102,7 +102,7 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
 
 /// Emit a `make_{trait_snake}_vtable(comptime T: type, instance: *T) I{Trait}` helper.
 ///
-/// The helper builds `callconv(.C)` thunks for every vtable slot so the consumer
+/// The helper builds `callconv(.c)` thunks for every vtable slot so the consumer
 /// only needs to write plain Zig methods on their type.
 ///
 /// # Limitations
@@ -359,25 +359,25 @@ pub fn emit_trait_bridge(
     if has_super_trait {
         out.push_str("    /// Return the plugin name into `out_name` (heap-allocated, caller frees).\n");
         out.push_str(
-            "    name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.C) void = null,\n",
+            "    name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.c) void = null,\n",
         );
         out.push('\n');
 
         out.push_str("    /// Return the plugin version into `out_version` (heap-allocated, caller frees).\n");
         out.push_str(
-            "    version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.C) void = null,\n",
+            "    version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.c) void = null,\n",
         );
         out.push('\n');
 
         out.push_str("    /// Initialise the plugin; return 0 on success, non-zero on error.\n");
         out.push_str(
-            "    initialize_fn: ?*const fn (user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 = null,\n",
+            "    initialize_fn: ?*const fn (user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.c) i32 = null,\n",
         );
         out.push('\n');
 
         out.push_str("    /// Shut down the plugin; return 0 on success, non-zero on error.\n");
         out.push_str(
-            "    shutdown_fn: ?*const fn (user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.C) i32 = null,\n",
+            "    shutdown_fn: ?*const fn (user_data: ?*anyopaque, out_error: ?*?[*c]u8) callconv(.c) i32 = null,\n",
         );
         out.push('\n');
     }
@@ -434,7 +434,7 @@ pub fn emit_trait_bridge(
     // free_user_data — always last; called by Rust Drop to release the Zig-side handle.
     out.push_str("    /// Called by the Rust runtime when the bridge is dropped.\n");
     out.push_str("    /// Use this to release any Zig-side state held via `user_data`.\n");
-    out.push_str("    free_user_data: ?*const fn (user_data: ?*anyopaque) callconv(.C) void = null,\n");
+    out.push_str("    free_user_data: ?*const fn (user_data: ?*anyopaque) callconv(.c) void = null,\n");
 
     out.push_str("};\n");
     out.push('\n');
@@ -819,8 +819,8 @@ mod tests {
         assert!(out.contains("validate:"), "missing validate slot: {out}");
         // user_data first arg
         assert!(out.contains("user_data: ?*anyopaque"), "missing user_data: {out}");
-        // callconv(.C) present
-        assert!(out.contains("callconv(.C)"), "missing callconv: {out}");
+        // callconv(.c) present
+        assert!(out.contains("callconv(.c)"), "missing callconv: {out}");
         // free_user_data slot
         assert!(out.contains("free_user_data:"), "missing free_user_data: {out}");
         // Registration shim
@@ -994,8 +994,8 @@ mod tests {
         assert!(out.contains("IValidator{"), "missing vtable literal: {out}");
         // Thunk casts user_data
         assert!(out.contains("@ptrCast(@alignCast(ud))"), "missing @ptrCast cast: {out}");
-        // callconv(.C) in thunk
-        assert!(out.contains("callconv(.C)"), "missing callconv(.C) in thunk: {out}");
+        // callconv(.c) in thunk
+        assert!(out.contains("callconv(.c)"), "missing callconv(.c) in thunk: {out}");
         // validate thunk field
         assert!(out.contains(".validate ="), "missing .validate thunk field: {out}");
         // free_user_data thunk
@@ -1072,7 +1072,7 @@ mod tests {
 
         // Thunk returns i32 (fallible → i32 return)
         assert!(
-            out.contains("callconv(.C) i32"),
+            out.contains("callconv(.c) i32"),
             "fallible thunk must return i32: {out}"
         );
         // Returns 0 on success

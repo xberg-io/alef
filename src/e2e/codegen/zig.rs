@@ -2688,7 +2688,9 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
         TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner)),
         TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner)),
         TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v)),
-        TypeRef::Named(name) => name.clone(),
+        // Named types (structs, enums) must be qualified with the module alias so the
+        // caller's `replace("lib.", "<real_module>.")` substitution resolves them.
+        TypeRef::Named(name) => format!("lib.{name}"),
         TypeRef::Duration => "i64".to_string(),
     }
 }

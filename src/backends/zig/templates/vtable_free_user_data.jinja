@@ -1,5 +1,5 @@
         .free_user_data = struct {
-            fn thunk(user_data: ?*anyopaque) callconv(.C) void {
+            fn thunk(user_data: ?*anyopaque) callconv(.c) void {
                 _ = user_data;
             }
         }.thunk,

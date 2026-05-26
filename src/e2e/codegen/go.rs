@@ -827,6 +827,10 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileCo
     if needs_base64 {
         let _ = writeln!(out, "\t\"encoding/base64\"");
     }
+    // Also check empirically: test-backend setup_block code may use json.RawMessage
+    // or json.Unmarshal in package-level declarations that were not detected by the
+    // up-front heuristic (which only checked handle/json_object call args).
+    let needs_json = needs_json || body.contains("json.");
     if needs_json || needs_reflect {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
