@@ -3573,3 +3573,61 @@ fn wrapper_struct_alongside_per_element_struct_is_extracted() {
         "return_type must resolve to Named, not String"
     );
 }
+
+#[test]
+fn test_extract_excludes_dyn_trait_object_fields() {
+    // Fields whose type contains `dyn Trait` must be auto-excluded from bindings,
+    // regardless of whether `#[serde(skip)]` is also present.
+    // Trait objects cannot be marshaled through serde or constructed from non-Rust code.
+    let source = r#"
+        pub struct Config {
+            pub normal: String,
+            pub arc_dyn: std::sync::Arc<dyn MyTrait>,
+            pub option_box_dyn: Option<Box<dyn MyTrait>>,
+            pub vec_arc_dyn: Vec<std::sync::Arc<dyn MyTrait>>,
+            #[serde(skip)]
+            pub serde_skip_plain: String,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let config = &surface.types[0];
+
+    let normal = config.fields.iter().find(|f| f.name == "normal").unwrap();
+    assert!(!normal.binding_excluded, "plain String must not be excluded");
+
+    let arc_dyn = config.fields.iter().find(|f| f.name == "arc_dyn").unwrap();
+    assert!(arc_dyn.binding_excluded, "Arc<dyn Trait> must be excluded");
+    assert_eq!(
+        arc_dyn.binding_exclusion_reason.as_deref(),
+        Some("dyn-trait-object"),
+        "exclusion reason must be dyn-trait-object"
+    );
+
+    let option_box_dyn = config.fields.iter().find(|f| f.name == "option_box_dyn").unwrap();
+    assert!(
+        option_box_dyn.binding_excluded,
+        "Option<Box<dyn Trait>> must be excluded"
+    );
+    assert_eq!(
+        option_box_dyn.binding_exclusion_reason.as_deref(),
+        Some("dyn-trait-object"),
+        "exclusion reason must be dyn-trait-object"
+    );
+
+    let vec_arc_dyn = config.fields.iter().find(|f| f.name == "vec_arc_dyn").unwrap();
+    assert!(vec_arc_dyn.binding_excluded, "Vec<Arc<dyn Trait>> must be excluded");
+    assert_eq!(
+        vec_arc_dyn.binding_exclusion_reason.as_deref(),
+        Some("dyn-trait-object"),
+        "exclusion reason must be dyn-trait-object"
+    );
+
+    // `#[serde(skip)]` alone on a plain type must NOT trigger binding exclusion
+    // (consumers use serde(skip) on types that bindings can still access directly).
+    let serde_skip_plain = config.fields.iter().find(|f| f.name == "serde_skip_plain").unwrap();
+    assert!(
+        !serde_skip_plain.binding_excluded,
+        "serde(skip) on plain String must not exclude from bindings"
+    );
+}
