@@ -1819,8 +1819,11 @@ fn render_assertion(
 
     // Streaming virtual fields resolve against the `chunks` collected-list variable.
     // Intercept before is_valid_for_result so they are never skipped.
+    // Gate on `is_streaming` so non-streaming fixtures (e.g. consumers whose real
+    // result struct has a literal `chunks` field) don't divert into the virtual
+    // accessor path — they should fall through to the normal field resolver.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+        if is_streaming && !f.is_empty() && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             let stream_lang = if kotlin_android_style {
                 "kotlin_android"
             } else {
