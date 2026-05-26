@@ -1,5 +1,5 @@
     /** Clear all registered {{ trait_pascal }} implementations. */
-    public static void clearAll{{ trait_pascal }}() throws Exception {
+    public static void {{ method_name }}() throws Exception {
         try {
             try (var arena = Arena.ofShared()) {
                 MemorySegment outErr = arena.allocate(ValueLayout.ADDRESS);
@@ -7,7 +7,7 @@
                 if (rc != 0) {
                     MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);
                     String msg = errPtr.equals(MemorySegment.NULL) ? "clear failed (rc=" + rc + ")" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);
-                    throw new RuntimeException("clearAll{{ trait_pascal }}: " + msg);
+                    throw new RuntimeException("{{ method_name }}: " + msg);
                 }
             }
         } catch (Throwable t) {

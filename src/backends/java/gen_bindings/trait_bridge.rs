@@ -133,11 +133,14 @@ pub fn gen_unregistration_fn(
     )
 }
 
-/// Generate the Java `clearAll{Trait}` static helper body.
+/// Generate the Java `clear{Plural}` static helper body.
 ///
 /// Returns an empty string when `clear_fn` is `None` (opt-in). The emitted method calls
 /// `NativeLib.{PREFIX}_CLEAR_{TRAIT}` via Panama FFM (no arguments other than the out-error
 /// pointer), then closes and removes every live bridge from the local registry.
+///
+/// The method name is derived from `clear_fn` (e.g., `clear_renderers` → `clearRenderers`)
+/// to match the Rust function name convention where the plural is explicit.
 pub fn gen_clear_fn(
     trait_pascal: &str,
     trait_snake_upper: &str,
@@ -149,6 +152,26 @@ pub fn gen_clear_fn(
     if clear_fn.is_none() {
         return String::new();
     }
+    // Convert clear_fn from snake_case (e.g., "clear_renderers") to method name
+    // (e.g., "clearRenderers") by removing "clear_" prefix and PascalCasing the rest.
+    let method_name = if let Some(fn_name) = clear_fn {
+        let without_prefix = fn_name.strip_prefix("clear_").unwrap_or(fn_name);
+        let words: Vec<&str> = without_prefix.split('_').collect();
+        let mut camel = String::from("clear");
+        for word in words {
+            if !word.is_empty() {
+                let mut chars = word.chars();
+                if let Some(first) = chars.next() {
+                    camel.push(first.to_uppercase().next().unwrap());
+                    camel.push_str(chars.as_str());
+                }
+            }
+        }
+        camel
+    } else {
+        format!("clearAll{trait_pascal}")
+    };
+
     template_env::render(
         "bridge_clear_method.jinja",
         minijinja::context! {
@@ -157,6 +180,7 @@ pub fn gen_clear_fn(
             prefix_upper => prefix_upper,
             bridge_class => bridge_class,
             registry_field => registry_field,
+            method_name => &method_name,
         },
     )
 }
@@ -705,7 +729,7 @@ mod tests {
             &visible,
         );
         let body = files.bridge_content.as_str();
-        assert!(body.contains("public static void clearAllOcrBackend()"));
+        assert!(body.contains("public static void clearOcrBackends()"));
         assert!(body.contains("KRZ_CLEAR_OCR_BACKEND"));
         assert!(body.contains("OCR_BACKEND_BRIDGES.values().forEach(OcrBackendBridge::close)"));
         assert!(body.contains("OCR_BACKEND_BRIDGES.clear()"));
@@ -718,7 +742,7 @@ mod tests {
         let visible = all_named_visible(&trait_def.methods);
         let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
         let body = files.bridge_content.as_str();
-        assert!(!body.contains("public static void clearAllOcrBackend()"));
+        assert!(!body.contains("public static void clearOcrBackends()"));
     }
 
     #[test]
@@ -736,7 +760,7 @@ mod tests {
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void unregisterOcrBackend(String name)"));
-        assert!(body.contains("public static void clearAllOcrBackend()"));
+        assert!(body.contains("public static void clearOcrBackends()"));
     }
 
     #[test]
