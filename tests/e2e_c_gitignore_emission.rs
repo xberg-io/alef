@@ -80,7 +80,9 @@ fn c_codegen_emits_gitignore() {
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![build_fixture()];
-    let files = CCodegen.generate(&groups, &e2e, &resolved, &[], &[]).expect("C generation succeeds");
+    let files = CCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("C generation succeeds");
 
     let gitignore = files
         .iter()
@@ -96,8 +98,14 @@ fn c_codegen_emits_gitignore() {
     );
 
     let content = &gitignore.content;
-    assert!(content.contains("run_tests"), ".gitignore must ignore the linked test binary `run_tests`. Got:\n{content}");
-    assert!(content.contains("*.o"), ".gitignore must ignore intermediate object files (`*.o`). Got:\n{content}");
+    assert!(
+        content.contains("run_tests"),
+        ".gitignore must ignore the linked test binary `run_tests`. Got:\n{content}"
+    );
+    assert!(
+        content.contains("*.o"),
+        ".gitignore must ignore intermediate object files (`*.o`). Got:\n{content}"
+    );
     assert!(
         content.contains("mock_server.stdout"),
         ".gitignore must ignore mock-server stdout pipe. Got:\n{content}"
