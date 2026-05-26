@@ -58,12 +58,11 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
-        /// Run post-generation formatters on emitted files. Default: true so the
-        /// emitted bindings are formatter-stable before hash finalisation and prek
-        /// hooks (ruff, mix format, gofmt, etc.) are no-ops on a fresh `alef generate`.
+        /// Run post-generation formatters on emitted files. Default: false for
+        /// fast regeneration; pass `--format` to opt into formatter-stable output.
         #[arg(
             long,
-            default_value_t = true,
+            default_value_t = false,
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
@@ -189,12 +188,11 @@ enum Commands {
         /// Ignore cache.
         #[arg(long)]
         clean: bool,
-        /// Run post-generation formatters on emitted files. Default: true so the
-        /// regen output matches each language's canonical formatting and prek
-        /// hooks (ruff, mix format, gofmt, etc.) are no-ops on a fresh `alef all`.
+        /// Run post-generation formatters on emitted files. Default: false for
+        /// fast regeneration; pass `--format` to opt into formatter-stable output.
         #[arg(
             long,
-            default_value_t = true,
+            default_value_t = false,
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
@@ -206,10 +204,10 @@ enum Commands {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
-        /// Run post-generation formatters on emitted files. Default: true.
+        /// Run post-generation formatters on emitted files. Default: false.
         #[arg(
             long,
-            default_value_t = true,
+            default_value_t = false,
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,

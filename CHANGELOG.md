@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **alef-cli: make post-generation formatting opt-in for `generate`, `all`, and `init`.** These commands now default `--format` to `false` so regeneration stays fast and avoids invoking language-native formatter chains unless requested. Pass `--format` to run the existing best-effort formatter pipeline before hash finalisation. (`src/main.rs`, `tests/cli_generate_format_flag.rs`, `skills/alef/references/cli-reference.md`)
+
 ## [0.19.20] - 2026-05-26
 
 ### Fixed

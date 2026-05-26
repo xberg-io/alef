@@ -11,7 +11,7 @@ pub(crate) mod enums;
 pub(crate) mod extern_block;
 pub(crate) mod plugin_inbound;
 pub(crate) mod shims;
-pub(crate) mod trait_bridge;
+pub mod trait_bridge;
 pub(crate) mod type_bridge;
 pub(crate) mod wrappers;
 

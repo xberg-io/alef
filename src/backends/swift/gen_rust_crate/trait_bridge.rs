@@ -126,7 +126,7 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
 /// `fn {trait_snake}_call_{method}(this: &{Trait}Box, args…) -> ret`.
 /// All parameter/return types are flattened to swift-bridge-safe types (primitives,
 /// String, Vec<leaf>). Complex types (Named, Optional, Map, Vec<non-leaf>) are JSON-bridged.
-pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_names: &HashSet<&str>) -> String {
+pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_names: &HashSet<&str>) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
@@ -208,7 +208,7 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_ty
 /// wrapper newtypes in the generated lib.rs. Named return types NOT in this set (e.g. excluded
 /// types like `InternalDocument`) are serialised to JSON rather than wrapped in a nonexistent
 /// struct or enum.
-pub(crate) fn emit_trait_bridge_wrapper(
+pub fn emit_trait_bridge_wrapper(
     trait_def: &TypeDef,
     source_crate: &str,
     enum_names: &HashSet<&str>,

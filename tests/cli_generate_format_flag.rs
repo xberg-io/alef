@@ -45,6 +45,14 @@ fn generate_help_shows_format_flag() {
         "`alef generate --help` must list --format flag; got:\n{combined}"
     );
     assert!(
+        combined.contains("[default: false]"),
+        "`alef generate --help` must document that --format defaults to false; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Default: false for fast regeneration"),
+        "`alef generate --help` must describe formatting as opt-in; got:\n{combined}"
+    );
+    assert!(
         !combined.contains("--no-format"),
         "`alef generate --help` must not list --no-format; got:\n{combined}"
     );
@@ -65,6 +73,14 @@ fn all_help_shows_format_flag() {
     assert!(
         combined.contains("  --format"),
         "`alef all --help` must list --format flag; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("[default: false]"),
+        "`alef all --help` must document that --format defaults to false; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Default: false for fast regeneration"),
+        "`alef all --help` must describe formatting as opt-in; got:\n{combined}"
     );
     assert!(
         !combined.contains("--no-format"),
