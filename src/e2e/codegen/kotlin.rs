@@ -1627,7 +1627,37 @@ fn build_args_and_setup(
                         }
                     } else {
                         // Infer type from arg name: "config" → "ExtractionConfig", "options" → "Options"
-                        format!("{}()", arg.name.to_upper_camel_case())
+                        // Try to find the actual config class by looking in type_defs first,
+                        // then fall back to arg.name + "Config" pattern or just UpperCamelCase
+                        let (inferred_type, needs_required_param) = match arg.name.as_str() {
+                            "config" => {
+                                // Special case: "config" → "ExtractionConfig"
+                                if type_defs.iter().any(|t| t.name == "ExtractionConfig") {
+                                    ("ExtractionConfig".to_string(), false)
+                                } else {
+                                    (format!("{}Config", arg.name.to_upper_camel_case()), false)
+                                }
+                            },
+                            _ => {
+                                // For other names like "embed_config" → look for "EmbedConfig",
+                                // then fall back to arg.name.to_upper_camel_case() + "Config"
+                                let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+                                if type_defs.iter().any(|t| t.name == candidate) {
+                                    // Check if this is EmbeddingConfig which requires a model parameter
+                                    let needs_param = candidate == "EmbeddingConfig";
+                                    (candidate, needs_param)
+                                } else {
+                                    // Final fallback: just use to_upper_camel_case
+                                    (arg.name.to_upper_camel_case(), false)
+                                }
+                            }
+                        };
+                        // EmbeddingConfig requires a model parameter; provide a sensible default
+                        if needs_required_param && inferred_type == "EmbeddingConfig" {
+                            format!("{}(model = EmbeddingModelType.Preset(name = \"balanced\"))", inferred_type)
+                        } else {
+                            format!("{}()", inferred_type)
+                        }
                     };
                     parts.push(default_constructor);
                 } else {
@@ -2204,9 +2234,15 @@ fn render_assertion(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
+                    // For simple result types (ByteArray), use .size; for String use .length
+                    let length_accessor = if result_is_simple && field_expr == result_var {
+                        "size"
+                    } else {
+                        "length"
+                    };
                     let _ = writeln!(
                         out,
-                        "        assertTrue({string_field_expr}.length >= {n}, \"expected length >= {n}\")"
+                        "        assertTrue({string_field_expr}.{length_accessor} >= {n}, \"expected {length_accessor} >= {n}\")"
                     );
                 }
             }
@@ -2214,9 +2250,15 @@ fn render_assertion(
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
+                    // For simple result types (ByteArray), use .size; for String use .length
+                    let length_accessor = if result_is_simple && field_expr == result_var {
+                        "size"
+                    } else {
+                        "length"
+                    };
                     let _ = writeln!(
                         out,
-                        "        assertTrue({string_field_expr}.length <= {n}, \"expected length <= {n}\")"
+                        "        assertTrue({string_field_expr}.{length_accessor} <= {n}, \"expected {length_accessor} <= {n}\")"
                     );
                 }
             }
