@@ -193,6 +193,7 @@ rust_out.*
 .cursor/rules/test-independence.mdc
 .cursor/rules/test-naming.mdc
 .cursor/rules/testing-anti-patterns.mdc
+.cursor/rules/typescript-conventions.mdc
 .cursor/rules/upstream-triage.mdc
 .cursor/rules/verification-before-completion.mdc
 .cursor/rules/verify-before-acting.mdc
