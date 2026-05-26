@@ -1370,11 +1370,26 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
-                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                    // Collect methods from both the main trait and its super-trait (if present).
+                    // The super-trait methods are needed so stubs implement the full interface.
+                    let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                         .iter()
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
+
+                    // If there's a super-trait, also collect its methods.
+                    if let Some(super_trait) = &trait_bridge.super_trait {
+                        if let Some(super_type) = type_defs.iter().find(|t| &t.name == super_trait) {
+                            for method in &super_type.methods {
+                                // Only add if not already present (avoid duplicates).
+                                if !methods.iter().any(|m| m.name == method.name) {
+                                    methods.push(method);
+                                }
+                            }
+                        }
+                    }
+
                     let emission = crate::e2e::codegen::emit_test_backend("elixir", trait_bridge, &methods, fixture);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
@@ -2581,6 +2596,9 @@ pub fn emit_test_backend(
     // If there is a Plugin super-trait, emit `name/0`.
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(setup, "  def name, do: \"{plugin_name}\"");
+        // initialize/0 has a Rust default impl but Rustler calls it unconditionally on
+        // every registered plugin object — the Elixir stub must define it.
+        let _ = writeln!(setup, "  def initialize, do: :ok");
     }
 
     // Emit required (non-default) methods.
@@ -2592,7 +2610,13 @@ pub fn emit_test_backend(
         let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
         let params_str = params.join(", ");
 
-        let default_val = defaults.emit_default(&method.return_type);
+        // Special case: EmbeddingBackend.dimensions must return > 0, not 0.
+        let default_val = if method.name == "dimensions" && trait_bridge.trait_name == "EmbeddingBackend" {
+            "1".to_string()
+        } else {
+            defaults.emit_default(&method.return_type)
+        };
+
         // Elixir NIFs that may error wrap the result in `{:ok, value}`.
         let return_expr = if method.error_type.is_some() {
             format!("{{:ok, {default_val}}}")
