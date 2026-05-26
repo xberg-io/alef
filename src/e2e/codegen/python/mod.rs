@@ -165,6 +165,11 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "    def name(self):");
         let _ = writeln!(setup, "        return \"{escaped}\"");
         method_count += 1;
+        // initialize() has a Rust default impl but PyO3 calls it unconditionally on
+        // every registered plugin object — the Python stub must define it.
+        let _ = writeln!(setup, "    def initialize(self):");
+        let _ = writeln!(setup, "        pass");
+        method_count += 1;
     }
 
     // Required methods only.
