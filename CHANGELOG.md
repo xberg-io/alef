@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.17] - 2026-05-26
+
+### Fixed
+
+- Wasm input DTO codegen now filters out fields excluded from bindings
+  (`binding_excluded`). Trait-object and other non-marshalable fields were
+  leaking into the generated `{TypeName}Input` struct and producing
+  uncompilable `serde_json::from_str` calls in `From` impls.
+
 ## [0.19.16] - 2026-05-26
 
 ### Fixed

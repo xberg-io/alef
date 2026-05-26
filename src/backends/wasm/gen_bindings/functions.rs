@@ -52,9 +52,7 @@ pub(super) fn gen_input_dto_for_type(
     // each present field into the core type via the per-field `conv` expression
     // (in terms of the bound variable `v`), respecting the core type's Default
     // for omitted fields.
-    let fields: Vec<_> = type_def
-        .fields
-        .iter()
+    let fields: Vec<_> = crate::codegen::shared::binding_fields(&type_def.fields)
         .map(|f| {
             let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
             let camel_case_name = to_camel_case(&f.name);
@@ -1413,6 +1411,80 @@ mod tests {
         assert_eq!(
             conv_sanitized, "serde_json::from_str(&v).unwrap_or_default()",
             "sanitized String should use JSON deserialization: {conv_sanitized}"
+        );
+    }
+
+    #[test]
+    fn gen_input_dto_excludes_binding_excluded_fields() {
+        // Regression: gen_input_dto_for_type previously iterated type_def.fields
+        // directly without filtering binding_excluded fields, causing trait-object
+        // and other non-marshalable fields to appear in the generated Input DTO.
+        // The generated From impl then emitted serde_json::from_str into the trait
+        // object, producing uncompilable Rust in consumer wasm bindings.
+        use crate::core::ir::{CoreWrapper, FieldDef};
+
+        let make_field = |name: &str, ty: TypeRef, binding_excluded: bool, sanitized: bool| FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded,
+            binding_exclusion_reason: None,
+            original_type: None,
+        };
+
+        let type_def = crate::core::ir::TypeDef {
+            name: "CrawlConfig".to_string(),
+            rust_path: "kreuzcrawl::CrawlConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                // Normal field — must appear in the DTO.
+                make_field(
+                    "max_depth",
+                    TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                    false,
+                    false,
+                ),
+                // binding_excluded trait-object field — must NOT appear in the DTO.
+                make_field("bypass", TypeRef::String, true, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let (code, _name) = gen_input_dto_for_type("CrawlConfig", "kreuzcrawl", &type_def);
+
+        assert!(
+            code.contains("max_depth"),
+            "normal field must appear in input DTO: {code}"
+        );
+        assert!(
+            !code.contains("bypass"),
+            "binding_excluded field must not appear in input DTO: {code}"
         );
     }
 }
