@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef kotlin e2e codegen: cast receiver in collection-contains assertions to fix type inference.** Collection assertions (contains, contains_all, not_contains) on `List<String>` fields now emit `(receiver as List<String>).contains(...)` instead of `receiver.contains(...)`. Kotlin's `@OnlyInputTypes` annotation on `List.contains()` refuses inference when the type parameter `T` is not fully constrained at the call site, causing compile error "Type inference failed. The value of the type parameter 'T' must be mentioned in input types" on lines with `result.structure.contains("Function")`. The cast fixes type inference for both streaming (result field) and non-streaming (intermediate fields) assertion paths. (`src/e2e/codegen/kotlin.rs`)
+
 ## [0.19.12] - 2026-05-26
 
 ### Fixed

@@ -160,6 +160,15 @@ pub(crate) fn gen_facade_class(
         })
         .collect();
 
+    // Build the set of method names already emitted from api.functions so we
+    // can skip trait-bridge wrapper methods that would produce duplicates.
+    // When register_fn/unregister_fn/clear_fn are also declared as top-level
+    // Rust API functions they appear in both `api.functions` (emitted above via
+    // the facade_class template) AND in the trait_bridges config. Without this
+    // guard the facade class ends up with two identically-named static methods,
+    // which the Java compiler rejects.
+    let api_function_names: HashSet<String> = api.functions.iter().map(|f| to_java_name(&f.name)).collect();
+
     // Emit static facade methods for trait bridges (register/unregister/clear).
     // These provide convenient access to trait bridge methods without requiring
     // callers to reference the individual Bridge classes.
@@ -177,32 +186,41 @@ pub(crate) fn gen_facade_class(
         // register method
         if let Some(register_fn) = &bridge.register_fn {
             let java_register_fn = to_java_name(register_fn);
-            let trait_ident = format!("I{}", trait_pascal);
-            let method_code = format!(
-                "    public static void {}(final {} impl) throws {}Exception {{\n        {}.{}(impl);\n    }}\n\n",
-                java_register_fn, trait_ident, raw_class, bridge_class, java_register_fn
-            );
-            trait_bridge_wrappers.push_str(&method_code);
+            // Skip if already emitted as an api.functions delegate above.
+            if !api_function_names.contains(&java_register_fn) {
+                let trait_ident = format!("I{}", trait_pascal);
+                let method_code = format!(
+                    "    public static void {}(final {} impl) throws {}Exception {{\n        {}.{}(impl);\n    }}\n\n",
+                    java_register_fn, trait_ident, raw_class, bridge_class, java_register_fn
+                );
+                trait_bridge_wrappers.push_str(&method_code);
+            }
         }
 
         // unregister method
         if let Some(unregister_fn) = &bridge.unregister_fn {
             let java_unregister_fn = to_java_name(unregister_fn);
-            let method_code = format!(
-                "    public static void {}(final String name) throws {}Exception {{\n        {}.{}(name);\n    }}\n\n",
-                java_unregister_fn, raw_class, bridge_class, java_unregister_fn
-            );
-            trait_bridge_wrappers.push_str(&method_code);
+            // Skip if already emitted as an api.functions delegate above.
+            if !api_function_names.contains(&java_unregister_fn) {
+                let method_code = format!(
+                    "    public static void {}(final String name) throws {}Exception {{\n        {}.{}(name);\n    }}\n\n",
+                    java_unregister_fn, raw_class, bridge_class, java_unregister_fn
+                );
+                trait_bridge_wrappers.push_str(&method_code);
+            }
         }
 
         // clear method
         if let Some(clear_fn) = &bridge.clear_fn {
             let java_clear_fn = to_java_name(clear_fn);
-            let method_code = format!(
-                "    public static void {}() throws {}Exception {{\n        {}.{}();\n    }}\n\n",
-                java_clear_fn, raw_class, bridge_class, java_clear_fn
-            );
-            trait_bridge_wrappers.push_str(&method_code);
+            // Skip if already emitted as an api.functions delegate above.
+            if !api_function_names.contains(&java_clear_fn) {
+                let method_code = format!(
+                    "    public static void {}() throws {}Exception {{\n        {}.{}();\n    }}\n\n",
+                    java_clear_fn, raw_class, bridge_class, java_clear_fn
+                );
+                trait_bridge_wrappers.push_str(&method_code);
+            }
         }
     }
 

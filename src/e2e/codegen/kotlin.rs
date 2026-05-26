@@ -1879,7 +1879,7 @@ fn render_assertion(
                         if let Some(serde_json::Value::String(s)) = &assertion.value {
                             let escaped = escape_kotlin(s);
                             format!(
-                                "        assertTrue({expr}.contains(\"{escaped}\"), \"expected to contain: {escaped}\")\n"
+                                "        assertTrue(({expr} as List<String>).contains(\"{escaped}\"), \"expected to contain: {escaped}\")\n"
                             )
                         } else {
                             String::new()
@@ -2052,7 +2052,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(expected);
                 let _ = writeln!(
                     out,
-                    "        assertTrue({string_expr}.contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                    "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
                 );
             }
         }
@@ -2062,7 +2062,7 @@ fn render_assertion(
                     let kotlin_val = json_to_kotlin(val);
                     let _ = writeln!(
                         out,
-                        "        assertTrue({string_expr}.contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                        "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
                     );
                 }
             }
@@ -2072,7 +2072,7 @@ fn render_assertion(
                 let kotlin_val = json_to_kotlin(expected);
                 let _ = writeln!(
                     out,
-                    "        assertFalse({string_expr}.contains({kotlin_val}), \"expected NOT to contain: \" + {kotlin_val})"
+                    "        assertFalse(({string_expr} as List<String>).contains({kotlin_val}), \"expected NOT to contain: \" + {kotlin_val})"
                 );
             }
         }
