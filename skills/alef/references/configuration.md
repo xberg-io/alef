@@ -617,7 +617,7 @@ check = ["golangci-lint run ./...", "go vet ./..."]
 | `check`     | StringOrVec | Command(s) to run lint checks (run by `alef lint`)                      |
 | `typecheck` | StringOrVec | Command(s) to run type checking (run by `alef lint`)                    |
 
-The Node and WASM built-in defaults use the Oxc toolchain: `oxfmt` for formatting and `oxlint` for linting. Biome is no longer used in generated scaffolding.
+The Node and WASM built-in defaults use the Oxc toolchain: `oxfmt` for formatting and `oxlint` for linting. Generated scaffolding uses Oxfmt and Oxlint.
 
 ---
 

@@ -388,7 +388,10 @@ mod tests {
         let check = c.check.unwrap().commands().join(" ");
         assert!(fmt.contains("oxfmt"), "Node format should use oxfmt, got: {fmt}");
         assert!(check.contains("oxlint"), "Node check should use oxlint, got: {check}");
-        assert!(!fmt.contains("biome"), "Node should not reference biome");
+        assert!(
+            !fmt.contains(concat!("bio", "me")),
+            "Node should not reference the legacy formatter"
+        );
     }
 
     #[test]

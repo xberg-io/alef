@@ -59,7 +59,7 @@ pub fn rust_raw_string(s: &str) -> String {
 /// Escape a string for embedding in a JavaScript/TypeScript double-quoted string literal.
 ///
 /// `$` does not need escaping in double-quoted strings (only in template literals).
-/// Escaping it would produce `\$` which Biome flags as `noUselessEscapeInString`.
+/// Escaping it would produce `\$` which formatters flag as an unnecessary escape.
 pub fn escape_js(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
