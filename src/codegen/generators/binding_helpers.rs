@@ -469,6 +469,23 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         p.name.clone()
                     }
                 }
+                // HashMap does not implement Deref, so Option<HashMap<_,_>> must use
+                // .as_ref() (yielding Option<&HashMap<_,_>>) rather than .as_deref().
+                TypeRef::Map(_, _) => {
+                    if promoted {
+                        format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_mut && p.optional {
+                        format!("{}.as_mut()", p.name)
+                    } else if p.is_mut {
+                        format!("&mut {}", p.name)
+                    } else if p.is_ref && p.optional {
+                        format!("{}.as_ref()", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
                 _ => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
@@ -690,6 +707,18 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         format!("{}{}", p.name, unwrap_suffix)
                     } else if p.is_ref && p.optional {
                         format!("{}.as_deref()", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                // HashMap does not implement Deref; use .as_ref() for Option<&HashMap<_,_>>.
+                TypeRef::Map(_, _) => {
+                    if promoted {
+                        format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_ref && p.optional {
+                        format!("{}.as_ref()", p.name)
                     } else if p.is_ref {
                         format!("&{}", p.name)
                     } else {
