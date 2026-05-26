@@ -135,9 +135,10 @@ fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &s
     let _ = writeln!(out, "TAP=\"{tap}\"");
     let _ = writeln!(out, "CLI_FORMULA=\"{cli_formula}\"");
     let _ = writeln!(out, "FFI_FORMULA=\"{ffi_formula}\"");
-    // Fully-qualified names disambiguate when multiple taps export the same
+    // Fully-qualified name disambiguates when multiple taps export the same
     // formula short-name on a developer's machine (e.g. legacy + new tap).
-    let _ = writeln!(out, "CLI_FORMULA_QUALIFIED=\"$TAP/$CLI_FORMULA\"");
+    // Only the FFI formula needs disambiguation here — CLI calls invoke the
+    // installed binary directly via $CLI_FORMULA.
     let _ = writeln!(out, "FFI_FORMULA_QUALIFIED=\"$TAP/$FFI_FORMULA\"");
     let _ = writeln!(out);
     let _ = writeln!(
