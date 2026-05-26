@@ -269,6 +269,15 @@ impl E2eCodegen for CCodegen {
             generated_header: true,
         });
 
+        // Generate .gitignore so locally-built binaries and mock-server pipe
+        // artifacts are never accidentally checked in. A committed macOS Mach-O
+        // `run_tests` binary will fail Linux CI with `Exec format error`.
+        files.push(GeneratedFile {
+            path: output_base.join(".gitignore"),
+            content: render_gitignore(),
+            generated_header: false,
+        });
+
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
             &e2e_config.fields_optional,
@@ -567,6 +576,22 @@ fn render_makefile(
     let _ = writeln!(out);
     let _ = writeln!(out, "clean:");
     let _ = writeln!(out, "\trm -f $(TARGET) mock_server.stdout mock_server.stdin");
+    out
+}
+
+/// Render `.gitignore` for the `e2e/c/` directory.
+///
+/// `run_tests` is the linked test binary produced by `make`. When a
+/// developer runs the suite locally on macOS, the resulting Mach-O binary
+/// must not be committed — Linux CI will reject it with `Exec format error`.
+/// `*.o` covers compiled object files. `mock_server.stdout`/`.stdin` are the
+/// named-pipe artifacts created by fixtures that mock HTTP traffic.
+fn render_gitignore() -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "run_tests");
+    let _ = writeln!(out, "*.o");
+    let _ = writeln!(out, "mock_server.stdout");
+    let _ = writeln!(out, "mock_server.stdin");
     out
 }
 
