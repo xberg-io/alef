@@ -2342,9 +2342,18 @@ pub fn emit_test_backend(
     let mut setup = String::new();
     let _ = writeln!(setup, "{var_name} = Class.new do");
 
-    // Plugin super-trait: emit `name` returning the backend name from fixture input.
+    // Plugin super-trait: emit unconditional super-trait methods.
+    // The Magnus bridge calls these on every registered plugin object regardless of
+    // whether Rust has a default implementation, so stubs must define them.
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(setup, "  def name = '{backend_name}'");
+        let _ = writeln!(setup, "  def initialize");
+        let _ = writeln!(setup, "    nil");
+        let _ = writeln!(setup, "  end");
+        let _ = writeln!(setup, "  def shutdown");
+        let _ = writeln!(setup, "    nil");
+        let _ = writeln!(setup, "  end");
+        let _ = writeln!(setup, "  def version = '1.0.0'");
     }
 
     // Emit stubs for all required methods (skip those with default implementations).
@@ -2365,6 +2374,12 @@ pub fn emit_test_backend(
         } else {
             let _ = writeln!(setup, "  def {ruby_name}({param_str}) = {default_val}");
         }
+    }
+
+    // EmbeddingBackend requires dimensions() > 0 for validation; if not already emitted,
+    // add a stub that returns 384 (common embedding dimension).
+    if trait_bridge.trait_name == "EmbeddingBackend" && !methods.iter().any(|m| m.name == "dimensions") {
+        let _ = writeln!(setup, "  def dimensions = 384");
     }
 
     let _ = writeln!(setup, "end.new");
@@ -2600,10 +2615,59 @@ mod trait_bridge_tests {
         let expected_setup = concat!(
             "stub_register_document_extractor_trait_bridge = Class.new do\n",
             "  def name = 'test-extractor'\n",
+            "  def initialize\n",
+            "    nil\n",
+            "  end\n",
+            "  def shutdown\n",
+            "    nil\n",
+            "  end\n",
+            "  def version = '1.0.0'\n",
             "  def extract_bytes(content, mime_type, config) = '{}'\n",
             "end.new\n",
         );
         assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
         assert_eq!(emission.arg_expr, "stub_register_document_extractor_trait_bridge");
+    }
+
+    /// EmbeddingBackend stubs must emit dimensions() > 0 for validation to pass.
+    #[test]
+    fn test_embedding_backend_dimensions() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_embedding_backend".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let embed = make_method(
+            "embed",
+            vec![("texts", TypeRef::Vec(Box::new(TypeRef::String)))],
+            TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(
+                crate::core::ir::PrimitiveType::F32,
+            ))))),
+            true,
+        );
+
+        let fixture = make_fixture("register_embedding_backend_trait_bridge");
+        let methods = vec![&embed];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // Must emit dimensions() even though not in method list.
+        assert!(
+            emission.setup_block.contains("def dimensions = 384"),
+            "EmbeddingBackend stub must emit nonzero dimensions(), got:\n{}",
+            emission.setup_block
+        );
+        // Must also emit super-trait methods.
+        assert!(
+            emission.setup_block.contains("def initialize"),
+            "stub must emit initialize(), got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("def shutdown"),
+            "stub must emit shutdown(), got:\n{}",
+            emission.setup_block
+        );
     }
 }

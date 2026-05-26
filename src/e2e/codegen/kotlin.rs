@@ -2065,6 +2065,25 @@ fn render_assertion(
         )
     });
 
+    // Determine whether the field's underlying type is a list/collection. For
+    // `contains` / `contains_all` / `not_contains` assertions on `List<String>`
+    // fields Kotlin requires a cast to `List<String>` so the `@OnlyInputTypes`
+    // annotation on `Collection.contains()` can infer `T`. For plain `String`
+    // fields (e.g. `result.text` on TranscribeTest) the assertion is a
+    // substring check on a `String` — emitting `(s as List<String>).contains`
+    // throws ClassCastException at runtime, so the cast must be gated on the
+    // field actually being a collection. `field_resolver.is_array` is true for
+    // paths in `fields_array`; `is_collection_root` is true when the field is
+    // a top-level collection accessor (e.g. `tags` whose entries are tracked
+    // as `tags[0]` in `fields_array`).
+    let field_is_collection = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
+        let resolved = field_resolver.resolve(f);
+        field_resolver.is_array(f)
+            || field_resolver.is_array(resolved)
+            || field_resolver.is_collection_root(f)
+            || field_resolver.is_collection_root(resolved)
+    });
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -2086,30 +2105,53 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let kotlin_val = json_to_kotlin(expected);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
-                );
+                if field_is_collection {
+                    let _ = writeln!(
+                        out,
+                        "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                    );
+                } else {
+                    // String substring check. Use the field expression directly so
+                    // `String.contains(CharSequence)` resolves without a cast.
+                    let _ = writeln!(
+                        out,
+                        "        assertTrue({string_expr}.contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                    );
+                }
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
                     let kotlin_val = json_to_kotlin(val);
-                    let _ = writeln!(
-                        out,
-                        "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
-                    );
+                    if field_is_collection {
+                        let _ = writeln!(
+                            out,
+                            "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "        assertTrue({string_expr}.contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                        );
+                    }
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let kotlin_val = json_to_kotlin(expected);
-                let _ = writeln!(
-                    out,
-                    "        assertFalse(({string_expr} as List<String>).contains({kotlin_val}), \"expected NOT to contain: \" + {kotlin_val})"
-                );
+                if field_is_collection {
+                    let _ = writeln!(
+                        out,
+                        "        assertFalse(({string_expr} as List<String>).contains({kotlin_val}), \"expected NOT to contain: \" + {kotlin_val})"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "        assertFalse({string_expr}.contains({kotlin_val}), \"expected NOT to contain: \" + {kotlin_val})"
+                    );
+                }
             }
         }
         "not_empty" => {

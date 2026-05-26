@@ -976,4 +976,41 @@ Future<int> extractBytes({required List<int> content}) =>
             "RID-aware check must come before legacy fallback, got:\n{out}"
         );
     }
+
+    #[test]
+    fn filter_excluded_functions_removes_multiline_functions() {
+        let input = r#"/// Pass `metadata` as `null` when the caller has no extraction metadata available;
+/// the metadata bonus simply isn't applied in that case. Texts shorter than
+/// `MIN_TEXT_LENGTH` short-circuit to `0.1` regardless of metadata.
+Future<double> calculateQualityScore({
+  required String text,
+  Map<String, String>? metadata,
+}) => RustLib.instance.api.crateCalculateQualityScore(
+  text: text,
+  metadata: metadata,
+);
+
+Future<ExtractionResult> extractBytes(
+  {required Uint8List content, required String mimeType}) =>
+    RustLib.instance.api.crateExtractBytes(content: content, mimeType: mimeType);
+"#;
+        let exclude_set = std::collections::HashSet::from(["calculate_quality_score"]);
+        let out = filter_excluded_functions(input, &exclude_set);
+
+        // The excluded function and its doc comments should be removed
+        assert!(
+            !out.contains("calculateQualityScore"),
+            "excluded function calculateQualityScore must be removed, got:\n{out}"
+        );
+        assert!(
+            !out.contains("MIN_TEXT_LENGTH"),
+            "doc comments for excluded function must be removed, got:\n{out}"
+        );
+
+        // Other functions should remain
+        assert!(
+            out.contains("extractBytes"),
+            "non-excluded function extractBytes must remain, got:\n{out}"
+        );
+    }
 }

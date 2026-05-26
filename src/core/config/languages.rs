@@ -1197,6 +1197,12 @@ pub struct RConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Functions to exclude from R binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from R binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
     /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]

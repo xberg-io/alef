@@ -1119,4 +1119,127 @@ mod trait_bridge {
             "visitor bridge must produce unsafe impl Sync"
         );
     }
+
+    #[test]
+    fn test_exclude_functions_honored() {
+        let backend = ExtendrBackend;
+
+        // Create API surface with two functions
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![
+                FunctionDef {
+                    name: "allowed_func".to_string(),
+                    rust_path: "test_lib::allowed_func".to_string(),
+                    original_rust_path: String::new(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: false,
+                    error_type: None,
+                    doc: "This function is allowed".to_string(),
+                    cfg: None,
+                    sanitized: false,
+                    return_sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                FunctionDef {
+                    name: "excluded_func".to_string(),
+                    rust_path: "test_lib::excluded_func".to_string(),
+                    original_rust_path: String::new(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: false,
+                    error_type: None,
+                    doc: "This function is excluded".to_string(),
+                    cfg: None,
+                    sanitized: false,
+                    return_sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: Default::default(),
+        };
+
+        // Config with exclude_functions for R
+        let mut config = make_config();
+        config.r = Some(alef::core::config::languages::RConfig {
+            package_name: Some("testlib".to_string()),
+            features: None,
+            serde_rename_all: None,
+            exclude_functions: vec!["excluded_func".to_string()],
+            exclude_types: vec![],
+            rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: vec![],
+        });
+
+        let generated = backend.generate(&api, &config).unwrap();
+
+        // Find the lib.rs file
+        let lib_rs = generated
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+            .expect("should generate lib.rs");
+
+        // allowed_func should be present in the generated bindings
+        assert!(
+            lib_rs.content.contains("pub fn allowed_func"),
+            "allowed_func should be present in generated code"
+        );
+
+        // excluded_func should NOT be present
+        assert!(
+            !lib_rs.content.contains("pub fn excluded_func"),
+            "excluded_func should be excluded from generated code"
+        );
+
+        // Find the extendr-wrappers.R file
+        let wrappers_r = generated
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("should generate extendr-wrappers.R");
+
+        // allowed_func should have an R wrapper
+        assert!(
+            wrappers_r.content.contains("allowed_func"),
+            "allowed_func should have an R wrapper"
+        );
+
+        // excluded_func should NOT have an R wrapper
+        assert!(
+            !wrappers_r.content.contains("excluded_func"),
+            "excluded_func should not have an R wrapper"
+        );
+
+        // Find the NAMESPACE file
+        let namespace = generated
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
+            .expect("should generate NAMESPACE");
+
+        // allowed_func should be exported
+        assert!(
+            namespace.content.contains("export(allowed_func)"),
+            "allowed_func should be exported in NAMESPACE"
+        );
+
+        // excluded_func should NOT be exported
+        assert!(
+            !namespace.content.contains("export(excluded_func)"),
+            "excluded_func should not be exported in NAMESPACE"
+        );
+    }
 }

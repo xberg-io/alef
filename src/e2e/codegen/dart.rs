@@ -236,12 +236,13 @@ fn render_test_file(
     // Check if any fixture needs the http package (HTTP server tests).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
-    // Check if any fixture needs Uint8List.fromList (batch item byte arrays).
+    // Check if any fixture needs Uint8List.fromList (batch item byte arrays or trait_bridge args).
     let has_batch_byte_items = fixtures.iter().any(|f| {
         let call_config =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         f.resolved_args(call_config).iter().any(|a| {
-            a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array()
+            (a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array())
+                || a.arg_type == "test_backend" // trait_bridge stubs may use Uint8List in method params
         })
     });
 
@@ -2855,6 +2856,7 @@ fn build_dart_first_class_map(
 /// methods are overridden with `Future.value(default)` (async) or the direct
 /// default (sync). The `name` getter is emitted when a Plugin super-trait is
 /// configured.
+#[allow(unused_imports)]
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
@@ -2882,6 +2884,19 @@ pub fn emit_test_backend(
     let defaults = language_defaults("dart");
     let mapper = DartMapper;
 
+    // Collect all types used in method signatures to determine needed imports.
+    let mut needs_uint8list = false;
+    for method in methods {
+        for param in &method.params {
+            if param.ty == crate::core::ir::TypeRef::Bytes {
+                needs_uint8list = true;
+            }
+        }
+        if method.return_type == crate::core::ir::TypeRef::Bytes {
+            needs_uint8list = true;
+        }
+    }
+
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name} extends {trait_class} {{");
 
@@ -2901,12 +2916,15 @@ pub fn emit_test_backend(
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("{} {}", mapper.map_type(&p.ty), p.name.to_lower_camel_case()))
+            .map(|p| {
+                let param_type = map_dart_type_with_fallback(&mapper, &p.ty);
+                format!("{} {}", param_type, p.name.to_lower_camel_case())
+            })
             .collect();
         let params_str = params.join(", ");
 
-        let return_type = mapper.map_type(&method.return_type);
-        let default_val = defaults.emit_default(&method.return_type);
+        let return_type = map_dart_type_with_fallback(&mapper, &method.return_type);
+        let default_val = emit_dart_default_for_type(defaults.as_ref(), &method.return_type);
 
         if method.is_async {
             let _ = writeln!(
@@ -2934,7 +2952,8 @@ pub fn emit_test_backend(
 
     // Emit the instance creation and wrapper call in the setup block.
     let _ = writeln!(setup, "final {instance_name} = {class_name}();");
-    let _ = writeln!(setup, "final {wrapped_var} = await {create_fn}(");
+    // The factory wrapper is sync (not awaited); trait factory callbacks return T directly.
+    let _ = writeln!(setup, "final {wrapped_var} = {create_fn}(");
     let _ = writeln!(setup, "  pluginName: '{plugin_name}',");
     let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
 
@@ -2953,11 +2972,52 @@ pub fn emit_test_backend(
     }
     let _ = writeln!(setup, ");");
 
+    let mut type_imports = Vec::new();
+    if needs_uint8list {
+        type_imports.push("dart:typed_data".to_string());
+    }
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: wrapped_var,
-        type_imports: Vec::new(),
+        type_imports,
     }
+}
+
+/// Map a Dart type, with fallback to public public types for internal-only types.
+/// For example, InternalDocument (not a public export) maps to ExtractionResult.
+fn map_dart_type_with_fallback(
+    mapper: &crate::backends::dart::type_map::DartMapper,
+    ty: &crate::core::ir::TypeRef,
+) -> String {
+    use crate::codegen::type_mapper::TypeMapper as _;
+    let mapped = mapper.map_type(ty);
+    // If the type is an unpublished internal type (contains "Internal"), use ExtractionResult as fallback.
+    if mapped.contains("Internal") {
+        return "ExtractionResult".to_string();
+    }
+    mapped.to_string()
+}
+
+/// Emit a Dart default value for a type, with special handling for enums.
+fn emit_dart_default_for_type(
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    ty: &crate::core::ir::TypeRef,
+) -> String {
+    use crate::core::ir::TypeRef;
+    // For named types that are enums (OcrBackendType, ProcessingStage, etc.), emit a default enum variant.
+    if let TypeRef::Named(name) = ty {
+        if name.ends_with("Type") || name.ends_with("Stage") {
+            // Assume the enum has a default variant like .standard or .pending
+            // Fallback to a safe generic form if not recognized.
+            if name == "OcrBackendType" {
+                return "OcrBackendType.tesseract".to_string();
+            } else if name == "ProcessingStage" {
+                return "ProcessingStage.preProcessing".to_string();
+            }
+        }
+    }
+    defaults.emit_default(ty).to_string()
 }
 
 #[cfg(test)]

@@ -873,7 +873,10 @@ impl FieldResolver {
                     prev_underscore = false;
                 }
             }
-            collapsed.trim_matches('_').to_string()
+            // Prefix with `_` so the binding declaration suppresses `-D unused_variables`
+            // when no assertion actually references the local.  The variable remains fully
+            // accessible under the `_`-prefixed name if an assertion does use it.
+            format!("_{}", collapsed.trim_matches('_'))
         };
         let accessor = render_accessor(&segments, "rust", result_var);
         let has_map_access = segments.iter().any(|s| {
@@ -2603,7 +2606,10 @@ mod tests {
     fn test_rust_unwrap_binding() {
         let r = make_resolver();
         let (binding, var) = r.rust_unwrap_binding("title", "result").unwrap();
-        assert_eq!(var, "metadata_document_title");
+        // Binding is prefixed with `_` to suppress `-D unused_variables` when no
+        // assertion references it; the variable remains accessible under that name.
+        assert_eq!(var, "_metadata_document_title");
+        assert!(binding.starts_with("let _metadata_document_title ="));
         // Optional scalar fields are unwrapped via Display (`to_string()`) so enum
         // types like `FinishReason` render their serde-style string form.
         assert!(binding.contains("as_ref().map(|v| v.to_string()).unwrap_or_default()"));
@@ -2631,7 +2637,7 @@ mod tests {
         let method_calls = HashSet::new();
         let r = FieldResolver::new(&aliases, &optional, &result_fields, &array, &method_calls);
         let (_binding, var) = r.rust_unwrap_binding("json_ld.name", "result").unwrap();
-        assert_eq!(var, "json_ld_name");
+        assert_eq!(var, "_json_ld_name");
     }
 
     #[test]
