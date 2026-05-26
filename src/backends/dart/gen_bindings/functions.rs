@@ -111,14 +111,37 @@ pub(super) fn emit_function(
             .collect();
         let default_expr =
             default_expression_for_named_type(cfg_type, type_defs, enums).unwrap_or_else(|| format!("{cfg_type}()"));
-        // The default expression may embed `dart:typed_data` constructors
-        // (Int64List, Uint8List, Float64List, ...) emitted by
-        // `empty_vec_literal` to match FRB's typed-list mapping. Those
-        // symbols are visible inside the FRB-generated lib.dart but are
-        // NOT re-exported, so consumers of the facade need an explicit
-        // import. Detect any embedded typed-data symbol and add it.
-        if TYPED_DATA_CTORS.iter().any(|ctor| default_expr.contains(ctor)) {
-            imports.insert("import 'dart:typed_data';".to_string());
+        // The default expression may embed typed-list constructors emitted by
+        // `empty_vec_literal` to match FRB's typed-list mapping.
+        //
+        // Two import paths matter and cannot be conflated. `Int64List` and
+        // `Uint64List` are SHADOWED by FRB with its own generalized versions
+        // (`package:flutter_rust_bridge/src/generalized_typed_data/_io.dart`)
+        // — the FRB-generated DTO's field type is the FRB version, not the
+        // dart:typed_data one. Passing `Int64List(0)` from `dart:typed_data`
+        // produces "argument type 'Int64List/*1*/' can't be assigned to
+        // parameter type 'Int64List/*2*/'". Import FRB's public lib for
+        // these.
+        //
+        // All other typed lists (`Uint8List`, `Int32List`, `Float64List`, …)
+        // are NOT shadowed — FRB references the `dart:typed_data` versions
+        // directly. Import `dart:typed_data` for these, hiding the shadowed
+        // names so the FRB versions remain unambiguous when both appear.
+        let needs_frb_typed = FRB_SHADOWED_TYPED_CTORS
+            .iter()
+            .any(|ctor| default_expr.contains(ctor));
+        let needs_dart_typed = DART_TYPED_DATA_CTORS
+            .iter()
+            .any(|ctor| default_expr.contains(ctor));
+        if needs_frb_typed {
+            imports.insert("import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';".to_string());
+        }
+        if needs_dart_typed {
+            if needs_frb_typed {
+                imports.insert("import 'dart:typed_data' hide Int64List, Uint64List;".to_string());
+            } else {
+                imports.insert("import 'dart:typed_data';".to_string());
+            }
         }
         let config_default = format!("config ?? {default_expr}");
         let config_arg = format!("config: {config_default}");
@@ -246,11 +269,19 @@ fn zero_value_for_type(ty: &TypeRef, type_defs: &[TypeDef], enums: &[EnumDef]) -
 /// typed-list parameter, so we emit the typed-list constructor matching the
 /// widened FRB type. Non-primitive element types (Strings, named structs,
 /// nested Vecs, etc.) stay as `List<T>` in FRB and accept `[]`.
-/// `dart:typed_data` constructors that may appear in default expressions.
-/// Used by `emit_function` to add the `dart:typed_data` import whenever any
-/// of these symbols is embedded in a rendered default. Keep in sync with
-/// [`empty_vec_literal`] and the `TypeRef::Bytes` arm of [`zero_value_for_type`].
-const TYPED_DATA_CTORS: &[&str] = &["Int64List", "Uint8List", "Float64List"];
+/// Typed-list constructors that FRB SHADOWS with its own generalized classes
+/// (`package:flutter_rust_bridge/src/generalized_typed_data/_io.dart`, re-exported
+/// from `package:flutter_rust_bridge/flutter_rust_bridge.dart`). When any of
+/// these appears in a default expression, `emit_function` imports FRB's lib so
+/// the symbol resolves to FRB's `Int64List`/`Uint64List` rather than the
+/// `dart:typed_data` version (which is a *different* class FRB rejects).
+const FRB_SHADOWED_TYPED_CTORS: &[&str] = &["Int64List", "Uint64List"];
+
+/// Typed-list constructors that come straight from `dart:typed_data` —
+/// FRB references the dart:typed_data versions directly for these widths.
+/// When any of these appears, `emit_function` adds `import 'dart:typed_data';`
+/// (with the FRB-shadowed names hidden if both kinds are present in one file).
+const DART_TYPED_DATA_CTORS: &[&str] = &["Uint8List", "Float64List"];
 
 fn empty_vec_literal(inner: &TypeRef) -> String {
     match inner {
@@ -319,7 +350,10 @@ mod tests {
             let got = empty_vec_literal(&TypeRef::Primitive(prim));
             assert_eq!(got, "Int64List(0)", "Vec<{prim_dbg}> empty default");
         }
-        assert_eq!(empty_vec_literal(&TypeRef::Primitive(PrimitiveType::U8)), "Uint8List(0)");
+        assert_eq!(
+            empty_vec_literal(&TypeRef::Primitive(PrimitiveType::U8)),
+            "Uint8List(0)"
+        );
     }
 
     #[test]
@@ -339,10 +373,7 @@ mod tests {
     fn empty_vec_of_string_or_named_stays_list_literal() {
         assert_eq!(empty_vec_literal(&TypeRef::String), "[]");
         assert_eq!(empty_vec_literal(&TypeRef::Named("Foo".to_string())), "[]");
-        assert_eq!(
-            empty_vec_literal(&TypeRef::Vec(Box::new(TypeRef::String))),
-            "[]"
-        );
+        assert_eq!(empty_vec_literal(&TypeRef::Vec(Box::new(TypeRef::String))), "[]");
     }
 
     #[test]
