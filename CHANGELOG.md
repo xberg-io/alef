@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.12] - 2026-05-26
+
 ### Fixed
 
 - **alef java-codegen (trait bridges): clear method names now emit plural form matching Rust function name.** The bridge clear method was emitting `clearAll{Trait}()` (e.g., `clearAllRenderer()`) using a hardcoded template, but the generated public facade and FFI layer expected the plural form derived from the `clear_fn` configuration (e.g., `clearRenderers` from `clear_renderers`). Java compilation failed with "cannot find symbol: method clearRenderers()" when calling the bridge's non-existent singular method. The fix converts `clear_fn` (e.g., `clear_renderers`) to the correct method name by: (1) stripping the `clear_` prefix, (2) splitting on underscores, (3) PascalCasing each word, (4) prepending `clear`, yielding the plural form expected by the facade. Test cases updated to verify all trait families emit the correct method names. (`src/backends/java/gen_bindings/trait_bridge.rs`, `src/backends/java/templates/bridge_clear_method.jinja`)
