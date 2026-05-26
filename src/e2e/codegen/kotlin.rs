@@ -1637,7 +1637,7 @@ fn build_args_and_setup(
                                 } else {
                                     (format!("{}Config", arg.name.to_upper_camel_case()), false)
                                 }
-                            },
+                            }
                             _ => {
                                 // For other names like "embed_config" → look for "EmbedConfig",
                                 // then fall back to arg.name.to_upper_camel_case() + "Config"
@@ -1654,7 +1654,10 @@ fn build_args_and_setup(
                         };
                         // EmbeddingConfig requires a model parameter; provide a sensible default
                         if needs_required_param && inferred_type == "EmbeddingConfig" {
-                            format!("{}(model = EmbeddingModelType.Preset(name = \"balanced\"))", inferred_type)
+                            format!(
+                                "{}(model = EmbeddingModelType.Preset(name = \"balanced\"))",
+                                inferred_type
+                            )
                         } else {
                             format!("{}()", inferred_type)
                         }

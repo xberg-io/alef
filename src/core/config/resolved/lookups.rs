@@ -266,11 +266,18 @@ impl ResolvedCrateConfig {
                     .and_then(|e2e| e2e.resolve_package(name))
                     .and_then(|pkg| pkg.version)
                     .or_else(|| self.resolved_version());
+                // For Go, pass the Go module path so cgo bindings can vendor + generate.
+                let go_module = if lang == Language::Go {
+                    Some(self.go_module())
+                } else {
+                    None
+                };
                 test_apps_run_defaults::default_test_apps_run_config(
                     lang,
                     test_apps_dir,
                     &ctx,
                     published_version.as_deref(),
+                    go_module.as_deref(),
                 )
             }
             Err(_) => test_apps_run_defaults::default_test_apps_run_config_for_name(name, test_apps_dir, &ctx),

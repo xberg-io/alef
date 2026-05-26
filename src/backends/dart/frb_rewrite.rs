@@ -968,7 +968,9 @@ Future<int> extractBytes({required List<int> content}) =>
         );
         // RID-aware check should come before legacy fallback
         let rid_pos = out.find("src/native/").expect("RID path must exist");
-        let legacy_pos = out.find("src/spikard_bridge_generated/").expect("legacy path must exist");
+        let legacy_pos = out
+            .find("src/spikard_bridge_generated/")
+            .expect("legacy path must exist");
         assert!(
             rid_pos < legacy_pos,
             "RID-aware check must come before legacy fallback, got:\n{out}"

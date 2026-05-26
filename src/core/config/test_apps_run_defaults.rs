@@ -19,13 +19,15 @@ fn strip_version_constraint(version: &str) -> &str {
 /// `swift_e2e` to give the SwiftPM package a distinct identity. `ctx` provides the
 /// package-manager selection. `published_version` is the published package version
 /// for this language (when known); some run commands need to forward it to a
-/// generated installer script. Executed by `alef test-apps run` to install the
-/// published package into the test app and exercise it.
+/// generated installer script. `go_module_path` is the Go module path used for
+/// vendoring cgo-linked native libraries (Go language only). Executed by `alef test-apps run`
+/// to install the published package into the test app and exercise it.
 pub fn default_test_apps_run_config(
     lang: Language,
     test_apps_dir: &str,
     ctx: &LangContext,
     published_version: Option<&str>,
+    go_module_path: Option<&str>,
 ) -> TestAppRunConfig {
     match lang {
         Language::Rust => TestAppRunConfig {
@@ -116,9 +118,7 @@ pub fn default_test_apps_run_config(
                 "cd {test_apps_dir}/elixir && mix deps.get && mix test"
             ))),
         },
-        Language::Go => TestAppRunConfig {
-            precondition: Some(require_tool("go")),
-            before: None,
+        Language::Go => {
             // GOWORK=off prevents a consumer repo's go.work from absorbing
             // test_apps/go into the outer workspace, which would cause `go test
             // ./...` to resolve the module graph via the workspace root and
@@ -132,9 +132,25 @@ pub fn default_test_apps_run_config(
             // `go mod download` alone only writes `/go.mod` hashes — `tidy`
             // adds the package content hashes that `go test` actually checks.
             // `tidy` is idempotent once the sum is complete.
-            run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./..."
-            ))),
+            //
+            // For cgo bindings: `go mod vendor` copies the module into a writable
+            // ./vendor/ directory, then `go generate ./vendor/<module-path>/...`
+            // populates the .lib/ directories with native artifacts. Finally,
+            // `go test -mod=vendor` uses the vendored copy to link cgo targets.
+            let run_cmd = if let Some(mod_path) = go_module_path {
+                format!(
+                    "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go mod vendor && GOWORK=off go generate ./vendor/{mod_path}/... && GOWORK=off go test -mod=vendor ./..."
+                )
+            } else {
+                format!(
+                    "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./..."
+                )
+            };
+            TestAppRunConfig {
+                precondition: Some(require_tool("go")),
+                before: None,
+                run: Some(StringOrVec::Single(run_cmd)),
+            }
         },
         Language::Java => TestAppRunConfig {
             precondition: Some(require_tool("mvn")),
@@ -270,7 +286,7 @@ mod tests {
     fn cfg(lang: Language, dir: &str) -> TestAppRunConfig {
         let tools = ToolsConfig::default();
         let ctx = LangContext::default(&tools);
-        default_test_apps_run_config(lang, dir, &ctx, None)
+        default_test_apps_run_config(lang, dir, &ctx, None, None)
     }
 
     #[test]
@@ -327,7 +343,7 @@ mod tests {
                 ..Default::default()
             };
             let ctx = LangContext::default(&tools);
-            let c = default_test_apps_run_config(Language::Python, "test_apps", &ctx, None);
+            let c = default_test_apps_run_config(Language::Python, "test_apps", &ctx, None, None);
             assert_eq!(c.precondition.as_deref(), Some(expected_pre), "{pm} precondition");
             let run = c.run.unwrap().commands().join(" ");
             assert!(run.contains(expected_cmd), "{pm}: expected {expected_cmd}, got: {run}");
@@ -356,7 +372,7 @@ mod tests {
                 ..Default::default()
             };
             let ctx = LangContext::default(&tools);
-            let c = default_test_apps_run_config(Language::Node, "test_apps", &ctx, None);
+            let c = default_test_apps_run_config(Language::Node, "test_apps", &ctx, None, None);
             assert_eq!(c.precondition.as_deref(), Some(expected_pre), "{pm} precondition");
             let run = c.run.unwrap().commands().join(" ");
             assert!(run.contains(expected_cmd), "{pm}: expected {expected_cmd}, got: {run}");
@@ -413,12 +429,37 @@ mod tests {
         let c = cfg(Language::Go, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
         assert!(
-            run.contains("GOWORK=off go test ./..."),
+            run.contains("GOWORK=off go test"),
             "expected GOWORK=off in go run command, got: {run}"
         );
         assert!(
             run.contains("GOWORK=off go mod tidy"),
             "expected `go mod tidy` to populate go.sum before test, got: {run}"
+        );
+        assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
+    }
+
+    #[test]
+    fn go_with_module_path_runs_vendor_and_generate() {
+        let c = default_test_apps_run_config(
+            Language::Go,
+            "test_apps",
+            &LangContext::default(&ToolsConfig::default()),
+            None,
+            Some("github.com/example/mylib/packages/go"),
+        );
+        let run = c.run.unwrap().commands().join(" ");
+        assert!(
+            run.contains("GOWORK=off go mod vendor"),
+            "expected `go mod vendor` for cgo native libs, got: {run}"
+        );
+        assert!(
+            run.contains("GOWORK=off go generate ./vendor/github.com/example/mylib/packages/go/..."),
+            "expected `go generate ./vendor/<module-path>/...` to populate .lib/, got: {run}"
+        );
+        assert!(
+            run.contains("GOWORK=off go test -mod=vendor"),
+            "expected `-mod=vendor` to link against vendored cgo libs, got: {run}"
         );
         assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
     }
