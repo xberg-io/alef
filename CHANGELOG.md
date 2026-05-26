@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.14] - 2026-05-26
+
 ### Fixed
 
 - **alef homebrew e2e codegen: remove unused `CLI_FORMULA_QUALIFIED` variable from `run_tests.sh`.** The generated `run_tests.sh` declared `CLI_FORMULA_QUALIFIED="$TAP/$CLI_FORMULA"` alongside its FFI counterpart, but only `FFI_FORMULA_QUALIFIED` was actually used downstream — CLI invocations use the short `$CLI_FORMULA` since the installed `brew` symlink resolves to it directly. `shellcheck` flagged the unused variable as SC2034, breaking the consumer's pre-commit run. Now only the FFI fully-qualified name is emitted, with the comment clarifying why CLI doesn't need the same. (`src/e2e/codegen/homebrew.rs`)
