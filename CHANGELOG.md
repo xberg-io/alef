@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef all: write `.public_api` generation hashes so `alef verify` does not report stale public-api wrappers after a full regen (matches the pattern already used in the per-lang bindings codepath).** (`src/main.rs`)
+
 - **alef e2e/{node,wasm} codegen: mark `pnpm-workspace.yaml` as alef-owned so the cleanup pass can sweep stale Registry-mode emits when consumers flip to Local mode.** The typescript node generator conditionally emits an empty `pnpm-workspace.yaml` (with `packages: []`) only in Registry mode — in Local mode the test app depends on the binding via `workspace:*`, which can only resolve through the consumer's root pnpm workspace, so the empty marker would shadow it. However, the file was emitted with `generated_header: false`, which means the orphan-file cleanup pass (which only deletes files carrying the `alef:hash:` header) skipped it. Consumers who flipped `[crates.e2e.dep_mode]` from Registry → Local kept the stale empty marker on disk, breaking `cd e2e/node && pnpm install` with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` because the nested workspace claims no members. Setting `generated_header: true` lets the cleanup pass recognize and remove the file when the codegen stops emitting it. The wasm codegen's `pnpm-workspace.yaml` (which always emits with `packages: - "."`) gets the same treatment for symmetry. YAML's `#` comments are preserved by pnpm's parser. (`src/e2e/codegen/typescript/mod.rs`, `src/e2e/codegen/wasm.rs`)
 
 ## [0.19.14] - 2026-05-26
