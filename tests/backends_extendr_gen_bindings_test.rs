@@ -1187,10 +1187,11 @@ mod trait_bridge {
             extra_lint_paths: vec![],
         });
 
-        let generated = backend.generate(&api, &config).unwrap();
+        let generated_bindings = backend.generate_bindings(&api, &config).unwrap();
+        let generated_public = backend.generate_public_api(&api, &config).unwrap();
 
-        // Find the lib.rs file
-        let lib_rs = generated
+        // Find the lib.rs file (from bindings)
+        let lib_rs = generated_bindings
             .iter()
             .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
             .expect("should generate lib.rs");
@@ -1207,8 +1208,8 @@ mod trait_bridge {
             "excluded_func should be excluded from generated code"
         );
 
-        // Find the extendr-wrappers.R file
-        let wrappers_r = generated
+        // Find the extendr-wrappers.R file (from public API)
+        let wrappers_r = generated_public
             .iter()
             .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
             .expect("should generate extendr-wrappers.R");
@@ -1225,8 +1226,8 @@ mod trait_bridge {
             "excluded_func should not have an R wrapper"
         );
 
-        // Find the NAMESPACE file
-        let namespace = generated
+        // Find the NAMESPACE file (from public API)
+        let namespace = generated_public
             .iter()
             .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
             .expect("should generate NAMESPACE");
