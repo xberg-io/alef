@@ -353,12 +353,25 @@ fn build_rust_bridge_c_header(binding_crate_name: &str) -> String {
              #endif /* RUST_BRIDGE_C_H */\n"
         )
     } else {
+        // Minimal placeholder that defines the `RustStr` C struct used by swift-bridge's
+        // generated `SwiftBridgeCore.swift`.  Without this typedef the Swift compiler
+        // reports "cannot find type 'RustStr' in scope" for every `extension RustStr`
+        // block, even though those extensions are valid once the full C header is present.
+        // The real `SwiftBridgeCore.h` (produced by `cargo build -p {binding_crate_name}`)
+        // defines an identical typedef; the definitions are compatible and SwiftPM merges
+        // them via the module map.
         format!(
             "#ifndef RUST_BRIDGE_C_H\n\
              #define RUST_BRIDGE_C_H\n\
              \n\
              // Placeholder header for the RustBridgeC SwiftPM target.\n\
              // Run `cargo build -p {binding_crate_name}` and re-run `alef all` to populate.\n\
+             // The RustStr typedef below is the minimum required for SwiftBridgeCore.swift\n\
+             // to compile before the full cargo build has been run.\n\
+             \n\
+             #include <stdint.h>\n\
+             \n\
+             typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
              \n\
              #endif /* RUST_BRIDGE_C_H */\n"
         )
