@@ -316,7 +316,7 @@ pub(super) fn gen_wrapper_class(
         ));
         out.push_str("        if (ec != 0) {\n");
         out.push_str("            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? \"Register failed\";\n");
-        out.push_str("            throw new KreuzbergException(ec, msg);\n");
+        out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
         out.push_str("        }\n");
         out.push_str("    }\n\n");
 
@@ -338,7 +338,7 @@ pub(super) fn gen_wrapper_class(
             ));
             out.push_str("        if (ec != 0) {\n");
             out.push_str("            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? \"Unregister failed\";\n");
-            out.push_str("            throw new KreuzbergException(ec, msg);\n");
+            out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
             out.push_str("        }\n");
             out.push_str("    }\n\n");
         }
