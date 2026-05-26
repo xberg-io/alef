@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-cli: make post-generation formatting opt-in for `generate`, `all`, and `init`.** These commands now default `--format` to `false` so regeneration stays fast and avoids invoking language-native formatter chains unless requested. Pass `--format` to run the existing best-effort formatter pipeline before hash finalisation. (`src/main.rs`, `tests/cli_generate_format_flag.rs`, `skills/alef/references/cli-reference.md`)
 
+### Fixed
+
+- **kotlin e2e: stop the Gradle test worker from failing to fork.** The generated `e2e/kotlin/build.gradle.kts` set the test `workingDir` to `../../test_documents` unconditionally and passed no `jvmArgs`. When that directory is absent (consumers without document fixtures), Gradle's test worker could not `chdir` and aborted before JUnit started, surfacing as the misleading `Cannot abort process 'Gradle Test Executor N' because it is not in started or detached state`. The `workingDir` is now guarded on `isDirectory`, and the test fork sets `--enable-preview --enable-native-access=ALL-UNNAMED` to mirror the Panama Maven surefire argLine (the Java FFI bindings are preview-compiled). (`src/e2e/codegen/kotlin.rs`)
+
 ## [0.19.20] - 2026-05-26
 
 ### Fixed
