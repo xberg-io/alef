@@ -1508,6 +1508,33 @@ impl Backend for RustlerBackend {
             }
         }
 
+        // Emit unregister_* delegates for every trait bridge that has an unregister_fn.
+        // These are excluded from the main function loop (via exclude_functions) because
+        // the trait bridge generator handles register/clear, but unregister delegates
+        // must also be surfaced in the public module so e2e tests can call them.
+        for bridge_cfg in &config.trait_bridges {
+            if bridge_cfg
+                .exclude_languages
+                .iter()
+                .any(|l| l == "elixir" || l == "rustler")
+            {
+                continue;
+            }
+            if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+                let fn_name = unregister_fn.to_snake_case();
+                content.push_str(&format!(
+                    "  @doc \"Unregister a previously registered {} plugin by name.\"\n",
+                    bridge_cfg.trait_name
+                ));
+                content.push_str(&format!(
+                    "  @spec {fn_name}(String.t()) :: {{:ok, nil}} | {{:error, atom, String.t()}}\n"
+                ));
+                content.push_str(&format!("  def {fn_name}(name) do\n"));
+                content.push_str(&format!("    {native_mod}.{fn_name}(name)\n"));
+                content.push_str("  end\n\n");
+            }
+        }
+
         // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
         let trimmed = content.trim_end_matches('\n');
         content = format!("{trimmed}\nend\n");
