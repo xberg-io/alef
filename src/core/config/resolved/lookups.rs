@@ -42,6 +42,7 @@ impl ResolvedCrateConfig {
         //   - Dart:          `packages/dart/lib/` (when overridden) or root
         //   - Kotlin:        `packages/kotlin/src/main/kotlin/.../`
         //   - KotlinAndroid: `packages/kotlin-android/src/main/kotlin/.../`
+        //   - R:             `packages/r/src/rust/src/` (extendr Rust source — DESCRIPTION lives at packages/r/)
         // These languages fall through to the hardcoded defaults below, which
         // return the package root that `publish validate` and packager helpers
         // expect.
@@ -57,6 +58,7 @@ impl ResolvedCrateConfig {
                 | Language::Dart
                 | Language::Kotlin
                 | Language::KotlinAndroid
+                | Language::R
         ) && let Some(output_path) = self.output_paths.get(&lang.to_string())
         {
             return output_path.to_string_lossy().to_string();
@@ -579,6 +581,29 @@ tokio = "1"
         assert_eq!(r.package_dir(Language::Java), "packages/java");
         assert_eq!(r.package_dir(Language::Kotlin), "packages/kotlin");
         assert_eq!(r.package_dir(Language::KotlinAndroid), "packages/kotlin-android");
+    }
+
+    #[test]
+    fn package_dir_r_ignores_source_output_override() {
+        // The extendr `[crates.output]` for R points at the Rust source path
+        // (`packages/r/src/rust/src/`), but the R package manifest (`DESCRIPTION`)
+        // lives at the package root. `package_dir` must return the root so
+        // `Rscript -e "remotes::install_deps()"` finds DESCRIPTION rather than
+        // failing with "cannot open the connection".
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.output]
+r = "packages/r/src/rust/src/"
+"#,
+        );
+        assert_eq!(r.package_dir(Language::R), "packages/r");
     }
 
     #[test]
