@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.16] - 2026-05-26
+
+### Fixed
+
+- Auto-exclude fields whose type contains a trait object (`dyn Trait`) from generated bindings. Trait objects cannot be marshaled through serde or constructed from binding languages, so emitting them caused compile failures in downstream backends (swift, dart). This applies regardless of any `#[serde(skip)]` annotation.
+
 ## [0.19.15] - 2026-05-26
 
 ### Fixed
