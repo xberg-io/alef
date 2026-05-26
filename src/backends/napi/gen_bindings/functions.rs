@@ -951,14 +951,22 @@ pub(super) fn gen_adapter_wrapper(
                     };
                     // Use ..Default::default() to fill remaining fields — only safe because
                     // ty_def.has_default is true, which guarantees the JS struct derives Default.
+                    // Omit the spread when the struct has exactly one field, because clippy's
+                    // `needless_update` lint (denied under `-D warnings`) flags it as redundant.
                     let core_var_name = format!("core_{}", param_ty_name.to_snake_case());
+                    let default_spread = if ty_def.fields.len() > 1 {
+                        ", ..Default::default()"
+                    } else {
+                        ""
+                    };
                     let param_conversions = vec![format!(
-                        "    let {core_var_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value}, ..Default::default() }}.into();",
+                        "    let {core_var_name}: {core_crate}::{param_ty_name} = {js_struct_name} {{ {field_name}: {wrapped_field_value}{default_spread} }}.into();",
                         core_var_name = core_var_name,
                         param_ty_name = param_ty_name,
                         js_struct_name = js_struct_name,
                         field_name = field_name,
                         core_crate = core_crate,
+                        default_spread = default_spread,
                     )];
 
                     let core_params = core_var_name;

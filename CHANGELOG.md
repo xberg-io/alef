@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.18] - 2026-05-26
+
+### Fixed
+
+- Napi streaming-adapter codegen no longer emits a redundant `..Default::default()`
+  spread when the synthesized request struct has exactly one field. Clippy's
+  `needless_update` lint (denied under `-D warnings` in downstream CI) was
+  failing on the generated `Js{Type}Request { field: …, ..Default::default() }`
+  literals.
+
 ## [0.19.17] - 2026-05-26
 
 ### Fixed
