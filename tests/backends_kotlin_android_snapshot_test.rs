@@ -187,13 +187,13 @@ version_from = "/nonexistent/Cargo.toml"
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 "#,
     )
 }
@@ -237,16 +237,16 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo.android"
-namespace = "dev.kreuzberg.demo.android"
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 
 [crates.output]
-kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/"
+kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android/"
 "#,
     );
 
@@ -289,12 +289,12 @@ kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/and
     );
 
     // JNI Bridge + module object at the configured Kotlin source path.
-    expect_at("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/DemoBridge.kt");
-    expect_at("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android/Demo.kt");
+    expect_at("packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android/DemoBridge.kt");
+    expect_at("packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android/Demo.kt");
 
     // Negative assertions: nothing should be emitted under the source
     // destination as if it were the project root.
-    let kotlin_src = "packages/kotlin-android/src/main/kotlin/dev/kreuzberg/demo/android";
+    let kotlin_src = "packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android";
     expect_none_at_prefix(kotlin_src, "build.gradle.kts");
     expect_none_at_prefix(kotlin_src, "settings.gradle.kts");
     expect_none_at_prefix(kotlin_src, ".gitignore");

@@ -258,7 +258,7 @@ fn try_template_readme(
 
     // Ensure `snippets` is always defined so templates can access `snippets.X`
     // unconditionally without raising an undefined-variable error. When the
-    // per-language config omits the `snippets` key (e.g. kreuzberg's `ffi` block),
+    // per-language config omits the `snippets` key (e.g. sample_crate's `ffi` block),
     // accessing `snippets.basic_extraction` would otherwise cause minijinja to
     // error with "could not render include".
     ctx.entry("snippets")
@@ -1723,7 +1723,7 @@ languages:
 
     #[test]
     fn test_template_readme_missing_snippets_renders_gracefully() {
-        // Reproduces: kreuzberg ffi language config has no `snippets` key.
+        // Reproduces: sample_crate ffi language config has no `snippets` key.
         // The quick_start partial accesses `snippets.basic_extraction` unconditionally;
         // if `snippets` is absent from the context the render must not error.
         let tmp = std::env::temp_dir().join("alef_readme_test_missing_snippets");
@@ -1745,7 +1745,7 @@ languages:
 
         let mut config = test_config();
         let mut lang_map = std::collections::HashMap::new();
-        // No `snippets` key — mirrors kreuzberg's ffi language block
+        // No `snippets` key — mirrors sample_crate's ffi language block
         lang_map.insert(
             "ffi".to_string(),
             serde_json::json!({

@@ -2482,8 +2482,8 @@ mod tests {
     fn make_config_type_with_duration_default() -> TypeDef {
         TypeDef {
             name: "CrawlConfig".to_string(),
-            rust_path: "kreuzberg::CrawlConfig".to_string(),
-            original_rust_path: "kreuzberg::CrawlConfig".to_string(),
+            rust_path: "sample_crate::CrawlConfig".to_string(),
+            original_rust_path: "sample_crate::CrawlConfig".to_string(),
             fields: vec![FieldDef {
                 name: "request_timeout".to_string(),
                 ty: TypeRef::Duration,
@@ -2525,8 +2525,8 @@ mod tests {
     fn make_request_type_with_multiword_fields() -> TypeDef {
         TypeDef {
             name: "ChatCompletionRequest".to_string(),
-            rust_path: "liter_llm::ChatCompletionRequest".to_string(),
-            original_rust_path: "liter_llm::ChatCompletionRequest".to_string(),
+            rust_path: "sample_llm::ChatCompletionRequest".to_string(),
+            original_rust_path: "sample_llm::ChatCompletionRequest".to_string(),
             fields: vec![
                 FieldDef {
                     name: "model".to_string(),
@@ -2614,13 +2614,13 @@ mod tests {
     fn single_word_builder_field_gets_json_property() {
         let typ = make_request_type_with_multiword_fields();
         let out = gen_record_type(
-            "dev.kreuzberg",
+            "dev.sample_crate",
             &typ,
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
             false,
-            "LiterLlmRs",
+            "SampleLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
@@ -2641,13 +2641,13 @@ mod tests {
     fn multiword_snake_case_field_gets_json_property_annotation() {
         let typ = make_request_type_with_multiword_fields();
         let out = gen_record_type(
-            "dev.kreuzberg",
+            "dev.sample_crate",
             &typ,
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
             false,
-            "LiterLlmRs",
+            "SampleLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
@@ -2672,13 +2672,13 @@ mod tests {
     fn boxed_duration_compact_ctor_only_null_checks_not_zero() {
         let typ = make_config_type_with_duration_default();
         let out = gen_record_type(
-            "dev.kreuzberg",
+            "dev.sample_crate",
             &typ,
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
             false,
-            "Kreuzcrawl",
+            "SampleCrawler",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
@@ -2704,8 +2704,8 @@ mod tests {
         use crate::core::ir::CoreWrapper;
         let typ = TypeDef {
             name: "ResponseTool".to_string(),
-            rust_path: "liter_llm::ResponseTool".to_string(),
-            original_rust_path: "liter_llm::ResponseTool".to_string(),
+            rust_path: "sample_llm::ResponseTool".to_string(),
+            original_rust_path: "sample_llm::ResponseTool".to_string(),
             fields: vec![
                 FieldDef {
                     name: "tool_type".to_string(),
@@ -2765,13 +2765,13 @@ mod tests {
             binding_exclusion_reason: None,
         };
         let out = gen_record_type(
-            "dev.kreuzberg.literllm",
+            "dev.sample_crate.samplellm",
             &typ,
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
             false,
-            "LiterLlmRs",
+            "SampleLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),

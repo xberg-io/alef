@@ -173,7 +173,7 @@ impl E2eCodegen for ZigE2eCodegen {
 
         // Zig language filtering: when `[crates.zig].languages` is set, omit
         // fixtures whose target language falls outside that static-compiled list.
-        // The Zig binding does not dynamically load tree-sitter parsers; only the
+        // The Zig binding does not dynamically load sample_language parsers; only the
         // grammars compiled into the static set at build time are available at
         // runtime. Without this filter, fixtures like `smoke_bibtex` would emit
         // tests that fail to load their parser. Mirrors the WASM pattern.
@@ -2925,7 +2925,7 @@ mod tests_trait_bridge {
             "DocumentExtractor",
             "processImage",
             "process_image_fn",
-            "kreuzberg",
+            "sample_crate",
         ] {
             assert!(
                 !emission.setup_block.contains(name),
@@ -2945,7 +2945,8 @@ mod zig_hash_tests {
     /// verbatim — no network fetch, no cache lookup.
     #[test]
     fn explicit_hash_override_is_used_verbatim() {
-        let url = "https://github.com/kreuzberg-dev/liter-llm/releases/download/v1.4.0/liter-llm-zig-v1.4.0.tar.gz";
+        let url =
+            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0.tar.gz";
         let pinned = "1220abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
         let result = resolve_zig_hash(Some(pinned), url);
         assert_eq!(
@@ -2960,13 +2961,13 @@ mod zig_hash_tests {
     fn build_zig_zon_emits_explicit_hash() {
         let hash = "12208badf00d";
         let content = render_build_zig_zon(
-            "liter_llm",
+            "sample_llm",
             "../../packages/zig",
             DependencyMode::Registry,
             "1.4.0-rc.32",
             Some(hash),
-            "liter-llm",
-            "https://github.com/kreuzberg-dev/liter-llm",
+            "sample-llm",
+            "https://github.com/sample_crate-dev/sample-llm",
         );
         assert!(
             content.contains(&format!(".hash = \"{hash}\"")),
@@ -2983,13 +2984,13 @@ mod zig_hash_tests {
     #[test]
     fn build_zig_zon_falls_back_to_todo_when_no_hash() {
         let content = render_build_zig_zon(
-            "liter_llm",
+            "sample_llm",
             "../../packages/zig",
             DependencyMode::Registry,
             "1.4.0-rc.32",
             None,
-            "liter-llm",
-            "https://github.com/kreuzberg-dev/liter-llm",
+            "sample-llm",
+            "https://github.com/sample_crate-dev/sample-llm",
         );
         assert!(
             content.contains(".hash = \"TODO\""),
@@ -3004,15 +3005,15 @@ mod zig_hash_tests {
     #[test]
     fn build_zig_zon_emits_full_release_url_with_repo_segment() {
         let content = render_build_zig_zon(
-            "html_to_markdown",
+            "sample_markdown",
             "../../packages/zig",
             DependencyMode::Registry,
             "3.5.1",
             None,
-            "html-to-markdown-rs",
-            "https://github.com/kreuzberg-dev/html-to-markdown",
+            "sample-markdown-rs",
+            "https://github.com/sample_crate-dev/sample-markdown",
         );
-        let expected_url = "https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v3.5.1/html-to-markdown-rs-zig-v3.5.1.tar.gz";
+        let expected_url = "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the full release URL with repo segment; got:\n{content}"

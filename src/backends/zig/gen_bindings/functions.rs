@@ -694,7 +694,7 @@ fn unwrap_return_expr(
             s
         }
         TypeRef::Named(name) if struct_names.contains(name) => {
-            // The C function returned an opaque handle (*KREUZBERGFoo). Serialize
+            // The C function returned an opaque handle (*SAMPLE_CRATEFoo). Serialize
             // it to JSON via the FFI `<prefix>_<snake>_to_json` helper, copy the
             // JSON string into a Zig-owned buffer, then free both the JSON string
             // and the opaque handle. The wrapper returns `[]u8` (JSON).

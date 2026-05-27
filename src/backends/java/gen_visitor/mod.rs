@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn gen_visitor_files_returns_four_files() {
-        let files = gen_visitor_files("dev.kreuzberg", "Demo");
+        let files = gen_visitor_files("dev.sample_crate", "Demo");
         assert_eq!(files.len(), 4, "must return 4 files");
         let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"NodeContext.java"), "must include NodeContext.java");

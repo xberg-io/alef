@@ -413,8 +413,8 @@ mod tests {
              actual:\n{out}"
         );
         assert!(
-            !out.contains("KreuzbergError::Plugin"),
-            "default emission must not embed downstream-specific kreuzberg literals;\n\
+            !out.contains("SampleCrateError::Plugin"),
+            "default emission must not embed downstream-specific sample_crate literals;\n\
              actual:\n{out}"
         );
     }
@@ -422,7 +422,7 @@ mod tests {
     /// When the FFI config provides an explicit `plugin_error_constructor`
     /// expression, the plugin shim emits that verbatim instead of the
     /// `From<String>` fallback. This is the sample_core compatibility path —
-    /// sample_core's `KreuzbergError::Plugin` is a struct variant with two
+    /// sample_core's `SampleCrateError::Plugin` is a struct variant with two
     /// fields and cannot be constructed via `From<String>`.
     #[test]
     fn gen_ffi_plugin_impl_uses_configured_plugin_error_constructor() {

@@ -531,13 +531,23 @@ mod build_rs_tests {
 
     #[test]
     fn emitted_build_rs_is_valid_rust() {
-        let file = emit_build_rs("packages/dart/rust", "spikard", "spikard", "spikard_dart");
+        let file = emit_build_rs(
+            "packages/dart/rust",
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
         syn::parse_file(&file.content).expect("generated build.rs must be valid Rust");
     }
 
     #[test]
     fn emitted_build_rs_patches_published_loader_after_codegen() {
-        let file = emit_build_rs("packages/dart/rust", "spikard", "spikard", "spikard_dart");
+        let file = emit_build_rs(
+            "packages/dart/rust",
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
         // The patch runs only on a successful FRB codegen.
         assert!(
             file.content.contains("patch_published_loader();"),
@@ -550,13 +560,13 @@ mod build_rs_tests {
         // Targets the generated dart entrypoint by module name.
         assert!(
             file.content
-                .contains(r#"../lib/src/spikard_bridge_generated/frb_generated.dart"#),
+                .contains(r#"../lib/src/sample_router_bridge_generated/frb_generated.dart"#),
             "build.rs must target the generated frb dart file"
         );
         // The injected Dart resolves the package-relative library.
         assert!(
             file.content
-                .contains("Isolate.resolvePackageUri(Uri.parse('package:spikard/spikard.dart'))"),
+                .contains("Isolate.resolvePackageUri(Uri.parse('package:sample_router/sample_router.dart'))"),
             "build.rs replacement must resolve the package URI"
         );
         assert!(
@@ -568,7 +578,12 @@ mod build_rs_tests {
 
     #[test]
     fn emitted_build_rs_runs_dart_format_after_patch() {
-        let file = emit_build_rs("packages/dart/rust", "spikard", "spikard", "spikard_dart");
+        let file = emit_build_rs(
+            "packages/dart/rust",
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
         assert!(
             file.content
                 .contains(r#"Command::new("dart").args(["format", FRB_GENERATED_DART])"#),

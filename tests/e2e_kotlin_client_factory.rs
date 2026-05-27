@@ -5,7 +5,7 @@
 //! Mirrors the Go/Zig codegen pattern: when `client_factory` is set the
 //! generated test must instantiate `DefaultClient`, call the method on it, and
 //! close it. When absent, the object-level function is called directly —
-//! the kreuzberg flat-function style must remain untouched.
+//! the sample_crate flat-function style must remain untouched.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -78,11 +78,11 @@ const BASE_TOML_WITH_FLAT_OVERRIDE: &str = r#"
 languages = ["kotlin"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
-package = "dev.kreuzberg.literllm"
+package = "dev.sample_crate.samplellm"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -90,11 +90,11 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "dev.kreuzberg.literllm.LiterLlm"
+module = "dev.sample_crate.samplellm.SampleLlm"
 result_var = "result"
 
 [crates.e2e.call.overrides.kotlin]
-class = "LiterLlm"
+class = "SampleLlm"
 function = "chat"
 
 [[crates.e2e.call.args]]
@@ -115,11 +115,11 @@ fn with_client_factory_emits_client_instantiation() {
 languages = ["kotlin"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
-package = "dev.kreuzberg.literllm"
+package = "dev.sample_crate.samplellm"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -127,11 +127,11 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "dev.kreuzberg.literllm.LiterLlm"
+module = "dev.sample_crate.samplellm.SampleLlm"
 result_var = "result"
 
 [crates.e2e.call.overrides.kotlin]
-class = "LiterLlm"
+class = "SampleLlm"
 function = "chat"
 client_factory = "createClient"
 
@@ -143,7 +143,7 @@ type = "json_object"
     let rendered = render_kotlin_smoke(toml, "smoke_basic");
 
     assert!(
-        rendered.contains("LiterLlm.createClient(apiKey"),
+        rendered.contains("SampleLlm.createClient(apiKey"),
         "must instantiate client via facade factory. Rendered:\n{rendered}"
     );
     assert!(
@@ -161,13 +161,13 @@ type = "json_object"
 }
 
 /// When `client_factory` is absent, the generator falls back to the flat
-/// object-function call pattern. This ensures kreuzberg regression-free.
+/// object-function call pattern. This ensures sample_crate regression-free.
 #[test]
 fn without_client_factory_emits_flat_function_call() {
     let rendered = render_kotlin_smoke(BASE_TOML_WITH_FLAT_OVERRIDE, "smoke_basic");
 
     assert!(
-        rendered.contains("LiterLlm.chat("),
+        rendered.contains("SampleLlm.chat("),
         "must call object-level function directly. Rendered:\n{rendered}"
     );
     assert!(

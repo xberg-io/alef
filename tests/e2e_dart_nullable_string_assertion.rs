@@ -39,11 +39,11 @@ const TOML: &str = r#"
 languages = ["dart"]
 
 [[crates]]
-name = "tree-sitter-language-pack"
+name = "sample-language-pack"
 sources = ["src/lib.rs"]
 
 [crates.dart]
-pubspec_name = "tree_sitter_language_pack"
+pubspec_name = "sample_language_pack"
 
 [crates.e2e]
 fixtures = "fixtures"

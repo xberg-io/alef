@@ -57,7 +57,7 @@ pub struct WasmBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
-    /// Error type name (e.g., `"KreuzbergError"`).
+    /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
 }
 

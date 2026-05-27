@@ -964,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_method_wrapper_non_opaque_static_emits_package_func() {
+    fn test_gen_method_wrapper_non_opaque_static_emisample_package_func() {
         let mut typ = opaque_type("Config");
         typ.is_opaque = false;
         typ.fields = vec![simple_field("value", TypeRef::String)];
@@ -986,7 +986,7 @@ mod tests {
         let method = simple_method("get_description", TypeRef::Optional(Box::new(TypeRef::String)), false);
         let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "spikard", &opaque, &value_only_types);
+        let out = gen_method_wrapper(&typ, &method, "sample_router", &opaque, &value_only_types);
         // Signature must be *string for Optional<String>.
         assert!(out.contains(") *string {"), "expected *string return in:\n{out}");
         // Body must include nil check and take-address pattern, NOT a bare C.GoString(ptr).
@@ -1029,7 +1029,7 @@ mod tests {
             return_type: TypeRef::Bytes,
             is_static: false,
             is_async: false,
-            error_type: Some("KreuzbergError".to_string()),
+            error_type: Some("SampleCrateError".to_string()),
             receiver: None,
             sanitized: false,
             trait_source: None,

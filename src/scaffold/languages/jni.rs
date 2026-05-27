@@ -142,8 +142,8 @@ sources = ["src/lib.rs"]
 prefix = "demoffi"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo"
-namespace = "dev.kreuzberg.demo"
+package = "dev.sample_crate.demo"
+namespace = "dev.sample_crate.demo"
 "#,
         );
 
@@ -176,12 +176,12 @@ namespace = "dev.kreuzberg.demo"
 languages = ["kotlin_android", "jni"]
 
 [[crates]]
-name = "tree-sitter-language-pack"
-sources = ["crates/ts-pack-core/src/lib.rs"]
+name = "sample-language-pack"
+sources = ["crates/sample-pack-core/src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.tslp.android"
-namespace = "dev.kreuzberg.tslp.android"
+package = "dev.sample_crate.sample_language_pack.android"
+namespace = "dev.sample_crate.sample_language_pack.android"
 "#,
         );
 
@@ -192,19 +192,19 @@ namespace = "dev.kreuzberg.tslp.android"
         let cargo_toml = &files[0].content;
 
         assert_eq!(
-            path, "crates/tree-sitter-language-pack-jni/Cargo.toml",
+            path, "crates/sample-language-pack-jni/Cargo.toml",
             "JNI scaffold path must follow config.name, not core_crate_dir; got: {path}"
         );
         assert!(
-            cargo_toml.contains("name = \"tree-sitter-language-pack-jni\""),
+            cargo_toml.contains("name = \"sample-language-pack-jni\""),
             "[package] name must follow config.name; got:\n{cargo_toml}"
         );
         assert!(
-            cargo_toml.contains("tree-sitter-language-pack = { path = \"../ts-pack-core\""),
+            cargo_toml.contains("sample-language-pack = { path = \"../sample-pack-core\""),
             "umbrella dep key must be cargo package name with path = ../<core_crate_dir>; got:\n{cargo_toml}"
         );
         assert!(
-            !cargo_toml.contains("ts-pack-core = { path = \"../ts-pack-core\""),
+            !cargo_toml.contains("sample-pack-core = { path = \"../sample-pack-core\""),
             "umbrella dep key must NOT be the directory name; got:\n{cargo_toml}"
         );
     }
@@ -223,8 +223,8 @@ name = "plain-pkg"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.plain"
-namespace = "dev.kreuzberg.plain"
+package = "dev.sample_crate.plain"
+namespace = "dev.sample_crate.plain"
 "#,
         );
 
@@ -256,15 +256,15 @@ namespace = "dev.kreuzberg.plain"
 languages = ["kotlin_android", "jni"]
 
 [[crates]]
-name = "html-to-markdown-rs"
-sources = ["crates/html-to-markdown/src/lib.rs"]
+name = "sample-markdown-rs"
+sources = ["crates/sample-markdown/src/lib.rs"]
 
 [crates.jni]
-crate_dir = "html-to-markdown"
+crate_dir = "sample-markdown"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.htmltomarkdown.android"
-namespace = "dev.kreuzberg.htmltomarkdown.android"
+package = "dev.sample_crate.samplemarkdown.android"
+namespace = "dev.sample_crate.samplemarkdown.android"
 "#,
         );
 
@@ -275,24 +275,24 @@ namespace = "dev.kreuzberg.htmltomarkdown.android"
         let cargo_toml = &files[0].content;
 
         assert_eq!(
-            path, "crates/html-to-markdown-jni/Cargo.toml",
+            path, "crates/sample-markdown-jni/Cargo.toml",
             "JNI scaffold path must follow [crates.jni] crate_dir override; got: {path}"
         );
         assert!(
-            cargo_toml.contains("name = \"html-to-markdown-jni\""),
+            cargo_toml.contains("name = \"sample-markdown-jni\""),
             "[package] name must follow crate_dir override; got:\n{cargo_toml}"
         );
         // Umbrella dep key is the Cargo package name (config.name), not the crate_dir.
         assert!(
-            cargo_toml.contains("html-to-markdown-rs = { path = \"../html-to-markdown\""),
+            cargo_toml.contains("sample-markdown-rs = { path = \"../sample-markdown\""),
             "umbrella dep key must be cargo package name, path must be core_crate_dir; got:\n{cargo_toml}"
         );
         assert!(
-            !cargo_toml.contains("html-to-markdown = { path = \"../html-to-markdown\""),
+            !cargo_toml.contains("sample-markdown = { path = \"../sample-markdown\""),
             "umbrella dep key must NOT be the crate_dir override; got:\n{cargo_toml}"
         );
         assert!(
-            !cargo_toml.contains("html-to-markdown-rs-jni"),
+            !cargo_toml.contains("sample-markdown-rs-jni"),
             "crate name must NOT contain the -rs suffix; got:\n{cargo_toml}"
         );
     }
@@ -312,12 +312,12 @@ namespace = "dev.kreuzberg.htmltomarkdown.android"
 languages = ["kotlin_android", "jni"]
 
 [[crates]]
-name = "kreuzcrawl"
+name = "sample_crawler"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.kreuzcrawl"
-namespace = "dev.kreuzberg.kreuzcrawl"
+package = "dev.sample_crate.sample_crawler"
+namespace = "dev.sample_crate.sample_crawler"
 "#,
         );
         let api = ApiSurface::default();
@@ -366,8 +366,8 @@ name = "demo-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo"
-namespace = "dev.kreuzberg.demo"
+package = "dev.sample_crate.demo"
+namespace = "dev.sample_crate.demo"
 "#,
         );
         let api = ApiSurface::default();

@@ -16,7 +16,7 @@ impl FfiBridgeGenerator {
     /// When `inside_closure` is `false` the body is emitted directly as the
     /// trait method body, whose return type is `Result<T, ErrorType>`.  Error
     /// construction then uses `spec.make_error(...)` to construct the trait's
-    /// actual error type (e.g. `KreuzbergError::Plugin { ... }`).
+    /// actual error type (e.g. `SampleCrateError::Plugin { ... }`).
     pub(super) fn gen_vtable_call_body(
         &self,
         method: &MethodDef,
@@ -40,7 +40,7 @@ impl FfiBridgeGenerator {
         // outside (sync method body) it is Result<T, TraitErrorType>.
         //
         // When inside_closure=false the error constructor wraps a String (e.g.
-        // `KreuzbergError::Other(String)`).  If msg_literal is a bare string literal
+        // `SampleCrateError::Other(String)`).  If msg_literal is a bare string literal
         // (starts with `"`) we append `.to_string()` so the generated code compiles
         // regardless of whether the error variant accepts `&str` or `String`.
         let make_err = |msg_literal: String| -> String {

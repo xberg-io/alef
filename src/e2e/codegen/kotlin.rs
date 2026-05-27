@@ -1355,7 +1355,7 @@ fn render_test_method(
     );
 
     // When client_factory is set, emit client-object instantiation + instance method call.
-    // The factory name is a function on the Kotlin facade object (e.g. `LiterLlm.createClient`)
+    // The factory name is a function on the Kotlin facade object (e.g. `SampleLlm.createClient`)
     // that constructs the coroutine-friendly Kotlin client wrapper from the
     // raw apiKey + baseUrl pair the test owns.
     if let Some(factory) = client_factory {
@@ -2361,7 +2361,7 @@ fn render_assertion(
             // Handled at the test method level.
         }
         "method_result" => {
-            // Placeholder: Kotlin support for method_result would need tree-sitter integration.
+            // Placeholder: Kotlin support for method_result would need sample_language integration.
             let _ = writeln!(
                 out,
                 "        // method_result assertions not yet implemented for Kotlin"
@@ -2602,7 +2602,7 @@ mod tests {
         // Simulate a `BatchObject` type with `status: BatchStatus` (Named, not a struct).
         let batch_object_def = TypeDef {
             name: "BatchObject".to_string(),
-            rust_path: "liter_llm::BatchObject".to_string(),
+            rust_path: "sample_llm::BatchObject".to_string(),
             original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
@@ -2790,7 +2790,7 @@ mod tests {
             &[&streaming_fixture],
             "LlmClient",
             "chatStream",
-            "dev.kreuzberg.literllm.android",
+            "dev.sample_crate.samplellm.android",
             "result",
             &[],
             None,
@@ -2812,7 +2812,7 @@ mod tests {
             &[&streaming_fixture],
             "LlmClient",
             "chatStream",
-            "dev.kreuzberg.literllm.android",
+            "dev.sample_crate.samplellm.android",
             "result",
             &[],
             None,
@@ -2892,7 +2892,7 @@ mod tests {
             &[&http_fixture],
             "",
             "",
-            "dev.kreuzberg.literllm.android",
+            "dev.sample_crate.samplellm.android",
             "result",
             &[],
             None,
@@ -2918,7 +2918,7 @@ mod tests {
             &[&http_fixture],
             "",
             "",
-            "dev.kreuzberg.literllm.android",
+            "dev.sample_crate.samplellm.android",
             "result",
             &[],
             None,
@@ -2940,14 +2940,14 @@ mod tests {
     #[test]
     fn registry_dep_uses_group_artifact_version_coordinate() {
         let out = render_build_gradle(
-            "spikard-kotlin",
-            "dev.spikard",
+            "sample_router-kotlin",
+            "dev.sample_router",
             "0.15.6-rc.3",
             crate::e2e::config::DependencyMode::Registry,
             false,
         );
         assert!(
-            out.contains(r#"testImplementation("dev.spikard:spikard-kotlin:0.15.6-rc.3")"#),
+            out.contains(r#"testImplementation("dev.sample_router:sample_router-kotlin:0.15.6-rc.3")"#),
             "expected single-group maven coordinate, got:\n{out}"
         );
     }
@@ -2958,18 +2958,18 @@ mod tests {
     #[test]
     fn registry_dep_does_not_double_the_group_prefix() {
         let out = render_build_gradle(
-            "dev.spikard:spikard-kotlin",
-            "dev.spikard",
+            "dev.sample_router:sample_router-kotlin",
+            "dev.sample_router",
             "0.15.6-rc.3",
             crate::e2e::config::DependencyMode::Registry,
             false,
         );
         assert!(
-            out.contains(r#"testImplementation("dev.spikard:spikard-kotlin:0.15.6-rc.3")"#),
+            out.contains(r#"testImplementation("dev.sample_router:sample_router-kotlin:0.15.6-rc.3")"#),
             "group must not be doubled, got:\n{out}"
         );
         assert!(
-            !out.contains("dev.spikard:dev.spikard"),
+            !out.contains("dev.sample_router:dev.sample_router"),
             "doubled group must never appear, got:\n{out}"
         );
     }
@@ -2980,14 +2980,14 @@ mod tests {
     #[test]
     fn local_dep_references_built_jar_by_base_name() {
         let out = render_build_gradle(
-            "spikard",
-            "dev.spikard",
+            "sample_router",
+            "dev.sample_router",
             "0.15.6-rc.3",
             crate::e2e::config::DependencyMode::Local,
             false,
         );
         assert!(
-            out.contains("packages/kotlin/build/libs/spikard-0.15.6-rc.3.jar"),
+            out.contains("packages/kotlin/build/libs/sample_router-0.15.6-rc.3.jar"),
             "expected local jar reference, got:\n{out}"
         );
     }

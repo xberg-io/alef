@@ -332,7 +332,7 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
     // Regression: initialize()/shutdown() take no args, so the args map is
     // never mutated. Emitting `let mut args` triggers unused_mut warnings
     // (clippy/rustc) in the generated NIF code. See
-    // packages/elixir/native/kreuzberg_nif/src/lib.rs:5159/:5196 reproduction.
+    // packages/elixir/native/sample_crate_nif/src/lib.rs:5159/:5196 reproduction.
     assert!(
         !code.code.contains("let mut args = serde_json::Map::new();"),
         "no-arg trait methods must emit `let args`, not `let mut args` (unused_mut)"

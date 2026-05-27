@@ -56,11 +56,11 @@ const TOML: &str = r#"
 languages = ["csharp"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.csharp]
-namespace = "Kreuzberg"
+namespace = "SampleCrate"
 
 [crates.e2e]
 fixtures = "fixtures"

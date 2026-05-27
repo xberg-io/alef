@@ -947,8 +947,8 @@ clean = "cd packages/go && go clean -cache"
             ..Default::default()
         };
         assert_eq!(
-            tmpl.resolve("spikard", "python", true),
-            PathBuf::from("crates/spikard-py/src/")
+            tmpl.resolve("sample_router", "python", true),
+            PathBuf::from("crates/sample_router-py/src/")
         );
     }
 
@@ -959,8 +959,8 @@ clean = "cd packages/go && go clean -cache"
             ..Default::default()
         };
         assert_eq!(
-            tmpl.resolve("spikard-runtime", "go", true),
-            PathBuf::from("packages/go/spikard-runtime/")
+            tmpl.resolve("sample_router-runtime", "go", true),
+            PathBuf::from("packages/go/sample_router-runtime/")
         );
     }
 
@@ -968,8 +968,8 @@ clean = "cd packages/go && go clean -cache"
     fn output_template_falls_back_to_multi_crate_default() {
         let tmpl = OutputTemplate::default();
         assert_eq!(
-            tmpl.resolve("spikard-runtime", "python", true),
-            PathBuf::from("packages/python/spikard-runtime")
+            tmpl.resolve("sample_router-runtime", "python", true),
+            PathBuf::from("packages/python/sample_router-runtime")
         );
     }
 
@@ -977,14 +977,23 @@ clean = "cd packages/go && go clean -cache"
     fn output_template_falls_back_to_single_crate_historical_default() {
         let tmpl = OutputTemplate::default();
         assert_eq!(
-            tmpl.resolve("spikard", "python", false),
+            tmpl.resolve("sample_router", "python", false),
             PathBuf::from("packages/python")
         );
-        assert_eq!(tmpl.resolve("spikard", "node", false), PathBuf::from("packages/node"));
-        assert_eq!(tmpl.resolve("spikard", "ruby", false), PathBuf::from("packages/ruby"));
-        assert_eq!(tmpl.resolve("spikard", "php", false), PathBuf::from("packages/php"));
         assert_eq!(
-            tmpl.resolve("spikard", "elixir", false),
+            tmpl.resolve("sample_router", "node", false),
+            PathBuf::from("packages/node")
+        );
+        assert_eq!(
+            tmpl.resolve("sample_router", "ruby", false),
+            PathBuf::from("packages/ruby")
+        );
+        assert_eq!(
+            tmpl.resolve("sample_router", "php", false),
+            PathBuf::from("packages/php")
+        );
+        assert_eq!(
+            tmpl.resolve("sample_router", "elixir", false),
             PathBuf::from("packages/elixir")
         );
     }
@@ -992,8 +1001,11 @@ clean = "cd packages/go && go clean -cache"
     #[test]
     fn output_template_falls_back_to_lang_dir_for_unknown_languages() {
         let tmpl = OutputTemplate::default();
-        assert_eq!(tmpl.resolve("spikard", "go", false), PathBuf::from("packages/go"));
-        assert_eq!(tmpl.resolve("spikard", "swift", false), PathBuf::from("packages/swift"));
+        assert_eq!(tmpl.resolve("sample_router", "go", false), PathBuf::from("packages/go"));
+        assert_eq!(
+            tmpl.resolve("sample_router", "swift", false),
+            PathBuf::from("packages/swift")
+        );
     }
 
     #[test]
@@ -1102,7 +1114,7 @@ pub struct CitationConfig {
     #[serde(rename = "abstract")]
     pub abstract_: String,
     /// Authors list — at least one entry required. Persons and legal entities
-    /// can be mixed (e.g. `Na'aman Hirschfeld` + `Kreuzberg, Inc.`).
+    /// can be mixed (e.g. `Na'aman Hirschfeld` + `SampleCrate, Inc.`).
     pub authors: Vec<CitationAuthor>,
     /// Canonical citation message shown to consumers (`message:`).
     #[serde(default = "default_citation_message")]

@@ -183,10 +183,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 "#,
     )

@@ -19,12 +19,12 @@ fn print_generated_java_code() {
 
     // Create a comprehensive test API surface
     let api = ApiSurface {
-        crate_name: "kreuzberg".to_string(),
+        crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
             TypeDef {
                 name: "ExtractionConfig".to_string(),
-                rust_path: "kreuzberg::ExtractionConfig".to_string(),
+                rust_path: "sample_crate::ExtractionConfig".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![
                     FieldDef {
@@ -86,7 +86,7 @@ fn print_generated_java_code() {
             },
             TypeDef {
                 name: "ExtractionResult".to_string(),
-                rust_path: "kreuzberg::ExtractionResult".to_string(),
+                rust_path: "sample_crate::ExtractionResult".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![
                     FieldDef {
@@ -150,7 +150,7 @@ fn print_generated_java_code() {
         functions: vec![
             FunctionDef {
                 name: "extractFileSync".to_string(),
-                rust_path: "kreuzberg::extract_file_sync".to_string(),
+                rust_path: "sample_crate::extract_file_sync".to_string(),
                 original_rust_path: String::new(),
                 params: vec![
                     ParamDef {
@@ -197,7 +197,7 @@ fn print_generated_java_code() {
             },
             FunctionDef {
                 name: "extractFileAsync".to_string(),
-                rust_path: "kreuzberg::extract_file_async".to_string(),
+                rust_path: "sample_crate::extract_file_async".to_string(),
                 original_rust_path: String::new(),
                 params: vec![
                     ParamDef {
@@ -245,7 +245,7 @@ fn print_generated_java_code() {
         ],
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
-            rust_path: "kreuzberg::OcrBackend".to_string(),
+            rust_path: "sample_crate::OcrBackend".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
@@ -285,7 +285,7 @@ fn print_generated_java_code() {
         }],
         errors: vec![ErrorDef {
             name: "Error".to_string(),
-            rust_path: "kreuzberg::Error".to_string(),
+            rust_path: "sample_crate::Error".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
@@ -324,14 +324,14 @@ fn print_generated_java_code() {
 languages = ["java", "ffi"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
-prefix = "kreuzberg"
+prefix = "sample_crate"
 
 [crates.java]
-package = "dev.kreuzberg.extraction"
+package = "dev.sample_crate.extraction"
 "#,
     );
 

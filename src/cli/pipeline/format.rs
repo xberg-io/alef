@@ -167,7 +167,7 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             let work_dir = "packages/csharp/".to_owned();
             if let Some(project_file) = config.project_file_for_language(Language::Csharp) {
                 // project_file is a path relative to the project root (e.g.
-                // "packages/csharp/LiterLlm.csproj"). Strip the work_dir prefix so the
+                // "packages/csharp/SampleLlm.csproj"). Strip the work_dir prefix so the
                 // argument is relative to work_dir where the command runs.
                 let relative = Path::new(project_file)
                     .strip_prefix(&work_dir)
@@ -228,7 +228,7 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // cargo-sort hook is a no-op; without it the hook reformats feature
         // indentation after finalize_hashes, making alef verify report stale files.
         //
-        // No oxfmt step here. The shared Kreuzberg pre-commit `oxfmt` hook is scoped
+        // No oxfmt step here. The shared SampleCrate pre-commit `oxfmt` hook is scoped
         // to `[javascript, jsx, ts, tsx, json, css]` only (see pre-commit-hooks
         // `.pre-commit-hooks.yaml`), so any JS/TS/JSON files that need oxfmt-shape
         // formatting are picked up by the per-language scaffold + the consumer's
@@ -620,7 +620,7 @@ project_file = "{project_file}"
 
     #[test]
     fn test_wasm_formatter_uses_manifest_path() {
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
         // Two commands: cargo fmt (rs files), cargo sort (Cargo.toml table order).
         // No oxfmt step — oxfmt's default TOML style fights cargo-sort's preserved
@@ -630,13 +630,13 @@ project_file = "{project_file}"
         assert_eq!(fmt_cmd.command, "cargo");
         assert_eq!(
             fmt_cmd.args,
-            vec!["fmt", "--manifest-path", "crates/liter-llm-wasm/Cargo.toml"]
+            vec!["fmt", "--manifest-path", "crates/sample-llm-wasm/Cargo.toml"]
         );
         let sort_cmd = &spec.commands[1];
         assert_eq!(sort_cmd.command, "cargo");
         assert_eq!(
             sort_cmd.args,
-            vec!["sort", "crates/liter-llm-wasm"],
+            vec!["sort", "crates/sample-llm-wasm"],
             "cargo sort arg must be the crate directory, not the manifest path"
         );
         assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
@@ -649,10 +649,10 @@ project_file = "{project_file}"
 [workspace]
 languages = ["wasm"]
 [[crates]]
-name = "tree-sitter-language-pack"
-sources = ["crates/ts-pack-core/src/lib.rs"]
+name = "sample-language-pack"
+sources = ["crates/sample-pack-core/src/lib.rs"]
 [crates.output]
-wasm = "crates/ts-pack-core-wasm/src/"
+wasm = "crates/sample-pack-core-wasm/src/"
 "#,
         )
         .expect("valid config");
@@ -661,12 +661,12 @@ wasm = "crates/ts-pack-core-wasm/src/"
         let fmt_cmd = &spec.commands[0];
         assert_eq!(
             fmt_cmd.args,
-            vec!["fmt", "--manifest-path", "crates/ts-pack-core-wasm/Cargo.toml"]
+            vec!["fmt", "--manifest-path", "crates/sample-pack-core-wasm/Cargo.toml"]
         );
         let sort_cmd = &spec.commands[1];
         assert_eq!(
             sort_cmd.args,
-            vec!["sort", "crates/ts-pack-core-wasm"],
+            vec!["sort", "crates/sample-pack-core-wasm"],
             "cargo sort arg must match the crate dir derived from the configured output path"
         );
     }
@@ -677,7 +677,7 @@ wasm = "crates/ts-pack-core-wasm/src/"
         // spaces), which fights the consumer's pyproject-fmt (`[ "x" ]`) and
         // cargo-sort, breaking `alef verify` post-finalize. The whole-repo oxfmt
         // run must exclude `**/*.toml`.
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::Node).expect("should have formatter");
         let oxfmt_cmd = spec
             .commands
@@ -693,10 +693,10 @@ wasm = "crates/ts-pack-core-wasm/src/"
 
     #[test]
     fn test_ffi_formatter_includes_cargo_sort() {
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::Ffi).expect("should have formatter");
         // Two commands: cargo fmt --all (rs files) + cargo sort -w (Cargo.toml table
-        // order across the workspace). No oxfmt step here — the shared Kreuzberg
+        // order across the workspace). No oxfmt step here — the shared SampleCrate
         // pre-commit `oxfmt` hook is JS/TS/JSON/CSS only, and running oxfmt on `.`
         // additionally reformats every workspace TOML (including hand-maintained
         // Cargo.toml files) into oxfmt's 2-space style, fighting cargo-sort's
@@ -722,7 +722,7 @@ wasm = "crates/ts-pack-core-wasm/src/"
     // indentation post-finalize and breaks `alef verify`.
     #[test]
     fn test_ruby_formatter_includes_cargo_sort_for_native_crate() {
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::Ruby).expect("should have formatter");
         assert_eq!(spec.commands.len(), 2, "Ruby must have rubocop + cargo sort steps");
         let sort_cmd = &spec.commands[1];
@@ -740,7 +740,7 @@ wasm = "crates/ts-pack-core-wasm/src/"
     // cargo workspace, so cargo sort must be invoked directly.
     #[test]
     fn test_elixir_formatter_includes_cargo_sort_for_nif_crate() {
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::Elixir).expect("should have formatter");
         assert_eq!(spec.commands.len(), 2, "Elixir must have mix format + cargo sort steps");
         let sort_cmd = &spec.commands[1];
@@ -758,7 +758,7 @@ wasm = "crates/ts-pack-core-wasm/src/"
     // needs its own cargo sort invocation.
     #[test]
     fn test_r_formatter_includes_cargo_sort_for_extendr_crate() {
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::R).expect("should have formatter");
         assert_eq!(spec.commands.len(), 2, "R must have styler + cargo sort steps");
         let sort_cmd = &spec.commands[1];
@@ -770,14 +770,14 @@ wasm = "crates/ts-pack-core-wasm/src/"
     // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.
     #[test]
     fn test_csharp_formatter_with_project_file() {
-        let config = make_config_with_csharp_project("liter-llm", "packages/csharp/LiterLlm.csproj");
+        let config = make_config_with_csharp_project("sample-llm", "packages/csharp/SampleLlm.csproj");
         let spec = get_default_formatter(&config, Language::Csharp).expect("should have formatter");
         assert_eq!(spec.commands.len(), 1);
         let cmd = &spec.commands[0];
         assert_eq!(cmd.command, "dotnet");
         assert!(cmd.args.contains(&"format".to_owned()), "args must contain 'format'");
         assert!(
-            cmd.args.contains(&"LiterLlm.csproj".to_owned()),
+            cmd.args.contains(&"SampleLlm.csproj".to_owned()),
             "args must contain the relative project file, got: {:?}",
             cmd.args
         );
@@ -786,7 +786,7 @@ wasm = "crates/ts-pack-core-wasm/src/"
 
     #[test]
     fn test_csharp_formatter_without_project_file() {
-        let config = make_config("liter-llm");
+        let config = make_config("sample-llm");
         let spec = get_default_formatter(&config, Language::Csharp).expect("should have formatter");
         let cmd = &spec.commands[0];
         assert_eq!(cmd.command, "dotnet");
@@ -802,7 +802,7 @@ wasm = "crates/ts-pack-core-wasm/src/"
     // to ensure generated code is byte-identical to what prek's hook would produce.
     #[test]
     fn test_kotlin_android_formatter_uses_ktfmt() {
-        let config = make_config("html-to-markdown");
+        let config = make_config("sample-markdown");
         let spec =
             get_default_formatter(&config, Language::KotlinAndroid).expect("KotlinAndroid should have formatter");
         assert_eq!(

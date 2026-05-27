@@ -1248,7 +1248,7 @@ fn test_map_types() {
 fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json() {
     let backend = NapiBackend;
 
-    // Simulate the liter-llm `Message` enum pattern:
+    // Simulate the sample-llm `Message` enum pattern:
     // #[serde(tag = "role")]
     // enum Message {
     //     #[serde(rename = "system")]  System(SystemMessage),
@@ -1767,7 +1767,7 @@ package_name = "test-lib"
 fn make_language_type_def() -> TypeDef {
     TypeDef {
         name: "Language".to_string(),
-        rust_path: "ts_pack::Language".to_string(),
+        rust_path: "sample_pack::Language".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![],
@@ -1781,7 +1781,7 @@ fn make_language_type_def() -> TypeDef {
         serde_rename_all: None,
         has_serde: false,
         super_traits: vec![],
-        doc: "A tree-sitter Language handle.".to_string(),
+        doc: "A sample_language Language handle.".to_string(),
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
@@ -1791,7 +1791,7 @@ fn make_language_type_def() -> TypeDef {
 fn make_get_language_func() -> FunctionDef {
     FunctionDef {
         name: "get_language".to_string(),
-        rust_path: "ts_pack::get_language".to_string(),
+        rust_path: "sample_pack::get_language".to_string(),
         original_rust_path: String::new(),
         params: vec![ParamDef {
             name: "name".to_string(),
@@ -1809,7 +1809,7 @@ fn make_get_language_func() -> FunctionDef {
         }],
         return_type: TypeRef::Named("Language".to_string()),
         is_async: false,
-        error_type: Some("ts_pack::Error".to_string()),
+        error_type: Some("sample_pack::Error".to_string()),
         doc: "Look up a language by name.".to_string(),
         cfg: None,
         sanitized: false,
@@ -1832,11 +1832,11 @@ fn test_capsule_types_end_to_end() {
     let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
     capsule_map.insert(
         "Language".to_string(),
-        make_capsule_config_node("Language", "tree-sitter"),
+        make_capsule_config_node("Language", "sample_language"),
     );
 
     let api = ApiSurface {
-        crate_name: "ts_pack".to_string(),
+        crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def()],
         functions: vec![make_get_language_func()],
@@ -1870,7 +1870,7 @@ fn test_capsule_types_end_to_end() {
     );
 
     // The shim must call raw napi_create_external (not napi-rs's wrapper, which
-    // produces a value rejected by node-tree-sitter's UnwrapLanguage).
+    // produces a value rejected by node-sample_language's UnwrapLanguage).
     assert!(
         content.contains("napi_create_external"),
         "get_language shim must call raw napi_create_external; content:\n{content}"
@@ -1909,7 +1909,7 @@ fn test_capsule_types_end_to_end() {
 }
 
 /// capsule_types dts generation:
-/// - `import type { Language } from "tree-sitter"` appears at the top.
+/// - `import type { Language } from "sample_language"` appears at the top.
 /// - `export declare class JsLanguage` is NOT emitted.
 /// - `getLanguage(name: string): Language` uses the ecosystem type name.
 #[test]
@@ -1919,11 +1919,11 @@ fn test_capsule_types_dts_generation() {
     let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
     capsule_map.insert(
         "Language".to_string(),
-        make_capsule_config_node("Language", "tree-sitter"),
+        make_capsule_config_node("Language", "sample_language"),
     );
 
     let api = ApiSurface {
-        crate_name: "ts_pack".to_string(),
+        crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def()],
         functions: vec![make_get_language_func()],
@@ -1946,7 +1946,7 @@ fn test_capsule_types_dts_generation() {
 
     // Import line must be emitted for the capsule type.
     assert!(
-        content.contains("import type { Language } from \"tree-sitter\""),
+        content.contains("import type { Language } from \"sample_language\""),
         "index.d.ts must emit import type for capsule type; content:\n{content}"
     );
 
@@ -1972,7 +1972,7 @@ fn test_capsule_types_dts_generation() {
 fn make_language_registry_type_def() -> TypeDef {
     TypeDef {
         name: "LanguageRegistry".to_string(),
-        rust_path: "ts_pack::LanguageRegistry".to_string(),
+        rust_path: "sample_pack::LanguageRegistry".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![MethodDef {
@@ -1994,7 +1994,7 @@ fn make_language_registry_type_def() -> TypeDef {
             return_type: TypeRef::Named("Language".to_string()),
             is_async: false,
             is_static: false,
-            error_type: Some("ts_pack::Error".to_string()),
+            error_type: Some("sample_pack::Error".to_string()),
             doc: "Look up a language by name.".to_string(),
             receiver: Some(alef::core::ir::ReceiverKind::Ref),
             sanitized: false,
@@ -2040,11 +2040,11 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
     let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
     capsule_map.insert(
         "Language".to_string(),
-        make_capsule_config_node("Language", "tree-sitter"),
+        make_capsule_config_node("Language", "sample_language"),
     );
 
     let api = ApiSurface {
-        crate_name: "ts_pack".to_string(),
+        crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def(), make_language_registry_type_def()],
         functions: vec![],
@@ -2119,7 +2119,7 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
 
 /// capsule_types on opaque method — TypeScript stubs:
 /// The `index.d.ts` for an opaque class whose method returns a capsule type must:
-/// 1. Emit `import type { Language } from "tree-sitter"`.
+/// 1. Emit `import type { Language } from "sample_language"`.
 /// 2. Declare the class without `JsLanguage` anywhere.
 /// 3. Emit the method returning the ecosystem type name `Language`.
 #[test]
@@ -2129,11 +2129,11 @@ fn test_capsule_types_method_on_opaque_dts() {
     let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
     capsule_map.insert(
         "Language".to_string(),
-        make_capsule_config_node("Language", "tree-sitter"),
+        make_capsule_config_node("Language", "sample_language"),
     );
 
     let api = ApiSurface {
-        crate_name: "ts_pack".to_string(),
+        crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def(), make_language_registry_type_def()],
         functions: vec![],
@@ -2156,7 +2156,7 @@ fn test_capsule_types_method_on_opaque_dts() {
 
     // Import must be present.
     assert!(
-        content.contains("import type { Language } from \"tree-sitter\""),
+        content.contains("import type { Language } from \"sample_language\""),
         "index.d.ts must emit import type for capsule type; content:\n{content}"
     );
 

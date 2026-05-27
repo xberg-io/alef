@@ -23,7 +23,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.kreuzberg"
+    namespace = "dev.sample_crate"
     compileSdk = 35
 
     defaultConfig {
@@ -84,7 +84,7 @@ mavenPublishing {
     signAllPublications()
 
     coordinates(
-        groupId = "dev.kreuzberg",
+        groupId = "dev.sample_crate",
         artifactId = "demo-android",
         version = "0.0.0",
     )

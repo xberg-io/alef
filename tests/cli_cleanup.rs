@@ -5,5 +5,5 @@
 #[test]
 fn test_integration_imports() {
     // This test verifies the binary can be compiled with the cleanup module.
-    // The actual cleanup behavior is tested through e2e tests with real kreuzberg project.
+    // The actual cleanup behavior is tested through e2e tests with real sample_crate project.
 }

@@ -340,7 +340,7 @@ pub fn emit_make_vtable(
 /// Emit the vtable extern struct and registration shim for a single trait bridge.
 ///
 /// `prefix` is the C FFI prefix (e.g., `"sample_core"`, `"sample-crawler"`).
-/// `error_type` is the Zig error set type name (e.g., `"KreuzbergError"`, `"CrawlError"`).
+/// `error_type` is the Zig error set type name (e.g., `"SampleCrateError"`, `"CrawlError"`).
 /// `bridge_cfg` is the trait bridge configuration entry.
 /// `trait_def` is the IR type definition for the trait (must have `is_trait = true`).
 /// `excluded_types` is the set of type names that are excluded from the public binding surface.
@@ -888,13 +888,13 @@ mod tests {
                 Some("OcrError"),
             )],
         );
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
+        let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::plugins::Plugin"));
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
 
         let mut out = String::new();
         emit_trait_bridge(
-            "kreuzberg",
-            "KreuzbergError",
+            "sample_crate",
+            "SampleCrateError",
             &bridge_cfg,
             &trait_def,
             &std::collections::HashSet::new(),
@@ -902,12 +902,12 @@ mod tests {
         );
 
         assert!(
-            out.contains("pub fn clear_ocr_backends() KreuzbergError!void"),
+            out.contains("pub fn clear_ocr_backends() SampleCrateError!void"),
             "missing clear_ocr_backends signature: {out}"
         );
         // C symbol uses the singular trait-snake suffix to match sample_core-ffi naming.
         assert!(
-            out.contains("c.kreuzberg_clear_ocr_backend(&_out_error)"),
+            out.contains("c.sample_crate_clear_ocr_backend(&_out_error)"),
             "wrong C symbol target for clear wrapper: {out}"
         );
         // Doc comment present.
@@ -928,13 +928,13 @@ mod tests {
                 Some("OcrError"),
             )],
         );
-        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::plugins::Plugin"));
         // clear_fn left as None.
 
         let mut out = String::new();
         emit_trait_bridge(
-            "kreuzberg",
-            "KreuzbergError",
+            "sample_crate",
+            "SampleCrateError",
             &bridge_cfg,
             &trait_def,
             &std::collections::HashSet::new(),
@@ -969,12 +969,12 @@ mod tests {
                 ),
             ],
         );
-        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::plugins::Plugin"));
 
         let mut out = String::new();
         emit_trait_bridge(
-            "kreuzberg",
-            "KreuzbergError",
+            "sample_crate",
+            "SampleCrateError",
             &bridge_cfg,
             &trait_def,
             &std::collections::HashSet::new(),
@@ -1007,11 +1007,11 @@ mod tests {
         );
         // C symbols use sample_core prefix
         assert!(
-            out.contains("c.kreuzberg_register_ocr_backend("),
+            out.contains("c.sample_crate_register_ocr_backend("),
             "wrong register symbol: {out}"
         );
         assert!(
-            out.contains("c.kreuzberg_unregister_ocr_backend("),
+            out.contains("c.sample_crate_unregister_ocr_backend("),
             "wrong unregister symbol: {out}"
         );
         // Registration shim signature
@@ -1076,12 +1076,12 @@ mod tests {
     #[test]
     fn make_vtable_with_super_trait_emits_lifecycle_stubs() {
         let trait_def = make_trait_def("OcrBackend", vec![]);
-        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::Plugin"));
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::Plugin"));
 
         let mut out = String::new();
         emit_trait_bridge(
-            "kreuzberg",
-            "KreuzbergError",
+            "sample_crate",
+            "SampleCrateError",
             &bridge_cfg,
             &trait_def,
             &std::collections::HashSet::new(),
@@ -1207,11 +1207,11 @@ mod tests {
         TraitBridgeSpec {
             trait_def,
             bridge_config: bridge_cfg,
-            core_import: "kreuzberg",
+            core_import: "sample_crate",
             wrapper_prefix: "Zig",
             type_paths: HashMap::new(),
-            error_type: "KreuzbergError".to_string(),
-            error_constructor: "KreuzbergError::msg({msg})".to_string(),
+            error_type: "SampleCrateError".to_string(),
+            error_constructor: "SampleCrateError::msg({msg})".to_string(),
         }
     }
 
@@ -1221,7 +1221,7 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.unregister_fn = Some("unregister_ocr_backend".to_string());
 
-        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let generator = ZigTraitBridgeGenerator::new("sample_crate");
         let spec = make_spec(&trait_def, &bridge_cfg);
         let out = generator.gen_unregistration_fn(&spec);
 
@@ -1231,7 +1231,7 @@ mod tests {
             "wrong function name: {out}"
         );
         assert!(
-            out.contains("c.kreuzberg_unregister_ocr_backend("),
+            out.contains("c.sample_crate_unregister_ocr_backend("),
             "wrong C symbol: {out}"
         );
         assert!(
@@ -1247,7 +1247,7 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend", vec![]);
         let bridge_cfg = make_bridge_cfg("OcrBackend", None); // unregister_fn is None
 
-        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let generator = ZigTraitBridgeGenerator::new("sample_crate");
         let spec = make_spec(&trait_def, &bridge_cfg);
         let out = generator.gen_unregistration_fn(&spec);
 
@@ -1263,13 +1263,16 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
 
-        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let generator = ZigTraitBridgeGenerator::new("sample_crate");
         let spec = make_spec(&trait_def, &bridge_cfg);
         let out = generator.gen_clear_fn(&spec);
 
         assert!(!out.is_empty(), "expected non-empty output when clear_fn is set");
         assert!(out.contains("pub fn clear_ocr_backends("), "wrong function name: {out}");
-        assert!(out.contains("c.kreuzberg_clear_ocr_backends("), "wrong C symbol: {out}");
+        assert!(
+            out.contains("c.sample_crate_clear_ocr_backends("),
+            "wrong C symbol: {out}"
+        );
         assert!(
             out.contains("out_error: ?*?[*c]u8") || out.contains("out_error"),
             "missing out_error param: {out}"
@@ -1283,7 +1286,7 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend", vec![]);
         let bridge_cfg = make_bridge_cfg("OcrBackend", None); // clear_fn is None
 
-        let generator = ZigTraitBridgeGenerator::new("kreuzberg");
+        let generator = ZigTraitBridgeGenerator::new("sample_crate");
         let spec = make_spec(&trait_def, &bridge_cfg);
         let out = generator.gen_clear_fn(&spec);
 
@@ -1352,7 +1355,7 @@ mod tests {
                         make_param("mime_type", TypeRef::String),
                     ],
                     TypeRef::Named("InternalDocument".to_string()),
-                    Some("KreuzbergError"),
+                    Some("SampleCrateError"),
                 ),
                 make_method(
                     "process_result",
@@ -1366,8 +1369,8 @@ mod tests {
 
         let mut out = String::new();
         emit_trait_bridge(
-            "kreuzberg",
-            "KreuzbergError",
+            "sample_crate",
+            "SampleCrateError",
             &bridge_cfg,
             &trait_def,
             &excluded,
@@ -1419,15 +1422,15 @@ mod tests {
                 "render",
                 vec![make_param("doc", TypeRef::Named("InternalDocument".to_string()))],
                 TypeRef::Bytes,
-                Some("KreuzbergError"),
+                Some("SampleCrateError"),
             )],
         );
         let bridge_cfg = make_bridge_cfg("Renderer", None);
 
         let mut out = String::new();
         emit_trait_bridge(
-            "kreuzberg",
-            "KreuzbergError",
+            "sample_crate",
+            "SampleCrateError",
             &bridge_cfg,
             &trait_def,
             &excluded,

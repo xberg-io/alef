@@ -1,8 +1,8 @@
 //! Regression tests for four Swift e2e codegen bugs surfaced by
-//! tree-sitter-language-pack against alef HEAD:
+//! sample-language-pack against alef HEAD:
 //!
 //! A. `init` is a Swift keyword. When a call's function name is `init` the
-//!    codegen previously emitted `TreeSitterLanguagePack.init(config:)`, which
+//!    codegen previously emitted `SampleLanguagePack.init(config:)`, which
 //!    Swift rejects ("module has no member named 'init'"). The Swift binding
 //!    renames the function to `init_` (mirroring the swift-bridge rename
 //!    applied to the Rust side), so the codegen must apply the same keyword
@@ -59,7 +59,7 @@ fn make_field(name: &str, ty: TypeRef) -> FieldDef {
 fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
-        rust_path: format!("ts_pack::{name}"),
+        rust_path: format!("sample_pack::{name}"),
         original_rust_path: String::new(),
         fields,
         methods: vec![],
@@ -156,7 +156,7 @@ fn function_named_init_is_escaped_to_init_underscore() {
 languages = ["swift"]
 
 [[crates]]
-name = "ts_pack"
+name = "sample_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -165,7 +165,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "init"
-module = "TreeSitterLanguagePack"
+module = "SampleLanguagePack"
 result_var = "result"
 
 [[crates.e2e.call.args]]
@@ -194,7 +194,7 @@ type = "json_object"
          swift-bridge rename. Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("try TsPack.init("),
+        !rendered.contains("try SamplePack.init("),
         "must not emit the bare keyword `init` as a module member. \
          Rendered:\n{rendered}"
     );
@@ -209,7 +209,7 @@ fn vec_string_result_uses_native_contains_without_as_str_coercion() {
 languages = ["swift"]
 
 [[crates]]
-name = "ts_pack"
+name = "sample_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -218,7 +218,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "manifest_languages"
-module = "TreeSitterLanguagePack"
+module = "SampleLanguagePack"
 result_var = "result"
 result_is_simple = true
 result_is_array = true
@@ -260,7 +260,7 @@ fn simple_optional_result_coalesces_before_string_assertions() {
 languages = ["swift"]
 
 [[crates]]
-name = "ts_pack"
+name = "sample_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -269,7 +269,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "detect_language_from_extension"
-module = "TreeSitterLanguagePack"
+module = "SampleLanguagePack"
 result_var = "result"
 result_is_simple = true
 result_is_option = true
@@ -316,7 +316,7 @@ fn contains_over_opaque_vec_uses_configured_element_accessor() {
 languages = ["swift"]
 
 [[crates]]
-name = "ts_pack"
+name = "sample_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -326,7 +326,7 @@ fields_array = ["structure"]
 
 [crates.e2e.call]
 function = "process"
-module = "TreeSitterLanguagePack"
+module = "SampleLanguagePack"
 result_var = "result"
 
 [crates.e2e.call.overrides.c]

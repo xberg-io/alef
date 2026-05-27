@@ -463,7 +463,7 @@ fn data_bearing_enum_emits_associated_values() {
 
 #[test]
 fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
-    // Reproduces the HtmlTheme regression in the kreuzberg Swift binding:
+    // Reproduces the HtmlTheme regression in the sample_crate Swift binding:
     // the `Default` variant must emit as `case `default`` (backtick-escaped),
     // not `case default_` (trailing-underscore). Non-keyword variants are
     // unaffected — `GitHub` stays as `case gitHub`.
@@ -543,7 +543,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
     );
 }
 
-/// Repro of the spikard `SecuritySchemeInfo` bug: a serde-derived data-variant
+/// Repro of the sample_router `SecuritySchemeInfo` bug: a serde-derived data-variant
 /// enum whose associated values are bridge-safe primitives (String + Option<String>)
 /// must be emitted as a `Codable` Swift enum so the generated `*FromJson`
 /// JSONDecoder round-trip compiles. Without `Codable` conformance the generated
@@ -693,7 +693,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
     );
 }
 
-/// Repro of the spikard `schemaQueryOnly()` bug: a non-throwing free function
+/// Repro of the sample_router `schemaQueryOnly()` bug: a non-throwing free function
 /// whose return type is a first-class DTO must wrap the bridge call in the
 /// `try {Dto}(_:)` converter, otherwise Swift rejects the body with
 /// `cannot convert return expression of type 'RustBridge.QueryOnlyConfig' to
@@ -1972,7 +1972,7 @@ client_constructor_body.Client = "Self { inner: ::demo::Client::new(api_key, bas
 /// parameter, the generated call site must apply `.intoRust()` to convert the
 /// Swift wrapper into the `RustBridge.T` raw type that the bridge function
 /// expects.  Without this conversion the Swift compiler rejects the call with
-/// "cannot convert value of type 'LiterLlm.T' to expected argument type
+/// "cannot convert value of type 'SampleLlm.T' to expected argument type
 /// 'RustBridge.T'".
 ///
 /// The method signature must also carry `throws` because `intoRust()` is itself
@@ -2423,7 +2423,7 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
 
 // ── forwarder regression tests for v0.17.9+ swift codegen bug ─────────────────
 
-/// Repro of the tslp `detectLanguageFromExtension` bug fixed in v0.17.11.
+/// Repro of the sample_language_pack `detectLanguageFromExtension` bug fixed in v0.17.11.
 ///
 /// A non-throwing free function whose Rust signature is
 /// `fn detect_language_from_extension(ext: &str) -> Option<&'static str>` is
@@ -2494,7 +2494,7 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
     );
 }
 
-/// Repro of the tslp `process(source:config:)` bug: a free function taking a
+/// Repro of the sample_language_pack `process(source:config:)` bug: a free function taking a
 /// host-facing Named DTO struct param must convert it via `try param.intoRust()`
 /// before calling the swift-bridge extern, which expects the low-level
 /// `RustBridge.{Dto}` class. Without this Swift rejects the call with "cannot
@@ -2641,14 +2641,14 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
 
 #[test]
 fn async_function_with_result_and_opaque_param_emits_forwarder() {
-    // Simulate kreuzcrawl's scrape(engine: CrawlEngineHandle, url: String) -> Result<ScrapeResult>
+    // Simulate sample_crawler's scrape(engine: CrawlEngineHandle, url: String) -> Result<ScrapeResult>
     let api = ApiSurface {
-        crate_name: "kreuzcrawl".into(),
+        crate_name: "sample_crawler".into(),
         version: "0.1.0".into(),
         types: vec![],
         functions: vec![FunctionDef {
             name: "scrape".into(),
-            rust_path: "kreuzcrawl::scrape".into(),
+            rust_path: "sample_crawler::scrape".into(),
             original_rust_path: String::new(),
             params: vec![
                 make_param("engine", TypeRef::Named("CrawlEngineHandle".into())),

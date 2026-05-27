@@ -118,7 +118,7 @@ header_name = "demo.h"
 lib_name = "demo_ffi"
 
 [crates.kotlin]
-package = "dev.kreuzberg.demo"
+package = "dev.sample_crate.demo"
 target = "multiplatform"
 "#
     ))

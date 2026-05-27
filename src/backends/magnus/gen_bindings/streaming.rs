@@ -224,7 +224,7 @@ pub(super) fn gen_streaming_method_registration(adapter: &StreamingAdapter<'_>) 
 }
 
 /// Generate a module-level wrapper function for streaming adapters with an owner type.
-/// This allows calling `Kreuzcrawl.crawl_stream(engine, request)` at module level,
+/// This allows calling `SampleCrawler.crawl_stream(engine, request)` at module level,
 /// mirroring the pattern of non-streaming functions like `crawl`.
 pub(super) fn gen_streaming_module_function(adapter: &StreamingAdapter<'_>) -> String {
     let func_name = adapter.name;
@@ -251,7 +251,7 @@ mod tests {
             core_path: "chat_stream".to_string(),
             params: vec![],
             returns: None,
-            error_type: Some("LiterLlmError".to_string()),
+            error_type: Some("SampleLlmError".to_string()),
             owner_type: Some("Client".to_string()),
             item_type: Some("ChatCompletionChunk".to_string()),
             gil_release: false,
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn test_iterator_struct_uses_core_crate_not_liter_llm() {
+    fn test_iterator_struct_uses_core_crate_not_sample_llm() {
         let config = make_streaming_adapter("my_crate");
         let adapter = StreamingAdapter::from_config(&config, "MyModule", "my_crate").unwrap();
         let code = gen_iterator_struct(&adapter);
@@ -274,12 +274,12 @@ mod tests {
             "expected my_crate:: prefix in emitted iterator struct"
         );
         assert!(
-            code.contains("my_crate::LiterLlmError"),
+            code.contains("my_crate::SampleLlmError"),
             "expected my_crate:: prefix for error type"
         );
         assert!(
-            !code.contains("liter_llm::"),
-            "iterator struct must not contain hardcoded liter_llm:: — got:\n{code}"
+            !code.contains("sample_llm::"),
+            "iterator struct must not contain hardcoded sample_llm:: — got:\n{code}"
         );
     }
 }

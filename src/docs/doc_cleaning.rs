@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn test_extract_param_docs() {
-        let doc = "Convert HTML to Markdown.\n\n# Arguments\n\n* html - The HTML string to convert\n* options - Conversion options\n";
+        let doc = "Convert markup conversion.\n\n# Arguments\n\n* html - The HTML string to convert\n* options - Conversion options\n";
         let params = extract_param_docs(doc);
         assert_eq!(
             params.get("html").map(String::as_str),

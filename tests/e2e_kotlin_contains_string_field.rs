@@ -6,12 +6,12 @@
 //! `(field as List<String>).contains(value)` for collection-style assertions,
 //! to satisfy Kotlin's `@OnlyInputTypes` on `Collection.contains()`. This
 //! works for genuine `List<String>` fields, but for plain `String` fields
-//! (e.g. `result.text` on the liter-llm transcribe endpoint) the runtime
+//! (e.g. `result.text` on the sample-llm transcribe endpoint) the runtime
 //! cast throws `ClassCastException: String cannot be cast to List`. The
 //! cast is now gated on `field_resolver.is_array(...)` / `is_collection_root`
 //! so non-collection fields fall through to `string.contains(substring)`.
 //!
-//! Regression originally reported via liter-llm v1.4 CI run:
+//! Regression originally reported via sample-llm v1.4 CI run:
 //!   `TranscribeTest.test_transcribe_basic_audio`
 //! which asserted `result.text` contains a phrase and crashed at runtime.
 
@@ -88,11 +88,11 @@ fn base_toml() -> &'static str {
 languages = ["kotlin"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
-package = "dev.kreuzberg.literllm"
+package = "dev.sample_crate.samplellm"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -102,11 +102,11 @@ result_fields = ["text"]
 
 [crates.e2e.call]
 function = "transcribe"
-module = "dev.kreuzberg.literllm.LiterLlm"
+module = "dev.sample_crate.samplellm.SampleLlm"
 result_var = "result"
 
 [crates.e2e.call.overrides.kotlin]
-class = "LiterLlm"
+class = "SampleLlm"
 function = "transcribe"
 
 [[crates.e2e.call.args]]
@@ -171,11 +171,11 @@ fn contains_on_list_field_still_casts_to_list() {
 languages = ["kotlin"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
-package = "dev.kreuzberg.literllm"
+package = "dev.sample_crate.samplellm"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -186,11 +186,11 @@ result_fields = ["tags"]
 
 [crates.e2e.call]
 function = "list_tags"
-module = "dev.kreuzberg.literllm.LiterLlm"
+module = "dev.sample_crate.samplellm.SampleLlm"
 result_var = "result"
 
 [crates.e2e.call.overrides.kotlin]
-class = "LiterLlm"
+class = "SampleLlm"
 function = "listTags"
 
 [[crates.e2e.call.args]]

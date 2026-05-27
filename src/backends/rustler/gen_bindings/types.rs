@@ -829,7 +829,7 @@ mod tests {
     /// Unit enums must still lower to NifUnitEnum (atoms on the Elixir side).
     #[test]
     fn test_gen_enum_unit_uses_nif_unit_enum() {
-        let result = gen_enum(&unit_enum(), "Kreuzberg");
+        let result = gen_enum(&unit_enum(), "SampleCrate");
         assert!(
             result.contains("NifUnitEnum"),
             "unit enum should use NifUnitEnum; got:\n{result}"
@@ -845,7 +845,7 @@ mod tests {
     /// Data enums must lower to NifTaggedEnum and preserve all variant fields.
     #[test]
     fn test_gen_enum_data_uses_nif_tagged_enum() {
-        let result = gen_enum(&data_enum(), "Kreuzberg");
+        let result = gen_enum(&data_enum(), "SampleCrate");
         assert!(
             result.contains("NifTaggedEnum"),
             "data enum should use NifTaggedEnum; got:\n{result}"
@@ -949,7 +949,7 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
-        let result = gen_enum(&format_enum, "Kreuzberg");
+        let result = gen_enum(&format_enum, "SampleCrate");
         // Should use NifStruct, not NifTaggedEnum
         assert!(
             result.contains("NifStruct"),
@@ -1019,7 +1019,7 @@ mod tests {
     fn test_flat_data_enum_from_core_uses_full_rust_path() {
         let enum_def = EnumDef {
             name: "DrawingType".to_string(),
-            rust_path: "kreuzberg::extraction::docx::drawing::DrawingType".to_string(),
+            rust_path: "sample_crate::extraction::docx::drawing::DrawingType".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
@@ -1069,23 +1069,23 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
-        let from_core = gen_rustler_flat_data_enum_from_core(&enum_def, "kreuzberg");
+        let from_core = gen_rustler_flat_data_enum_from_core(&enum_def, "sample_crate");
         assert!(
-            from_core.contains("kreuzberg::extraction::docx::drawing::DrawingType"),
+            from_core.contains("sample_crate::extraction::docx::drawing::DrawingType"),
             "flat data enum From<core> must use full rust_path; got:\n{from_core}"
         );
         assert!(
-            !from_core.contains("From<kreuzberg::DrawingType>"),
+            !from_core.contains("From<sample_crate::DrawingType>"),
             "flat data enum From<core> must not collapse to {{core_import}}::{{name}}; got:\n{from_core}"
         );
 
-        let to_core = gen_rustler_flat_data_enum_to_core(&enum_def, "kreuzberg");
+        let to_core = gen_rustler_flat_data_enum_to_core(&enum_def, "sample_crate");
         assert!(
-            to_core.contains("kreuzberg::extraction::docx::drawing::DrawingType"),
+            to_core.contains("sample_crate::extraction::docx::drawing::DrawingType"),
             "flat data enum From<binding> for core must use full rust_path; got:\n{to_core}"
         );
         assert!(
-            !to_core.contains("for kreuzberg::DrawingType "),
+            !to_core.contains("for sample_crate::DrawingType "),
             "flat data enum From<binding> must target full rust_path; got:\n{to_core}"
         );
     }

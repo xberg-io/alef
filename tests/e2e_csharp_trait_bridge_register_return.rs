@@ -1,6 +1,6 @@
 //! Test that C# trait bridge Register methods return IntPtr for e2e test stub assignments.
 //!
-//! This tests the fix for kreuzberg v5.0.0-rc.3 e2e C# test compilation failure:
+//! This tests the fix for sample_crate v5.0.0-rc.3 e2e C# test compilation failure:
 //! `var result = RendererBridge.Register(new TestStub_...)` was invalid when Register
 //! returned void. Now Register returns IntPtr and is assignable to a variable.
 
@@ -12,7 +12,7 @@ use std::collections::HashSet;
 fn make_trait_def(name: &str) -> TypeDef {
     TypeDef {
         name: name.to_string(),
-        rust_path: format!("kreuzberg::{}", name),
+        rust_path: format!("sample_crate::{}", name),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![],
@@ -61,7 +61,7 @@ fn test_renderer_bridge_register_returns_intptr() {
     let bridges = vec![("Renderer".to_string(), &bridge_cfg, &trait_def)];
     let visible_types: HashSet<&str> = vec!["Renderer"].into_iter().collect();
 
-    let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+    let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
     // Verify that Register method exists and returns IntPtr, not void
     assert!(content.contains("public static IntPtr Register(IRenderer impl)"));
@@ -78,7 +78,7 @@ fn test_validator_bridge_register_returns_intptr() {
     let bridges = vec![("Validator".to_string(), &bridge_cfg, &trait_def)];
     let visible_types: HashSet<&str> = vec!["Validator"].into_iter().collect();
 
-    let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+    let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
     // Verify that Register method exists and returns IntPtr, not void
     assert!(content.contains("public static IntPtr Register(IValidator impl)"));
@@ -95,7 +95,7 @@ fn test_ocr_backend_bridge_register_returns_intptr() {
     let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
     let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
 
-    let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+    let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
     // Verify that Register method exists and returns IntPtr
     assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
@@ -112,7 +112,7 @@ fn test_register_without_super_trait_also_returns_intptr() {
     let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];
     let visible_types: HashSet<&str> = vec!["PostProcessor"].into_iter().collect();
 
-    let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+    let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
     // Verify that Register method exists and returns IntPtr, even without super_trait
     assert!(content.contains("public static IntPtr Register(IPostProcessor impl, string name)"));

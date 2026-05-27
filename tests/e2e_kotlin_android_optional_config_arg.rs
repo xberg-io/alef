@@ -52,12 +52,12 @@ const TOML_EXTRACT_BYTES: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -92,7 +92,7 @@ optional = true
 options_type = "ExtractionConfig"
 
 [crates.e2e.packages.kotlin_android]
-name = "kreuzberg"
+name = "sample_crate"
 "#;
 
 fn render_kotlin_android_test(toml: &str, fixture: Fixture) -> String {
@@ -134,7 +134,7 @@ fn kotlin_android_optional_config_arg_emits_default_constructor_not_null() {
     // Must NOT pass null for the config parameter
     let lines: Vec<&str> = rendered
         .lines()
-        .filter(|line| line.contains("Kreuzberg.extractBytes(") || line.contains(".extractBytes("))
+        .filter(|line| line.contains("SampleCrate.extractBytes(") || line.contains(".extractBytes("))
         .collect();
     for line in lines {
         assert!(

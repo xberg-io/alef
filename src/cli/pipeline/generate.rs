@@ -867,7 +867,7 @@ mod write_scaffold_normalize_tests {
         std::fs::create_dir_all(&include_dir).expect("mkdir");
 
         // A vendored cgo header: has a "DO NOT EDIT" comment but no alef:hash line.
-        let vendored = include_dir.join("kreuzcrawl.h");
+        let vendored = include_dir.join("sample_crawler.h");
         std::fs::write(
             &vendored,
             "// DO NOT EDIT — vendored cgo header\n#ifndef FOO_H\n#define FOO_H\n\ntypedef void CrawlEngine;\n\n#endif\n",

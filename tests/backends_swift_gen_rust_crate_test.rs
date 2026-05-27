@@ -1069,7 +1069,7 @@ fn cargo_toml_includes_serde_json_dep() {
 
 #[test]
 fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
-    // Specifically reproduce the kreuzberg bug: a type with has_serde=true and a
+    // Specifically reproduce the sample_crate bug: a type with has_serde=true and a
     // Vec field causes the generator to emit ::serde_json::to_value calls in the
     // wrapper impl, but the dep was missing from Cargo.toml → E0433 compile error.
     let serde_type = TypeDef {
@@ -2020,7 +2020,7 @@ features = ["serde", "config", "download"]
 #[test]
 fn cargo_toml_multi_line_features_is_valid_toml() {
     let api = ApiSurface {
-        crate_name: "tree-sitter-language-pack".into(),
+        crate_name: "sample-language-pack".into(),
         version: "0.1.0".into(),
         types: vec![],
         functions: vec![],
@@ -2036,7 +2036,7 @@ fn cargo_toml_multi_line_features_is_valid_toml() {
 languages = ["swift"]
 
 [[crates]]
-name = "tree-sitter-language-pack"
+name = "sample-language-pack"
 sources = ["src/lib.rs"]
 
 [crates.swift]

@@ -30,7 +30,7 @@ fn build_c_config_with_prefix_override() -> NewAlefConfig {
 languages = ["ffi"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
@@ -49,7 +49,7 @@ args = [
 ]
 
 [crates.e2e.call.overrides.c]
-header = "html_to_markdown.h"
+header = "sample_markdown.h"
 function = "htm_convert"
 prefix = "htm"
 "#;
@@ -121,7 +121,7 @@ fn c_result_type_explicit_override_wins() {
 languages = ["ffi"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
@@ -140,7 +140,7 @@ args = [
 ]
 
 [crates.e2e.call.overrides.c]
-header = "html_to_markdown.h"
+header = "sample_markdown.h"
 function = "htm_convert"
 prefix = "htm"
 result_type = "ConversionResult"

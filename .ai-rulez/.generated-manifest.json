@@ -138,6 +138,7 @@
     ".cursor/rules/minimal-changes.mdc",
     ".cursor/rules/no-ai-signatures.mdc",
     ".cursor/rules/output-awareness.mdc",
+    ".cursor/rules/project-agnostic-codegen.mdc",
     ".cursor/rules/publish-flow.mdc",
     ".cursor/rules/read-before-write.mdc",
     ".cursor/rules/readability-first.mdc",

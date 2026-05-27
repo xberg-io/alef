@@ -228,7 +228,7 @@ pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
 /// requires a JavaDoc-specific HTML escape that's not done here.
 fn transform_rustdoc_for_java(doc: &str) -> String {
     let sections = crate::codegen::doc_emission::parse_rustdoc_sections(doc);
-    let rendered = crate::codegen::doc_emission::render_javadoc_sections(&sections, "KreuzbergRsException");
+    let rendered = crate::codegen::doc_emission::render_javadoc_sections(&sections, "SampleCrateRsException");
     if rendered.trim().is_empty() {
         // Fallback: when no recognised sections present, sanitize Rust idioms and remove intra-doc links
         // to preserve backward compatibility for prose that has no Markdown headings.

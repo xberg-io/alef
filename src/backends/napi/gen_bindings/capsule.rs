@@ -3,7 +3,7 @@
 //! When `[crates.node.capsule_types]` is configured, types listed there are NOT emitted
 //! as `#[napi]` opaque wrappers. Instead, functions returning those types produce a
 //! `JsObject` carrying a `Napi::External<T>` in a `__parser` property — the shape
-//! consumed by the `tree-sitter` npm package's `Parser.setLanguage()`.
+//! consumed by the `sample_language` npm package's `Parser.setLanguage()`.
 //!
 //! Only the `"external_pointer"` construct variant is implemented. The emitted shim:
 //!   1. Calls the core function to obtain the Rust value.
@@ -130,7 +130,7 @@ pub(super) fn gen_capsule_function(
         .and_then(|c| c.type_tag.as_ref())
         .map(|_| format!("__ALEF_CAPSULE_TAG_{}", capsule_name.to_ascii_uppercase()));
 
-    // node-tree-sitter's `Napi::Value::As<External<TSLanguage>>` only recognises
+    // node-sample_language's `Napi::Value::As<External<TSLanguage>>` only recognises
     // values produced by raw `napi_create_external`. napi-rs's
     // `bindgen_prelude::External::new()` wraps the value differently and fails
     // the C++-side `IsExternal()` check at runtime. We therefore call
@@ -299,7 +299,7 @@ mod tests {
     fn make_get_language_fn() -> FunctionDef {
         FunctionDef {
             name: "get_language".to_string(),
-            rust_path: "ts_pack::get_language".to_string(),
+            rust_path: "sample_pack::get_language".to_string(),
             original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "name".to_string(),
@@ -317,7 +317,7 @@ mod tests {
             }],
             return_type: TypeRef::Named("Language".to_string()),
             is_async: false,
-            error_type: Some("ts_pack::Error".to_string()),
+            error_type: Some("sample_pack::Error".to_string()),
             doc: String::new(),
             cfg: None,
             sanitized: false,
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn function_involves_capsule_detects_capsule_return() {
         let func = make_get_language_fn();
-        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "tree-sitter"))]);
+        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "sample_language"))]);
         assert!(function_involves_capsule(&func, &capsules));
     }
 
@@ -343,7 +343,7 @@ mod tests {
     fn function_involves_capsule_returns_false_for_non_capsule() {
         let func = FunctionDef {
             name: "get_name".to_string(),
-            rust_path: "ts_pack::get_name".to_string(),
+            rust_path: "sample_pack::get_name".to_string(),
             original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::String,
@@ -359,7 +359,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
         };
-        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "tree-sitter"))]);
+        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "sample_language"))]);
         assert!(!function_involves_capsule(&func, &capsules));
     }
 
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn return_type_name_detects_capsule_return() {
         let func = make_get_language_fn();
-        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "tree-sitter"))]);
+        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "sample_language"))]);
         assert_eq!(return_type_name(&func, &capsules), Some("Language"));
     }
 
@@ -375,8 +375,8 @@ mod tests {
     #[test]
     fn gen_capsule_function_emits_external_and_parser_property() {
         let func = make_get_language_fn();
-        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "tree-sitter"))]);
-        let out = gen_capsule_function(&func, &capsules, "ts_pack");
+        let capsules = capsule_map(&[("Language", make_capsule_config("Language", "sample_language"))]);
+        let out = gen_capsule_function(&func, &capsules, "sample_pack");
         assert!(out.contains("#[napi"), "must have #[napi] attr: {out}");
         assert!(out.contains("napi::Env"), "must accept env: {out}");
         assert!(
@@ -390,7 +390,7 @@ mod tests {
         );
         assert!(
             !out.contains("bindgen_prelude::External::new"),
-            "must NOT use bindgen_prelude::External::new (rejected by node-tree-sitter): {out}"
+            "must NOT use bindgen_prelude::External::new (rejected by node-sample_language): {out}"
         );
         assert!(
             out.contains("__parser"),
@@ -406,14 +406,14 @@ mod tests {
     #[test]
     fn gen_capsule_function_emits_type_tag_when_configured() {
         let func = make_get_language_fn();
-        let mut cfg = make_capsule_config("Language", "tree-sitter");
+        let mut cfg = make_capsule_config("Language", "sample_language");
         cfg.property_name = "language".to_string();
         cfg.type_tag = Some(crate::core::config::NapiTypeTagConfig {
             lower: "0x8AF2E5212AD58ABF".to_string(),
             upper: "0xD5006CAD83ABBA16".to_string(),
         });
         let capsules = capsule_map(&[("Language", cfg)]);
-        let out = gen_capsule_function(&func, &capsules, "ts_pack");
+        let out = gen_capsule_function(&func, &capsules, "sample_pack");
         assert!(
             out.contains("napi_type_tag_object"),
             "must call napi_type_tag_object when type_tag set: {out}"
@@ -431,12 +431,12 @@ mod tests {
     /// gen_type_tag_constants emits one const per tagged capsule type.
     #[test]
     fn gen_type_tag_constants_emits_only_tagged_entries() {
-        let mut tagged = make_capsule_config("Language", "tree-sitter");
+        let mut tagged = make_capsule_config("Language", "sample_language");
         tagged.type_tag = Some(crate::core::config::NapiTypeTagConfig {
             lower: "0x8AF2E5212AD58ABF".to_string(),
             upper: "0xD5006CAD83ABBA16".to_string(),
         });
-        let untagged = make_capsule_config("Parser", "tree-sitter");
+        let untagged = make_capsule_config("Parser", "sample_language");
         let capsules = capsule_map(&[("Language", tagged), ("Parser", untagged)]);
         let out = gen_type_tag_constants(&capsules);
         assert!(

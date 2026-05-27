@@ -691,7 +691,7 @@ impl Backend for RustlerBackend {
         }
 
         // ── 2b. Opaque-type wrapper modules ───────────────────────────────────
-        // Idiomatic per-type modules (e.g. `TreeSitterLanguagePack.Parser`) that
+        // Idiomatic per-type modules (e.g. `SampleLanguagePack.Parser`) that
         // wrap a Rustler ResourceArc reference in a struct (`%__MODULE__{ref: ...}`)
         // and expose the type's methods as Elixir functions that delegate to the
         // corresponding NIF (`{type_lower}_{method_name}`).
@@ -1450,7 +1450,7 @@ impl Backend for RustlerBackend {
 
         // Top-level flat wrappers for non-streaming methods on opaque types
         // (e.g. `defaultclient_chat_async/2`). The idiomatic Elixir API is exposed
-        // via per-type submodules (`LiterLlm.DefaultClient.chat/2`), but consumers —
+        // via per-type submodules (`SampleLlm.DefaultClient.chat/2`), but consumers —
         // including the e2e fixture suite — also call the underlying NIFs through
         // flat top-level functions on the main module to mirror the streaming-wrapper
         // convention (`defaultclient_chat_stream/2`). These delegates are intentionally
@@ -1735,7 +1735,7 @@ fn gen_nif_init(
     // Rustler auto-detects #[rustler::nif] functions; explicit list is deprecated
     let _ = exports; // computed for potential future use
     // The NIF module name must match the `defmodule` in native.ex, which is
-    // `{AppModule}.Native` (e.g., `HtmlToMarkdown.Native`).
+    // `{AppModule}.Native` (e.g., `SampleMarkdown.Native`).
     let module = config
         .elixir
         .as_ref()

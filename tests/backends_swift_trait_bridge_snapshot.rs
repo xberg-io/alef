@@ -43,7 +43,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
 fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
-        rust_path: format!("kreuzberg::{}", name),
+        rust_path: format!("sample_crate::{}", name),
         original_rust_path: String::new(),
         fields: vec![],
         methods,

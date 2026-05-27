@@ -205,10 +205,10 @@ name = "my-lib"
 sources = ["src/lib.rs"]
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 "#,
         );
-        assert_eq!(r.java_package(), "dev.kreuzberg");
+        assert_eq!(r.java_package(), "dev.sample_crate");
     }
 
     #[test]

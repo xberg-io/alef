@@ -1271,8 +1271,8 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
         functions: vec![],
         enums: vec![],
         errors: vec![ErrorDef {
-            name: "LiterLlmError".to_string(),
-            rust_path: "test_lib::LiterLlmError".to_string(),
+            name: "SampleLlmError".to_string(),
+            rust_path: "test_lib::SampleLlmError".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
@@ -1326,8 +1326,8 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
 
     // The base error class should have a generated docstring from its name.
     assert!(
-        content.contains("\"\"\"Liter llm error.\"\"\""),
-        "LiterLlmError should have generated docstring"
+        content.contains("\"\"\"Sample llm error.\"\"\""),
+        "SampleLlmError should have generated docstring"
     );
 
     // Variant classes should also have generated docstrings.
@@ -1353,7 +1353,7 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
     }
 }
 
-/// Regression test for kreuzberg-dev/alef#1 / kreuzberg-dev/html-to-markdown#310.
+/// Regression test for sample_crate-dev/alef#1 / sample_crate-dev/sample-markdown#310.
 ///
 /// A type with both `has_default = true` AND `is_return_type = true` (e.g. `ConversionResult`)
 /// must be re-exported in `__init__.py` from the native Rust module, NOT from `options.py`.
@@ -3132,7 +3132,7 @@ fn test_async_function_emits_async_def_and_await() {
 /// `register_embedding_backend` and `register_ocr_backend` are emitted as `#[pyfunction]`
 /// by trait_bridge codegen and added to the pyo3 module, but they are not in `api.functions`.
 /// They must be re-exported through `api.py` and listed in `__all__` so callers can use
-/// `kreuzberg.register_ocr_backend(...)` instead of `kreuzberg._kreuzberg.register_ocr_backend(...)`.
+/// `sample_crate.register_ocr_backend(...)` instead of `sample_crate._sample_crate.register_ocr_backend(...)`.
 #[test]
 fn test_trait_bridge_register_fns_in_api_py_and_all() {
     let backend = Pyo3Backend;
@@ -3367,7 +3367,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
 /// capsule_types wires up PyCapsule pass-through end-to-end:
 /// - The Language type does NOT get a #[pyclass] wrapper.
 /// - get_language returns via PyCapsule_New (capsule round-trip).
-/// - get_parser constructs via py.import("tree_sitter").getattr("Parser").call1.
+/// - get_parser constructs via py.import("sample_language").getattr("Parser").call1.
 #[test]
 fn test_capsule_types_end_to_end() {
     use alef::core::config::CapsuleTypeConfig;
@@ -3376,13 +3376,13 @@ fn test_capsule_types_end_to_end() {
 
     // IR: two opaque types that are listed as capsule types + two functions.
     let api = ApiSurface {
-        crate_name: "ts_pack".to_string(),
+        crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
             // Language — capsule round-trip type
             TypeDef {
                 name: "Language".to_string(),
-                rust_path: "ts_pack::Language".to_string(),
+                rust_path: "sample_pack::Language".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -3396,15 +3396,15 @@ fn test_capsule_types_end_to_end() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
-                doc: "A tree-sitter Language handle.".to_string(),
+                doc: "A sample_language Language handle.".to_string(),
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
             },
-            // Parser — ConstructFrom type (no into_raw; built via tree_sitter.Parser(language))
+            // Parser — ConstructFrom type (no into_raw; built via sample_language.Parser(language))
             TypeDef {
                 name: "Parser".to_string(),
-                rust_path: "ts_pack::Parser".to_string(),
+                rust_path: "sample_pack::Parser".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -3418,7 +3418,7 @@ fn test_capsule_types_end_to_end() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
-                doc: "A tree-sitter Parser.".to_string(),
+                doc: "A sample_language Parser.".to_string(),
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
@@ -3428,7 +3428,7 @@ fn test_capsule_types_end_to_end() {
             // get_language(name: &str) -> Result<Language, Error>
             FunctionDef {
                 name: "get_language".to_string(),
-                rust_path: "ts_pack::get_language".to_string(),
+                rust_path: "sample_pack::get_language".to_string(),
                 original_rust_path: String::new(),
                 params: vec![ParamDef {
                     name: "name".to_string(),
@@ -3446,7 +3446,7 @@ fn test_capsule_types_end_to_end() {
                 }],
                 return_type: TypeRef::Named("Language".to_string()),
                 is_async: false,
-                error_type: Some("ts_pack::Error".to_string()),
+                error_type: Some("sample_pack::Error".to_string()),
                 doc: "Look up a language by name.".to_string(),
                 cfg: None,
                 sanitized: false,
@@ -3460,7 +3460,7 @@ fn test_capsule_types_end_to_end() {
             // get_parser(name: &str) -> Result<Parser, Error>
             FunctionDef {
                 name: "get_parser".to_string(),
-                rust_path: "ts_pack::get_parser".to_string(),
+                rust_path: "sample_pack::get_parser".to_string(),
                 original_rust_path: String::new(),
                 params: vec![ParamDef {
                     name: "name".to_string(),
@@ -3478,7 +3478,7 @@ fn test_capsule_types_end_to_end() {
                 }],
                 return_type: TypeRef::Named("Parser".to_string()),
                 is_async: false,
-                error_type: Some("ts_pack::Error".to_string()),
+                error_type: Some("sample_pack::Error".to_string()),
                 doc: "Get a parser for a language by name.".to_string(),
                 cfg: None,
                 sanitized: false,
@@ -3493,7 +3493,7 @@ fn test_capsule_types_end_to_end() {
         enums: vec![],
         errors: vec![ErrorDef {
             name: "Error".to_string(),
-            rust_path: "ts_pack::Error".to_string(),
+            rust_path: "sample_pack::Error".to_string(),
             original_rust_path: String::new(),
             variants: vec![ErrorVariant {
                 name: "NotFound".to_string(),
@@ -3519,17 +3519,17 @@ fn test_capsule_types_end_to_end() {
     let mut capsule_map: HashMap<String, CapsuleTypeConfig> = HashMap::new();
     capsule_map.insert(
         "Language".to_string(),
-        CapsuleTypeConfig::Capsule("tree_sitter.Language".to_string()),
+        CapsuleTypeConfig::Capsule("sample_language.Language".to_string()),
     );
     capsule_map.insert(
         "Parser".to_string(),
         CapsuleTypeConfig::ConstructFrom {
-            python_type: "tree_sitter.Parser".to_string(),
+            python_type: "sample_language.Parser".to_string(),
             construct_from: "Language".to_string(),
         },
     );
     config.python = Some(PythonConfig {
-        module_name: Some("_ts_pack".to_string()),
+        module_name: Some("_sample_pack".to_string()),
         pip_name: None,
         async_runtime: None,
         stubs: None,
@@ -3571,10 +3571,10 @@ fn test_capsule_types_end_to_end() {
         "get_language must call PyCapsule_New; content:\n{content}"
     );
 
-    // get_parser must import tree_sitter and call Parser via getattr + call1.
+    // get_parser must import sample_language and call Parser via getattr + call1.
     assert!(
-        content.contains("py.import(\"tree_sitter\")"),
-        "get_parser must import the tree_sitter module; content:\n{content}"
+        content.contains("py.import(\"sample_language\")"),
+        "get_parser must import the sample_language module; content:\n{content}"
     );
     assert!(
         content.contains("getattr(\"Parser\")"),
@@ -3625,11 +3625,11 @@ fn test_capsule_types_end_to_end() {
     );
 
     // Bug 3: capsule types must have an explicit import so bare names resolve (ruff F821).
-    // Both Language (tree_sitter.Language) and Parser (tree_sitter.Parser) share the
-    // `tree_sitter` module, so a single `from tree_sitter import Language, Parser` is expected.
+    // Both Language (sample_language.Language) and Parser (sample_language.Parser) share the
+    // `sample_language` module, so a single `from sample_language import Language, Parser` is expected.
     assert!(
-        api_py_content.contains("from tree_sitter import"),
-        "api.py must contain 'from tree_sitter import' for capsule types; content:\n{api_py_content}"
+        api_py_content.contains("from sample_language import"),
+        "api.py must contain 'from sample_language import' for capsule types; content:\n{api_py_content}"
     );
     assert!(
         api_py_content.contains("Language"),
@@ -3642,7 +3642,7 @@ fn test_capsule_types_end_to_end() {
     // Capsule types must NOT be imported from ._native (they have no #[pyclass] there).
     let native_import_line = api_py_content
         .lines()
-        .find(|l| l.contains("from ._ts_pack import") || l.contains("from ._native import"))
+        .find(|l| l.contains("from ._sample_pack import") || l.contains("from ._native import"))
         .unwrap_or("");
     assert!(
         !native_import_line.contains("Language"),
@@ -3658,7 +3658,7 @@ fn test_capsule_types_end_to_end() {
     let mut stubs_config = config.clone();
     if let Some(ref mut py) = stubs_config.python {
         py.stubs = Some(alef::core::config::StubsConfig {
-            output: std::path::PathBuf::from("packages/python/ts_pack"),
+            output: std::path::PathBuf::from("packages/python/sample_pack"),
             emit_docstrings: false,
         });
     }
@@ -3708,13 +3708,13 @@ fn test_capsule_types_in_methods() {
 
     // IR: an opaque LanguageRegistry type with two methods that return capsule types.
     let api = ApiSurface {
-        crate_name: "ts_pack".to_string(),
+        crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
             // LanguageRegistry — the opaque registry that owns the Language/Parser getters
             TypeDef {
                 name: "LanguageRegistry".to_string(),
-                rust_path: "ts_pack::LanguageRegistry".to_string(),
+                rust_path: "sample_pack::LanguageRegistry".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![
@@ -3738,7 +3738,7 @@ fn test_capsule_types_in_methods() {
                         return_type: TypeRef::Named("Language".to_string()),
                         is_async: false,
                         is_static: false,
-                        error_type: Some("ts_pack::Error".to_string()),
+                        error_type: Some("sample_pack::Error".to_string()),
                         doc: String::new(),
                         receiver: Some(ReceiverKind::Ref),
                         sanitized: false,
@@ -3769,7 +3769,7 @@ fn test_capsule_types_in_methods() {
             // Language — capsule round-trip type (no #[pyclass] emitted)
             TypeDef {
                 name: "Language".to_string(),
-                rust_path: "ts_pack::Language".to_string(),
+                rust_path: "sample_pack::Language".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -3802,10 +3802,10 @@ fn test_capsule_types_in_methods() {
     let mut capsule_map: HashMap<String, CapsuleTypeConfig> = HashMap::new();
     capsule_map.insert(
         "Language".to_string(),
-        CapsuleTypeConfig::Capsule("tree_sitter.Language".to_string()),
+        CapsuleTypeConfig::Capsule("sample_language.Language".to_string()),
     );
     config.python = Some(PythonConfig {
-        module_name: Some("_ts_pack".to_string()),
+        module_name: Some("_sample_pack".to_string()),
         pip_name: None,
         async_runtime: None,
         stubs: None,
@@ -3868,8 +3868,8 @@ fn test_capsule_types_in_methods() {
 
     // The capsule name constant must be emitted with the configured name.
     assert!(
-        content.contains("tree_sitter.Language"),
-        "get_language method must embed the 'tree_sitter.Language' capsule name; content:\n{content}"
+        content.contains("sample_language.Language"),
+        "get_language method must embed the 'sample_language.Language' capsule name; content:\n{content}"
     );
 
     // The preamble must include #![allow(unsafe_code)].
@@ -3882,7 +3882,7 @@ fn test_capsule_types_in_methods() {
     let mut stubs_config = config.clone();
     if let Some(ref mut py) = stubs_config.python {
         py.stubs = Some(alef::core::config::StubsConfig {
-            output: std::path::PathBuf::from("packages/python/ts_pack"),
+            output: std::path::PathBuf::from("packages/python/sample_pack"),
             emit_docstrings: false,
         });
     }
@@ -4398,7 +4398,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
 /// Previously the multi-line native-import branch routed through `single_line.jinja`
 /// with a text ending in `\n`; the template appended a second `\n`, yielding
 /// `from ._mod import (\n\n    Name,` which ruff E303 rejects and which caused an
-/// endless regen-format-fail loop in downstream consumers (kreuzberg, kreuzcrawl).
+/// endless regen-format-fail loop in downstream consumers (sample_crate, sample_crawler).
 #[test]
 fn test_native_import_no_stray_blank_line_after_open_paren() {
     let backend = Pyo3Backend;
@@ -5079,7 +5079,7 @@ fn test_option_fields_in_constructor_signature() {
     );
 }
 
-/// Test for Option fields on has_default types (the actual bug case in kreuzcrawl).
+/// Test for Option fields on has_default types (the actual bug case in sample_crawler).
 #[test]
 fn test_option_fields_on_has_default_type() {
     let backend = Pyo3Backend;

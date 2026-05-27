@@ -333,21 +333,21 @@ mod tests {
 
     #[test]
     fn strip_kotlin_source_suffix_extracts_project_root() {
-        let configured = Path::new("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/kreuzcrawl/android");
-        let root = strip_kotlin_source_suffix(configured, "dev/kreuzberg/kreuzcrawl/android");
+        let configured = Path::new("packages/kotlin-android/src/main/kotlin/dev/sample_crate/sample_crawler/android");
+        let root = strip_kotlin_source_suffix(configured, "dev/sample_crate/sample_crawler/android");
         assert_eq!(root, Some(PathBuf::from("packages/kotlin-android")));
     }
 
     #[test]
     fn strip_kotlin_source_suffix_returns_none_when_suffix_missing() {
         let configured = Path::new("packages/kotlin-android");
-        assert_eq!(strip_kotlin_source_suffix(configured, "dev/kreuzberg"), None);
+        assert_eq!(strip_kotlin_source_suffix(configured, "dev/sample_crate"), None);
     }
 
     #[test]
     fn from_configured_derives_package_root_when_path_targets_kotlin_source() {
-        let configured = Path::new("packages/kotlin-android/src/main/kotlin/dev/kreuzberg/kreuzcrawl/android");
-        let layout = ProjectLayout::from_configured(configured, "dev/kreuzberg/kreuzcrawl/android");
+        let configured = Path::new("packages/kotlin-android/src/main/kotlin/dev/sample_crate/sample_crawler/android");
+        let layout = ProjectLayout::from_configured(configured, "dev/sample_crate/sample_crawler/android");
         assert_eq!(layout.package_root, PathBuf::from("packages/kotlin-android"));
         assert_eq!(layout.kotlin_source_dir, PathBuf::from(configured));
     }
@@ -355,18 +355,18 @@ mod tests {
     #[test]
     fn from_configured_falls_back_to_legacy_when_path_is_project_root() {
         let configured = Path::new("packages/kotlin-android");
-        let layout = ProjectLayout::from_configured(configured, "dev/kreuzberg");
+        let layout = ProjectLayout::from_configured(configured, "dev/sample_crate");
         assert_eq!(layout.package_root, PathBuf::from("packages/kotlin-android"));
         assert_eq!(
             layout.kotlin_source_dir,
-            PathBuf::from("packages/kotlin-android/src/main/kotlin/dev/kreuzberg")
+            PathBuf::from("packages/kotlin-android/src/main/kotlin/dev/sample_crate")
         );
     }
 
     #[test]
     fn apply_kotlin_post_processing_fixes_double_literals_in_named_kt_files() {
         let mut files = vec![GeneratedFile {
-            path: PathBuf::from("src/main/kotlin/dev/kreuzberg/OcrQualityThresholds.kt"),
+            path: PathBuf::from("src/main/kotlin/dev/sample_crate/OcrQualityThresholds.kt"),
             content: "    val minNonWhitespacePerPage: Double = 32,\n".to_string(),
             generated_header: true,
         }];

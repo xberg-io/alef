@@ -492,10 +492,10 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_includes_jackson_module_kotlin() {
         let output = render_build_gradle_kotlin_android(
-            "liter-llm",
-            "dev.kreuzberg.literllm.android",
+            "sample-llm",
+            "dev.sample_crate.samplellm.android",
             "1.0.0",
-            "dev.kreuzberg:liter-llm-android:1.0.0",
+            "dev.sample_crate:sample-llm-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
         );
@@ -514,15 +514,15 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_registry_mode_emits_full_maven_coordinate() {
         let output = render_build_gradle_kotlin_android(
-            "kreuzberg",
-            "dev.kreuzberg",
+            "sample_crate",
+            "dev.sample_crate",
             "5.0.0-rc.1",
-            "dev.kreuzberg:kreuzberg-android:5.0.0-rc.1",
+            "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
             false,
         );
         assert!(
-            output.contains(r#"implementation("dev.kreuzberg:kreuzberg-android:5.0.0-rc.1")"#),
+            output.contains(r#"implementation("dev.sample_crate:sample_crate-android:5.0.0-rc.1")"#),
             "build.gradle.kts must emit full Maven coordinate with groupId:artifactId:version, got:\n{output}"
         );
     }
@@ -533,7 +533,7 @@ mod tests {
     /// causes `Plugin [id: 'com.android.library'] was not found` at config time.
     #[test]
     fn settings_gradle_kotlin_android_declares_plugin_repositories() {
-        let output = render_settings_gradle_kotlin_android("liter-llm");
+        let output = render_settings_gradle_kotlin_android("sample-llm");
         assert!(
             output.contains("pluginManagement"),
             "settings.gradle.kts must declare pluginManagement block, got:\n{output}"
@@ -547,7 +547,7 @@ mod tests {
             "pluginManagement repositories must include gradlePluginPortal(), got:\n{output}"
         );
         assert!(
-            output.contains("rootProject.name = \"liter-llm-e2e\""),
+            output.contains("rootProject.name = \"sample-llm-e2e\""),
             "rootProject.name must be derived from pkg_name, got:\n{output}"
         );
     }
@@ -561,9 +561,9 @@ mod tests {
     /// characters: [/, \\, :, <, >, \", ?, *, |]".
     #[test]
     fn settings_gradle_kotlin_android_strips_maven_group_from_project_name() {
-        let output = render_settings_gradle_kotlin_android("dev.kreuzberg:html-to-markdown-android");
+        let output = render_settings_gradle_kotlin_android("dev.sample_crate:sample-markdown-android");
         assert!(
-            output.contains("rootProject.name = \"html-to-markdown-android-e2e\""),
+            output.contains("rootProject.name = \"sample-markdown-android-e2e\""),
             "rootProject.name must strip Maven group prefix, got:\n{output}"
         );
         let project_name_line = output
@@ -733,7 +733,7 @@ mod test_backend_tests {
     /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
-    fn kotlin_android_stub_contains_no_kreuzberg_domain_names() {
+    fn kotlin_android_stub_contains_no_sample_crate_domain_names() {
         let bridge = make_trait_bridge("TestTrait");
         let required_method = make_method("process_item", true);
         let methods = [&required_method];
@@ -744,17 +744,17 @@ mod test_backend_tests {
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
-            !output.contains("Kreuzberg"),
-            "must not contain literal 'Kreuzberg', got:\n{output}"
+            !output.contains("SampleCrate"),
+            "must not contain literal 'SampleCrate', got:\n{output}"
         );
         assert!(
-            !output.contains("kreuzberg::"),
-            "must not contain 'kreuzberg::', got:\n{output}"
+            !output.contains("sample_crate::"),
+            "must not contain 'sample_crate::', got:\n{output}"
         );
-        // The bridge object is "TestTraitBridge" not "KreuzbergBridge"
+        // The bridge object is "TestTraitBridge" not "SampleCrateBridge"
         assert!(
-            !output.contains("KreuzbergBridge"),
-            "must not contain 'KreuzbergBridge', got:\n{output}"
+            !output.contains("SampleCrateBridge"),
+            "must not contain 'SampleCrateBridge', got:\n{output}"
         );
         assert!(
             output.contains("TestStubMyTestFixture"),

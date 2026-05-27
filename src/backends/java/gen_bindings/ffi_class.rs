@@ -974,7 +974,7 @@ mod tests {
             params: vec![],
             return_type: TypeRef::Optional(Box::new(TypeRef::Bytes)),
             is_async: false,
-            error_type: Some("KreuzbergError".to_string()),
+            error_type: Some("SampleCrateError".to_string()),
             doc: String::new(),
             cfg: None,
             sanitized: false,
@@ -1021,7 +1021,7 @@ mod tests {
             params: vec![],
             return_type: TypeRef::Bytes,
             is_async: false,
-            error_type: Some("KreuzbergError".to_string()),
+            error_type: Some("SampleCrateError".to_string()),
             doc: String::new(),
             cfg: None,
             sanitized: false,
@@ -1279,10 +1279,10 @@ mod tests {
 
     #[test]
     fn clear_fn_error_throws_exception_with_code_and_message() {
-        // Regression: clear_fn error path must construct KreuzbergRsException
+        // Regression: clear_fn error path must construct SampleCrateRsException
         // with (int code, String message) constructor, not (String) constructor.
         // The error throw must be `new TestClassException(primitiveResult, msg)`
-        // matching the KreuzbergRsException(int, String) constructor signature.
+        // matching the SampleCrateRsException(int, String) constructor signature.
         let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
 
         let mut clear_fn_handles = AHashMap::new();

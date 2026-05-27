@@ -22,13 +22,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo.android"
-namespace = "dev.kreuzberg.demo.android"
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 
 [[crates.adapters]]
 name = "chat_stream"
@@ -101,7 +101,7 @@ fn make_streaming_api() -> ApiSurface {
 }
 
 /// `KotlinAndroidBackend` must advertise streaming support so downstream
-/// consumers (e.g. liter-llm) can rely on the `Flow<T>` surface.
+/// consumers (e.g. sample-llm) can rely on the `Flow<T>` surface.
 #[test]
 fn supports_streaming_capability_is_true() {
     assert!(
@@ -208,13 +208,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo.android"
-namespace = "dev.kreuzberg.demo.android"
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 "#,
     )
 }
@@ -343,11 +343,11 @@ fn module_kt_create_client_returns_default_client_not_string() {
 }
 
 // ---------------------------------------------------------------------------
-// Bug 2 regression: handle-only opaque type (kreuzcrawl shape) — top-level
+// Bug 2 regression: handle-only opaque type (sample_crawler shape) — top-level
 // fns taking and returning an opaque handle that has NO instance methods.
 // ---------------------------------------------------------------------------
 
-/// Build an API with the kreuzcrawl shape:
+/// Build an API with the sample_crawler shape:
 /// - `CrawlEngineHandle` is an opaque type with NO instance methods.
 /// - `create_engine() -> CrawlEngineHandle` is a top-level fn returning the handle.
 /// - `scrape(engine: &CrawlEngineHandle, url: &str) -> String` takes the handle.
@@ -452,7 +452,7 @@ fn make_handle_only_api() -> ApiSurface {
     }
 }
 
-/// Regression test for the kreuzcrawl-shape facade bug: when a top-level fn
+/// Regression test for the sample_crawler-shape facade bug: when a top-level fn
 /// returns an opaque handle type with NO instance methods, the facade must
 /// return the wrapper class (not `String`), and fns taking the handle as a
 /// param must accept the wrapper class (not `String`).  A separate
@@ -517,7 +517,7 @@ fn handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params() {
 // ---------------------------------------------------------------------------
 
 fn make_optional_params_api() -> ApiSurface {
-    // A top-level `create_client` with three optional params (the liter-llm shape):
+    // A top-level `create_client` with three optional params (the sample-llm shape):
     //   create_client(api_key: String, base_url: String, timeout_secs: Option<u64>,
     //                 max_retries: Option<u32>, model_hint: Option<String>) -> DefaultClient
     let chat_method = MethodDef {
@@ -909,13 +909,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo.android"
-namespace = "dev.kreuzberg.demo.android"
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 "#,
     )
 }
@@ -1246,7 +1246,7 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
 // ---------------------------------------------------------------------------
 
 fn make_convert_api() -> ApiSurface {
-    // Simulate h2m's convert(html: String, options: Option<ConversionOptions>) ->
+    // Simulate sample_markup's convert(html: String, options: Option<ConversionOptions>) ->
     // ConversionResult shape where ConversionOptions and ConversionResult are
     // non-opaque named types (DTOs).
     ApiSurface {
@@ -1423,7 +1423,7 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
 // ---------------------------------------------------------------------------
 
 fn make_batch_function_api() -> ApiSurface {
-    // Simulate kreuzberg's batch_extract_files and batch_extract_bytes:
+    // Simulate sample_crate's batch_extract_files and batch_extract_bytes:
     //   batch_extract_files(items: Vec<BatchFileItem>) -> Result<Vec<ExtractionResult>, _>
     //   batch_extract_bytes(items: Vec<BatchBytesItem>) -> Result<Vec<ExtractionResult>, _>
     ApiSurface {
@@ -1814,13 +1814,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo.android"
-namespace = "dev.kreuzberg.demo.android"
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 exclude_types = [{exclude_list}]
 "#
     ))
@@ -2085,13 +2085,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 
 [[crates.trait_bridges]]
 trait_name = "OcrBackend"
@@ -2120,7 +2120,7 @@ fn trait_bridge_emits_native_funs_and_interface_file() {
     let body = &bridge_kt.content;
 
     assert!(
-        body.contains("external fun nativeRegisterOcrBackend(impl: dev.kreuzberg.IOcrBackend)"),
+        body.contains("external fun nativeRegisterOcrBackend(impl: dev.sample_crate.IOcrBackend)"),
         "register native fun missing: {body}"
     );
     assert!(
@@ -2171,13 +2171,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 
 [[crates.trait_bridges]]
 trait_name = "OcrBackend"
@@ -2211,7 +2211,7 @@ exclude_languages = ["kotlin_android"]
 // The IR field `binding_excluded` is set by upstream `#[cfg_attr(alef, alef(skip))]`
 // (or `#[doc(hidden)]`) annotations on the Rust source. The kotlin-android emitter
 // must honour the flag for both DTOs and enums, matching the behaviour of every
-// other backend (PHP, WASM, NAPI, etc.). Without this filter, the kreuzberg AAR
+// other backend (PHP, WASM, NAPI, etc.). Without this filter, the sample_crate AAR
 // ships ~28 stale wrapper files (`OcrTesseractConfig.kt`, `Table2.kt`,
 // `OcrPipelineConfig.kt`, …) corresponding to types the Rust source has marked
 // as binding-excluded.
@@ -2231,13 +2231,13 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo.android"
-namespace = "dev.kreuzberg.demo.android"
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
 artifact_id = "demo-android"
-group_id = "dev.kreuzberg"
+group_id = "dev.sample_crate"
 "#,
     )
 }

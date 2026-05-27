@@ -380,7 +380,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let lib_rs = dir.path().join("lib.rs");
         std::fs::write(&lib_rs, lib_rs_source).expect("write lib.rs");
-        crate::extract::extractor::extract(&[lib_rs.as_path()], "kreuzberg", "0.0.0", None).expect("extract failed")
+        crate::extract::extractor::extract(&[lib_rs.as_path()], "sample_crate", "0.0.0", None).expect("extract failed")
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
             }
         "#,
         );
-        match validate_call_export(&surface, "kreuzberg", "render_page") {
+        match validate_call_export(&surface, "sample_crate", "render_page") {
             ExportValidation::WrongPath { actual_paths, .. } => {
                 assert!(actual_paths.iter().any(|p| p.contains("rendering")));
             }
@@ -411,7 +411,7 @@ mod tests {
         "#,
         );
         assert!(matches!(
-            validate_call_export(&surface, "kreuzberg", "render_page"),
+            validate_call_export(&surface, "sample_crate", "render_page"),
             ExportValidation::Ok
         ));
     }
@@ -455,7 +455,7 @@ mod tests {
         "#,
         );
         assert!(matches!(
-            validate_call_export(&surface, "kreuzberg", "chunk_text"),
+            validate_call_export(&surface, "sample_crate", "chunk_text"),
             ExportValidation::Ok
         ));
     }

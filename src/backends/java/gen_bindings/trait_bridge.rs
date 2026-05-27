@@ -627,8 +627,8 @@ mod tests {
     fn make_trait(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         TypeDef {
             name: name.to_string(),
-            rust_path: format!("kreuzberg::{name}"),
-            original_rust_path: format!("kreuzberg::{name}"),
+            rust_path: format!("sample_crate::{name}"),
+            original_rust_path: format!("sample_crate::{name}"),
             fields: vec![],
             methods,
             is_opaque: true,
@@ -649,11 +649,11 @@ mod tests {
     }
 
     #[test]
-    fn interface_emits_package_and_lifecycle_when_super_trait() {
+    fn interface_emisample_package_and_lifecycle_when_super_trait() {
         let trait_def = make_trait("OcrBackend", vec![make_method("process", TypeRef::String, vec![])]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
-        assert!(files.interface_content.starts_with("package dev.kreuzberg;"));
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
+        assert!(files.interface_content.starts_with("package dev.sample_crate;"));
         assert!(files.interface_content.contains("public interface IOcrBackend"));
         assert!(files.interface_content.contains("String name();"));
         assert!(files.interface_content.contains("default void initialize()"));
@@ -664,7 +664,7 @@ mod tests {
     fn interface_omits_lifecycle_when_no_super_trait() {
         let trait_def = make_trait("Filter", vec![make_method("apply", TypeRef::String, vec![])]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
         assert!(!files.interface_content.contains("String name();"));
         assert!(files.interface_content.contains("String apply()"));
     }
@@ -674,9 +674,9 @@ mod tests {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
         // No unregister/clear configured: neither method should appear
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
         let body = files.bridge_content.as_str();
-        assert!(body.starts_with("package dev.kreuzberg;"));
+        assert!(body.starts_with("package dev.sample_crate;"));
         assert!(body.contains("public final class OcrBackendBridge"));
         assert!(body.contains("public static void registerOcrBackend(final IOcrBackend impl)"));
         assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
@@ -693,7 +693,7 @@ mod tests {
         let files = gen_trait_bridge_files(
             &trait_def,
             "krz",
-            "dev.kreuzberg",
+            "dev.sample_crate",
             true,
             Some("unregister_ocr_backend"),
             None,
@@ -710,7 +710,7 @@ mod tests {
     fn gen_unregistration_fn_omits_method_when_none() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
         let body = files.bridge_content.as_str();
         assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
     }
@@ -722,7 +722,7 @@ mod tests {
         let files = gen_trait_bridge_files(
             &trait_def,
             "krz",
-            "dev.kreuzberg",
+            "dev.sample_crate",
             true,
             None,
             Some("clear_ocr_backends"),
@@ -740,7 +740,7 @@ mod tests {
     fn gen_clear_fn_omits_method_when_none() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
         let body = files.bridge_content.as_str();
         assert!(!body.contains("public static void clearOcrBackends()"));
     }
@@ -752,7 +752,7 @@ mod tests {
         let files = gen_trait_bridge_files(
             &trait_def,
             "krz",
-            "dev.kreuzberg",
+            "dev.sample_crate",
             true,
             Some("unregister_ocr_backend"),
             Some("clear_ocr_backends"),
@@ -823,7 +823,7 @@ mod tests {
             )],
         );
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
         let body = files.bridge_content.as_str();
         assert!(body.contains("toArray(ValueLayout.JAVA_BYTE)"));
         assert!(body.contains("OcrConfig"));
@@ -870,7 +870,7 @@ mod tests {
             )],
         );
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", false, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
         let body = files.bridge_content.as_str();
         // The handler signature should have `byte level`, not `MemorySegment level_in`
         assert!(body.contains(

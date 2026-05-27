@@ -286,12 +286,12 @@ name = "my-lib"
 sources = ["src/lib.rs"]
 
 [crates.output]
-ffi = "crates/html-to-markdown-ffi/src/"
+ffi = "crates/sample-markdown-ffi/src/"
 "#,
         );
         // Step 2 of resolution: derive from `[crates.output] ffi` path,
         // skipping `src`/`lib`/`include` and replacing hyphens with underscores.
-        assert_eq!(r.ffi_lib_name(), "html_to_markdown_ffi");
+        assert_eq!(r.ffi_lib_name(), "sample_markdown_ffi");
     }
 
     #[test]
@@ -309,7 +309,7 @@ sources = ["src/lib.rs"]
 lib_name = "explicit_wins"
 
 [crates.output]
-ffi = "crates/html-to-markdown-ffi/src/"
+ffi = "crates/sample-markdown-ffi/src/"
 "#,
         );
         // Step 1 (explicit lib_name) takes precedence over step 2 (output path).

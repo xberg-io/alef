@@ -1232,7 +1232,7 @@ pub(super) fn gen_module_init(
     }
 
     // Register module-level wrapper functions for streaming adapters.
-    // These allow calling `Kreuzcrawl.crawl_stream(engine, request)` at module level,
+    // These allow calling `SampleCrawler.crawl_stream(engine, request)` at module level,
     // mirroring the pattern of non-streaming functions like `crawl`.
     for adapter in streaming_adapters {
         lines.push(crate::backends::magnus::template_env::render(

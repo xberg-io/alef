@@ -76,7 +76,7 @@ const BASE_TOML: &str = r#"
 languages = ["swift"]
 
 [[crates]]
-name = "tree-sitter-language-pack"
+name = "sample-language-pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -85,7 +85,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "parse"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 async = true
 
@@ -120,7 +120,7 @@ options_via = "from_json"
         "must emit processConfigFromJson when options_type = ProcessConfig. Rendered:\n{rendered}"
     );
 
-    // Should NOT use the hardcoded kreuzberg name
+    // Should NOT use the hardcoded sample_crate name
     assert!(
         !rendered.contains("extractionConfigFromJson("),
         "must NOT hardcode extractionConfigFromJson when options_type is set. Rendered:\n{rendered}"

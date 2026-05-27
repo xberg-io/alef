@@ -27,7 +27,7 @@
 //!      0.16+ no longer copies test binaries to `zig-out/bin/`).
 //!   3. Emit `setCwd(b.path("../../test_documents"))` ONLY when at least one
 //!      fixture uses a `file_path` or `bytes` arg. Consumers whose fixtures are
-//!      mock-server-only (e.g. kreuzcrawl) have no `test_documents/` directory;
+//!      mock-server-only (e.g. sample_crawler) have no `test_documents/` directory;
 //!      calling `setCwd` for them causes the OS `chdir(2)` to return ENOENT
 //!      before the binary is even exec'd, surfacing as `FileNotFound` in the
 //!      Zig build output even though the compile step succeeded.
@@ -38,13 +38,13 @@ use alef::e2e::codegen::zig::ZigE2eCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 
 /// Config for a mock-server-only consumer (no file_path / bytes args).
-/// Represents kreuzcrawl-style: all fixtures reach a URL, no local files.
+/// Represents sample_crawler-style: all fixtures reach a URL, no local files.
 const CONFIG_TOML: &str = r#"
 [workspace]
 languages = ["zig"]
 
 [[crates]]
-name = "kreuzcrawl"
+name = "sample_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -53,7 +53,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "kreuzcrawl"
+module = "sample_crawler"
 result_var = "result"
 async = false
 returns_result = true
@@ -63,13 +63,13 @@ args = [
 "#;
 
 /// Config for a file-reading consumer (has file_path args).
-/// Represents kreuzberg-style: fixtures read PDF/image files from test_documents/.
+/// Represents sample_crate-style: fixtures read PDF/image files from test_documents/.
 const CONFIG_TOML_FILE: &str = r#"
 [workspace]
 languages = ["zig"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -78,7 +78,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "extract"
-module = "kreuzberg"
+module = "sample_crate"
 result_var = "result"
 async = false
 returns_result = true
@@ -275,7 +275,7 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
 
 #[test]
 fn set_cwd_emitted_only_for_file_fixture_consumers() {
-    // Consumer with file_path args (kreuzberg-style): setCwd must be present.
+    // Consumer with file_path args (sample_crate-style): setCwd must be present.
     let groups_file = vec![FixtureGroup {
         category: "smoke".to_string(),
         fixtures: vec![fixture_for_file("smoke", "pdf_basic")],
@@ -287,7 +287,7 @@ fn set_cwd_emitted_only_for_file_fixture_consumers() {
          test_documents/:\n{content_file}"
     );
 
-    // Consumer without file_path args (kreuzcrawl-style): setCwd must be absent.
+    // Consumer without file_path args (sample_crawler-style): setCwd must be absent.
     let groups_mock = vec![FixtureGroup {
         category: "scrape".to_string(),
         fixtures: vec![fixture_for("scrape", "basic_html")],

@@ -49,7 +49,7 @@ pub(crate) fn sanitize_python_doc(s: &str) -> String {
 /// Convert a CamelCase class name to a human-readable docstring sentence.
 ///
 /// Examples: `AuthenticationError` → `"Authentication error."`,
-/// `LiterLlmError` → `"Liter llm error."`
+/// `SampleLlmError` → `"Sample llm error."`
 pub(crate) fn class_name_to_docstring(name: &str) -> String {
     use heck::ToSnakeCase;
     let snake = name.to_snake_case();

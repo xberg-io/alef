@@ -1053,8 +1053,8 @@ module = "github.com/test/test-lib"
             .find(|f| f.path.to_string_lossy().ends_with("embed_ffi.go"))
             .expect("embed_ffi.go present");
         assert!(
-            !embed.content.contains("package tspack"),
-            "embed_ffi.go must not hardcode the tspack package name"
+            !embed.content.contains("package samplepack"),
+            "embed_ffi.go must not hardcode the samplepack package name"
         );
         assert!(
             embed.content.contains(pkg_line),

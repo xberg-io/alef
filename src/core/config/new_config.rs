@@ -453,7 +453,7 @@ sources = ["crates/beta/src/lib.rs"]
 languages = ["python", "go"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         )
@@ -461,11 +461,11 @@ sources = ["src/lib.rs"]
 
         let resolved = cfg.resolve().expect("resolve should succeed");
         assert_eq!(resolved.len(), 1);
-        let spikard = &resolved[0];
-        assert_eq!(spikard.name, "spikard");
-        assert_eq!(spikard.languages.len(), 2);
-        assert!(spikard.languages.contains(&Language::Python));
-        assert!(spikard.languages.contains(&Language::Go));
+        let sample_router = &resolved[0];
+        assert_eq!(sample_router.name, "sample_router");
+        assert_eq!(sample_router.languages.len(), 2);
+        assert!(sample_router.languages.contains(&Language::Python));
+        assert!(sample_router.languages.contains(&Language::Go));
     }
 
     #[test]
@@ -476,7 +476,7 @@ sources = ["src/lib.rs"]
 languages = ["python", "go"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 languages = ["node"]
 "#,
@@ -484,8 +484,8 @@ languages = ["node"]
         .unwrap();
 
         let resolved = cfg.resolve().expect("resolve should succeed");
-        let spikard = &resolved[0];
-        assert_eq!(spikard.languages, vec![Language::Node]);
+        let sample_router = &resolved[0];
+        assert_eq!(sample_router.languages, vec![Language::Node]);
     }
 
     #[test]
@@ -502,7 +502,7 @@ repository = "https://github.com/acme/workspace"
 authors = ["Workspace Team"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.scaffold]
@@ -539,11 +539,11 @@ shared_hooks_repo = "https://github.com/acme/hooks"
 include_alef_hooks = false
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.scaffold.generated_header]
-verify_command = "spikard verify"
+verify_command = "sample_router verify"
 
 [crates.scaffold.precommit]
 shared_hooks_rev = "v1.2.3"
@@ -557,7 +557,7 @@ shared_hooks_rev = "v1.2.3"
         let precommit = scaffold.precommit.unwrap();
 
         assert_eq!(header.issues_url.as_deref(), Some("https://docs.example.invalid/alef"));
-        assert_eq!(header.verify_command.as_deref(), Some("spikard verify"));
+        assert_eq!(header.verify_command.as_deref(), Some("sample_router verify"));
         assert_eq!(
             precommit.shared_hooks_repo.as_deref(),
             Some("https://github.com/acme/hooks")
@@ -617,18 +617,18 @@ build = "cd packages/go && go build -tags dev ./..."
 languages = ["python", "node"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.python]
-module_name = "_spikard"
+module_name = "_sample_router"
 
 [crates.python.rename_fields]
 "User.type" = "user_type"
 "User.id" = "identifier"
 
 [crates.node]
-package_name = "@spikard/node"
+package_name = "@sample_router/node"
 
 [crates.node.rename_fields]
 "User.type" = "userType"
@@ -637,13 +637,13 @@ package_name = "@spikard/node"
         .unwrap();
 
         let resolved = cfg.resolve().expect("resolve should succeed");
-        let spikard = &resolved[0];
+        let sample_router = &resolved[0];
 
-        let py = spikard.python.as_ref().expect("python config should be present");
+        let py = sample_router.python.as_ref().expect("python config should be present");
         assert_eq!(py.rename_fields.get("User.type").map(String::as_str), Some("user_type"));
         assert_eq!(py.rename_fields.get("User.id").map(String::as_str), Some("identifier"));
 
-        let node_cfg = spikard.node.as_ref().expect("node config should be present");
+        let node_cfg = sample_router.node.as_ref().expect("node config should be present");
         assert_eq!(
             node_cfg.rename_fields.get("User.type").map(String::as_str),
             Some("userType")
@@ -664,28 +664,28 @@ check = "ruff check ."
 check = "oxlint ."
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.lint.python]
-check = "ruff check crates/spikard-py/"
+check = "ruff check crates/sample_router-py/"
 "#,
         )
         .unwrap();
 
         let resolved = cfg.resolve().expect("resolve should succeed");
-        let spikard = &resolved[0];
+        let sample_router = &resolved[0];
 
         // Per-crate python lint overrides workspace
-        let py_lint = spikard.lint.get("python").expect("python lint should be present");
+        let py_lint = sample_router.lint.get("python").expect("python lint should be present");
         assert_eq!(
             py_lint.check.as_ref().unwrap().commands(),
-            vec!["ruff check crates/spikard-py/"],
+            vec!["ruff check crates/sample_router-py/"],
             "per-crate python lint should win over workspace default"
         );
 
         // Workspace node lint is inherited (no per-crate override)
-        let node_lint = spikard.lint.get("node").expect("node lint should be present");
+        let node_lint = sample_router.lint.get("node").expect("node lint should be present");
         assert_eq!(
             node_lint.check.as_ref().unwrap().commands(),
             vec!["oxlint ."],
@@ -726,11 +726,11 @@ check = "ruff check crates/spikard-py/"
 languages = ["python"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/other.rs"]
 "#,
         )
@@ -738,8 +738,8 @@ sources = ["src/other.rs"]
 
         let err = cfg.resolve().unwrap_err();
         assert!(
-            matches!(err, ResolveError::DuplicateCrateName(ref n) if n == "spikard"),
-            "expected DuplicateCrateName(spikard), got: {err}"
+            matches!(err, ResolveError::DuplicateCrateName(ref n) if n == "sample_router"),
+            "expected DuplicateCrateName(sample_router), got: {err}"
         );
     }
 
@@ -750,7 +750,7 @@ sources = ["src/other.rs"]
 [workspace]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         )
@@ -758,8 +758,8 @@ sources = ["src/lib.rs"]
 
         let err = cfg.resolve().unwrap_err();
         assert!(
-            matches!(err, ResolveError::EmptyLanguages(ref n) if n == "spikard"),
-            "expected EmptyLanguages(spikard), got: {err}"
+            matches!(err, ResolveError::EmptyLanguages(ref n) if n == "sample_router"),
+            "expected EmptyLanguages(sample_router), got: {err}"
         );
     }
 
@@ -804,7 +804,7 @@ python = "packages/python/shared/"
 languages = ["python"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         )
@@ -822,7 +822,7 @@ sources = ["src/lib.rs"]
 languages = ["python"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         )
@@ -843,10 +843,10 @@ languages = ["python"]
 python_package_manager = "uv"
 
 [workspace.opaque_types]
-Tree = "tree_sitter::Tree"
+Tree = "sample_language::Tree"
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         )
@@ -856,7 +856,7 @@ sources = ["src/lib.rs"]
         assert_eq!(resolved[0].tools.python_package_manager.as_deref(), Some("uv"));
         assert_eq!(
             resolved[0].opaque_types.get("Tree").map(String::as_str),
-            Some("tree_sitter::Tree")
+            Some("sample_language::Tree")
         );
     }
 
@@ -879,7 +879,7 @@ python = "typed-dict"
 node   = "zod"
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         )
@@ -919,7 +919,7 @@ enabled = false
 python = "typed-dict"
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.generate]
@@ -959,7 +959,7 @@ python = "dataclass"
 languages = ["python", "node"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 languages = []
 "#,
@@ -975,7 +975,7 @@ languages = []
         let cfg: NewAlefConfig = toml::from_str(
             r#"
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 languages = []
 "#,
@@ -986,7 +986,7 @@ languages = []
             .resolve()
             .expect_err("resolve must fail when both per-crate and workspace languages are empty");
         match err {
-            ResolveError::EmptyLanguages(name) => assert_eq!(name, "spikard"),
+            ResolveError::EmptyLanguages(name) => assert_eq!(name, "sample_router"),
             other => panic!("expected EmptyLanguages, got {other:?}"),
         }
     }
@@ -1003,7 +1003,7 @@ languages = []
 wrkspace = "typo"
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
         );
@@ -1090,7 +1090,7 @@ languages = ["node"]
 languages = ["python"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [[crates.adapters]]
@@ -1116,7 +1116,7 @@ skip_languages = ["wasm32"]
 languages = ["python"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [[crates.adapters]]

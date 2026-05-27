@@ -9,8 +9,8 @@ use super::extras::Language;
 ///
 /// Supports two TOML forms via `#[serde(untagged)]`:
 ///
-/// - String: `Language = "tree_sitter.Language"` → capsule round-trip via `into_raw()`
-/// - Struct: `Parser = { python_type = "tree_sitter.Parser", construct_from = "Language" }` → Python-side construction
+/// - String: `Language = "sample_language.Language"` → capsule round-trip via `into_raw()`
+/// - Struct: `Parser = { python_type = "sample_language.Parser", construct_from = "Language" }` → Python-side construction
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum CapsuleTypeConfig {
@@ -18,13 +18,13 @@ pub enum CapsuleTypeConfig {
     /// The generated code calls `PyCapsule_New(value.into_raw(), capsule_name, None)` on return,
     /// and `PyCapsule_GetPointer` + `from_raw()` on input.
     ///
-    /// Value is the fully-qualified Python capsule name (e.g. `"tree_sitter.Language"`).
+    /// Value is the fully-qualified Python capsule name (e.g. `"sample_language.Language"`).
     Capsule(String),
     /// Python-side construction: the type does not have a direct `into_raw()`.
     /// Instead, the generated code constructs the Python type by calling a Python factory
-    /// (e.g. `tree_sitter.Parser(language)`) where `language` is a bound capsule argument.
+    /// (e.g. `sample_language.Parser(language)`) where `language` is a bound capsule argument.
     ConstructFrom {
-        /// The fully-qualified Python type to import and call (e.g. `"tree_sitter.Parser"`).
+        /// The fully-qualified Python type to import and call (e.g. `"sample_language.Parser"`).
         python_type: String,
         /// The capsule-type argument name to pass to the Python constructor.
         /// Must be one of the other capsule-type entries (e.g. `"Language"`).
@@ -94,7 +94,7 @@ pub struct PythonConfig {
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Runtime Python (PyPI) dependencies emitted into `[project] dependencies`
     /// of the scaffold-generated `pyproject.toml`. Entries are PEP 508 strings
-    /// such as `"tree-sitter>=0.23"` and pass through verbatim. Empty by default.
+    /// such as `"sample_language>=0.23"` and pass through verbatim. Empty by default.
     #[serde(default)]
     pub pip_dependencies: Vec<String>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
@@ -141,13 +141,13 @@ pub struct StubsConfig {
 /// When set, the named Rust type is NOT emitted as a `#[napi]` opaque wrapper.
 /// Instead, functions returning this type produce a `JsObject` carrying the raw
 /// pointer in a configurable `Napi::External<T>` property — the layout consumed
-/// by the `tree-sitter` npm package's `Parser.setLanguage()`.
+/// by the `sample_language` npm package's `Parser.setLanguage()`.
 ///
 /// TOML form:
 /// ```toml
 /// [crates.node.capsule_types.Language]
 /// type = "Language"
-/// from_module = "tree-sitter"
+/// from_module = "sample_language"
 /// property_name = "language"
 /// type_tag = { lower = "0x8AF2E5212AD58ABF", upper = "0xD5006CAD83ABBA16" }
 /// ```
@@ -157,20 +157,20 @@ pub struct NodeCapsuleTypeConfig {
     /// Emitted as the return-type annotation in the generated `index.d.ts`.
     #[serde(rename = "type")]
     pub type_name: String,
-    /// npm package to import the type from (e.g. `"tree-sitter"`).
+    /// npm package to import the type from (e.g. `"sample_language"`).
     /// Emitted as the `from` clause in the generated `import type` line.
     pub from_module: String,
     /// Codegen strategy. Currently only `"external_pointer"` is supported.
     /// Defaults to `"external_pointer"`.
     #[serde(default = "default_node_capsule_construct")]
     pub construct: String,
-    /// JS property name to set on the returned object. `node-tree-sitter`
+    /// JS property name to set on the returned object. `node-sample_language`
     /// reads `value["language"]`; other consumers may use different names.
     /// Defaults to `"__parser"` for back-compat with existing configs.
     #[serde(default = "default_node_capsule_property_name")]
     pub property_name: String,
     /// Optional N-API type tag to apply via `napi_type_tag_object`. Required
-    /// when the consumer library (e.g. `node-tree-sitter`) calls
+    /// when the consumer library (e.g. `node-sample_language`) calls
     /// `napi_check_object_type_tag` to validate the External before using it.
     #[serde(default)]
     pub type_tag: Option<NapiTypeTagConfig>,
@@ -292,7 +292,7 @@ pub struct PhpConfig {
     pub cargo_crate_name: Option<String>,
     /// Override the PHP namespace used for class registration and PSR-4 autoloading.
     ///
-    /// When set, this value is used verbatim as the PHP namespace (e.g. `"HtmlToMarkdown"`).
+    /// When set, this value is used verbatim as the PHP namespace (e.g. `"SampleMarkdown"`).
     /// When absent, the namespace is derived from `extension_name` by splitting on `_` and
     /// converting each segment to PascalCase (e.g. `sample_markdown` → `Html\To\Markdown`).
     #[serde(default)]
@@ -465,7 +465,7 @@ pub struct WasmConfig {
     /// When set, e2e smoke tests will auto-skip for languages not in this list,
     /// emitting `.skip("not in WASM's static language set")` for each unsupported language.
     /// This bridges the gap between the full 305-language pack and the 8-language
-    /// WASM build compiled with `TSLP_LANGUAGES=python,rust,javascript,typescript,go,html,css,json`.
+    /// WASM build compiled with `SAMPLE_LANGUAGES=python,rust,javascript,typescript,go,html,css,json`.
     /// Defaults to empty (all languages assumed supported).
     #[serde(default)]
     pub languages: Vec<String>,
@@ -477,7 +477,7 @@ pub struct FfiConfig {
     #[serde(default = "default_error_style")]
     pub error_style: String,
     pub header_name: Option<String>,
-    /// Native library name for Go cgo/Java Panama/C# P/Invoke (e.g., "ts_pack_ffi").
+    /// Native library name for Go cgo/Java Panama/C# P/Invoke (e.g., "sample_pack_ffi").
     /// Defaults to `{prefix}_ffi`.
     #[serde(default)]
     pub lib_name: Option<String>,
@@ -511,7 +511,7 @@ pub struct FfiConfig {
     /// ```toml
     /// # downstream whose error type has a struct variant with two fields:
     /// plugin_error_constructor = """
-    /// sample_core::KreuzbergError::Plugin { message: msg, plugin_name: String::new() }
+    /// sample_core::SampleCrateError::Plugin { message: msg, plugin_name: String::new() }
     /// """
     ///
     /// # downstream whose error type implements `From<String>`:
@@ -598,7 +598,7 @@ pub struct JavaConfig {
     /// Override the Maven `<groupId>` emitted by alef-scaffold and alef-e2e. When unset,
     /// `java_group_id()` falls back to the Java `package` value. Set this when the
     /// published Maven coords differ from the Java package path (e.g. group
-    /// `dev.sample_core`, package `dev.sample_core.htmltomarkdown`).
+    /// `dev.sample_core`, package `dev.sample_core.samplemarkdown`).
     #[serde(default)]
     pub group_id: Option<String>,
     /// Override the Maven `<artifactId>` emitted by alef-scaffold and alef-e2e. When
@@ -1161,7 +1161,7 @@ pub struct CSharpConfig {
     /// NuGet `<PackageId>` to publish under. When unset, falls back to `namespace`.
     /// Use this when the published artifact id must differ from the C# `RootNamespace` —
     /// e.g. when the unprefixed name is owned by a third party on nuget.org and
-    /// you publish under a vendor-prefixed id like `KreuzbergDev.<Lib>`.
+    /// you publish under a vendor-prefixed id like `SampleCrateDev.<Lib>`.
     #[serde(default)]
     pub package_id: Option<String>,
     pub target_framework: Option<String>,

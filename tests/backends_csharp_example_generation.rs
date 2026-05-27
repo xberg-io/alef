@@ -3,19 +3,19 @@ use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef::core::ir::*;
 
-fn make_kreuzberg_config() -> ResolvedCrateConfig {
+fn make_sample_crate_config() -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
 languages = ["csharp"]
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 [crates.ffi]
-prefix = "kreuzberg"
+prefix = "sample_crate"
 error_style = "last_error"
 [crates.csharp]
-namespace = "Kreuzberg"
+namespace = "SampleCrate"
 "#,
     )
     .unwrap();
@@ -27,11 +27,11 @@ fn test_generated_code_example() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
-        crate_name: "kreuzberg".to_string(),
+        crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
             name: "ExtractionConfig".to_string(),
-            rust_path: "kreuzberg::ExtractionConfig".to_string(),
+            rust_path: "sample_crate::ExtractionConfig".to_string(),
             original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
@@ -93,7 +93,7 @@ fn test_generated_code_example() {
         }],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
-            rust_path: "kreuzberg::extract_file_sync".to_string(),
+            rust_path: "sample_crate::extract_file_sync".to_string(),
             original_rust_path: String::new(),
             params: vec![
                 ParamDef {
@@ -140,7 +140,7 @@ fn test_generated_code_example() {
         }],
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
-            rust_path: "kreuzberg::OcrBackend".to_string(),
+            rust_path: "sample_crate::OcrBackend".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
@@ -177,7 +177,7 @@ fn test_generated_code_example() {
         handler_contracts: vec![],
     };
 
-    let config = make_kreuzberg_config();
+    let config = make_sample_crate_config();
 
     let files = backend.generate_bindings(&api, &config).unwrap();
 
@@ -188,33 +188,33 @@ fn test_generated_code_example() {
         .unwrap();
 
     assert!(native_methods.content.contains("[DllImport(LibName"));
-    assert!(native_methods.content.contains("kreuzberg_extract_file_sync"));
+    assert!(native_methods.content.contains("sample_crate_extract_file_sync"));
     assert!(native_methods.content.contains("internal static extern"));
-    assert!(native_methods.content.contains("kreuzberg_last_error_code"));
-    assert!(native_methods.content.contains("kreuzberg_last_error_context"));
-    assert!(native_methods.content.contains("kreuzberg_free_string"));
+    assert!(native_methods.content.contains("sample_crate_last_error_code"));
+    assert!(native_methods.content.contains("sample_crate_last_error_context"));
+    assert!(native_methods.content.contains("sample_crate_free_string"));
 
     // Exception class should be properly defined
     let exception = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("KreuzbergException.cs"))
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateException.cs"))
         .unwrap();
 
     assert!(
         exception
             .content
-            .contains("public class KreuzbergException : Exception")
+            .contains("public class SampleCrateException : Exception")
     );
     assert!(exception.content.contains("public int Code { get; }"));
-    assert!(exception.content.contains("namespace Kreuzberg"));
+    assert!(exception.content.contains("namespace SampleCrate"));
 
     // Wrapper class should have extraction methods
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("KreuzbergLib.cs"))
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateLib.cs"))
         .unwrap();
 
-    assert!(wrapper.content.contains("public static class KreuzbergLib"));
+    assert!(wrapper.content.contains("public static class SampleCrateLib"));
     assert!(wrapper.content.contains("public static string ExtractFileSync"));
     assert!(wrapper.content.contains("NativeMethods."));
     assert!(wrapper.content.contains("GetLastError()"));

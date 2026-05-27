@@ -72,7 +72,7 @@ fn infallible_function_omits_try() {
 languages = ["zig"]
 
 [[crates]]
-name = "tree_sitter_language_pack"
+name = "sample_language_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -81,13 +81,13 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "process"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 args = [{ name = "source", field = "source_code", type = "string" }]
 
 [crates.e2e.calls.language_count]
 function = "language_count"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 result_is_simple = true
 args = []
@@ -99,7 +99,7 @@ returns_result = false
     let rendered = render_zig_registry(toml);
 
     assert!(
-        !rendered.contains("= try tree_sitter_language_pack.language_count()"),
+        !rendered.contains("= try sample_language_pack.language_count()"),
         "infallible language_count must NOT use `try`. Rendered:\n{rendered}"
     );
     assert!(
@@ -117,7 +117,7 @@ fn string_param_function_emits_try() {
 languages = ["zig"]
 
 [[crates]]
-name = "tree_sitter_language_pack"
+name = "sample_language_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -126,13 +126,13 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "process"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 args = [{ name = "source", field = "source_code", type = "string" }]
 
 [crates.e2e.calls.has_language]
 function = "has_language"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 result_is_simple = true
 args = [{ name = "name", field = "language", type = "string" }]
@@ -183,7 +183,7 @@ args = [{ name = "name", field = "language", type = "string" }]
         .clone();
 
     assert!(
-        rendered.contains("try tree_sitter_language_pack.has_language("),
+        rendered.contains("try sample_language_pack.has_language("),
         "has_language with string param must use `try`. Rendered:\n{rendered}"
     );
 }

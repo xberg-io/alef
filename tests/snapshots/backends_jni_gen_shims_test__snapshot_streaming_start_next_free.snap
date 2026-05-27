@@ -30,7 +30,7 @@ use tokio::runtime::Runtime;
 use demo as core_crate;
 use core_crate::*; // bring trait methods into scope
 
-const ERROR_CLASS: &str = "dev/kreuzberg/demo/DemoBridgeException";
+const ERROR_CLASS: &str = "dev/sample_crate/demo/DemoBridgeException";
 
 fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
@@ -92,7 +92,7 @@ where
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeCreateClient(
     mut env: EnvUnowned,
     _class: JClass,
     api_key: JString,
@@ -119,7 +119,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeCreateCli
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientDoThing(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientDoThing(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -151,7 +151,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientPing(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientPing(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -170,7 +170,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientFetchBlob(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientFetchBlob(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -192,7 +192,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeFreeDemoClient(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeFreeDemoClient(
     _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -212,7 +212,7 @@ struct DemoClientStreamDataStreamHandle {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientStreamDataStart(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientStreamDataStart(
     mut env: EnvUnowned,
     _class: JClass,
     client_handle: jlong,
@@ -252,7 +252,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientStreamDataNext(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientStreamDataNext(
     mut env: EnvUnowned,
     _class: JClass,
     stream_handle: jlong,
@@ -290,7 +290,7 @@ pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClien
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientStreamDataFree(
+pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientStreamDataFree(
     _env: EnvUnowned,
     _class: JClass,
     stream_handle: jlong,

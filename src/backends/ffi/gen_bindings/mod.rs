@@ -2447,7 +2447,7 @@ options_type = "ConversionOptions"
     /// annotations that reference Named types must use `my_custom_lib::TypeName`, not
     /// `sample_core::TypeName`.
     #[test]
-    fn test_core_import_parameterization_uses_configured_import_not_hardcoded_kreuzberg() {
+    fn test_core_import_parameterization_uses_configured_import_not_hardcoded_sample_crate() {
         let config = resolved_one(
             r#"
 [workspace]
@@ -2469,8 +2469,8 @@ core_import = "my_custom_lib"
         // in any type annotation position.  (It may legitimately appear in doc comments
         // or string literals, but never as a Rust path qualifier in generated code.)
         assert!(
-            !lib.content.contains("kreuzberg::"),
-            "generated code must not hard-code 'kreuzberg::' when core_import is 'my_custom_lib'; got:\n{}",
+            !lib.content.contains("sample_crate::"),
+            "generated code must not hard-code 'sample_crate::' when core_import is 'my_custom_lib'; got:\n{}",
             &lib.content[..lib.content.len().min(2000)]
         );
         // The configured import must appear as a qualifier for core types

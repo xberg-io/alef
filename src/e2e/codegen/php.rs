@@ -647,7 +647,7 @@ fn render_test_file(
     //   - streaming-adapter `request_type` for fixtures that invoke a streaming
     //     adapter call (e.g. `CrawlStreamRequest`). Without this import the
     //     generated `new CrawlStreamRequest($url)` resolves to
-    //     `Kreuzcrawl\E2e\CrawlStreamRequest` (the test namespace) and PHPUnit
+    //     `SampleCrawler\E2e\CrawlStreamRequest` (the test namespace) and PHPUnit
     //     errors with `Class "...\CrawlStreamRequest" not found`.
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
@@ -2568,7 +2568,7 @@ fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) ->
 ///
 /// The returned `setup_block` contains the inline class declaration.
 /// The `arg_expr` is `$stub`.
-/// Callers emit `Kreuzberg::<RegisterFn>($stub)`.
+/// Callers emit `SampleCrate::<RegisterFn>($stub)`.
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
@@ -2578,7 +2578,7 @@ pub fn emit_test_backend(
 }
 
 /// Namespace-aware variant called directly from the PHP e2e renderer.
-/// `binding_namespace` is the PHP namespace where the binding interfaces live (e.g. `Kreuzberg`).
+/// `binding_namespace` is the PHP namespace where the binding interfaces live (e.g. `SampleCrate`).
 pub fn emit_test_backend_with_ns(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
@@ -2596,7 +2596,7 @@ pub fn emit_test_backend_with_ns(
     let mut setup = String::new();
     // PHP anonymous class must implement the interface explicitly.
     // Qualify the interface with the binding namespace to avoid resolution against
-    // the e2e test namespace (e.g. `Kreuzberg\E2e\DocumentExtractor` not found).
+    // the e2e test namespace (e.g. `SampleCrate\E2e\DocumentExtractor` not found).
     let interface_name = trait_bridge.trait_name.to_upper_camel_case();
     let qualified_interface = if binding_namespace.is_empty() {
         interface_name.clone()
@@ -2943,18 +2943,18 @@ mod composer_json_tests {
     #[test]
     fn registry_composer_json_uses_ext_platform_req() {
         let content = render_composer_json(
-            "kreuzberg/e2e-php",
-            "LiterLlm\\\\E2e\\\\",
-            "liter_llm",
-            "kreuzberg/liter-llm",
+            "sample_crate/e2e-php",
+            "SampleLlm\\\\E2e\\\\",
+            "sample_llm",
+            "sample_crate/sample-llm",
             "../../packages/php",
             "1.4.0-rc.32",
             DependencyMode::Registry,
         );
         // Must declare the ext-<name> platform require.
         assert!(
-            content.contains(r#""ext-liter_llm": "*""#),
-            "registry composer.json must require ext-liter_llm: *, got:\n{content}"
+            content.contains(r#""ext-sample_llm": "*""#),
+            "registry composer.json must require ext-sample_llm: *, got:\n{content}"
         );
         // Must declare the php platform require.
         assert!(
@@ -2964,7 +2964,7 @@ mod composer_json_tests {
         // Must NOT contain a direct package require (composer can't resolve it
         // before PIE has installed the .so).
         assert!(
-            !content.contains("kreuzberg/liter-llm"),
+            !content.contains("sample_crate/sample-llm"),
             "registry composer.json must not contain a direct package require, got:\n{content}"
         );
         // Must NOT carry minimum-stability / prefer-stable (not load-bearing with
@@ -2990,14 +2990,14 @@ mod composer_json_tests {
 
     #[test]
     fn registry_install_sh_contains_pie_install() {
-        let content = render_install_sh("kreuzberg/liter-llm", "liter_llm", "1.4.0-rc.32");
+        let content = render_install_sh("sample_crate/sample-llm", "sample_llm", "1.4.0-rc.32");
         // The script uses $PIE as the resolved pie binary path.
         assert!(
             content.contains("\"$PIE\" install"),
             "install.sh must invoke pie via $PIE install, got:\n{content}"
         );
         assert!(
-            content.contains("kreuzberg/liter-llm"),
+            content.contains("sample_crate/sample-llm"),
             "install.sh must reference the package name, got:\n{content}"
         );
         assert!(

@@ -42,7 +42,7 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 ffi_style = "jni"
 
 [[crates.adapters]]
@@ -73,7 +73,7 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 ffi_style = "jni"
 "#,
     )
@@ -346,10 +346,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 "#,
     );
@@ -390,7 +390,7 @@ target = "jvm"
 
     // Panama mode: Java Bridge import alias is emitted.
     assert!(
-        content.contains("import dev.kreuzberg.Demo as Bridge"),
+        content.contains("import dev.sample_crate.Demo as Bridge"),
         "Panama mode missing Java bridge import: {content}"
     );
     // Panama mode: no `external fun` JNI declarations.
@@ -418,7 +418,7 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 ffi_style = "jni"
 "#,
     )
@@ -805,12 +805,12 @@ name = "demo"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 ffi_style = "jni"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 "#,
     )
 }
@@ -825,7 +825,7 @@ namespace = "dev.kreuzberg"
 fn kotlin_jni_pairing_sentinel() {
     let api = make_jni_api_with_client_and_function();
     let config = make_pairing_config();
-    let package = "dev.kreuzberg";
+    let package = "dev.sample_crate";
     let bridge_class = alef::core::jni::bridge_class_name("demo");
 
     // --- Kotlin side: generate bridge + DefaultClient, collect all native names ---

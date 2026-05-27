@@ -1,6 +1,6 @@
 //! Verifies the Dart e2e codegen emits client-object instantiation when
 //! `CallOverride.client_factory` is set, and falls back to static bridge-class
-//! calls when absent (kreuzberg flat-function style).
+//! calls when absent (sample_crate flat-function style).
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -68,11 +68,11 @@ const BASE_TOML: &str = r#"
 languages = ["dart"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.dart]
-pubspec_name = "liter_llm"
+pubspec_name = "sample_llm"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -113,7 +113,7 @@ client_factory = "create_client"
         "must call chat on client instance. Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("LiterLlm.chat(") && !rendered.contains("LiterLlmBridge.chat("),
+        !rendered.contains("SampleLlm.chat(") && !rendered.contains("SampleLlmBridge.chat("),
         "must NOT call static bridge-class method when client_factory is set. Rendered:\n{rendered}"
     );
     assert!(
@@ -123,12 +123,12 @@ client_factory = "create_client"
 }
 
 /// When `client_factory` is absent, the generator must fall back to the static
-/// bridge-class call pattern (kreuzberg style). This ensures no regression.
+/// bridge-class call pattern (sample_crate style). This ensures no regression.
 #[test]
 fn without_client_factory_emits_static_bridge_call() {
     let rendered = render_dart_smoke(BASE_TOML, "smoke_basic");
 
-    // The bridge class name is derived from pubspec_name → PascalCase → "LiterLlm"
+    // The bridge class name is derived from pubspec_name → PascalCase → "SampleLlm"
     assert!(
         rendered.contains(".chat("),
         "must emit a .chat( call. Rendered:\n{rendered}"

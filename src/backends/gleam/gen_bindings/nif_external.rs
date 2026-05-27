@@ -205,7 +205,7 @@ fn params_string(f: &FunctionDef, imports: &mut BTreeSet<&'static str>) -> Strin
     params.join(", ")
 }
 
-/// Map a Rust error type string (e.g. `"anyhow::Error"`, `"KreuzbergError"`)
+/// Map a Rust error type string (e.g. `"anyhow::Error"`, `"SampleCrateError"`)
 /// to a Gleam type identifier. Gleam type names cannot contain `::`. If the
 /// path's last segment matches a declared error type, use it; otherwise fall
 /// back to the first declared error type, or `String` if none are declared.

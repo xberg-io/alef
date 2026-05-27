@@ -25,10 +25,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 "#,
     )
@@ -126,9 +126,12 @@ fn struct_emits_data_class() {
     // Kotlin emits a `typealias` aliased to the Java facade type so values
     // pass straight through to the JNA bridge without conversion. The actual
     // record fields (xCoord/yCoord) come from the Java side.
-    assert!(content.contains("package dev.kreuzberg"), "missing package: {content}");
     assert!(
-        content.contains("typealias Point = dev.kreuzberg.Point"),
+        content.contains("package dev.sample_crate"),
+        "missing package: {content}"
+    );
+    assert!(
+        content.contains("typealias Point = dev.sample_crate.Point"),
         "missing typealias for Point: {content}"
     );
 }
@@ -228,7 +231,7 @@ fn unit_enum_emits_enum_class() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("typealias Status = dev.kreuzberg.Status"),
+        content.contains("typealias Status = dev.sample_crate.Status"),
         "missing typealias for Status enum: {content}"
     );
 }
@@ -255,7 +258,7 @@ fn optional_field_uses_kotlin_nullable() {
     let content = &files[0].content;
     // Optional fields are owned by the Java record; Kotlin only emits a typealias.
     assert!(
-        content.contains("typealias Maybe = dev.kreuzberg.Maybe"),
+        content.contains("typealias Maybe = dev.sample_crate.Maybe"),
         "missing typealias for Maybe: {content}"
     );
 }
@@ -353,7 +356,7 @@ fn unit_error_variant_emits_sealed_class() {
     // Errors alias the Java exception type with the `Exception` suffix to avoid
     // collision with same-named non-error structs in `api.types`.
     assert!(
-        content.contains("typealias ApiErrorException = dev.kreuzberg.ApiErrorException"),
+        content.contains("typealias ApiErrorException = dev.sample_crate.ApiErrorException"),
         "missing error typealias: {content}"
     );
 }
@@ -393,7 +396,7 @@ fn error_variant_with_fields_emits_data_class() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("typealias ParseErrorException = dev.kreuzberg.ParseErrorException"),
+        content.contains("typealias ParseErrorException = dev.sample_crate.ParseErrorException"),
         "missing error typealias: {content}"
     );
 }
@@ -541,7 +544,7 @@ fn function_imports_native_facade() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("import dev.kreuzberg.DemoCrate as Bridge"),
+        content.contains("import dev.sample_crate.DemoCrate as Bridge"),
         "missing Java facade import alias: {content}"
     );
 }
@@ -568,10 +571,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 
 [[crates.adapters]]
@@ -642,7 +645,7 @@ type = "ChatCompletionRequest"
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    // DefaultClient.kt is a second generated file alongside LiterLlm.kt.
+    // DefaultClient.kt is a second generated file alongside SampleLlm.kt.
     let client_file = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"));
@@ -723,10 +726,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 
 [[crates.adapters]]
@@ -820,10 +823,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 "#,
     );
@@ -926,10 +929,10 @@ target = "jvm"
     );
 }
 
-/// Regression test for the spikard duplicate-class bug.
+/// Regression test for the sample_router duplicate-class bug.
 ///
 /// When an API surface has multiple opaque client types each with instance
-/// methods (e.g. spikard's `Router` and `GraphQLRouteConfig`), the Kotlin
+/// methods (e.g. sample_router's `Router` and `GraphQLRouteConfig`), the Kotlin
 /// backend MUST emit ONE FILE PER TYPE (`Router.kt`, `GraphQLRouteConfig.kt`)
 /// — never a bundled `DefaultClient.kt` containing both classes. Bundling
 /// invites stale-orphan duplication: if an older alef ran with only one
@@ -953,10 +956,10 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 "#,
     );
@@ -1074,7 +1077,7 @@ target = "jvm"
     );
 }
 
-/// Regression test for the spikard Router-unresolved bug.
+/// Regression test for the sample_router Router-unresolved bug.
 ///
 /// When a type is listed in `[crates.java].exclude_types`, the Java backend
 /// skips emitting `<Type>.java`. The Kotlin backend, in JVM mode, delegates to
@@ -1101,11 +1104,11 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 exclude_types = ["Router"]
 
 [crates.kotlin]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 target = "jvm"
 "#,
     );
@@ -1172,7 +1175,7 @@ target = "jvm"
     assert!(
         !names.contains(&"Router.kt"),
         "Router.kt MUST NOT be emitted when `Router` is in [crates.java].exclude_types — \
-         the Java facade `dev.kreuzberg.Router` is absent, so any Kotlin wrapper would \
+         the Java facade `dev.sample_crate.Router` is absent, so any Kotlin wrapper would \
          fail to compile with an unresolved import. Got: {names:?}"
     );
 }
@@ -1279,7 +1282,7 @@ fn short_sealed_class_variant_emits_single_line() {
         binding_exclusion_reason: None,
     };
     let mut out = String::new();
-    emit_enum_pub(&en, &mut out, "dev.kreuzberg");
+    emit_enum_pub(&en, &mut out, "dev.sample_crate");
     // Variant with 1 Int field: `    data class Value(val value: Int) : MyEnum()\n`
     assert!(
         out.contains("    data class Value(val value: Int) : MyEnum()"),
@@ -1296,8 +1299,8 @@ fn short_sealed_class_variant_emits_single_line() {
 #[test]
 fn long_sealed_class_variant_emits_multi_line() {
     let en = EnumDef {
-        name: "LiterLlmError".into(),
-        rust_path: "demo::LiterLlmError".into(),
+        name: "SampleLlmError".into(),
+        rust_path: "demo::SampleLlmError".into(),
         original_rust_path: String::new(),
         variants: vec![make_enum_variant(
             "ProviderError",
@@ -1319,7 +1322,7 @@ fn long_sealed_class_variant_emits_multi_line() {
         binding_exclusion_reason: None,
     };
     let mut out = String::new();
-    emit_enum_pub(&en, &mut out, "dev.kreuzberg");
+    emit_enum_pub(&en, &mut out, "dev.sample_crate");
     assert!(
         out.contains("    data class ProviderError(\n"),
         "long sealed-class variant must be multi-line: {out:?}"
@@ -1330,7 +1333,7 @@ fn long_sealed_class_variant_emits_multi_line() {
     );
     // Last field (requestId) must also have a trailing comma.
     assert!(
-        out.contains("        val requestId: String?,\n    ) : LiterLlmError()"),
+        out.contains("        val requestId: String?,\n    ) : SampleLlmError()"),
         "last multi-line variant field must have trailing comma: {out:?}"
     );
 }
@@ -1374,7 +1377,7 @@ fn short_error_variant_emits_single_line() {
 #[test]
 fn long_error_variant_emits_multi_line() {
     let err = make_error_def(
-        "LiterLlmException",
+        "SampleLlmException",
         vec![make_error_variant(
             "ProviderRateLimitExceeded",
             vec![
@@ -1398,7 +1401,7 @@ fn long_error_variant_emits_multi_line() {
     );
     // Last field (requestId) must also have a trailing comma.
     assert!(
-        out.contains("        val requestId: String?,\n    ) : LiterLlmException("),
+        out.contains("        val requestId: String?,\n    ) : SampleLlmException("),
         "last multi-line error variant field must have trailing comma: {out:?}"
     );
 }

@@ -190,7 +190,7 @@ fn test_generate_public_api_creates_all_files() {
             return_type: TypeRef::String,
             is_async: false,
             error_type: Some("Error".to_string()),
-            doc: "Convert HTML to Markdown".to_string(),
+            doc: "Convert markup conversion".to_string(),
             cfg: None,
             sanitized: false,
             return_sanitized: false,
@@ -1257,21 +1257,21 @@ fn render_native_ex(functions: Vec<FunctionDef>) -> String {
 
 #[test]
 fn test_native_ex_emits_single_line_doc_above_nif_stub() {
-    let content = render_native_ex(vec![make_function_with_doc("convert", "Convert HTML to Markdown.")]);
+    let content = render_native_ex(vec![make_function_with_doc("convert", "Convert markup conversion.")]);
     // Single-line doc → `@doc "..."` directly above the def, no blank between them.
     assert!(
-        content.contains("  @doc \"Convert HTML to Markdown.\"\n  def convert"),
+        content.contains("  @doc \"Convert markup conversion.\"\n  def convert"),
         "Single-line @doc must attach directly to its def; content:\n{content}"
     );
 }
 
 #[test]
 fn test_native_ex_emits_multiline_doc_heredoc_above_nif_stub() {
-    let doc = "Convert HTML to Markdown.\n\nSupports nested lists and tables.";
+    let doc = "Convert markup conversion.\n\nSupports nested lists and tables.";
     let content = render_native_ex(vec![make_function_with_doc("convert", doc)]);
     assert!(
         content.contains(
-            "  @doc \"\"\"\n  Convert HTML to Markdown.\n\n  Supports nested lists and tables.\n  \"\"\"\n  def convert"
+            "  @doc \"\"\"\n  Convert markup conversion.\n\n  Supports nested lists and tables.\n  \"\"\"\n  def convert"
         ),
         "Multi-line @doc must emit an indented heredoc attached to its def; content:\n{content}"
     );
@@ -1337,7 +1337,7 @@ fn test_native_ex_separates_consecutive_docced_stubs_with_blank_line() {
 fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
     let backend = RustlerBackend;
     // Two-line summary that wraps across physical lines (rustdoc convention).
-    let doc = "Convert HTML to Markdown, returning\na ConversionResult.\n\n# Arguments\n\n* `html` - Input.";
+    let doc = "Convert markup conversion, returning\na ConversionResult.\n\n# Arguments\n\n* `html` - Input.";
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
@@ -1375,11 +1375,11 @@ fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
         .expect("my_lib.ex must be generated");
     let content = &wrapper.content;
     assert!(
-        content.contains("Convert HTML to Markdown, returning a ConversionResult."),
+        content.contains("Convert markup conversion, returning a ConversionResult."),
         "wrapper @doc must join wrapped summary lines; content:\n{content}"
     );
     assert!(
-        !content.contains("Convert HTML to Markdown, returning\n"),
+        !content.contains("Convert markup conversion, returning\n"),
         "wrapper @doc must not retain the physical newline mid-paragraph; content:\n{content}"
     );
 }

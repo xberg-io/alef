@@ -1106,7 +1106,7 @@ pub(super) fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
 /// was already emitted by `gen_go_error_types`.
 ///
 /// Error types share their name with their corresponding opaque handle (the C layer allocates
-/// a `LiterLlmError*` handle that the Go binding holds as an opaque pointer). However the Go
+/// a `SampleLlmError*` handle that the Go binding holds as an opaque pointer). However the Go
 /// error struct uses `Code`/`Message` string fields rather than a raw `ptr unsafe.Pointer`, so
 /// we cannot generate the normal `Free()` using `h.ptr`. Instead we emit an unexported stub
 /// that references the C symbols to keep them from being pruned, but does nothing at runtime —

@@ -167,8 +167,11 @@ mod tests {
 
     #[test]
     fn distributable_build_zig_links_bundled_lib() {
-        let s = render_distributable_build_zig("spikard", "spikard_ffi");
-        assert!(s.contains("b.addModule(\"spikard\""), "must export the module:\n{s}");
+        let s = render_distributable_build_zig("sample_router", "sample_router_ffi");
+        assert!(
+            s.contains("b.addModule(\"sample_router\""),
+            "must export the module:\n{s}"
+        );
         assert!(
             s.contains("module.addLibraryPath(b.path(\"lib\"))"),
             "must link bundled lib/:\n{s}"
@@ -178,7 +181,7 @@ mod tests {
             "must add bundled include/:\n{s}"
         );
         assert!(
-            s.contains("module.linkSystemLibrary(\"spikard_ffi\""),
+            s.contains("module.linkSystemLibrary(\"sample_router_ffi\""),
             "must link the FFI lib:\n{s}"
         );
         assert!(
@@ -199,7 +202,7 @@ mod tests {
         let manifest = dir.path().join("build.zig.zon");
         fs::write(
             &manifest,
-            ".{\n    .name = .spikard,\n    .paths = .{\n        \"build.zig\",\n        \"src\",\n    },\n}\n",
+            ".{\n    .name = .sample_router,\n    .paths = .{\n        \"build.zig\",\n        \"src\",\n    },\n}\n",
         )
         .expect("write manifest");
 

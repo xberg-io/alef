@@ -1681,20 +1681,20 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    // With crate_name="kreuzberg", the VTable struct should be KREUZBERGKreuzbergOcrBackendVTable
+    // With crate_name="sample_crate", the VTable struct should be SAMPLE_CRATESampleCrateOcrBackendVTable
     let code = gen_trait_bridges_file(
         &api,
         &config,
         "testlib",
-        "kreuzberg",
+        "sample_crate",
         "test.h",
         "../ffi",
         "..",
-        "kreuzberg",
+        "sample_crate",
     );
 
     assert!(
-        code.contains("vtable := C.KREUZBERGKreuzbergOcrBackendVTable{"),
+        code.contains("vtable := C.SAMPLE_CRATESampleCrateOcrBackendVTable{"),
         "must use correct cbindgen-generated VTable struct name format: {{CRATE_UPPER}}{{CratePascal}}{{TraitPascal}}VTable"
     );
 }
@@ -2252,7 +2252,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
 }
 
 // ---------------------------------------------------------------------------
-// Excluded-type substitution (regression: kreuzberg's InternalDocument)
+// Excluded-type substitution (regression: sample_crate's InternalDocument)
 // ---------------------------------------------------------------------------
 
 /// Regression: when a trait method references a type that was extracted from Rust
@@ -2292,10 +2292,10 @@ fn test_trait_bridge_substitutes_excluded_named_types_with_json_raw_message() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let mut api = make_api_with_type(trait_type);
     // Mark InternalDocument as excluded — this is what `#[cfg_attr(alef, alef(skip))]`
-    // produces in the real kreuzberg IR.
+    // produces in the real sample_crate IR.
     api.excluded_type_paths.insert(
         "InternalDocument".to_string(),
-        "kreuzberg::types::internal::InternalDocument".to_string(),
+        "sample_crate::types::internal::InternalDocument".to_string(),
     );
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");

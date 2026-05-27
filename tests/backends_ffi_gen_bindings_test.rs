@@ -958,7 +958,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 
     // `completion_cost(model: &str) -> Option<f64>` is the canonical example that
-    // triggered clippy::manual_unwrap_or in liter-llm-ffi.
+    // triggered clippy::manual_unwrap_or in sample-llm-ffi.
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),

@@ -767,7 +767,7 @@ impl FieldResolver {
     ///
     /// When there are no error aliases configured, callers fall back to
     /// direct field access, which is the safe default for known public fields
-    /// like `status_code` on `LiterLlmError`.
+    /// like `status_code` on `SampleLlmError`.
     pub fn has_error_aliases(&self) -> bool {
         !self.error_field_aliases.is_empty()
     }
@@ -3018,8 +3018,8 @@ mod tests {
     /// for backends that navigate the path segment-by-segment (e.g. C). Prior
     /// behaviour stripped unconditionally, collapsing every dotted path to its
     /// leaf — the C codegen then emitted `<root>_<leaf>` accessors against the
-    /// wrong parent type (e.g. `ts_pack_process_result_total_lines(result)`
-    /// instead of `ts_pack_file_metrics_total_lines(metrics)`).
+    /// wrong parent type (e.g. `sample_pack_process_result_total_lines(result)`
+    /// instead of `sample_pack_file_metrics_total_lines(metrics)`).
     #[test]
     fn namespace_stripped_path_returns_none_when_result_fields_empty() {
         let r = make_resolver_with_result_fields(&[]);

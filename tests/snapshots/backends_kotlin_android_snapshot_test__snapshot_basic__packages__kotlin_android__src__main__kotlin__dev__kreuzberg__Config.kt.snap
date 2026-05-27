@@ -24,7 +24,7 @@ expression: "&file.content"
     "LongMethod",
 )
 
-package dev.kreuzberg
+package dev.sample_crate
 
 /** A demo configuration struct. */
 data class Config(val value: Int, val label: String, val tag: String?? = null)

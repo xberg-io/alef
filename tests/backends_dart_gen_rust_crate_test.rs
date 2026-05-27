@@ -2293,7 +2293,7 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
 /// type is `Vec<(String, String)>` — homogeneous tuple pairs) must use the tuple-pair form
 /// `vec![a.to_string(), b.to_string()]`, NOT `serde_json::to_string(&e)`.
 ///
-/// Surfaced in h2m's `NodeContent::MetadataBlock { entries: Vec<Vec<String>> }` after alef
+/// Surfaced in sample_markup's `NodeContent::MetadataBlock { entries: Vec<Vec<String>> }` after alef
 /// v0.18.2 introduced the same fix for the Java backend but left the Dart backend broken.
 #[test]
 fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {

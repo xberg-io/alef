@@ -426,7 +426,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
     }
 
     // Resolve the fully-qualified core type path, preferring the IR-recorded `rust_path`
-    // (e.g. `sample_llm::error::LiterLlmError`) over the naive `{crate}::{Name}` fallback.
+    // (e.g. `sample_llm::error::SampleLlmError`) over the naive `{crate}::{Name}` fallback.
     let core_path = if error.rust_path.is_empty() {
         format!("{source_crate_name}::{}", error.name)
     } else {

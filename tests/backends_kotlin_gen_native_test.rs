@@ -139,7 +139,7 @@ header_name = "demo.h"
 lib_name = "demo_ffi"
 
 [crates.kotlin]
-package = "dev.kreuzberg.demo"
+package = "dev.sample_crate.demo"
 target = "native"
 "#
     ))
@@ -199,7 +199,7 @@ fn native_struct_emits_data_class() {
     let content = &kt.content;
 
     assert!(
-        content.contains("package dev.kreuzberg.demo"),
+        content.contains("package dev.sample_crate.demo"),
         "missing package: {content}"
     );
     assert!(
@@ -436,7 +436,7 @@ fn native_kt_file_is_at_correct_path() {
         "wrong path for .kt file: {path_str}"
     );
     assert!(
-        path_str.contains("dev/kreuzberg/demo"),
+        path_str.contains("dev/sample_crate/demo"),
         "package path missing from .kt file path: {path_str}"
     );
     assert!(

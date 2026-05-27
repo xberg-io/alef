@@ -16,7 +16,7 @@ fn test_visitor_substitution_pattern() {
 
 #[test]
 fn test_full_impl_contains_visitor_default() {
-    let impl_content = r#"impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {
+    let impl_content = r#"impl From<WasmConversionOptions> for sample_markdown_rs::options::ConversionOptions {
     fn from(val: WasmConversionOptions) -> Self {
         Self {
             heading_style: val.heading_style.into(),

@@ -70,7 +70,7 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub skip_core_import: bool,
 
-    /// Crate error type name (e.g. `"KreuzbergError"`). Used by trait-bridge
+    /// Crate error type name (e.g. `"SampleCrateError"`). Used by trait-bridge
     /// generation. Defaults to `"Error"`.
     #[serde(default)]
     pub error_type: Option<String>,
@@ -249,11 +249,11 @@ mod tests {
     #[test]
     fn raw_crate_config_minimal_deserializes() {
         let toml_str = r#"
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#;
         let cfg: RawCrateConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cfg.name, "spikard");
+        assert_eq!(cfg.name, "sample_router");
         assert_eq!(cfg.sources, vec![PathBuf::from("src/lib.rs")]);
         assert!(cfg.python.is_none());
         assert!(cfg.publish.is_none());
@@ -263,49 +263,49 @@ sources = ["src/lib.rs"]
     #[test]
     fn raw_crate_config_with_source_crates() {
         let toml_str = r#"
-name = "spikard"
+name = "sample_router"
 sources = []
 features = ["di"]
-core_import = "spikard"
+core_import = "sample_router"
 
 [[source_crates]]
-name = "spikard-core"
-sources = ["crates/spikard-core/src/http.rs"]
+name = "sample_router-core"
+sources = ["crates/sample_router-core/src/http.rs"]
 
 [[source_crates]]
-name = "spikard-http"
-sources = ["crates/spikard-http/src/lib.rs"]
+name = "sample_router-http"
+sources = ["crates/sample_router-http/src/lib.rs"]
 "#;
         let cfg: RawCrateConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.source_crates.len(), 2);
-        assert_eq!(cfg.source_crates[0].name, "spikard-core");
+        assert_eq!(cfg.source_crates[0].name, "sample_router-core");
         assert_eq!(cfg.features, vec!["di"]);
     }
 
     #[test]
     fn raw_crate_config_with_per_crate_python_and_lint_override() {
         let toml_str = r#"
-name = "spikard"
+name = "sample_router"
 sources = []
 
 [python]
-module_name = "_spikard"
-pip_name    = "spikard"
+module_name = "_sample_router"
+pip_name    = "sample_router"
 release_gil = true
 
 [lint.python]
-check = "ruff check crates/spikard-py/"
+check = "ruff check crates/sample_router-py/"
 "#;
         let cfg: RawCrateConfig = toml::from_str(toml_str).unwrap();
         let py = cfg.python.expect("python section present");
-        assert_eq!(py.module_name.as_deref(), Some("_spikard"));
-        assert_eq!(py.pip_name.as_deref(), Some("spikard"));
+        assert_eq!(py.module_name.as_deref(), Some("_sample_router"));
+        assert_eq!(py.pip_name.as_deref(), Some("sample_router"));
         assert!(py.release_gil);
 
         let lint_py = cfg.lint.get("python").expect("lint.python override present");
         assert_eq!(
             lint_py.check.as_ref().unwrap().commands(),
-            vec!["ruff check crates/spikard-py/"]
+            vec!["ruff check crates/sample_router-py/"]
         );
     }
 }

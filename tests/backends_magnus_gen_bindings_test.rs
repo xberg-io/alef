@@ -1228,7 +1228,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(
             &trait_def,
             &cfg,
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
@@ -1259,7 +1259,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(
             &trait_def,
             &cfg,
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
@@ -1281,14 +1281,14 @@ mod trait_bridge {
         let code = gen_trait_bridge(
             &trait_def,
             &cfg,
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
         );
 
         assert!(
-            code.contains("impl kreuzberg::Plugin for RbPostProcessorBridge"),
+            code.contains("impl sample_crate::Plugin for RbPostProcessorBridge"),
             "plugin bridge must implement Plugin super-trait"
         );
     }
@@ -1308,7 +1308,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(
             &trait_def,
             &cfg,
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
@@ -1331,7 +1331,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(
             &trait_def,
             &cfg,
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
@@ -1356,7 +1356,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(
             &trait_def,
             &cfg,
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
@@ -2037,7 +2037,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
 
     let trait_def = TypeDef {
         name: "HtmlVisitor".to_string(),
-        rust_path: "html_to_markdown_rs::visitor::HtmlVisitor".to_string(),
+        rust_path: "sample_markdown_rs::visitor::HtmlVisitor".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: (0..40)
@@ -2079,7 +2079,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
     };
 
     let api = ApiSurface {
-        crate_name: "html_to_markdown_rs".to_string(),
+        crate_name: "sample_markdown_rs".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
         functions: vec![],
@@ -2094,7 +2094,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
     let code = gen_trait_bridge(
         &trait_def,
         &cfg,
-        "html_to_markdown_rs",
+        "sample_markdown_rs",
         "ConversionError",
         "ConversionError::new({msg})",
         &api,

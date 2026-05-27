@@ -220,7 +220,7 @@ fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<Callba
 ///
 /// # Parameters
 ///
-/// - `pkg_name`: Go package name (e.g. `"htmltomarkdown"`).
+/// - `pkg_name`: Go package name (e.g. `"samplemarkdown"`).
 /// - `ffi_prefix`: C function prefix (e.g. `"htm"`).
 /// - `ffi_header`: C header filename (e.g. `"sample_markdown.h"`).
 /// - `ffi_crate_dir`: path from go output dir to the FFI crate dir.

@@ -3273,7 +3273,7 @@ struct GoMethodCallInfo {
     value_cast: Option<&'static str>,
 }
 
-/// Build a Go call expression for a `method_result` assertion on a tree-sitter Tree.
+/// Build a Go call expression for a `method_result` assertion on a sample_language Tree.
 ///
 /// Maps method names to the appropriate Go function calls, matching the Go binding API
 /// in `packages/go/binding.go`. Returns a [`GoMethodCallInfo`] describing the call and
@@ -3587,7 +3587,7 @@ fn emit_go_visitor_method(
     import_alias: &str,
 ) {
     let camel_method = method_to_camel(method_name);
-    // Parameter signatures must exactly match the htmltomarkdown.Visitor interface.
+    // Parameter signatures must exactly match the samplemarkdown.Visitor interface.
     // Optional fields use pointer types (*string, *uint32, etc.) to indicate nil-ability.
     let params = match method_name {
         "visit_link" => format!("_ {import_alias}.NodeContext, href string, text string, title *string"),
@@ -4224,7 +4224,7 @@ mod tests {
             &mut out,
             &fixture,
             GoTestFunctionContext {
-                import_alias: "kreuzberg",
+                import_alias: "sample_crate",
                 e2e_config: &e2e_config,
                 adapters: &[],
                 data_enum_names: &std::collections::HashSet::new(),
@@ -4234,11 +4234,11 @@ mod tests {
         );
 
         assert!(
-            out.contains("kreuzberg.CleanExtractedText("),
+            out.contains("sample_crate.CleanExtractedText("),
             "expected Go-cased method name 'CleanExtractedText', got:\n{out}"
         );
         assert!(
-            !out.contains("kreuzberg.clean_extracted_text("),
+            !out.contains("sample_crate.clean_extracted_text("),
             "must not emit raw snake_case method name, got:\n{out}"
         );
     }
@@ -4332,7 +4332,7 @@ mod tests {
                 function: "chat_stream".to_string(),
                 module: "github.com/example/mylib".to_string(),
                 result_var: "result".to_string(),
-                returns_result: false, // NOT true — like real liter-llm
+                returns_result: false, // NOT true — like real sample-llm
                 r#async: true,
                 args: vec![ArgMapping {
                     name: "request".to_string(),
@@ -4521,7 +4521,7 @@ mod tests {
             &[&fixture],
             GoTestFileContext {
                 go_module_path: "github.com/example/mylib",
-                import_alias: "kreuzberg",
+                import_alias: "sample_crate",
                 e2e_config: &e2e_config,
                 adapters: &[],
                 data_enum_names: &std::collections::HashSet::new(),
@@ -4531,7 +4531,7 @@ mod tests {
         );
 
         assert!(
-            out.contains("result, err := kreuzberg.DetectMimeTypeFromBytes("),
+            out.contains("result, err := sample_crate.DetectMimeTypeFromBytes("),
             "expected the call to bind to `result`, not `_`; got:\n{out}"
         );
         assert!(

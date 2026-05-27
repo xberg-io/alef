@@ -434,8 +434,8 @@ pub mod precommit {
     pub const TYPOS_REV: &str = "v1.46.2";
 
     // renovate: datasource=github-tags packageName=sample_core-dev/pre-commit-hooks
-    pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
+    pub const SAMPLE_CRATE_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.19.25";
+    pub const ALEF_REV: &str = "v0.20.0";
 }

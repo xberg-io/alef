@@ -228,8 +228,8 @@ name = "demo"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.demo"
-namespace = "dev.kreuzberg.demo"
+package = "dev.sample_crate.demo"
+namespace = "dev.sample_crate.demo"
 "#,
     )
 }
@@ -302,7 +302,7 @@ fn snapshot_runtime_helpers_present() {
         "must contain throw_jni_error helper"
     );
     assert!(
-        content.contains("const ERROR_CLASS: &str = \"dev/kreuzberg/demo/DemoBridgeException\""),
+        content.contains("const ERROR_CLASS: &str = \"dev/sample_crate/demo/DemoBridgeException\""),
         "must contain correct ERROR_CLASS; got:\n{content}"
     );
     insta::assert_snapshot!("snapshot_runtime_helpers_present", content);
@@ -320,7 +320,7 @@ fn snapshot_constructor_symbol_and_body() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient"),
+        content.contains("Java_dev_sample_crate_demo_DemoBridge_nativeCreateClient"),
         "constructor symbol missing; got:\n{content}"
     );
     // Must return jlong (raw pointer) — NOT a JSON-encoded jstring.
@@ -524,17 +524,17 @@ fn snapshot_validation_requires_kotlin_android() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. No liter_llm leakage
+// 10. No sample_llm leakage
 // ---------------------------------------------------------------------------
 
 #[test]
-fn snapshot_no_liter_llm_leakage() {
+fn snapshot_no_sample_llm_leakage() {
     let api = make_demo_api();
     let config = make_demo_config_with_streaming();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    for forbidden in &["liter_llm", "LiterLlm", "literllm"] {
+    for forbidden in &["sample_llm", "SampleLlm", "samplellm"] {
         assert!(
             !content.contains(forbidden),
             "emitted output must not contain '{forbidden}'; got:\n{content}"
@@ -555,10 +555,10 @@ fn emitted_symbols_match_kotlin_package() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Package `dev.kreuzberg.demo` encodes as `dev_kreuzberg_demo`.
+    // Package `dev.sample_crate.demo` encodes as `dev_sample_crate_demo`.
     assert!(
-        content.contains("Java_dev_kreuzberg_demo_"),
-        "symbols must use package prefix `dev_kreuzberg_demo_`; got:\n{content}"
+        content.contains("Java_dev_sample_crate_demo_"),
+        "symbols must use package prefix `dev_sample_crate_demo_`; got:\n{content}"
     );
     // Bridge class `DemoBridge` appears after the package prefix.
     assert!(
@@ -618,24 +618,24 @@ fn non_snake_case_allow_is_emitted() {
 fn jni_symbols_agree_with_alef_core_jni_helpers() {
     use alef::core::jni::{bridge_class_name, bridge_method_name, destructor_method_name, jni_symbol};
 
-    let package = "dev.kreuzberg.demo";
+    let package = "dev.sample_crate.demo";
     let bridge = bridge_class_name("demo");
     assert_eq!(&bridge, "DemoBridge");
 
     // Top-level function symbol.
     let fn_method = bridge_method_name("", "create_client");
     let fn_sym = jni_symbol(package, &bridge, &fn_method);
-    assert_eq!(fn_sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient");
+    assert_eq!(fn_sym, "Java_dev_sample_crate_demo_DemoBridge_nativeCreateClient");
 
     // Instance method symbol.
     let method = bridge_method_name("DemoClient", "ping");
     let method_sym = jni_symbol(package, &bridge, &method);
-    assert_eq!(method_sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeDemoClientPing");
+    assert_eq!(method_sym, "Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientPing");
 
     // Destructor symbol.
     let dtor = destructor_method_name("DemoClient");
     let dtor_sym = jni_symbol(package, &bridge, &dtor);
-    assert_eq!(dtor_sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeFreeDemoClient");
+    assert_eq!(dtor_sym, "Java_dev_sample_crate_demo_DemoBridge_nativeFreeDemoClient");
 }
 
 /// Streaming adapter shims (Start/Next/Free) are emitted for a `Streaming`
@@ -666,7 +666,7 @@ fn streaming_adapter_shims_are_emitted() {
 // 11. Real-IR-shape test: Optional<String>, &str, Result, async
 // ---------------------------------------------------------------------------
 
-/// Verifies the emitter handles liter-llm-like IR shapes:
+/// Verifies the emitter handles sample-llm-like IR shapes:
 ///   - Optional<String> params → `Some(name)` at the call site
 ///   - `&str` params (is_ref=true, String ty) → `&name` at the call site
 ///   - functions with error_type → `match result { Ok(v) => ..., Err(e) => ... }`
@@ -674,7 +674,7 @@ fn streaming_adapter_shims_are_emitted() {
 ///   - `use core_crate::*;` in the import block
 #[test]
 fn real_ir_shape_optional_ref_result_async() {
-    // Build an API surface resembling liter-llm's public surface.
+    // Build an API surface resembling sample-llm's public surface.
     let client_type = TypeDef {
         name: "DemoClient".to_string(),
         rust_path: "demo::DemoClient".to_string(),
@@ -1367,7 +1367,7 @@ fn streaming_handle_struct_uses_type_aliases_to_avoid_type_complexity() {
 /// Regression: the emitted JNI shim must NOT use `.unwrap_or_default()` on
 /// any `serde_json::to_string(...)` call.  Silent serialization failures
 /// previously caused Kotlin to receive an empty string and throw
-/// `LiterLlmBridgeException at LiterLlmBridge.kt:-2`.  Every serialization
+/// `SampleLlmBridgeException at SampleLlmBridge.kt:-2`.  Every serialization
 /// failure must route through `throw_jni_error` with the actual message.
 #[test]
 fn no_unwrap_or_default_on_json_serialization_path() {
@@ -1567,8 +1567,8 @@ sources = ["src/lib.rs"]
 prefix = "demo"
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 
 [[crates.trait_bridges]]
 trait_name = "OcrBackend"
@@ -1610,15 +1610,15 @@ fn trait_bridge_emits_jni_shim_symbols() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_kreuzberg_DemoBridge_nativeRegisterOcrBackend"),
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_crate_DemoBridge_nativeRegisterOcrBackend"),
         "missing nativeRegisterOcrBackend extern fn: {content}"
     );
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_kreuzberg_DemoBridge_nativeUnregisterOcrBackend"),
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_crate_DemoBridge_nativeUnregisterOcrBackend"),
         "missing nativeUnregisterOcrBackend extern fn: {content}"
     );
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_kreuzberg_DemoBridge_nativeClearOcrBackends"),
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_crate_DemoBridge_nativeClearOcrBackends"),
         "missing nativeClearOcrBackends extern fn: {content}"
     );
 

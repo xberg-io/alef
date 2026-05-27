@@ -57,25 +57,25 @@ const TOML: &str = r#"
 languages = ["java"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.java]
-package = "dev.kreuzberg.literllm"
+package = "dev.sample_crate.samplellm"
 
 [crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
-java_group_id = "dev.kreuzberg"
+java_group_id = "dev.sample_crate"
 
 [crates.e2e.call]
 function = "chat"
-module = "LiterLlm"
+module = "SampleLlm"
 result_var = "result"
 returns_result = true
 
 [crates.e2e.call.overrides.java]
-class = "LiterLlm"
+class = "SampleLlm"
 function = "chat"
 options_type = "ChatCompletionRequest"
 
@@ -135,7 +135,7 @@ fn from_json_arg_imports_json_util() {
     let rendered = render_java_smoke("smoke_basic");
 
     assert!(
-        rendered.contains("import dev.kreuzberg.literllm.JsonUtil;"),
+        rendered.contains("import dev.sample_crate.samplellm.JsonUtil;"),
         "must import JsonUtil from the binding package. Rendered:\n{rendered}"
     );
 }

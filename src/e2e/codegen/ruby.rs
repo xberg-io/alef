@@ -231,17 +231,17 @@ fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool, test_doc
 # Unregisters any test-prefixed backends (test-*, test_*) after each test
 # to prevent pollution from one test affecting subsequent tests.
 begin
-  require 'kreuzberg'
+  require 'sample_crate'
   RSpec.configure do |config|
     # Track initial registry state before each test
     config.before(:each) do
       begin
-        @_initial_ocr_backends = Kreuzberg.list_ocr_backends.to_set rescue Set.new
-        @_initial_embedding_backends = Kreuzberg.list_embedding_backends.to_set rescue Set.new
-        @_initial_document_extractors = Kreuzberg.list_document_extractors.to_set rescue Set.new
-        @_initial_renderers = Kreuzberg.list_renderers.to_set rescue Set.new
-        @_initial_validators = Kreuzberg.list_validators.to_set rescue Set.new
-        @_initial_post_processors = Kreuzberg.list_post_processors.to_set rescue Set.new
+        @_initial_ocr_backends = SampleCrate.list_ocr_backends.to_set rescue Set.new
+        @_initial_embedding_backends = SampleCrate.list_embedding_backends.to_set rescue Set.new
+        @_initial_document_extractors = SampleCrate.list_document_extractors.to_set rescue Set.new
+        @_initial_renderers = SampleCrate.list_renderers.to_set rescue Set.new
+        @_initial_validators = SampleCrate.list_validators.to_set rescue Set.new
+        @_initial_post_processors = SampleCrate.list_post_processors.to_set rescue Set.new
       rescue
         # If registry functions aren't available, skip cleanup
       end
@@ -250,34 +250,34 @@ begin
     # Clean up test-prefixed backends after each test
     config.after(:each) do
       begin
-        current_ocr = Kreuzberg.list_ocr_backends.to_set rescue Set.new
+        current_ocr = SampleCrate.list_ocr_backends.to_set rescue Set.new
         (current_ocr - @_initial_ocr_backends).each do |name|
-          Kreuzberg.unregister_ocr_backend(name) if name.to_s.start_with?('test-', 'test_')
+          SampleCrate.unregister_ocr_backend(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_embedding = Kreuzberg.list_embedding_backends.to_set rescue Set.new
+        current_embedding = SampleCrate.list_embedding_backends.to_set rescue Set.new
         (current_embedding - @_initial_embedding_backends).each do |name|
-          Kreuzberg.unregister_embedding_backend(name) if name.to_s.start_with?('test-', 'test_')
+          SampleCrate.unregister_embedding_backend(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_extractors = Kreuzberg.list_document_extractors.to_set rescue Set.new
+        current_extractors = SampleCrate.list_document_extractors.to_set rescue Set.new
         (current_extractors - @_initial_document_extractors).each do |name|
-          Kreuzberg.unregister_document_extractor(name) if name.to_s.start_with?('test-', 'test_')
+          SampleCrate.unregister_document_extractor(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_renderers = Kreuzberg.list_renderers.to_set rescue Set.new
+        current_renderers = SampleCrate.list_renderers.to_set rescue Set.new
         (current_renderers - @_initial_renderers).each do |name|
-          Kreuzberg.unregister_renderer(name) if name.to_s.start_with?('test-', 'test_')
+          SampleCrate.unregister_renderer(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_validators = Kreuzberg.list_validators.to_set rescue Set.new
+        current_validators = SampleCrate.list_validators.to_set rescue Set.new
         (current_validators - @_initial_validators).each do |name|
-          Kreuzberg.unregister_validator(name) if name.to_s.start_with?('test-', 'test_')
+          SampleCrate.unregister_validator(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_processors = Kreuzberg.list_post_processors.to_set rescue Set.new
+        current_processors = SampleCrate.list_post_processors.to_set rescue Set.new
         (current_processors - @_initial_post_processors).each do |name|
-          Kreuzberg.unregister_post_processor(name) if name.to_s.start_with?('test-', 'test_')
+          SampleCrate.unregister_post_processor(name) if name.to_s.start_with?('test-', 'test_')
         end
       rescue
         # Cleanup failures are non-fatal; continue silently
@@ -285,7 +285,7 @@ begin
     end
   end
 rescue LoadError
-  # Kreuzberg not available; skip registry cleanup
+  # SampleCrate not available; skip registry cleanup
 end
 "#,
     );
@@ -822,7 +822,7 @@ fn http_method_class(method: &str) -> String {
 /// Render an RSpec example for a `chat_stream` fixture.
 ///
 /// The Ruby binding's `chat_stream` is block-yielding: each yielded value is a
-/// `LiterLlm::ChatCompletionChunk`. The codegen builds local aggregator vars
+/// `SampleLlm::ChatCompletionChunk`. The codegen builds local aggregator vars
 /// (`chunks`, `stream_content`, `stream_complete`, plus optional
 /// `last_finish_reason`, `tool_calls_json`, `total_tokens`) inside the block and
 /// then emits assertions on those locals — never on response pseudo-fields.
@@ -1316,7 +1316,7 @@ fn build_args_and_setup(
             }
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}_req", arg.name);
-                // Derive the module qualifier from module_name (e.g. "Kreuzcrawl")
+                // Derive the module qualifier from module_name (e.g. "SampleCrawler")
                 let mod_qualifier = ruby_module_name(module_name);
                 setup_lines.push(format!(
                     "{req_var} = {mod_qualifier}::{req_type}.new(url: {})",
@@ -2169,7 +2169,7 @@ fn render_assertion(
     }
 }
 
-/// Build a Ruby call expression for a `method_result` assertion on a tree-sitter Tree.
+/// Build a Ruby call expression for a `method_result` assertion on a sample_language Tree.
 /// Maps method names to the appropriate Ruby method or module-function calls.
 fn build_ruby_method_call(
     call_receiver: &str,
@@ -2214,7 +2214,7 @@ fn build_ruby_method_call(
 }
 
 /// Convert a module path (e.g., "sample_markdown") to Ruby PascalCase module name
-/// (e.g., "HtmlToMarkdown").
+/// (e.g., "SampleMarkdown").
 fn ruby_module_name(module_path: &str) -> String {
     use heck::ToUpperCamelCase;
     module_path.to_upper_camel_case()

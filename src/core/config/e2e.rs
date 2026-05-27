@@ -926,7 +926,7 @@ pub struct CallOverride {
     /// (`%Module.StructType{key: val}`) instead of a plain string-keyed map.
     /// Rustler `NifStruct` requires a proper Elixir struct — plain maps are rejected.
     ///
-    /// E.g., `"CrawlConfig"` generates `%Kreuzcrawl.CrawlConfig{download_assets: true}`.
+    /// E.g., `"CrawlConfig"` generates `%SampleCrawler.CrawlConfig{download_assets: true}`.
     #[serde(default)]
     pub handle_struct_type: Option<String>,
     /// Handle config fields whose list values are Elixir atoms (Rustler NifUnitEnum).
@@ -959,7 +959,7 @@ pub struct CallOverride {
     ///
     /// E.g., `"createClient"` generates:
     /// ```php
-    /// $client = LiterLlm::createClient('test-key');
+    /// $client = SampleLlm::createClient('test-key');
     /// $result = $client->chat($request);
     /// ```
     #[serde(default)]
@@ -1020,7 +1020,7 @@ pub struct CallOverride {
     /// C FFI opaque result type name (C only).
     ///
     /// The PascalCase name of the result struct, without the prefix.
-    /// E.g., `"ChatCompletionResponse"` for `LiterllmChatCompletionResponse*`.
+    /// E.g., `"ChatCompletionResponse"` for `SamplellmChatCompletionResponse*`.
     /// If not set, defaults to the function name in PascalCase.
     #[serde(default)]
     pub result_type: Option<String>,

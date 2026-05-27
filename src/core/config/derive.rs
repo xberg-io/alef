@@ -82,8 +82,8 @@ mod tests {
     #[test]
     fn github_org_with_hyphen_underscores_in_package() {
         assert_eq!(
-            derive_reverse_dns_package("https://github.com/kreuzberg-dev/kreuzberg"),
-            Some("com.github.kreuzberg_dev".to_string())
+            derive_reverse_dns_package("https://github.com/sample_crate-dev/sample_crate"),
+            Some("com.github.sample_crate_dev".to_string())
         );
     }
 

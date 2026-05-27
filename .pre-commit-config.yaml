@@ -5,6 +5,14 @@ default_stages:
 - pre-commit
 exclude: ^target/|\.alef/
 repos:
+- repo: local
+  hooks:
+  - id: no-project-special-casing
+    name: no project-name special casing
+    entry: hooks/check_project_mentions.py
+    language: python
+    types:
+    - text
 - repo: https://github.com/Goldziher/gitfluff
   rev: v0.8.0
   hooks:

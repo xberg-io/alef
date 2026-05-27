@@ -57,16 +57,16 @@ const TOML: &str = r#"
 languages = ["java"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.java]
-package = "dev.kreuzberg"
+package = "dev.sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
-java_group_id = "dev.kreuzberg"
+java_group_id = "dev.sample_crate"
 
 [crates.e2e.call]
 function = "extract_file_sync"
@@ -144,7 +144,7 @@ fn json_object_arg_with_value_imports_json_util() {
     let rendered = render_java_test();
 
     assert!(
-        rendered.contains("import dev.kreuzberg.JsonUtil;"),
+        rendered.contains("import dev.sample_crate.JsonUtil;"),
         "must import JsonUtil when deserializing config from JSON. Rendered:\n{rendered}"
     );
 }

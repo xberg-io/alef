@@ -258,7 +258,7 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
 fn godoc_multiline_summary_continuation_lines_are_prefixed() {
     let doc = "Returns the canonical HTTP status code associated with this error.\n\n\
         Maps error variants to their originating HTTP status code as set by\n\
-        LiterLlmError::from_status. Used by e2e assertions that check\n\
+        SampleLlmError::from_status. Used by e2e assertions that check\n\
         error.status_code against the expected HTTP status.";
     let typ = make_opaque_type(
         "Error",

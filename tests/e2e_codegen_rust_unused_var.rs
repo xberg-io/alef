@@ -1,7 +1,7 @@
 //! Regression test: auxiliary metadata unwrap bindings must be `_`-prefixed
 //! so they do not trip `-D unused_variables` when no assertion references them.
 //!
-//! Reproduces kreuzberg v5.0.0-rc.3 CI failure (run 26452244660): the Rust e2e
+//! Reproduces sample_crate v5.0.0-rc.3 CI failure (run 26452244660): the Rust e2e
 //! emitter generated `let metadata_output_format = …` but never referenced it
 //! in the following assertions, causing a compiler error under `-D warnings`.
 

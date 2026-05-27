@@ -271,7 +271,7 @@ alef_version = "0.13.0"
 languages = ["python", "node"]
 
 [[crates]]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.lint.python]
@@ -289,7 +289,7 @@ check = "ruff check ."
 languages = ["python"]
 
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = ["src/lib.rs"]
 "#;
         let err = detect_legacy_keys(toml_str).unwrap_err();
@@ -322,7 +322,7 @@ sources = []
 languages = ["python", "go"]
 
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = []
 "#;
         let err = detect_legacy_keys(toml_str).unwrap_err();
@@ -368,7 +368,7 @@ enabled = true
 bindings = true
 
 [opaque_types]
-Tree = "tree_sitter::Tree"
+Tree = "sample_language::Tree"
 "#;
         let err = detect_legacy_keys(toml_str).unwrap_err();
         let keys: Vec<&str> = err.keys().iter().map(|k| k.key.as_str()).collect();

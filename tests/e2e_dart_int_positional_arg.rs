@@ -3,8 +3,8 @@
 //! arguments following bytes arguments were dropped entirely, producing
 //! "Too few positional arguments" errors at Dart compile time.
 //!
-//! Example: `KreuzbergBridge.renderPdfPageToPng(pdf_bytes)` should be
-//! `KreuzbergBridge.renderPdfPageToPng(pdf_bytes, pageIndex)`.
+//! Example: `SampleCrateBridge.renderPdfPageToPng(pdf_bytes)` should be
+//! `SampleCrateBridge.renderPdfPageToPng(pdf_bytes, pageIndex)`.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -52,11 +52,11 @@ const TOML: &str = r#"
 languages = ["dart"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.dart]
-pubspec_name = "kreuzberg"
+pubspec_name = "sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"

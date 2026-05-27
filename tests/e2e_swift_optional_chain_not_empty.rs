@@ -59,7 +59,7 @@ fn render_swift(fixture_id: &str, assertion_type: &str, field: &str) -> Vec<alef
 languages = ["swift"]
 
 [[crates]]
-name = "kreuzcrawl"
+name = "sample_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -69,7 +69,7 @@ fields_optional = ["markdown"]
 
 [crates.e2e.call]
 function = "scrape"
-module = "kreuzcrawl"
+module = "sample_crawler"
 result_var = "result"
 async = true
 

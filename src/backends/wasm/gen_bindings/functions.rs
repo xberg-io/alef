@@ -798,7 +798,7 @@ pub(super) fn gen_function_with_emitted_dtos(
 
 /// Generate WASM environment shims for wide-character C functions used by external scanners.
 ///
-/// Some tree-sitter external scanners call C wide-character functions (`iswspace`, `iswalnum`,
+/// Some sample_language external scanners call C wide-character functions (`iswspace`, `iswalnum`,
 /// etc.) that are not available in the WASM runtime. This emits `#[unsafe(no_mangle)] extern "C"`
 /// shims that satisfy those link-time references using Rust's Unicode-aware char APIs.
 ///
@@ -1244,7 +1244,7 @@ mod tests {
     fn async_function(params: Vec<ParamDef>) -> FunctionDef {
         FunctionDef {
             name: "interact".to_string(),
-            rust_path: "kreuzcrawl::interact".to_string(),
+            rust_path: "sample_crawler::interact".to_string(),
             original_rust_path: String::new(),
             params,
             return_type: TypeRef::Unit,
@@ -1323,7 +1323,7 @@ mod tests {
             TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
         )]);
         let api = crate::core::ir::ApiSurface {
-            crate_name: "kreuzcrawl".to_string(),
+            crate_name: "sample_crawler".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],
             functions: vec![],
@@ -1338,7 +1338,7 @@ mod tests {
         let out = gen_function_with_emitted_dtos(
             &func,
             &mapper,
-            "kreuzcrawl",
+            "sample_crawler",
             &AHashSet::new(),
             "Wasm",
             &AHashSet::new(),
@@ -1349,11 +1349,11 @@ mod tests {
         assert!(out.contains("actions: Vec<WasmPageAction>"));
         assert!(
             out.contains(
-                "let actions_core: Vec<kreuzcrawl::PageAction> = actions.into_iter().map(Into::into).collect();"
+                "let actions_core: Vec<sample_crawler::PageAction> = actions.into_iter().map(Into::into).collect();"
             ),
             "{out}"
         );
-        assert!(out.contains("kreuzcrawl::interact(actions_core).await"), "{out}");
+        assert!(out.contains("sample_crawler::interact(actions_core).await"), "{out}");
     }
 
     #[test]
@@ -1448,7 +1448,7 @@ mod tests {
 
         let type_def = crate::core::ir::TypeDef {
             name: "CrawlConfig".to_string(),
-            rust_path: "kreuzcrawl::CrawlConfig".to_string(),
+            rust_path: "sample_crawler::CrawlConfig".to_string(),
             original_rust_path: String::new(),
             fields: vec![
                 // Normal field — must appear in the DTO.
@@ -1478,7 +1478,7 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
-        let (code, _name) = gen_input_dto_for_type("CrawlConfig", "kreuzcrawl", &type_def);
+        let (code, _name) = gen_input_dto_for_type("CrawlConfig", "sample_crawler", &type_def);
 
         assert!(
             code.contains("max_depth"),

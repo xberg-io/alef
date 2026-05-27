@@ -15,7 +15,7 @@ expression: kt_content
     "LongMethod",
 )
 
-package dev.kreuzberg.demo.android
+package dev.sample_crate.demo.android
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose

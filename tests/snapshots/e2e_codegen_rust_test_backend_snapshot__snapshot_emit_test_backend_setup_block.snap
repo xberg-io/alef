@@ -8,7 +8,7 @@ impl Plugin for TestStubMixedReturnTypes {
 }
 #[async_trait::async_trait]
 impl MyTrait for TestStubMixedReturnTypes {
-    async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ExtractionResult, KreuzbergError> { Ok(ExtractionResult::default()) }
+    async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ExtractionResult, SampleCrateError> { Ok(ExtractionResult::default()) }
     fn initialize(&self) { () }
     fn supported_mime_types(&self) -> Vec<String> { Vec::new() }
 }

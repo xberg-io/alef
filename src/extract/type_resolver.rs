@@ -3,7 +3,7 @@ use std::cell::RefCell;
 
 thread_local! {
     /// Thread-local storage for Result type alias error hints.
-    /// Maps alias name (e.g., "Result") to the error type (e.g., "KreuzbergError").
+    /// Maps alias name (e.g., "Result") to the error type (e.g., "SampleCrateError").
     static RESULT_ERROR_HINTS: RefCell<ahash::AHashMap<String, String>> = RefCell::new(ahash::AHashMap::new());
 }
 
@@ -672,8 +672,11 @@ mod tests {
     #[test]
     fn test_extract_result_error_from_alias_definition() {
         // Test extracting error type from `pub type Result<T> = std::result::Result<T, E>`
-        let ty = parse_type("std::result::Result<T, KreuzbergError>");
-        assert_eq!(extract_result_error_type_from_alias(&ty), Some("KreuzbergError".into()));
+        let ty = parse_type("std::result::Result<T, SampleCrateError>");
+        assert_eq!(
+            extract_result_error_type_from_alias(&ty),
+            Some("SampleCrateError".into())
+        );
     }
 
     #[test]
@@ -681,13 +684,13 @@ mod tests {
         // Test that when a Result<T> type alias has a registered error hint, it's used
         let hints = {
             let mut m = ahash::AHashMap::new();
-            m.insert("Result".to_string(), "KreuzbergError".to_string());
+            m.insert("Result".to_string(), "SampleCrateError".to_string());
             m
         };
         set_result_error_hints(hints);
 
         let ty = parse_type("Result<ExtractionResult>");
-        assert_eq!(extract_result_error_type(&ty), Some("KreuzbergError".into()));
+        assert_eq!(extract_result_error_type(&ty), Some("SampleCrateError".into()));
     }
 
     #[test]

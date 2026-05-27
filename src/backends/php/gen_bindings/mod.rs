@@ -494,7 +494,7 @@ impl Backend for PhpBackend {
                 .collect::<Vec<_>>()
                 .join("\n\n");
             // The PHP-visible class name gets an "Api" suffix to avoid collision with the
-            // PHP facade class (e.g. `Kreuzcrawl\Kreuzcrawl`) that Composer autoloads.
+            // PHP facade class (e.g. `SampleCrawler\SampleCrawler`) that Composer autoloads.
             let php_api_class_name = format!("{facade_class_name}Api");
             // Escape '\' so the generated Rust string literal is valid (e.g. "Ns\\ClassName").
             let ns_escaped_facade = php_namespace.replace('\\', "\\\\");

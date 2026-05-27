@@ -388,7 +388,7 @@ pub(crate) fn emit_extern_block_for_functions(
         // wrapper will block on the future at the bridge boundary.
         //
         // `swift_name` rebinds the Swift-side function name to camelCase so the
-        // host wrapper (`Sources/{Module}/Kreuzberg.swift`) can call
+        // host wrapper (`Sources/{Module}/SampleCrate.swift`) can call
         // `RustBridge.batchExtractBytes(...)` instead of the snake_case Rust
         // identifier — which is what the wrapper emits for idiomatic Swift.
         let swift_name = swift_ident(&f.name.to_lower_camel_case());

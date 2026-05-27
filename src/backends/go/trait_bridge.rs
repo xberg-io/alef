@@ -213,7 +213,7 @@ fn gen_trait_bridge(
     let trait_pascal = trait_name.to_pascal_case();
 
     // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
-    // E.g., for crate="sample_core", trait="OcrBackend": KREUZBERGKreuzbergOcrBackendVTable
+    // E.g., for crate="sample_core", trait="OcrBackend": SAMPLE_CRATESampleCrateOcrBackendVTable
     // Hyphens in crate names (e.g. "sample-markdown") are not valid in C identifiers;
     // normalize the same way ffi_prefix does (`-` → `_`) before uppercasing.
     let crate_normalized = crate_name.replace('-', "_");
@@ -1165,7 +1165,7 @@ mod tests {
     #[test]
     fn test_vtable_struct_name_derivation() {
         // Test the pattern: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
-        let crate_name = "kreuzberg";
+        let crate_name = "sample_crate";
         let crate_upper = crate_name.to_uppercase();
         let crate_pascal = crate_name.to_pascal_case();
         let trait_name = "OcrBackend";
@@ -1173,42 +1173,46 @@ mod tests {
 
         let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
 
-        assert_eq!(c_vtable_struct, "KREUZBERGKreuzbergOcrBackendVTable");
+        assert_eq!(c_vtable_struct, "SAMPLE_CRATESampleCrateOcrBackendVTable");
     }
 
     #[test]
     fn test_register_function_name_format() {
         // Test the pattern: {ffi_prefix}_register_{trait_snake}
-        let ffi_prefix = "kreuzberg";
+        let ffi_prefix = "sample_crate";
         let trait_name = "OcrBackend";
         let trait_snake = heck::AsSnakeCase(trait_name).to_string();
 
         let register_fn = format!("{}_register_{}", ffi_prefix, trait_snake);
-        assert_eq!(register_fn, "kreuzberg_register_ocr_backend");
+        assert_eq!(register_fn, "sample_crate_register_ocr_backend");
     }
 
     #[test]
     fn test_unregister_function_name_format() {
         // Test the pattern: {ffi_prefix}_unregister_{trait_snake}
-        let ffi_prefix = "kreuzberg";
+        let ffi_prefix = "sample_crate";
         let trait_name = "PostProcessor";
         let trait_snake = heck::AsSnakeCase(trait_name).to_string();
 
         let unregister_fn = format!("{}_unregister_{}", ffi_prefix, trait_snake);
-        assert_eq!(unregister_fn, "kreuzberg_unregister_post_processor");
+        assert_eq!(unregister_fn, "sample_crate_unregister_post_processor");
     }
 
     #[test]
     fn test_vtable_struct_name_multiple_traits() {
         // Verify correct naming for multiple traits
         let test_cases = vec![
-            ("kreuzberg", "OcrBackend", "KREUZBERGKreuzbergOcrBackendVTable"),
-            ("kreuzberg", "PostProcessor", "KREUZBERGKreuzbergPostProcessorVTable"),
-            ("kreuzberg", "Validator", "KREUZBERGKreuzbergValidatorVTable"),
+            ("sample_crate", "OcrBackend", "SAMPLE_CRATESampleCrateOcrBackendVTable"),
             (
-                "kreuzberg",
+                "sample_crate",
+                "PostProcessor",
+                "SAMPLE_CRATESampleCratePostProcessorVTable",
+            ),
+            ("sample_crate", "Validator", "SAMPLE_CRATESampleCrateValidatorVTable"),
+            (
+                "sample_crate",
                 "EmbeddingBackend",
-                "KREUZBERGKreuzbergEmbeddingBackendVTable",
+                "SAMPLE_CRATESampleCrateEmbeddingBackendVTable",
             ),
         ];
 
@@ -1234,7 +1238,7 @@ mod tests {
             clear_fn: None,
             ..Default::default()
         };
-        let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
+        let result = gen_unregistration_fn(&cfg, "sample_crate", "OcrBackend");
         assert!(result.is_empty(), "expected empty output when unregister_fn is None");
     }
 
@@ -1246,7 +1250,7 @@ mod tests {
             clear_fn: None,
             ..Default::default()
         };
-        let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
+        let result = gen_unregistration_fn(&cfg, "sample_crate", "OcrBackend");
         assert!(
             !result.is_empty(),
             "expected non-empty output when unregister_fn is set"
@@ -1256,7 +1260,7 @@ mod tests {
             "generated function signature not found in:\n{result}"
         );
         assert!(
-            result.contains("C.kreuzberg_unregister_ocr_backend"),
+            result.contains("C.sample_crate_unregister_ocr_backend"),
             "C call not found in:\n{result}"
         );
     }
@@ -1269,7 +1273,7 @@ mod tests {
             clear_fn: None,
             ..Default::default()
         };
-        let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
+        let result = gen_clear_fn(&cfg, "sample_crate", "OcrBackend");
         assert!(result.is_empty(), "expected empty output when clear_fn is None");
     }
 
@@ -1281,14 +1285,14 @@ mod tests {
             clear_fn: Some("clear_ocr_backends".to_string()),
             ..Default::default()
         };
-        let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
+        let result = gen_clear_fn(&cfg, "sample_crate", "OcrBackend");
         assert!(!result.is_empty(), "expected non-empty output when clear_fn is set");
         assert!(
             result.contains("func ClearOcrBackends() error"),
             "generated function signature not found in:\n{result}"
         );
         assert!(
-            result.contains("C.kreuzberg_clear_ocr_backend"),
+            result.contains("C.sample_crate_clear_ocr_backend"),
             "C call not found in:\n{result}"
         );
     }

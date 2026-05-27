@@ -1,7 +1,7 @@
 //! Verifies the Dart e2e codegen emits the `mime_type` argument *positionally*
 //! for facade extract methods. Regression test for a bug where an optional
 //! `mime_type` string arg was emitted as a Dart named argument (`mimeType:`),
-//! but the generated `KreuzbergBridge` facade declares it as a required
+//! but the generated `SampleCrateBridge` facade declares it as a required
 //! positional parameter — `extractBytesSync(Uint8List content, String mimeType,
 //! [ExtractionConfig? config])` — producing either a "too few positional
 //! arguments" error or invalid `named-then-positional` Dart syntax.
@@ -54,11 +54,11 @@ const TOML: &str = r#"
 languages = ["dart"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.dart]
-pubspec_name = "kreuzberg"
+pubspec_name = "sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"

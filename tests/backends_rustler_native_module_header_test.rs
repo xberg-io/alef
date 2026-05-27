@@ -32,10 +32,10 @@ fn force_build_uses_mix_env_not_system_get_env() {
 
     let rendered = tmpl
         .render(context! {
-            app_module => "Kreuzberg",
-            app_name => "kreuzberg",
-            repo_url => "https://github.com/kreuzberg-dev/kreuzberg",
-            build_env_var => "KREUZBERG_BUILD",
+            app_module => "SampleCrate",
+            app_name => "sample_crate",
+            repo_url => "https://github.com/sample_crate-dev/sample_crate",
+            build_env_var => "SAMPLE_CRATE_BUILD",
         })
         .expect("template renders");
 

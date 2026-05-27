@@ -169,7 +169,7 @@ mod tests {
         let toml_str = r#"
             name = "crawl_stream"
             pattern = "streaming"
-            core_path = "kreuzcrawl_core::crawl_stream"
+            core_path = "sample_crawler_core::crawl_stream"
             owner_type = "CrawlEngine"
             item_type = "CrawlResult"
             skip_languages = ["wasm", "kotlin"]
@@ -184,7 +184,7 @@ mod tests {
         let toml_str = r#"
             name = "crawl_stream"
             pattern = "streaming"
-            core_path = "kreuzcrawl_core::crawl_stream"
+            core_path = "sample_crawler_core::crawl_stream"
         "#;
         let config: AdapterConfig = toml::from_str(toml_str).expect("deserialization failed");
         assert!(config.skip_languages.is_empty());

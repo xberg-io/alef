@@ -26,7 +26,7 @@ fn php_chunks_count_min_non_streaming_uses_result_field() {
     // streaming field when the call is actually streaming.
 
     // This test documents the fix. Actual validation happens during:
-    // - task e2e:test:php (runs full PHPUnit suite on kreuzberg bindings)
+    // - task e2e:test:php (runs full PHPUnit suite on sample_crate bindings)
     // - Specifically: test_config_chunking_prepend_heading_context fixture
     // See php.rs render_assertion() for the implementation.
 }

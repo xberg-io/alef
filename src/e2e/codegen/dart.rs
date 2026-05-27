@@ -1114,16 +1114,16 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
             }
             "string" => {
                 // Polyglot repos expose their Dart surface through a hand-written facade
-                // (e.g. `H2mBridge.convert(String html, {ConversionOptions? options})`,
-                // `TreeSitterLanguagePackBridge.process(String source, ProcessConfig config)`,
-                // `KreuzbergBridge.extractBytes(Uint8List content, String mimeType, [ExtractionConfig? config])`)
+                // (e.g. `SampleMarkupBridge.convert(String html, {ConversionOptions? options})`,
+                // `SampleLanguagePackBridge.process(String source, ProcessConfig config)`,
+                // `SampleCrateBridge.extractBytes(Uint8List content, String mimeType, [ExtractionConfig? config])`)
                 // that wraps the FRB-generated bridge methods. Those facades follow the
                 // Rust idiom: required args are positional, optional args are named with
                 // defaults. The "always emit named" heuristic targets the raw FRB bridge
                 // call site but breaks every hand-written facade.
                 //
                 // Mirror the policy used by the `json_object` handler below: required →
-                // positional, optional → named. Liter-llm's `chat`/`embed` calls are
+                // positional, optional → named. Sample-llm's `chat`/`embed` calls are
                 // unaffected because they route through the `from_json` path (which
                 // always emits `req:` named) and the `client_factory` path (which
                 // hardcodes its own arg shape).
@@ -1181,7 +1181,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                         args.push(dart_items);
                     } else if elem_type == "String" && arg_value.is_array() {
                         // Scalar string array (e.g. `texts: ["a", "b"]` for embed_texts).
-                        // The `KreuzbergBridge` facade declares these parameters as required
+                        // The `SampleCrateBridge` facade declares these parameters as required
                         // positional (e.g. `embedTexts(List<String> texts, EmbeddingConfig config)`),
                         // so the list literal must be passed positionally — matching the
                         // facade contract rather than the underlying FRB bridge's named-arg
@@ -3079,7 +3079,7 @@ mod test_backend_tests {
     /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
-    fn dart_stub_contains_no_kreuzberg_domain_names() {
+    fn dart_stub_contains_no_sample_crate_domain_names() {
         let bridge = make_trait_bridge("TestTrait");
         let required_method = make_method("doWork", true);
         let methods = [&required_method];
@@ -3090,16 +3090,16 @@ mod test_backend_tests {
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
-            !output.contains("Kreuzberg"),
-            "must not contain literal 'Kreuzberg', got:\n{output}"
+            !output.contains("SampleCrate"),
+            "must not contain literal 'SampleCrate', got:\n{output}"
         );
         assert!(
-            !output.contains("kreuzberg::"),
-            "must not contain 'kreuzberg::', got:\n{output}"
+            !output.contains("sample_crate::"),
+            "must not contain 'sample_crate::', got:\n{output}"
         );
         assert!(
-            !output.contains("KreuzbergBridge"),
-            "must not contain 'KreuzbergBridge', got:\n{output}"
+            !output.contains("SampleCrateBridge"),
+            "must not contain 'SampleCrateBridge', got:\n{output}"
         );
         assert!(
             output.contains("TestStubMyTestFixture"),

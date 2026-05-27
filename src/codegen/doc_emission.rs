@@ -1002,11 +1002,11 @@ pub fn render_jsdoc_sections(sections: &RustdocSections) -> String {
 ///
 /// - `# Arguments` → `@param name desc` (one per param)
 /// - `# Returns`   → `@return desc`
-/// - `# Errors`    → `@throws KreuzbergRsException desc`
+/// - `# Errors`    → `@throws SampleCrateRsException desc`
 /// - `# Example`   → `<pre>{@code ...}</pre>` block.
 ///
 /// `throws_class` is the FQN/simple name of the exception class to use in
-/// the `@throws` tag (e.g. `"KreuzbergRsException"`).
+/// the `@throws` tag (e.g. `"SampleCrateRsException"`).
 pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -> String {
     let mut out = String::new();
     if !sections.summary.is_empty() {
@@ -1057,7 +1057,7 @@ pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -
 /// - summary  → `<summary>...</summary>`
 /// - args     → `<param name="x">desc</param>` (one per arg)
 /// - returns  → `<returns>desc</returns>`
-/// - errors   → `<exception cref="KreuzbergException">desc</exception>`
+/// - errors   → `<exception cref="SampleCrateException">desc</exception>`
 /// - example  → `<example><code language="csharp">...</code></example>`
 pub fn render_csharp_xml_sections(sections: &RustdocSections, exception_class: &str) -> String {
     let mut out = String::new();
@@ -1126,7 +1126,7 @@ pub fn render_csharp_xml_sections(sections: &RustdocSections, exception_class: &
 ///
 /// - `# Arguments` → `@param mixed $name desc`
 /// - `# Returns`   → `@return desc`
-/// - `# Errors`    → `@throws KreuzbergException desc`
+/// - `# Errors`    → `@throws SampleCrateException desc`
 /// - `# Example`   → ` ```php ` fence (replaces ` ```rust `).
 pub fn render_phpdoc_sections(sections: &RustdocSections, throws_class: &str) -> String {
     let mut out = String::new();
@@ -1251,7 +1251,7 @@ pub fn render_doxygen_sections(sections: &RustdocSections) -> String {
 /// space. This handles wrapped sentences like:
 ///
 /// ```text
-/// Convert HTML to Markdown, returning
+/// Convert markup conversion, returning
 /// a `ConversionResult`.
 /// ```
 ///
@@ -2287,11 +2287,11 @@ mod tests {
 
     #[test]
     fn test_doc_first_paragraph_joined_wrapped_sentence() {
-        // Simulates a docstring like convert's: "Convert HTML to Markdown,\nreturning a result."
-        let doc = "Convert HTML to Markdown,\nreturning a result.";
+        // Simulates a docstring like convert's: "Convert markup conversion,\nreturning a result."
+        let doc = "Convert markup conversion,\nreturning a result.";
         assert_eq!(
             doc_first_paragraph_joined(doc),
-            "Convert HTML to Markdown, returning a result."
+            "Convert markup conversion, returning a result."
         );
     }
 
@@ -2308,12 +2308,15 @@ mod tests {
 
     #[test]
     fn test_parse_rustdoc_sections_basic() {
-        let doc = "Extracts text from a file.\n\n# Arguments\n\n* `path` - The file path.\n\n# Returns\n\nThe extracted text.\n\n# Errors\n\nReturns `KreuzbergError` on failure.";
+        let doc = "Extracts text from a file.\n\n# Arguments\n\n* `path` - The file path.\n\n# Returns\n\nThe extracted text.\n\n# Errors\n\nReturns `SampleCrateError` on failure.";
         let sections = parse_rustdoc_sections(doc);
         assert_eq!(sections.summary, "Extracts text from a file.");
         assert_eq!(sections.arguments.as_deref(), Some("* `path` - The file path."));
         assert_eq!(sections.returns.as_deref(), Some("The extracted text."));
-        assert_eq!(sections.errors.as_deref(), Some("Returns `KreuzbergError` on failure."));
+        assert_eq!(
+            sections.errors.as_deref(),
+            Some("Returns `SampleCrateError` on failure.")
+        );
         assert!(sections.panics.is_none());
     }
 
@@ -2408,10 +2411,10 @@ mod tests {
     #[test]
     fn test_render_javadoc_sections() {
         let sections = fixture_sections();
-        let out = render_javadoc_sections(&sections, "KreuzbergRsException");
+        let out = render_javadoc_sections(&sections, "SampleCrateRsException");
         assert!(out.contains("@param path The file path."));
         assert!(out.contains("@return The extracted text and metadata."));
-        assert!(out.contains("@throws KreuzbergRsException Returns an error when the file is unreadable."));
+        assert!(out.contains("@throws SampleCrateRsException Returns an error when the file is unreadable."));
         // Java rendering omits the example block (handled separately by emit_javadoc which
         // wraps code in `<pre>{@code}</pre>`); we just confirm summary survives.
         assert!(out.starts_with("Extracts text from a file."));
@@ -2420,11 +2423,11 @@ mod tests {
     #[test]
     fn test_render_csharp_xml_sections() {
         let sections = fixture_sections();
-        let out = render_csharp_xml_sections(&sections, "KreuzbergException");
+        let out = render_csharp_xml_sections(&sections, "SampleCrateException");
         assert!(out.contains("<summary>\nExtracts text from a file.\n</summary>"));
         assert!(out.contains("<param name=\"path\">The file path.</param>"));
         assert!(out.contains("<returns>The extracted text and metadata.</returns>"));
-        assert!(out.contains("<exception cref=\"KreuzbergException\">"));
+        assert!(out.contains("<exception cref=\"SampleCrateException\">"));
         assert!(out.contains("<example><code language=\"csharp\">"));
         assert!(out.contains("let result = extract"));
     }
@@ -2432,10 +2435,10 @@ mod tests {
     #[test]
     fn test_render_phpdoc_sections() {
         let sections = fixture_sections();
-        let out = render_phpdoc_sections(&sections, "KreuzbergException");
+        let out = render_phpdoc_sections(&sections, "SampleCrateException");
         assert!(out.contains("@param mixed $path The file path."));
         assert!(out.contains("@return The extracted text and metadata."));
-        assert!(out.contains("@throws KreuzbergException"));
+        assert!(out.contains("@throws SampleCrateException"));
         // fixture example is ```rust — stripped when target is PHP
         assert!(!out.contains("```php"), "Rust example must not appear in PHPDoc");
         assert!(!out.contains("```rust"));
@@ -2625,7 +2628,7 @@ mod tests {
     fn render_phpdoc_sections_with_rust_example_emits_no_at_example_block() {
         let doc = "Convert HTML.\n\n# Arguments\n\n* `html` - The HTML input.\n\n# Example\n\n```rust\nlet result = convert(html, None)?;\n```";
         let sections = parse_rustdoc_sections(doc);
-        let out = render_phpdoc_sections(&sections, "HtmlToMarkdownException");
+        let out = render_phpdoc_sections(&sections, "SampleMarkdownException");
         assert!(!out.contains("```php"), "no PHP @example block for Rust source");
         assert!(!out.contains("```rust"), "raw Rust must not leak into PHPDoc");
         assert!(out.contains("@param"), "other sections must still be emitted");
@@ -2992,7 +2995,7 @@ mod tests {
 
     #[test]
     fn sanitize_multiline_prose() {
-        let input = "Convert HTML to Markdown.\n\nReturns None on failure.\nUse Option<String> for the result.";
+        let input = "Convert markup conversion.\n\nReturns None on failure.\nUse Option<String> for the result.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         assert!(out.contains("null"), "None must be replaced on line 2, got: {out}");
         assert!(
@@ -3037,7 +3040,7 @@ mod tests {
             Maps GraphQL error types to status codes.\n\n\
             # Examples\n\n\
             ```ignore\n\
-            use spikard_graphql::error::GraphQLError;\n\
+            use sample_router_graphql::error::GraphQLError;\n\
             let error = GraphQLError::AuthenticationError(\"Invalid token\".to_string());\n\
             assert_eq!(error.status_code(), 401);\n\
             ```\n";
@@ -3154,10 +3157,10 @@ mod tests {
     fn sanitize_phpdoc_drops_unmarked_rust_code_fences() {
         // Regression test: unmarked code fences (```\n...\n```) in Rust docstrings
         // are treated as Rust code and should be dropped for PHP target.
-        let input = "Detect language name from a file extension.\n\nReturns `None` for unrecognized extensions.\n\n```\nuse tree_sitter_language_pack::detect_language_from_extension;\nassert_eq!(detect_language_from_extension(\"py\"), Some(\"python\"));\nassert_eq!(detect_language_from_extension(\"RS\"), Some(\"rust\"));\nassert_eq!(detect_language_from_extension(\"xyz\"), None);\n```";
+        let input = "Detect language name from a file extension.\n\nReturns `None` for unrecognized extensions.\n\n```\nuse sample_language_pack::detect_language_from_extension;\nassert_eq!(detect_language_from_extension(\"py\"), Some(\"python\"));\nassert_eq!(detect_language_from_extension(\"RS\"), Some(\"rust\"));\nassert_eq!(detect_language_from_extension(\"xyz\"), None);\n```";
         let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
         assert!(
-            !out.contains("use tree_sitter_language_pack"),
+            !out.contains("use sample_language_pack"),
             "Rust use stmt dropped: {out}"
         );
         assert!(!out.contains("assert_eq!"), "Rust code dropped: {out}");
@@ -3256,7 +3259,7 @@ mod tests {
     #[test]
     fn example_for_target_no_run_fence_suppressed_for_typescript() {
         let example =
-            "```no_run\nuse tree_sitter_language_pack::available_languages;\nlet langs = available_languages();\n```";
+            "```no_run\nuse sample_language_pack::available_languages;\nlet langs = available_languages();\n```";
         assert_eq!(
             example_for_target(example, "typescript"),
             None,

@@ -66,7 +66,7 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             shared_hooks_rev => precommit_string(
                 precommit,
                 |p| p.shared_hooks_rev.as_deref(),
-                tv::precommit::KREUZBERG_PRECOMMIT_HOOKS_REV,
+                tv::precommit::SAMPLE_CRATE_PRECOMMIT_HOOKS_REV,
             ),
             include_alef_hooks => precommit_bool(precommit, |p| p.include_alef_hooks, true),
             alef_hooks_repo => precommit_string(precommit, |p| p.alef_hooks_repo.as_deref(), DEFAULT_ALEF_HOOKS_REPO),

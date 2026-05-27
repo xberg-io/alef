@@ -13,7 +13,7 @@ expression: content
     "LongParameterList",
 )
 
-package dev.kreuzberg
+package dev.sample_crate
 
 @Suppress("TooManyFunctions")
 object DemoBridge {

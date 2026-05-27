@@ -43,7 +43,7 @@ pub struct FfiBridgeGenerator {
     pub core_import: String,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,
-    /// Error type name (e.g., `"KreuzbergError"`).
+    /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
     /// Optional Rust expression that constructs an `error_type` value from a
     /// `String` named `msg`, used by the Plugin super-trait `initialize` and
@@ -636,7 +636,7 @@ mod tests {
             &trait_def,
             &bridge_cfg,
             "kr",
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::from({msg})",
             None,
@@ -644,7 +644,7 @@ mod tests {
         );
 
         assert!(
-            code.contains("impl kreuzberg::Plugin for KrOcrBackendBridge"),
+            code.contains("impl sample_crate::Plugin for KrOcrBackendBridge"),
             "must generate Plugin impl"
         );
         assert!(code.contains("fn name(&self)"), "Plugin impl must have name()");
@@ -662,7 +662,7 @@ mod tests {
         let bridge_cfg = TraitBridgeConfig {
             trait_name: "OcrBackend".to_string(),
             super_trait: None,
-            registry_getter: Some("kreuzberg::registry::get_ocr".to_string()),
+            registry_getter: Some("sample_crate::registry::get_ocr".to_string()),
             register_fn: Some("register_ocr_backend".to_string()),
 
             unregister_fn: None,
@@ -685,7 +685,7 @@ mod tests {
             &trait_def,
             &bridge_cfg,
             "kr",
-            "kreuzberg",
+            "sample_crate",
             "MyError",
             "MyError::from({msg})",
             None,
@@ -1050,7 +1050,7 @@ mod tests {
     /// Bug 2: Sync method bodies must use the trait's error type, not `Box::from`.
     ///
     /// `gen_vtable_call_body(inside_closure=false)` is used for synchronous trait method
-    /// bodies.  Those methods return `Result<T, KreuzbergError>`, so error construction
+    /// bodies.  Those methods return `Result<T, SampleCrateError>`, so error construction
     /// must call `spec.make_error(...)` (e.g. `MyError::from(...)`), not `Box::from(...)`.
     /// `Box::from` is correct only inside the async `_SendFn` closure where the return type
     /// is `Box<dyn Error + Send + Sync>`.
@@ -1150,9 +1150,9 @@ mod tests {
             &trait_def,
             &bridge_cfg,
             "kr",
-            "kreuzberg",
-            "KreuzbergError",
-            "KreuzbergError::from({msg})",
+            "sample_crate",
+            "SampleCrateError",
+            "SampleCrateError::from({msg})",
             None,
             &api,
         );

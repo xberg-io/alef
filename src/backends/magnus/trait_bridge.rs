@@ -101,7 +101,7 @@ pub fn gen_trait_bridge(
         out
     } else {
         // Plugin pattern: use the shared TraitBridgeGenerator infrastructure.
-        // Use the host crate's canonical error type (e.g. KreuzbergError) so the
+        // Use the host crate's canonical error type (e.g. SampleCrateError) so the
         // generated `impl Plugin for ...` matches the trait's actual signature.
         let generator = MagnusBridgeGenerator {
             core_import: core_import.to_string(),
@@ -279,10 +279,10 @@ struct MagnusBridgeGenerator {
     core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     type_paths: HashMap<String, String>,
-    /// Canonical error type for the host crate (e.g. `"KreuzbergError"`).
+    /// Canonical error type for the host crate (e.g. `"SampleCrateError"`).
     /// Used to construct Result return types matching the trait's signature.
     error_type: String,
-    /// Error constructor template (e.g. `"KreuzbergError::Plugin {{ message: {msg}, plugin_name: String::new() }}"`).
+    /// Error constructor template (e.g. `"SampleCrateError::Plugin {{ message: {msg}, plugin_name: String::new() }}"`).
     error_constructor: String,
 }
 

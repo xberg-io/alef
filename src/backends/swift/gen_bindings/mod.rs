@@ -353,7 +353,7 @@ impl Backend for SwiftBackend {
         // `embedTexts`, `listEmbeddingPresets`, `getEmbeddingPreset`, `renderPdfPageToPng`,
         // `getExtensionsForMime`, `detectMimeType`, and the various `list_*` registry
         // helpers are only reachable as `RustBridge.fnName(...)` — which requires
-        // consumers of the `Kreuzberg` module to also `import RustBridge`, violating
+        // consumers of the `SampleCrate` module to also `import RustBridge`, violating
         // the alef binding-parity promise that every public Rust free function is
         // re-exposed as a top-level public function on the host module.
         let client_class_names: std::collections::HashSet<String> =
@@ -453,7 +453,7 @@ impl Backend for SwiftBackend {
             .map(|p| p.to_path_buf())
             // fallback: use the configured base dir stripped of Sources/<Module>
             .unwrap_or_else(|| {
-                // base_dir is e.g. "packages/swift/Sources/LiterLlm"
+                // base_dir is e.g. "packages/swift/Sources/SampleLlm"
                 // go up two levels to get "packages/swift"
                 PathBuf::from(&base_dir)
                     .parent()
@@ -467,7 +467,7 @@ impl Backend for SwiftBackend {
 
         // Emit Swift{Trait}Box.swift into Sources/RustBridge/ for every OptionsField bridge.
         // This class is referenced by the @_cdecl shims generated into that same directory
-        // by swift-bridge, so it MUST live in the RustBridge module — not HtmlToMarkdown.
+        // by swift-bridge, so it MUST live in the RustBridge module — not SampleMarkdown.
         let rust_bridge_sources = package_root.join("Sources").join("RustBridge");
         for box_file in emit_inbound_box_files(api, config, &rust_bridge_sources) {
             files.push(box_file);
@@ -1788,7 +1788,7 @@ fn swift_associated_label(name: &str, idx: usize) -> String {
 ///
 /// When the Rust error type is named `Error`, Swift would parse `public enum Error: Error`
 /// as a circular raw-type binding rather than protocol conformance. In that case the enum
-/// is renamed to `{module_name}Error` (e.g. `TreeSitterLanguagePackError`) to avoid the
+/// is renamed to `{module_name}Error` (e.g. `SampleLanguagePackError`) to avoid the
 /// clash. The protocol reference is always qualified as `Swift.Error` for clarity.
 fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &SwiftMapper) {
     // Rename bare `Error` to `{ModuleName}Error` to avoid the Swift parser ambiguity
@@ -2531,7 +2531,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// The Rust bridge crate exposes these shims in the `RustBridge` module. Without a
 /// forwarding wrapper here, callers would need to write `RustBridge.chatCompletionRequestFromJson(json)`.
 /// These forwarders re-export them as `public func chatCompletionRequestFromJson(_ json: String)
-/// throws -> TypeName` in the main `LiterLlm` module so generated e2e tests work without
+/// throws -> TypeName` in the main `SampleLlm` module so generated e2e tests work without
 /// the `RustBridge.` prefix.
 fn emit_from_json_forwarders(
     api: &ApiSurface,
@@ -3133,7 +3133,7 @@ fn emit_swift_bridge_files(
 // ---------------------------------------------------------------------------
 
 /// Emit Swift protocol + adapter class for every `bind_via = "options_field"` inbound bridge
-/// into the main module file (e.g. `HtmlToMarkdown.swift`).
+/// into the main module file (e.g. `SampleMarkdown.swift`).
 ///
 /// For each such bridge this produces:
 ///
@@ -3221,7 +3221,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         }
         out.push_str("}\n\n");
 
-        // --- 3. Adapter class (private, lives in HtmlToMarkdown module) ---
+        // --- 3. Adapter class (private, lives in SampleMarkdown module) ---
         // Implements Swift{Trait}BoxDelegate (from RustBridge), wrapping any {Trait}Protocol.
         // Converts RustString → String, passes to user protocol, serializes result to JSON.
         out.push_str(&format!(
@@ -3344,7 +3344,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
 // Free-function and trait-bridge top-level forwarders
 // ---------------------------------------------------------------------------
 
-/// Returns the set of public-func names already emitted in `Kreuzberg.swift` by
+/// Returns the set of public-func names already emitted in `SampleCrate.swift` by
 /// earlier emission passes. Forwarders for `api.functions` entries that would
 /// produce an identical Swift function name are skipped to avoid duplicate
 /// declarations.
@@ -4068,7 +4068,7 @@ fn return_value_conversion_throws(ty: &TypeRef, known_dto_names: &std::collectio
 /// `gen_rust_crate::plugin_inbound::emit_extern_block_for_inbound_registration`
 /// and by the `TraitBridgeGenerator` impl in `gen_rust_crate::trait_bridge`.
 /// swift-bridge re-exports them in the `RustBridge` module; without these
-/// top-level forwarders consumers of `Kreuzberg` cannot reach the plugin
+/// top-level forwarders consumers of `SampleCrate` cannot reach the plugin
 /// registration surface without an explicit `import RustBridge`.
 ///
 /// Each bridge contributes up to three forwarders:
@@ -4180,7 +4180,7 @@ fn emit_inbound_box_files(
         content.push_str("Box by name and must see it in the same module.\n\n");
         content.push_str("import RustBridgeC\n\n");
 
-        // --- Delegate protocol (also in RustBridge so HtmlToMarkdown can conform to it) ---
+        // --- Delegate protocol (also in RustBridge so SampleMarkdown can conform to it) ---
         // The leading underscore is a Swift convention signalling "internal binding
         // surface, not part of the user-facing API". Marking it `internal` is not an
         // option: implementers (the private adapter class) live in a different module

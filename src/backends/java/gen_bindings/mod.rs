@@ -503,7 +503,7 @@ impl Backend for JavaBackend {
                 .iter()
                 .any(|b| b.bind_via == BridgeBinding::OptionsField);
         // Generate a high-level public API class that wraps the raw FFI class.
-        // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
+        // Class name = main_class without "Rs" suffix (e.g., SampleMarkdownRs -> SampleMarkdown)
         let public_class = main_class.trim_end_matches("Rs").to_string();
         let facade_content = gen_facade_class(
             api,

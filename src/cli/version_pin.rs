@@ -325,7 +325,7 @@ mod tests {
         let path = dir.path().join(".pre-commit-config.yaml");
         fs::write(
             &path,
-            "repos:\n  - repo: https://github.com/astral-sh/ruff-pre-commit\n    rev: v0.14.0\n    hooks:\n      - id: ruff\n  - repo: https://github.com/kreuzberg-dev/alef\n    rev: v0.0.1\n    hooks:\n      - id: alef-verify\n      - id: alef-sync-versions\n",
+            "repos:\n  - repo: https://github.com/astral-sh/ruff-pre-commit\n    rev: v0.14.0\n    hooks:\n      - id: ruff\n  - repo: https://github.com/sample_crate-dev/alef\n    rev: v0.0.1\n    hooks:\n      - id: alef-verify\n      - id: alef-sync-versions\n",
         )
         .unwrap();
 
@@ -349,7 +349,7 @@ mod tests {
         let path = dir.path().join(".pre-commit-config.yaml");
         fs::write(
             &path,
-            "repos:\n  - repo: https://github.com/kreuzberg-dev/alef\n    rev: \"v0.0.1\"\n    hooks:\n      - id: alef-verify\n",
+            "repos:\n  - repo: https://github.com/sample_crate-dev/alef\n    rev: \"v0.0.1\"\n    hooks:\n      - id: alef-verify\n",
         )
         .unwrap();
 

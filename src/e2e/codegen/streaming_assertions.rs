@@ -891,7 +891,7 @@ fn has_event_variant_accessor(
             "{chunks_var}.stream().anyMatch(e -> e instanceof {item_type}.{camel})"
         )),
         // C#: abstract record {item_type} with nested sealed records.
-        // The qualifier is the project's C# namespace (e.g. `Kreuzcrawl`).
+        // The qualifier is the project's C# namespace (e.g. `SampleCrawler`).
         "csharp" => module_qualifier.map(|ns| format!("{chunks_var}.Any(e => e is global::{ns}.{item_type}.{camel})")),
         // Swift: the swift-bridge `to_string()` impl on the bridge enum returns the
         // serde-serialized variant name (i.e. the same wire tag the JSON discriminator

@@ -483,7 +483,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
 ///
 /// Without the fix, `json.Unmarshal` tries to unmarshal directly into the
 /// sealed interface type and fails at runtime:
-///   json: cannot unmarshal object into Go struct field OcrRequest.document of type literllm.OcrDocument
+///   json: cannot unmarshal object into Go struct field OcrRequest.document of type samplellm.OcrDocument
 #[test]
 fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json() {
     let backend = GoBackend;

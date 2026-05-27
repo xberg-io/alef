@@ -24,7 +24,7 @@ expression: "&file.content"
     "LongMethod",
 )
 
-package dev.kreuzberg
+package dev.sample_crate
 
 /** Errors emitted by demo operations. */
 sealed class DemoError(message: String) : Exception(message) {

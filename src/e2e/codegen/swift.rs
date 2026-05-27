@@ -211,7 +211,7 @@ impl E2eCodegen for SwiftE2eCodegen {
 /// imports, 100-char line width). Reformatting after every regen would force
 /// every consumer repo to either bake `swift-format` into their pre-commit set
 /// or eat noisy diffs. Marking the files as ignored is the same workaround the
-/// Swift binding backend uses for `HtmlToMarkdown.swift` (see
+/// Swift binding backend uses for `SampleMarkdown.swift` (see
 /// `alef-backend-swift/src/gen_bindings.rs`) and keeps the file
 /// byte-identical between `alef generate` runs and `swift-format` hooks.
 const SWIFT_FORMAT_IGNORE_DIRECTIVE: &str = "// swift-format-ignore-file\n\n";
@@ -378,7 +378,7 @@ fn render_package_swift(
             // any explicit `name:`. The `.product(package:)` reference must therefore
             // match that identity (the path basename), not the dep's declared
             // `Package(name:)`. The product `name:` still matches the library
-            // declared in the dep's manifest (e.g. `.library(name: "Kreuzberg")`).
+            // declared in the dep's manifest (e.g. `.library(name: "SampleCrate")`).
             let pkg_id = pkg_path.trim_end_matches('/').rsplit('/').next().unwrap_or(module_name);
             let dep = format!(r#"        .package(path: "{pkg_path}")"#);
             let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
@@ -1015,7 +1015,7 @@ fn render_test_method(
     // When a client_factory is set, dispatch via a client instance:
     //   let client = try <FactoryType>(apiKey: "test-key", baseUrl: <mock_url>)
     //   try await client.<method>(args)
-    // Otherwise fall back to free-function call (Kreuzberg / non-client-factory libraries).
+    // Otherwise fall back to free-function call (SampleCrate / non-client-factory libraries).
     let has_mock = fixture.mock_response.is_some();
     let (call_setup, call_expr) = if let Some(_factory) = client_factory {
         let env_key = format!("MOCK_SERVER_{}", fixture.id.to_ascii_uppercase().replace('-', "_"));
@@ -1402,7 +1402,7 @@ fn build_args_and_setup(
                 // Regular binding: deserialize to an opaque object.
                 let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
                 let from_json_fn = from_json_helper_for_arg(arg, options_type);
-                // Qualify with module name to avoid ambiguity when both Kreuzberg and RustBridge are imported.
+                // Qualify with module name to avoid ambiguity when both SampleCrate and RustBridge are imported.
                 setup_lines.push(format!(
                     "let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"
                 ));
@@ -3406,7 +3406,7 @@ mod test_backend_tests {
     /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
-    fn swift_stub_contains_no_kreuzberg_domain_names() {
+    fn swift_stub_contains_no_sample_crate_domain_names() {
         let bridge = make_trait_bridge("TestTrait");
         let required_method = make_method("do_work", true);
         let methods = [&required_method];
@@ -3417,16 +3417,16 @@ mod test_backend_tests {
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
-            !output.contains("Kreuzberg"),
-            "must not contain literal 'Kreuzberg', got:\n{output}"
+            !output.contains("SampleCrate"),
+            "must not contain literal 'SampleCrate', got:\n{output}"
         );
         assert!(
-            !output.contains("kreuzberg::"),
-            "must not contain 'kreuzberg::', got:\n{output}"
+            !output.contains("sample_crate::"),
+            "must not contain 'sample_crate::', got:\n{output}"
         );
         assert!(
-            !output.contains("KreuzbergBridge"),
-            "must not contain 'KreuzbergBridge', got:\n{output}"
+            !output.contains("SampleCrateBridge"),
+            "must not contain 'SampleCrateBridge', got:\n{output}"
         );
         assert!(
             output.contains("TestStubMyTestFixture"),

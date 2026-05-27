@@ -24,7 +24,7 @@ expression: "&file.content"
     "LongMethod",
 )
 
-package dev.kreuzberg
+package dev.sample_crate
 
 object Demo {
     /** Process input and return a result. */

@@ -1694,8 +1694,8 @@ name = "demo"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg"
-namespace = "dev.kreuzberg"
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
 "#,
         )
         .unwrap();

@@ -390,17 +390,17 @@ sources = []
     fn test_migrate_moves_python_under_crate() -> Result<()> {
         let input = r#"
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = []
 
 [python]
-module_name = "_spikard"
+module_name = "_sample_router"
 "#;
 
         let output = migrate_toml(input, true)?;
         assert!(output.contains("[crates") && output.contains("python"));
         assert!(!output.contains("[python]") || output.contains("crates"));
-        assert!(output.contains("module_name = \"_spikard\""));
+        assert!(output.contains("module_name = \"_sample_router\""));
         Ok(())
     }
 
@@ -408,7 +408,7 @@ module_name = "_spikard"
     fn test_migrate_moves_lint_under_crate() -> Result<()> {
         let input = r#"
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = []
 
 [lint.python]
@@ -424,7 +424,7 @@ check = "ruff"
     fn test_migrate_moves_tools_under_workspace() -> Result<()> {
         let input = r#"
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = []
 
 [tools]
@@ -444,7 +444,7 @@ python_pkg_manager = "uv"
 version = "0.13.0"
 
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = []
 "#;
 
@@ -467,14 +467,14 @@ sources = []
     fn test_migrate_moves_adapters_array_under_crates() -> Result<()> {
         let input = r#"
 [crate]
-name = "spikard"
+name = "sample_router"
 sources = []
 
 [[adapters]]
-core_path = "spikard::handle_request"
+core_path = "sample_router::handle_request"
 
 [[adapters]]
-core_path = "spikard::shutdown"
+core_path = "sample_router::shutdown"
 "#;
         let output = migrate_toml(input, true)?;
         // Adapters must remain an array of tables, now nested under crates.
@@ -490,7 +490,7 @@ core_path = "spikard::shutdown"
         assert_eq!(adapters.len(), 2);
         assert_eq!(
             adapters[0].get("core_path").and_then(|v| v.as_str()),
-            Some("spikard::handle_request")
+            Some("sample_router::handle_request")
         );
         // The original top-level `[[adapters]]` must be gone.
         assert!(parsed.get("adapters").is_none(), "leftover top-level [[adapters]]");

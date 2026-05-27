@@ -106,7 +106,7 @@ fn build_config(extra_call_override: &str) -> NewAlefConfig {
 languages = ["rust"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -115,14 +115,14 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "convert"
-module = "html_to_markdown_rs"
+module = "sample_markdown_rs"
 args = [
   {{ name = "html", field = "html", type = "string" }},
   {{ name = "options", field = "options", type = "json_object", optional = true }},
 ]
 
 [crates.e2e.call.overrides.rust]
-crate_name = "html_to_markdown_rs"
+crate_name = "sample_markdown_rs"
 function = "convert"
 {extra_call_override}
 "#
@@ -223,7 +223,7 @@ fn extra_args_are_appended_after_configured_args() {
 
 #[test]
 fn wrap_options_in_some_combined_with_extra_args_and_returns_result() {
-    // The full html-to-markdown shape: owned options slot, trailing visitor slot,
+    // The full sample-markdown shape: owned options slot, trailing visitor slot,
     // and a fallible return that triggers `.expect("should succeed")`.
     let config = build_config(
         r#"

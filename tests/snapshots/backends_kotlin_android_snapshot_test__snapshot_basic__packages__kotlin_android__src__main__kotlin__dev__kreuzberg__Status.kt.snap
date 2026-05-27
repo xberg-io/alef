@@ -24,7 +24,7 @@ expression: "&file.content"
     "LongMethod",
 )
 
-package dev.kreuzberg
+package dev.sample_crate
 
 /** Processing status. */
 enum class Status {

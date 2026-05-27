@@ -90,14 +90,14 @@ const TOML_WITH_JAVA_CLIENT_FACTORY: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.literllm.android"
-namespace = "dev.kreuzberg.literllm.android"
-artifact_id = "liter-llm-android"
-group_id = "dev.kreuzberg"
+package = "dev.sample_crate.samplellm.android"
+namespace = "dev.sample_crate.samplellm.android"
+artifact_id = "sample-llm-android"
+group_id = "dev.sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -123,7 +123,7 @@ options_type = "ChatCompletionRequest"
 options_via = "from_json"
 
 [crates.e2e.packages.kotlin_android]
-name = "liter-llm"
+name = "sample-llm"
 "#;
 
 /// alef.toml with explicit enum_fields declaring finish_reason as enum-typed.
@@ -133,14 +133,14 @@ const TOML_WITH_ENUM_FIELDS: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.literllm.android"
-namespace = "dev.kreuzberg.literllm.android"
-artifact_id = "liter-llm-android"
-group_id = "dev.kreuzberg"
+package = "dev.sample_crate.samplellm.android"
+namespace = "dev.sample_crate.samplellm.android"
+artifact_id = "sample-llm-android"
+group_id = "dev.sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -169,7 +169,7 @@ options_via = "from_json"
 enum_fields = { "choices.finish_reason" = "FinishReason" }
 
 [crates.e2e.packages.kotlin_android]
-name = "liter-llm"
+name = "sample-llm"
 "#;
 
 /// alef.toml for kotlin_android streaming e2e via chatStream call.
@@ -178,14 +178,14 @@ const TOML_WITH_STREAMING: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.kreuzberg.literllm.android"
-namespace = "dev.kreuzberg.literllm.android"
-artifact_id = "liter-llm-android"
-group_id = "dev.kreuzberg"
+package = "dev.sample_crate.samplellm.android"
+namespace = "dev.sample_crate.samplellm.android"
+artifact_id = "sample-llm-android"
+group_id = "dev.sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -211,7 +211,7 @@ options_type = "ChatCompletionRequest"
 options_via = "from_json"
 
 [crates.e2e.packages.kotlin_android]
-name = "liter-llm"
+name = "sample-llm"
 "#;
 
 fn render_kotlin_android_chat(toml: &str, fixture: Fixture) -> String {
@@ -317,17 +317,17 @@ fn render_kotlin_android_streaming(fixture: Fixture) -> String {
 /// Regression for Bug 2: when `[crates.e2e.calls.chat.overrides.java]` has
 /// `client_factory = "createClient"` the kotlin_android codegen must also pick
 /// that up and emit:
-///   val client = LiterLlm.createClient(...)
+///   val client = SampleLlm.createClient(...)
 ///   val result = client.chat(...)
 ///   client.close()
-/// rather than a flat `LiterLlm.chat(...)` call.
+/// rather than a flat `SampleLlm.chat(...)` call.
 #[test]
 fn kotlin_android_uses_java_client_factory() {
     let fixture = make_chat_fixture("chat_basic");
     let rendered = render_kotlin_android_chat(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
 
     assert!(
-        rendered.contains("val client = LiterLlm.createClient("),
+        rendered.contains("val client = SampleLlm.createClient("),
         "must construct client via factory; got:\n{rendered}"
     );
     assert!(
@@ -339,7 +339,7 @@ fn kotlin_android_uses_java_client_factory() {
         "must close the client; got:\n{rendered}"
     );
     assert!(
-        !rendered.contains("LiterLlm.chat("),
+        !rendered.contains("SampleLlm.chat("),
         "must NOT call chat as flat function; got:\n{rendered}"
     );
 }

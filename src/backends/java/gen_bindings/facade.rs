@@ -226,7 +226,7 @@ pub(crate) fn gen_facade_class(
 
     // Emit static facade methods for streaming adapters with an owner_type.
     // These wrap the instance methods on the owner handle, exposing a convenient
-    // module-level API (e.g., `Kreuzcrawl.crawlStream(engine, req)` instead of
+    // module-level API (e.g., `SampleCrawler.crawlStream(engine, req)` instead of
     // `engine.crawlStream(req)`). This matches the canonical surface exposed by
     // other language backends (Go, Python, Ruby, etc.).
     let mut streaming_wrappers = String::new();

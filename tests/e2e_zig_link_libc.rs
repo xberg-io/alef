@@ -20,7 +20,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["zig"]
 
 [[crates]]
-name = "kreuzcrawl"
+name = "sample_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -29,7 +29,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "kreuzcrawl"
+module = "sample_crawler"
 result_var = "result"
 async = false
 returns_result = true

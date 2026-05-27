@@ -2,7 +2,7 @@
 //! or `mock_response` to a TODO stub, on the assumption that such fixtures were
 //! schema/spec validation (asyncapi, grpc, graphql_schema, …) with no callable
 //! Rust API. That assumption is wrong for libraries whose fixtures invoke a
-//! plain function (e.g. `kreuzberg::extract_file(path, mime, config)`): every
+//! plain function (e.g. `sample_crate::extract_file(path, mime, config)`): every
 //! such fixture would emit `// TODO: implement when a callable API is available`
 //! instead of a real call, producing 0 effective rust e2e tests.
 //!

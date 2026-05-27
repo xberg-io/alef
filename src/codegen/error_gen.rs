@@ -321,7 +321,7 @@ pub fn wasm_converter_fn_name(error: &ErrorDef) -> String {
 ///
 /// `wasm_prefix` is the full WASM type prefix string (from `config.wasm_type_prefix()`,
 /// e.g. `"Wasm"`).  The generated struct name is `{wasm_prefix}{error.name}`
-/// (e.g. `WasmLiterLlmError`).
+/// (e.g. `WasmSampleLlmError`).
 ///
 /// Returns an empty string when `error.methods` is empty so callers can
 /// unconditionally append the result without adding noise to the output file.
@@ -337,7 +337,7 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
     };
 
     // The struct name mirrors the convention used for other WASM opaque handles:
-    // `{wasm_type_prefix}{ErrorName}` (e.g. prefix="Wasm", name="LiterLlmError" → "WasmLiterLlmError").
+    // `{wasm_type_prefix}{ErrorName}` (e.g. prefix="Wasm", name="SampleLlmError" → "WasmSampleLlmError").
     let wasm_struct_name = format!("{wasm_prefix}{}", error.name);
 
     let struct_def = format!(
@@ -1055,10 +1055,10 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
 
 /// Generate Go sentinel errors and a structured error type for an `ErrorDef`.
 ///
-/// `pkg_name` is the Go package name (e.g. `"literllm"`). When the error struct
+/// `pkg_name` is the Go package name (e.g. `"samplellm"`). When the error struct
 /// name starts with the package name (case-insensitively), the package-name
 /// prefix is stripped to avoid the revive `exported` stutter lint error
-/// (e.g. `LiterLlmError` in package `literllm` → exported as `Error`).
+/// (e.g. `SampleLlmError` in package `samplellm` → exported as `Error`).
 pub fn gen_go_error_types(error: &ErrorDef, pkg_name: &str) -> String {
     let sentinels = gen_go_sentinel_errors(std::slice::from_ref(error));
     let structured = gen_go_error_struct(error, pkg_name);
@@ -1206,8 +1206,8 @@ fn to_pascal_case(s: &str) -> String {
 /// does not repeat the package name.
 ///
 /// Examples:
-/// - `("LiterLlmError", "literllm")` → `"Error"` (lowercased `literllm` is a prefix
-///   of lowercased `literllmerror`)
+/// - `("SampleLlmError", "samplellm")` → `"Error"` (lowercased `samplellm` is a prefix
+///   of lowercased `samplellmerror`)
 /// - `("ConversionError", "converter")` → `"ConversionError"` (no match)
 fn strip_package_prefix(type_name: &str, pkg_name: &str) -> String {
     let type_lower = type_name.to_lowercase();
@@ -1373,7 +1373,7 @@ fn java_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
 /// separate `.cs` file.
 ///
 /// `fallback_class` is the name of the generic library exception class (e.g.
-/// `TreeSitterLanguagePackException`) that the base error class should extend so that
+/// `SampleLanguagePackException`) that the base error class should extend so that
 /// callers can `catch` the general library exception and catch all typed errors.
 ///
 /// When `error.methods` is non-empty, the base exception class gains get-only
@@ -1729,7 +1729,7 @@ mod tests {
     fn sample_error() -> ErrorDef {
         ErrorDef {
             name: "ConversionError".to_string(),
-            rust_path: "html_to_markdown_rs::ConversionError".to_string(),
+            rust_path: "sample_markdown_rs::ConversionError".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
@@ -1780,12 +1780,12 @@ mod tests {
     #[test]
     fn test_gen_error_converter() {
         let error = sample_error();
-        let output = gen_pyo3_error_converter(&error, "html_to_markdown_rs");
+        let output = gen_pyo3_error_converter(&error, "sample_markdown_rs");
         assert!(
-            output.contains("fn conversion_error_to_py_err(e: html_to_markdown_rs::ConversionError) -> pyo3::PyErr {")
+            output.contains("fn conversion_error_to_py_err(e: sample_markdown_rs::ConversionError) -> pyo3::PyErr {")
         );
-        assert!(output.contains("html_to_markdown_rs::ConversionError::ParseError(..) => ParseError::new_err(msg),"));
-        assert!(output.contains("html_to_markdown_rs::ConversionError::IoError(..) => IoError::new_err(msg),"));
+        assert!(output.contains("sample_markdown_rs::ConversionError::ParseError(..) => ParseError::new_err(msg),"));
+        assert!(output.contains("sample_markdown_rs::ConversionError::IoError(..) => IoError::new_err(msg),"));
     }
 
     #[test]
@@ -1868,10 +1868,9 @@ mod tests {
     #[test]
     fn test_gen_napi_error_converter() {
         let error = sample_error();
-        let output = gen_napi_error_converter(&error, "html_to_markdown_rs");
+        let output = gen_napi_error_converter(&error, "sample_markdown_rs");
         assert!(
-            output
-                .contains("fn conversion_error_to_napi_err(e: html_to_markdown_rs::ConversionError) -> napi::Error {")
+            output.contains("fn conversion_error_to_napi_err(e: sample_markdown_rs::ConversionError) -> napi::Error {")
         );
         assert!(output.contains("napi::Error::new(napi::Status::GenericFailure,"));
         assert!(output.contains("[ParseError]"));
@@ -1911,10 +1910,10 @@ mod tests {
     #[test]
     fn test_gen_wasm_error_converter() {
         let error = sample_error();
-        let output = gen_wasm_error_converter(&error, "html_to_markdown_rs");
+        let output = gen_wasm_error_converter(&error, "sample_markdown_rs");
         // Main converter function signature
         assert!(output.contains(
-            "fn conversion_error_to_js_value(e: html_to_markdown_rs::ConversionError) -> wasm_bindgen::JsValue {"
+            "fn conversion_error_to_js_value(e: sample_markdown_rs::ConversionError) -> wasm_bindgen::JsValue {"
         ));
         // Structured object with code + message
         assert!(output.contains("js_sys::Object::new()"));
@@ -1924,7 +1923,7 @@ mod tests {
         // error_code helper
         assert!(
             output
-                .contains("fn conversion_error_error_code(e: &html_to_markdown_rs::ConversionError) -> &'static str {")
+                .contains("fn conversion_error_error_code(e: &sample_markdown_rs::ConversionError) -> &'static str {")
         );
         assert!(output.contains("\"parse_error\""));
         assert!(output.contains("\"io_error\""));
@@ -1939,8 +1938,8 @@ mod tests {
     #[test]
     fn test_gen_php_error_converter() {
         let error = sample_error();
-        let output = gen_php_error_converter(&error, "html_to_markdown_rs");
-        assert!(output.contains("fn conversion_error_to_php_err(e: html_to_markdown_rs::ConversionError) -> ext_php_rs::exception::PhpException {"));
+        let output = gen_php_error_converter(&error, "sample_markdown_rs");
+        assert!(output.contains("fn conversion_error_to_php_err(e: sample_markdown_rs::ConversionError) -> ext_php_rs::exception::PhpException {"));
         assert!(output.contains("PhpException::default(format!(\"[ParseError] {}\", msg))"));
         assert!(output.contains("#[allow(dead_code)]"));
     }
@@ -1952,10 +1951,10 @@ mod tests {
     #[test]
     fn test_gen_magnus_error_converter() {
         let error = sample_error();
-        let output = gen_magnus_error_converter(&error, "html_to_markdown_rs");
+        let output = gen_magnus_error_converter(&error, "sample_markdown_rs");
         assert!(
             output.contains(
-                "fn conversion_error_to_magnus_err(e: html_to_markdown_rs::ConversionError) -> magnus::Error {"
+                "fn conversion_error_to_magnus_err(e: sample_markdown_rs::ConversionError) -> magnus::Error {"
             )
         );
         assert!(
@@ -1973,9 +1972,9 @@ mod tests {
     #[test]
     fn test_gen_rustler_error_converter() {
         let error = sample_error();
-        let output = gen_rustler_error_converter(&error, "html_to_markdown_rs");
+        let output = gen_rustler_error_converter(&error, "sample_markdown_rs");
         assert!(
-            output.contains("fn conversion_error_to_rustler_err(e: html_to_markdown_rs::ConversionError) -> String {")
+            output.contains("fn conversion_error_to_rustler_err(e: sample_markdown_rs::ConversionError) -> String {")
         );
         assert!(output.contains("e.to_string()"));
         assert!(output.contains("#[allow(dead_code)]"));
@@ -1988,8 +1987,8 @@ mod tests {
     #[test]
     fn test_gen_go_error_struct_with_methods() {
         let error = error_with_methods();
-        let output = gen_go_error_struct(&error, "literllm");
-        // Stutter-stripped: "LiterLlm" prefix of "LiterLlmError" stripped for "literllm" pkg
+        let output = gen_go_error_struct(&error, "samplellm");
+        // Stutter-stripped: "SampleLlm" prefix of "SampleLlmError" stripped for "samplellm" pkg
         assert!(output.contains("type Error struct {"), "struct def: {output}");
         // Fields are emitted directly on the struct — no accessor methods (avoids
         // field/method name collision that go vet rejects).
@@ -2069,7 +2068,7 @@ mod tests {
     #[test]
     fn test_gen_java_error_types_with_methods() {
         let error = error_with_methods();
-        let files = gen_java_error_types(&error, "dev.kreuzberg.literllm");
+        let files = gen_java_error_types(&error, "dev.sample_crate.samplellm");
         assert_eq!(files.len(), 1); // base only, no variants
         let base = &files[0].1;
         assert!(
@@ -2098,12 +2097,12 @@ mod tests {
         );
         // Simple no-args constructor still present
         assert!(
-            base.contains("public LiterLlmErrorException(final String message)"),
+            base.contains("public SampleLlmErrorException(final String message)"),
             "simple ctor: {base}"
         );
         // Full constructor with introspection params
         assert!(
-            base.contains("public LiterLlmErrorException(final String message, final int statusCode, final boolean isTransient, final String errorType)"),
+            base.contains("public SampleLlmErrorException(final String message, final int statusCode, final boolean isTransient, final String errorType)"),
             "full ctor: {base}"
         );
     }
@@ -2111,7 +2110,7 @@ mod tests {
     #[test]
     fn test_gen_java_error_types_no_methods() {
         let error = sample_error(); // methods: vec![]
-        let files = gen_java_error_types(&error, "dev.kreuzberg.test");
+        let files = gen_java_error_types(&error, "dev.sample_crate.test");
         let base = &files[0].1;
         assert!(!base.contains("private final"), "no fields when no methods: {base}");
         assert!(
@@ -2127,7 +2126,7 @@ mod tests {
     #[test]
     fn test_gen_csharp_error_types_with_methods() {
         let error = error_with_methods();
-        let files = gen_csharp_error_types(&error, "Kreuzberg.LiterLlm", None);
+        let files = gen_csharp_error_types(&error, "SampleCrate.SampleLlm", None);
         assert_eq!(files.len(), 1); // base only, no variants
         let base = &files[0].1;
         assert!(
@@ -2144,12 +2143,12 @@ mod tests {
         );
         // Simple constructor (with defaults)
         assert!(
-            base.contains("public LiterLlmErrorException(string message) : base(message)"),
+            base.contains("public SampleLlmErrorException(string message) : base(message)"),
             "simple ctor: {base}"
         );
         // Full constructor
         assert!(
-            base.contains("public LiterLlmErrorException(string message, ushort statusCode, bool isTransient, string errorType) : base(message)"),
+            base.contains("public SampleLlmErrorException(string message, ushort statusCode, bool isTransient, string errorType) : base(message)"),
             "full ctor: {base}"
         );
     }
@@ -2157,7 +2156,7 @@ mod tests {
     #[test]
     fn test_gen_csharp_error_types_no_methods() {
         let error = sample_error(); // methods: vec![]
-        let files = gen_csharp_error_types(&error, "Kreuzberg.Test", None);
+        let files = gen_csharp_error_types(&error, "SampleCrate.Test", None);
         let base = &files[0].1;
         assert!(!base.contains("{ get; }"), "no properties when no methods: {base}");
         assert!(
@@ -2185,12 +2184,12 @@ mod tests {
             Public alias for the same codes returned by [`Self::error_code`].\n\n\
             # Examples\n\n\
             ```ignore\n\
-            use spikard_graphql::error::GraphQLError;\n\
+            use sample_router_graphql::error::GraphQLError;\n\
             let error = GraphQLError::AuthenticationError(\"Invalid token\".to_string());\n\
             assert_eq!(error.status_code(), 401);\n\
             ```\n"
             .to_string();
-        let files = gen_csharp_error_types(&error, "Spikard", None);
+        let files = gen_csharp_error_types(&error, "SampleRouter", None);
         let base = &files[0].1;
         // Per-method `<summary>` is single-line — must not contain raw fence markers,
         // intra-doc square brackets, `::`, or unescaped `<`/`>`.
@@ -2323,8 +2322,8 @@ mod tests {
     #[test]
     fn test_go_sentinels_no_placeholder_leak() {
         let error = ErrorDef {
-            name: "KreuzbergError".to_string(),
-            rust_path: "kreuzberg::KreuzbergError".to_string(),
+            name: "SampleCrateError".to_string(),
+            rust_path: "sample_crate::SampleCrateError".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
@@ -2447,7 +2446,7 @@ mod tests {
     #[test]
     fn test_gen_java_error_types() {
         let error = sample_error();
-        let files = gen_java_error_types(&error, "dev.kreuzberg.test");
+        let files = gen_java_error_types(&error, "dev.sample_crate.test");
         // base + 3 variants
         assert_eq!(files.len(), 4);
         // Base class
@@ -2457,7 +2456,7 @@ mod tests {
                 .1
                 .contains("public class ConversionErrorException extends Exception")
         );
-        assert!(files[0].1.contains("package dev.kreuzberg.test;"));
+        assert!(files[0].1.contains("package dev.sample_crate.test;"));
         // Variant classes
         assert_eq!(files[1].0, "ParseErrorException");
         assert!(
@@ -2477,11 +2476,11 @@ mod tests {
     fn test_gen_csharp_error_types() {
         let error = sample_error();
         // Without fallback class: base inherits from Exception.
-        let files = gen_csharp_error_types(&error, "Kreuzberg.Test", None);
+        let files = gen_csharp_error_types(&error, "SampleCrate.Test", None);
         assert_eq!(files.len(), 4);
         assert_eq!(files[0].0, "ConversionErrorException");
         assert!(files[0].1.contains("public class ConversionErrorException : Exception"));
-        assert!(files[0].1.contains("namespace Kreuzberg.Test;"));
+        assert!(files[0].1.contains("namespace SampleCrate.Test;"));
         assert_eq!(files[1].0, "ParseErrorException");
         assert!(
             files[1]
@@ -2496,7 +2495,7 @@ mod tests {
     fn test_gen_csharp_error_types_with_fallback() {
         let error = sample_error();
         // With fallback class: base inherits from the generic library exception.
-        let files = gen_csharp_error_types(&error, "Kreuzberg.Test", Some("TestLibException"));
+        let files = gen_csharp_error_types(&error, "SampleCrate.Test", Some("TestLibException"));
         assert_eq!(files.len(), 4);
         assert!(
             files[0]
@@ -2575,8 +2574,8 @@ mod tests {
 
     fn error_with_methods() -> ErrorDef {
         ErrorDef {
-            name: "LiterLlmError".to_string(),
-            rust_path: "liter_llm::error::LiterLlmError".to_string(),
+            name: "SampleLlmError".to_string(),
+            rust_path: "sample_llm::error::SampleLlmError".to_string(),
             original_rust_path: String::new(),
             variants: vec![],
             doc: String::new(),
@@ -2593,7 +2592,7 @@ mod tests {
     #[test]
     fn test_gen_wasm_error_methods_empty_when_no_methods() {
         let error = sample_error(); // methods: vec![]
-        let output = gen_wasm_error_methods(&error, "html_to_markdown_rs", "");
+        let output = gen_wasm_error_methods(&error, "sample_markdown_rs", "");
         assert!(output.is_empty(), "should produce no output when methods is empty");
     }
 
@@ -2601,19 +2600,19 @@ mod tests {
     fn test_gen_wasm_error_methods_struct_and_impl() {
         let error = error_with_methods();
         // wasm_prefix is the full type prefix, e.g. "Wasm" — the struct name is
-        // {wasm_prefix}{ErrorName} = "WasmLiterLlmError".
-        let output = gen_wasm_error_methods(&error, "liter_llm", "Wasm");
+        // {wasm_prefix}{ErrorName} = "WasmSampleLlmError".
+        let output = gen_wasm_error_methods(&error, "sample_llm", "Wasm");
         // Struct definition
         assert!(
-            output.contains("pub struct WasmLiterLlmError"),
+            output.contains("pub struct WasmSampleLlmError"),
             "must emit opaque struct: {output}"
         );
         assert!(
-            output.contains("pub(crate) inner: liter_llm::error::LiterLlmError"),
+            output.contains("pub(crate) inner: sample_llm::error::SampleLlmError"),
             "{output}"
         );
         // Impl block
-        assert!(output.contains("#[wasm_bindgen]\nimpl WasmLiterLlmError"), "{output}");
+        assert!(output.contains("#[wasm_bindgen]\nimpl WasmSampleLlmError"), "{output}");
         // Methods with camelCase js_name
         assert!(output.contains("js_name = \"statusCode\""), "{output}");
         assert!(output.contains("pub fn status_code(&self) -> u16"), "{output}");
@@ -2633,20 +2632,20 @@ mod tests {
     #[test]
     fn test_gen_ffi_error_methods_empty_when_no_methods() {
         let error = sample_error(); // methods: vec![]
-        let output = gen_ffi_error_methods(&error, "html_to_markdown_rs", "h2m");
+        let output = gen_ffi_error_methods(&error, "sample_markdown_rs", "sample_markup");
         assert!(output.is_empty(), "should produce no output when methods is empty");
     }
 
     #[test]
     fn test_gen_ffi_error_methods_status_code() {
         let error = error_with_methods();
-        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
         assert!(
-            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_status_code("),
+            output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_status_code("),
             "must emit status_code fn: {output}"
         );
         assert!(
-            output.contains("err: *const liter_llm::error::LiterLlmError"),
+            output.contains("err: *const sample_llm::error::SampleLlmError"),
             "{output}"
         );
         assert!(output.contains("-> u16"), "{output}");
@@ -2658,9 +2657,9 @@ mod tests {
     #[test]
     fn test_gen_ffi_error_methods_is_transient() {
         let error = error_with_methods();
-        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
         assert!(
-            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_is_transient("),
+            output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_is_transient("),
             "must emit is_transient fn: {output}"
         );
         assert!(output.contains("-> bool"), "{output}");
@@ -2671,9 +2670,9 @@ mod tests {
     #[test]
     fn test_gen_ffi_error_methods_error_type_with_free() {
         let error = error_with_methods();
-        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
         assert!(
-            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_error_type("),
+            output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_error_type("),
             "must emit error_type fn: {output}"
         );
         assert!(output.contains("-> *mut std::ffi::c_char"), "{output}");
@@ -2683,7 +2682,7 @@ mod tests {
         assert!(output.contains("return std::ptr::null_mut();"), "{output}");
         // free companion
         assert!(
-            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_error_type_free("),
+            output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_error_type_free("),
             "must emit _free companion: {output}"
         );
         assert!(output.contains("drop(std::ffi::CString::from_raw(ptr))"), "{output}");
@@ -2692,7 +2691,7 @@ mod tests {
     #[test]
     fn test_gen_ffi_error_methods_safety_comments() {
         let error = error_with_methods();
-        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
         assert!(output.contains("// SAFETY:"), "must include SAFETY comments: {output}");
     }
 }

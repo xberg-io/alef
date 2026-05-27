@@ -432,8 +432,8 @@ mod tests {
     #[test]
     fn validate_cache_crate_name_accepts_normal_names() {
         validate_cache_crate_name("my-lib").unwrap();
-        validate_cache_crate_name("kreuzberg").unwrap();
-        validate_cache_crate_name("html_to_markdown").unwrap();
+        validate_cache_crate_name("sample_crate").unwrap();
+        validate_cache_crate_name("sample_markdown").unwrap();
     }
 
     #[test]

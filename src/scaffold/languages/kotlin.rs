@@ -52,7 +52,7 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let jvm_target = toolchain::KOTLIN_JVM_TARGET;
     let kotlin_artifact_id = format!("{}-kotlin", config.name);
     // Pascal-cased binding-class filename emitted by alef-backend-kotlin
-    // (e.g. crate `sample_core` -> `Kreuzberg.kt`). The alef-emitted file is not
+    // (e.g. crate `sample_core` -> `SampleCrate.kt`). The alef-emitted file is not
     // ktlint-clean (parameters on a single line, missing expression bodies),
     // so we exclude it here rather than reformatting in the backend.
     let binding_class = config.name.to_pascal_case();

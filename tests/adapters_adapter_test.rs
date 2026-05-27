@@ -1113,7 +1113,7 @@ fn test_go_numeric_params() {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-adapter regression tests (kreuzcrawl).
+// Multi-adapter regression tests (sample_crawler).
 //
 // Two streaming adapters sharing one owner_type and item_type must produce
 // distinct iterator/handle struct bodies under per-adapter lookup keys; the
@@ -1141,7 +1141,7 @@ fn two_streaming_adapters_on_one_owner() -> Vec<AdapterConfig> {
             trait_name: None,
             trait_method: None,
             detect_async: false,
-            request_type: Some("kreuzcrawl::CrawlStreamRequest".to_string()),
+            request_type: Some("sample_crawler::CrawlStreamRequest".to_string()),
 
             skip_languages: vec![],
         },
@@ -1162,7 +1162,7 @@ fn two_streaming_adapters_on_one_owner() -> Vec<AdapterConfig> {
             trait_name: None,
             trait_method: None,
             detect_async: false,
-            request_type: Some("kreuzcrawl::BatchCrawlStreamRequest".to_string()),
+            request_type: Some("sample_crawler::BatchCrawlStreamRequest".to_string()),
 
             skip_languages: vec![],
         },
@@ -1234,7 +1234,7 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
     );
 
     // Each body must reference its own request type for the `From` conversion
-    // (kreuzcrawl::CrawlStreamRequest vs kreuzcrawl::BatchCrawlStreamRequest).
+    // (sample_crawler::CrawlStreamRequest vs sample_crawler::BatchCrawlStreamRequest).
     assert!(
         struct_crawl.contains("CrawlStreamRequest") && !struct_crawl.contains("BatchCrawlStreamRequest"),
         "crawl_stream must use its own request type, not the second adapter's. Got: {struct_crawl}"
@@ -1271,7 +1271,7 @@ fn test_skip_languages_wasm_suppresses_wasm_body() {
         trait_name: None,
         trait_method: None,
         detect_async: false,
-        request_type: Some("kreuzcrawl::CrawlStreamRequest".to_string()),
+        request_type: Some("sample_crawler::CrawlStreamRequest".to_string()),
         skip_languages: vec!["wasm".to_string()],
     }];
 

@@ -684,8 +684,8 @@ mod tests {
             &["java".to_string(), "go".to_string()],
         );
         assert!(
-            !config.contains("kreuzberg-dev"),
-            "config must not leak kreuzberg-dev defaults: {config}"
+            !config.contains("sample_crate-dev"),
+            "config must not leak sample_crate-dev defaults: {config}"
         );
         assert!(
             config.contains("# module ="),

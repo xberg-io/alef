@@ -200,7 +200,7 @@ mod tests {
 
     fn make_generator() -> KotlinJvmBridgeGenerator {
         KotlinJvmBridgeGenerator {
-            java_package: "dev.kreuzberg".to_string(),
+            java_package: "dev.sample_crate".to_string(),
         }
     }
 
@@ -216,11 +216,11 @@ mod tests {
         let out = generator.gen_registration_fn(&spec);
         assert!(!out.is_empty(), "should emit non-empty string when register_fn is set");
         assert!(
-            out.contains("fun registerOcrBackend(impl: dev.kreuzberg.IOcrBackend)"),
+            out.contains("fun registerOcrBackend(impl: dev.sample_crate.IOcrBackend)"),
             "must have correct signature: {out}"
         );
         assert!(
-            out.contains("dev.kreuzberg.OcrBackendBridge.registerOcrBackend(impl)"),
+            out.contains("dev.sample_crate.OcrBackendBridge.registerOcrBackend(impl)"),
             "must delegate to Java bridge: {out}"
         );
     }
@@ -259,7 +259,7 @@ mod tests {
             "must have correct signature: {out}"
         );
         assert!(
-            out.contains("dev.kreuzberg.OcrBackendBridge.unregisterOcrBackend(name)"),
+            out.contains("dev.sample_crate.OcrBackendBridge.unregisterOcrBackend(name)"),
             "must delegate to Java bridge: {out}"
         );
     }
@@ -295,7 +295,7 @@ mod tests {
             "must have correct no-arg signature: {out}"
         );
         assert!(
-            out.contains("dev.kreuzberg.OcrBackendBridge.clearAllOcrBackend()"),
+            out.contains("dev.sample_crate.OcrBackendBridge.clearAllOcrBackend()"),
             "must delegate to Java bridge: {out}"
         );
     }

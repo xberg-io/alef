@@ -1021,7 +1021,7 @@ fn test_scaffold_ruby_production_features() {
 /// dependency so consumers running `bundle install --without development` can load
 /// the `native.rb` wrapper, which unconditionally `require 'sorbet-runtime'`.
 /// Missing the dep caused `LoadError: cannot load such file -- sorbet-runtime` in
-/// kreuzcrawl CI E2E (run 25997906829, job 76416254666).
+/// sample_crawler CI E2E (run 25997906829, job 76416254666).
 #[test]
 fn test_scaffold_ruby_gemspec_includes_sorbet_runtime_dependency() {
     let config = test_config();
@@ -1213,7 +1213,7 @@ fn test_precommit_uses_configured_hook_repositories() {
 
     assert!(content.contains("https://github.com/acme/hooks"));
     assert!(content.contains("rev: v9.8.7"));
-    assert!(!content.contains("https://github.com/kreuzberg-dev/alef"));
+    assert!(!content.contains("https://github.com/sample_crate-dev/alef"));
     assert!(!content.contains("alef-readme"));
 }
 
@@ -2023,18 +2023,18 @@ fn test_scaffold_elixir_cargo_tokio_when_async_function() {
 
 /// Trait bridge module names must use PascalCase for hyphenated crate names.
 ///
-/// When the consumer crate name contains hyphens (e.g., `html-to-markdown`), the
-/// Elixir trait bridge module name must be `HtmlToMarkdownHtmlVisitorBridge`, not
-/// `Html_to_markdownHtmlVisitorBridge` (which is what `capitalize_first` produces).
+/// When the consumer crate name contains hyphens (e.g., `sample-markdown`), the
+/// Elixir trait bridge module name must be `SampleMarkdownHtmlVisitorBridge`, not
+/// `Sample_markdownHtmlVisitorBridge` (which is what `capitalize_first` produces).
 #[test]
 fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_crate() {
     use crate::core::config::TraitBridgeConfig;
 
     let mut config = test_config();
-    config.name = "html-to-markdown".to_string();
+    config.name = "sample-markdown".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
-        app_name: Some("html_to_markdown".to_string()),
+        app_name: Some("sample_markdown".to_string()),
         features: None,
         serde_rename_all: None,
         exclude_functions: vec![],
@@ -2078,13 +2078,13 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
     assert!(
         bridge_file
             .content
-            .contains("defmodule HtmlToMarkdownHtmlVisitorBridge do"),
+            .contains("defmodule SampleMarkdownHtmlVisitorBridge do"),
         "trait bridge module name must be PascalCase for hyphenated crate names; got:\n{}",
         bridge_file.content
     );
     assert!(
-        !bridge_file.content.contains("Html_to_markdown"),
-        "trait bridge module name must not contain capitalize_first artifact 'Html_to_markdown'; got:\n{}",
+        !bridge_file.content.contains("Sample_markdown"),
+        "trait bridge module name must not contain capitalize_first artifact 'Sample_markdown'; got:\n{}",
         bridge_file.content
     );
 }
@@ -2094,10 +2094,10 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
     use crate::core::config::TraitBridgeConfig;
 
     let mut config = test_config();
-    config.name = "tree-sitter-language-pack".to_string();
+    config.name = "sample-language-pack".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
-        app_name: Some("tree_sitter_language_pack".to_string()),
+        app_name: Some("sample_language_pack".to_string()),
         features: None,
         serde_rename_all: None,
         exclude_functions: vec![],
@@ -2141,7 +2141,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
     assert!(
         bridge_file
             .content
-            .contains("defmodule TreeSitterLanguagePackParserBridge do"),
+            .contains("defmodule SampleLanguagePackParserBridge do"),
         "trait bridge module name must be full PascalCase; got:\n{}",
         bridge_file.content
     );
@@ -2907,7 +2907,7 @@ package_name = "@scope/foo-web"
 }
 
 #[test]
-fn scaffold_emits_cargo_config_with_env_block_for_h2m_style_ruby_path() {
+fn scaffold_emits_cargo_config_with_env_block_for_sample_markup_style_ruby_path() {
     let mut env = std::collections::HashMap::new();
     env.insert(
         "RUBY".to_string(),

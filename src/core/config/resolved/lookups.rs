@@ -670,16 +670,16 @@ kotlin = "packages/kotlin/src/main/kotlin/dev/demo/kt/"
 languages = ["node"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.node]
-crate_dir = "crates/html-to-markdown-node"
+crate_dir = "crates/sample-markdown-node"
 "#,
         );
         assert_eq!(
             r.package_dir(Language::Node),
-            "crates/html-to-markdown-node",
+            "crates/sample-markdown-node",
             "crate_dir override should be used instead of default formula"
         );
     }
@@ -692,16 +692,16 @@ crate_dir = "crates/html-to-markdown-node"
 languages = ["wasm"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.wasm]
-crate_dir = "crates/html-to-markdown-wasm"
+crate_dir = "crates/sample-markdown-wasm"
 "#,
         );
         assert_eq!(
             r.package_dir(Language::Wasm),
-            "crates/html-to-markdown-wasm",
+            "crates/sample-markdown-wasm",
             "crate_dir override should be used instead of default formula"
         );
     }
@@ -745,7 +745,7 @@ sources = ["src/lib.rs"]
     }
 
     #[test]
-    fn package_dir_html_to_markdown_scenario_with_both_overrides() {
+    fn package_dir_sample_markdown_scenario_with_both_overrides() {
         // Reproduce the STY-4 scenario: sample-markdown strips `-rs` for Node and Wasm
         // so the actual crate dirs don't follow the default formula.
         let r = resolved_one(
@@ -754,26 +754,26 @@ sources = ["src/lib.rs"]
 languages = ["node", "wasm"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.node]
-crate_dir = "crates/html-to-markdown-node"
+crate_dir = "crates/sample-markdown-node"
 
 [crates.wasm]
-crate_dir = "crates/html-to-markdown-wasm"
+crate_dir = "crates/sample-markdown-wasm"
 "#,
         );
         // Without overrides, the formula would produce sample-markdown-rs-{node,wasm}
         // (WRONG). With overrides, we get the correct stripped names.
         assert_eq!(
             r.package_dir(Language::Node),
-            "crates/html-to-markdown-node",
+            "crates/sample-markdown-node",
             "Node override should return exact path without formula"
         );
         assert_eq!(
             r.package_dir(Language::Wasm),
-            "crates/html-to-markdown-wasm",
+            "crates/sample-markdown-wasm",
             "Wasm override should return exact path without formula"
         );
     }

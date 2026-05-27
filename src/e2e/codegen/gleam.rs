@@ -2030,7 +2030,7 @@ mod tests {
     fn batch_file_item_recipe() -> GleamElementConstructor {
         GleamElementConstructor {
             element_type: "BatchFileItem".to_string(),
-            constructor: "kreuzberg.BatchFileItem".to_string(),
+            constructor: "sample_crate.BatchFileItem".to_string(),
             fields: vec![
                 GleamElementField {
                     gleam_field: "path".to_string(),
@@ -2056,7 +2056,7 @@ mod tests {
         let out = render_gleam_element_constructor(&item, &batch_file_item_recipe(), "../../test_documents");
         assert_eq!(
             out,
-            "kreuzberg.BatchFileItem(path: \"../../test_documents/docx/fake.docx\", config: option.None)"
+            "sample_crate.BatchFileItem(path: \"../../test_documents/docx/fake.docx\", config: option.None)"
         );
     }
 
@@ -2074,7 +2074,7 @@ mod tests {
     fn render_element_constructor_byte_array_emits_bitarray() {
         let recipe = GleamElementConstructor {
             element_type: "BatchBytesItem".to_string(),
-            constructor: "kreuzberg.BatchBytesItem".to_string(),
+            constructor: "sample_crate.BatchBytesItem".to_string(),
             fields: vec![
                 GleamElementField {
                     gleam_field: "content".to_string(),
@@ -2103,7 +2103,7 @@ mod tests {
         let out = render_gleam_element_constructor(&item, &recipe, "../../test_documents");
         assert_eq!(
             out,
-            "kreuzberg.BatchBytesItem(content: <<72, 105>>, mime_type: \"text/html\", config: option.None)"
+            "sample_crate.BatchBytesItem(content: <<72, 105>>, mime_type: \"text/html\", config: option.None)"
         );
     }
 
@@ -2130,7 +2130,7 @@ mod tests {
             "../../test_documents",
             &[],
             Some("k.config_from_json_string({json})"),
-            "kreuzberg",
+            "sample_crate",
             &[],
             None,
             "default",
@@ -2171,7 +2171,7 @@ mod tests {
             "../../test_documents",
             &[],
             None,
-            "kreuzberg",
+            "sample_crate",
             &[],
             None,
             "default",

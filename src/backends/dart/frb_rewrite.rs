@@ -610,7 +610,7 @@ fn snake_to_camel(name: &str) -> String {
 /// Dart constructor when the Rust struct has `#[serde(default)]` or similar
 /// attributes indicating a default value.
 ///
-/// Currently targets specific kreuzberg types that are known to have defaults:
+/// Currently targets specific sample_crate types that are known to have defaults:
 /// - `EmbeddingConfig`: model, normalize, batchSize, showDownloadProgress, acceleration, maxEmbedDurationSecs
 /// - `ChunkingConfig`: similar pattern
 /// - `ExtractionConfig`: similar pattern (though most are already optional)
@@ -868,7 +868,7 @@ class Foo {
     }
 
     #[test]
-    fn realistic_kreuzberg_format_metadata_block() {
+    fn realistic_sample_crate_format_metadata_block() {
         // Mirror the actual frb output shape from the sample_core fixture.
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
@@ -983,7 +983,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
-        stem: 'spikard_dart',
+        stem: 'sample_router_dart',
         ioDirectory: 'rust/target/release/',
         webPrefix: 'pkg/',
         wasmBindgenName: 'wasm_bindgen',
@@ -993,30 +993,35 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
     }
 
     #[test]
-    fn loader_rewrite_injects_package_relative_resolution() {
-        let out = rewrite_frb_external_library_loader(frb_generated_fixture(), "spikard", "spikard", "spikard_dart");
+    fn loader_rewrite_injecsample_package_relative_resolution() {
+        let out = rewrite_frb_external_library_loader(
+            frb_generated_fixture(),
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
         assert!(
             out.contains("externalLibrary ??= await _alefResolveExternalLibrary();"),
             "init must resolve the package-relative library, got:\n{out}"
         );
         assert!(
-            out.contains("Isolate.resolvePackageUri(Uri.parse('package:spikard/spikard.dart'))"),
+            out.contains("Isolate.resolvePackageUri(Uri.parse('package:sample_router/sample_router.dart'))"),
             "loader must resolve the package URI, got:\n{out}"
         );
         assert!(
-            out.contains("src/spikard_bridge_generated/"),
+            out.contains("src/sample_router_bridge_generated/"),
             "loader must target the bridge-generated dir, got:\n{out}"
         );
         assert!(
-            out.contains("'libspikard_dart.dylib'"),
+            out.contains("'libsample_router_dart.dylib'"),
             "missing macOS candidate, got:\n{out}"
         );
         assert!(
-            out.contains("'libspikard_dart.so'"),
+            out.contains("'libsample_router_dart.so'"),
             "missing linux candidate, got:\n{out}"
         );
         assert!(
-            out.contains("'spikard_dart.dll'"),
+            out.contains("'sample_router_dart.dll'"),
             "missing windows candidate, got:\n{out}"
         );
         assert!(out.contains("import 'dart:io';"), "must import dart:io, got:\n{out}");
@@ -1028,8 +1033,13 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
     #[test]
     fn loader_rewrite_is_idempotent() {
-        let once = rewrite_frb_external_library_loader(frb_generated_fixture(), "spikard", "spikard", "spikard_dart");
-        let twice = rewrite_frb_external_library_loader(&once, "spikard", "spikard", "spikard_dart");
+        let once = rewrite_frb_external_library_loader(
+            frb_generated_fixture(),
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
+        let twice = rewrite_frb_external_library_loader(&once, "sample_router", "sample_router", "sample_router_dart");
         assert_eq!(once, twice, "loader rewrite must be idempotent");
         assert_eq!(
             twice.matches("import 'dart:io';").count(),
@@ -1048,7 +1058,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
         // lib.dart has no FRB entrypoint — must round-trip unchanged.
         let input = "// just some dart\nFuture<int> foo() async => 1;\n";
         assert_eq!(
-            rewrite_frb_external_library_loader(input, "spikard", "spikard", "spikard_dart"),
+            rewrite_frb_external_library_loader(input, "sample_router", "sample_router", "sample_router_dart"),
             input
         );
     }
@@ -1064,8 +1074,8 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
             "sealed-variant pass must also inject the loader, got:\n{out}"
         );
         assert!(
-            out.contains("Isolate.resolvePackageUri(Uri.parse('package:spikard/spikard.dart'))"),
-            "package derived from stem must be `spikard`, got:\n{out}"
+            out.contains("Isolate.resolvePackageUri(Uri.parse('package:sample_router/sample_router.dart'))"),
+            "package derived from stem must be `sample_router`, got:\n{out}"
         );
     }
 
@@ -1086,7 +1096,12 @@ Future<int> extractBytes({required List<int> content}) =>
 
     #[test]
     fn loader_rewrite_includes_rid_aware_path() {
-        let out = rewrite_frb_external_library_loader(frb_generated_fixture(), "spikard", "spikard", "spikard_dart");
+        let out = rewrite_frb_external_library_loader(
+            frb_generated_fixture(),
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
         assert!(
             out.contains("src/native/"),
             "loader must check RID-aware path (src/native/<rid>/), got:\n{out}"
@@ -1114,7 +1129,7 @@ Future<int> extractBytes({required List<int> content}) =>
         // RID-aware check should come before legacy fallback
         let rid_pos = out.find("src/native/").expect("RID path must exist");
         let legacy_pos = out
-            .find("src/spikard_bridge_generated/")
+            .find("src/sample_router_bridge_generated/")
             .expect("legacy path must exist");
         assert!(
             rid_pos < legacy_pos,

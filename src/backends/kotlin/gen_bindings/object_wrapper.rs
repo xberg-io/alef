@@ -1143,7 +1143,7 @@ pub(crate) fn emit_function(
         .join(", ");
 
     // Detect a client-type return so we can wrap the Java result in its Kotlin
-    // companion (e.g. `LiterLlm.createClient(...)` returns Java `DefaultClient`
+    // companion (e.g. `SampleLlm.createClient(...)` returns Java `DefaultClient`
     // but the Kotlin facade must hand back the coroutine-friendly Kotlin
     // `DefaultClient` wrapper).
     let returns_client_type = match &f.return_type {
@@ -1901,7 +1901,7 @@ mod tests {
     ///
     /// Example: `ContentPart::ImageUrl { image_url: ImageUrl }` — inside
     /// `ContentPart`, `ImageUrl` refers to the nested `data class ImageUrl` unless
-    /// the field type is explicitly qualified as `dev.sample_core.literllm.android.ImageUrl`.
+    /// the field type is explicitly qualified as `dev.sample_core.samplellm.android.ImageUrl`.
     #[test]
     fn sealed_class_variant_field_type_qualified_when_name_clashes_with_sibling_variant() {
         // Mirrors the real ContentPart::ImageUrl { image_url: ImageUrl } case.
@@ -1922,11 +1922,11 @@ mod tests {
         );
         let mut out = String::new();
         // Provide a non-empty package so disambiguation can emit the FQN.
-        emit_enum(&en, &mut out, "dev.kreuzberg.literllm.android");
+        emit_enum(&en, &mut out, "dev.sample_crate.samplellm.android");
 
         // The variant data class must qualify the field type to avoid self-reference.
         assert!(
-            out.contains("val imageUrl: dev.kreuzberg.literllm.android.ImageUrl"),
+            out.contains("val imageUrl: dev.sample_crate.samplellm.android.ImageUrl"),
             "variant field type must be package-qualified when it clashes with a sibling variant name; got:\n{out}",
         );
         // The variant data class header itself is unqualified.
@@ -1953,7 +1953,7 @@ mod tests {
             )],
         );
         let mut out = String::new();
-        emit_enum(&en, &mut out, "dev.kreuzberg.literllm.android");
+        emit_enum(&en, &mut out, "dev.sample_crate.samplellm.android");
 
         // Must use the simple name.
         assert!(
@@ -1962,7 +1962,7 @@ mod tests {
         );
         // Must NOT spuriously qualify.
         assert!(
-            !out.contains("dev.kreuzberg.literllm.android.DocumentContent"),
+            !out.contains("dev.sample_crate.samplellm.android.DocumentContent"),
             "non-clashing field type must not be package-qualified; got:\n{out}",
         );
     }

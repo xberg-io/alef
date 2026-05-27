@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn short_lines_untouched() {
-        let input = "package dev.kreuzberg;\nimport java.util.List;\n";
+        let input = "package dev.sample_crate;\nimport java.util.List;\n";
         assert_eq!(wrap_long_java_lines(input), input);
     }
 
@@ -568,13 +568,13 @@ mod tests {
 
     #[test]
     fn method_signature_split() {
-        let long = "    public static ExtractionResult extractFile(final java.nio.file.Path path, final String mimeType, final ExtractionConfig config) throws KreuzbergRsException {\n";
+        let long = "    public static ExtractionResult extractFile(final java.nio.file.Path path, final String mimeType, final ExtractionConfig config) throws SampleCrateRsException {\n";
         let out = wrap_long_java_lines(long);
         for line in out.lines() {
             assert!(line.len() <= MAX_LINE_LEN, "line too long ({}): {line}", line.len());
         }
         assert!(out.contains("extractFile(\n"));
-        assert!(out.contains("throws KreuzbergRsException"));
+        assert!(out.contains("throws SampleCrateRsException"));
     }
 
     #[test]
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn invoke_call_split() {
-        let long = "            int rc = (int) NativeLib.KREUZBERG_RENDER_PDF_PAGE_TO_PNG.invoke(cpdfBytes, pageIndex, cdpi, cpassword, outPtrHolder, outLenHolder, outCapHolder, somethingExtraToForceWrap);\n";
+        let long = "            int rc = (int) NativeLib.SAMPLE_CRATE_RENDER_PDF_PAGE_TO_PNG.invoke(cpdfBytes, pageIndex, cdpi, cpassword, outPtrHolder, outLenHolder, outCapHolder, somethingExtraToForceWrap);\n";
         let out = wrap_long_java_lines(long);
         for line in out.lines() {
             assert!(line.len() <= MAX_LINE_LEN, "line too long ({}): {line}", line.len());

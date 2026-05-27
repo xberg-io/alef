@@ -22,14 +22,14 @@ pub struct TraitBridgeSpec<'a> {
     pub wrapper_prefix: &'a str,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,
-    /// The crate's error type name (e.g., `"KreuzbergError"`). Defaults to `"Error"`.
+    /// The crate's error type name (e.g., `"SampleCrateError"`). Defaults to `"Error"`.
     pub error_type: String,
     /// Error constructor pattern. `{msg}` is replaced with the message expression.
     pub error_constructor: String,
 }
 
 impl<'a> TraitBridgeSpec<'a> {
-    /// Fully qualified error type path (e.g., `"sample_core::KreuzbergError"`).
+    /// Fully qualified error type path (e.g., `"sample_core::SampleCrateError"`).
     ///
     /// If `error_type` already looks fully-qualified (contains `::`) or is a generic
     /// type expression (contains `<`), it is returned as-is without prefixing

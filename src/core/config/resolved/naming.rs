@@ -91,7 +91,7 @@ impl ResolvedCrateConfig {
     ///
     /// Converts `[dart] lib_name` (falling back to `dart_pubspec_name()`) to
     /// PascalCase and appends `"Bridge"`, matching the FRB v2 convention.
-    /// E.g. `lib_name = "sample-crawler"` → `"KreuzcrawlBridge"`.
+    /// E.g. `lib_name = "sample-crawler"` → `"SampleCrawlerBridge"`.
     pub fn dart_bridge_class_name(&self) -> String {
         use heck::ToUpperCamelCase;
         let lib_name = self

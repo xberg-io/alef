@@ -42,8 +42,8 @@ impl E2eCodegen for ElixirCodegen {
             .cloned()
             .unwrap_or_else(|| call.module.clone());
         // Convert module path to Elixir PascalCase if it looks like snake_case
-        // (e.g., "sample_markdown" -> "HtmlToMarkdown").
-        // If the override already contains "." (e.g., "Elixir.HtmlToMarkdown"), use as-is.
+        // (e.g., "sample_markdown" -> "SampleMarkdown").
+        // If the override already contains "." (e.g., "Elixir.SampleMarkdown"), use as-is.
         let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase()) {
             raw_module.clone()
         } else {
@@ -2227,7 +2227,7 @@ fn render_assertion(
     }
 }
 
-/// Build an Elixir call expression for a `method_result` assertion on a tree-sitter result.
+/// Build an Elixir call expression for a `method_result` assertion on a sample_language result.
 /// Maps method names to the appropriate `module_path` function calls.
 fn build_elixir_method_call(
     result_var: &str,
@@ -2645,7 +2645,7 @@ pub fn emit_test_backend(
     // Emit the GenServer wrapper that Rustler NIFs can call via PID message passing.
     // Messages arrive as {:trait_call, method_atom, args_json_string, reply_id}.
     // The GenServer calls the stub module method, serializes the result to JSON, and
-    // passes it back to Kreuzberg.complete_trait_call/2 NIF which unblocks the waiting Rust thread.
+    // passes it back to SampleCrate.complete_trait_call/2 NIF which unblocks the waiting Rust thread.
     let _ = writeln!(setup, "unless Code.ensure_loaded?({genserver_module}) do");
     let _ = writeln!(setup, "defmodule {genserver_module} do");
     let _ = writeln!(setup, "  use GenServer");
@@ -2665,7 +2665,7 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "    args = Jason.decode!(args_json)");
     let _ = writeln!(setup, "    result = apply({qualified_module}, method_atom, args)");
     let _ = writeln!(setup, "    result_json = Jason.encode!(result)");
-    let _ = writeln!(setup, "    Kreuzberg.complete_trait_call(reply_id, result_json)");
+    let _ = writeln!(setup, "    SampleCrate.complete_trait_call(reply_id, result_json)");
     let _ = writeln!(setup, "    {{:noreply, state}}");
     let _ = writeln!(setup, "  end");
     let _ = writeln!(setup, "end");
@@ -2766,7 +2766,7 @@ mod test_backend_tests {
     /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
-    fn elixir_stub_contains_no_kreuzberg_domain_names() {
+    fn elixir_stub_contains_no_sample_crate_domain_names() {
         let bridge = make_trait_bridge("TestTrait");
         let required_method = make_method("process", true);
         let methods = [&required_method];
@@ -2777,16 +2777,16 @@ mod test_backend_tests {
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
-            !output.contains("Kreuzberg"),
-            "must not contain literal 'Kreuzberg', got:\n{output}"
+            !output.contains("SampleCrate"),
+            "must not contain literal 'SampleCrate', got:\n{output}"
         );
         assert!(
-            !output.contains("kreuzberg::"),
-            "must not contain 'kreuzberg::', got:\n{output}"
+            !output.contains("sample_crate::"),
+            "must not contain 'sample_crate::', got:\n{output}"
         );
         assert!(
-            !output.contains("KreuzbergBridge"),
-            "must not contain 'KreuzbergBridge', got:\n{output}"
+            !output.contains("SampleCrateBridge"),
+            "must not contain 'SampleCrateBridge', got:\n{output}"
         );
         assert!(
             output.contains("TestStubMyTestFixture"),
@@ -2883,7 +2883,7 @@ mod test_backend_tests {
         );
         assert!(
             emission.setup_block.contains("complete_trait_call"),
-            "GenServer must reply via Kreuzberg.complete_trait_call/2 NIF, got:\n{}",
+            "GenServer must reply via SampleCrate.complete_trait_call/2 NIF, got:\n{}",
             emission.setup_block
         );
     }

@@ -48,11 +48,11 @@ const TOML_NO_PAGE_ACTION: &str = r#"
 languages = ["dart"]
 
 [[crates]]
-name = "kreuzberg"
+name = "sample_crate"
 sources = ["src/lib.rs"]
 
 [crates.dart]
-pubspec_name = "kreuzberg"
+pubspec_name = "sample_crate"
 
 [crates.e2e]
 fixtures = "fixtures"

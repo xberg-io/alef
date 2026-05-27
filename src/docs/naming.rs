@@ -229,23 +229,29 @@ mod tests {
     #[test]
     fn test_type_name_ffi_uses_prefix() {
         assert_eq!(
-            type_name("ConversionOptions", Language::Ffi, "Kreuzberg"),
-            "KreuzbergConversionOptions"
+            type_name("ConversionOptions", Language::Ffi, "SampleCrate"),
+            "SampleCrateConversionOptions"
         );
         assert_eq!(
-            type_name("ConversionResult", Language::Ffi, "Kreuzberg"),
-            "KreuzbergConversionResult"
+            type_name("ConversionResult", Language::Ffi, "SampleCrate"),
+            "SampleCrateConversionResult"
         );
     }
 
     #[test]
     fn test_func_name_ffi_uses_prefix() {
-        assert_eq!(func_name("convert", Language::Ffi, "Kreuzberg"), "kreuzberg_convert");
+        assert_eq!(
+            func_name("convert", Language::Ffi, "SampleCrate"),
+            "sample_crate_convert"
+        );
     }
 
     #[test]
     fn test_enum_variant_name_ffi_uses_prefix() {
-        assert_eq!(enum_variant_name("Atx", Language::Ffi, "Kreuzberg"), "KREUZBERG_ATX");
+        assert_eq!(
+            enum_variant_name("Atx", Language::Ffi, "SampleCrate"),
+            "SAMPLE_CRATE_ATX"
+        );
     }
 
     #[test]

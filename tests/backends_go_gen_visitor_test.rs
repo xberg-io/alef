@@ -7,7 +7,7 @@ fn test_visitor_file_emits_prefixed_struct() {
     // Minimal trait def with one method to exercise the generator.
     let trait_def = alef::core::ir::TypeDef {
         name: "HtmlVisitor".to_string(),
-        rust_path: "html_to_markdown_rs::visitor::HtmlVisitor".to_string(),
+        rust_path: "sample_markdown_rs::visitor::HtmlVisitor".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![alef::core::ir::MethodDef {

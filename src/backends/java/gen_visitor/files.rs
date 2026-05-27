@@ -155,8 +155,8 @@ mod tests {
 
     #[test]
     fn gen_node_context_produces_java_record() {
-        let out = gen_node_context("dev.kreuzberg");
-        assert!(out.contains("package dev.kreuzberg;"), "must have package decl");
+        let out = gen_node_context("dev.sample_crate");
+        assert!(out.contains("package dev.sample_crate;"), "must have package decl");
         assert!(
             out.contains("public record NodeContext("),
             "must define NodeContext record"
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn gen_visit_result_produces_sealed_interface() {
-        let out = gen_visit_result("dev.kreuzberg");
+        let out = gen_visit_result("dev.sample_crate");
         assert!(
             out.contains("public sealed interface VisitResult"),
             "must define sealed VisitResult"
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn gen_visitor_interface_has_all_callbacks() {
-        let out = gen_visitor_interface("dev.kreuzberg", "Demo");
+        let out = gen_visitor_interface("dev.sample_crate", "Demo");
         assert!(
             out.contains("public interface Visitor"),
             "must define Visitor interface"
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn gen_visitor_bridge_produces_class_with_stubs() {
-        let out = gen_visitor_bridge("dev.kreuzberg", "Demo");
+        let out = gen_visitor_bridge("dev.sample_crate", "Demo");
         assert!(out.contains("final class VisitorBridge"), "must define VisitorBridge");
         assert!(
             out.contains("MemorySegment callbacksStruct()"),
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn gen_visitor_bridge_has_encode_visit_result() {
-        let out = gen_visitor_bridge("dev.kreuzberg", "Demo");
+        let out = gen_visitor_bridge("dev.sample_crate", "Demo");
         assert!(out.contains("encodeVisitResult"), "must have encodeVisitResult helper");
         assert!(
             out.contains("VISIT_RESULT_CONTINUE"),

@@ -59,7 +59,7 @@ fn is_skipped_c_field(fields_c_types: &HashMap<String, String>, parent_snake: &s
 /// Infer the opaque-handle PascalCase return type for a bare-field accessor.
 ///
 /// Returns `Some(pascal_type)` when the accessor `{prefix}_{parent}_{field}`
-/// returns a pointer to an opaque struct (e.g. `LITERLLMUsage*`) rather than
+/// returns a pointer to an opaque struct (e.g. `SAMPLELLMUsage*`) rather than
 /// a `char*` or primitive scalar.
 ///
 /// Detection strategy:
@@ -102,7 +102,7 @@ fn infer_opaque_handle_type(
 ///
 /// Without this, the C codegen would default-declare the accessor result as
 /// `char* status = {prefix}_batch_object_status(result);` and string-compare
-/// it — but the FFI returns `LITERLLMBatchStatus*` (an opaque enum struct
+/// it — but the FFI returns `SAMPLELLMBatchStatus*` (an opaque enum struct
 /// pointer), not a C string. The mismatch causes immediate `Abort trap: 6` /
 /// `strcmp(NULL,...)` failures in every assertion that targets an enum field.
 ///
@@ -1438,7 +1438,7 @@ fn render_test_function(
         // Locals declared as primitive C scalars (uint64_t, double, bool, ...).
         // Locals not present here default to char* (heap-allocated accessor result).
         let mut primitive_locals: HashMap<String, String> = HashMap::new();
-        // Locals declared as opaque struct handles (e.g. LITERLLMUsage*).
+        // Locals declared as opaque struct handles (e.g. SAMPLELLMUsage*).
         // Keyed by local_var, value is the snake_case type name used for free().
         let mut opaque_handle_locals: HashMap<String, String> = HashMap::new();
 
@@ -1826,7 +1826,7 @@ fn render_test_function(
     let mut intermediate_handles: Vec<(String, String)> = Vec::new();
     // Locals declared as primitive C scalars (uint64_t, double, bool, ...).
     let mut primitive_locals: HashMap<String, String> = HashMap::new();
-    // Locals declared as opaque struct handles (e.g. LITERLLMUsage*).
+    // Locals declared as opaque struct handles (e.g. SAMPLELLMUsage*).
     let mut opaque_handle_locals: HashMap<String, String> = HashMap::new();
 
     for assertion in &fixture.assertions {
@@ -2586,7 +2586,7 @@ fn render_chat_stream_test_function(
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
     // The streaming opaque handle is a Rust type named `{Prefix}DefaultClientChatStreamStreamHandle`;
-    // cbindgen additionally prepends the configured uppercase type-name `prefix` (e.g. `LITERLLM`),
+    // cbindgen additionally prepends the configured uppercase type-name `prefix` (e.g. `SAMPLELLM`),
     // exactly as it does for ordinary opaque handle types like `{prefix_upper}DefaultClient`.
     let pascal_prefix = prefix.to_pascal_case();
     let _ = writeln!(
@@ -3289,7 +3289,7 @@ fn render_assertion(
 
     let field_is_primitive = primitive_locals.contains_key(&field_expr);
     let field_primitive_type = primitive_locals.get(&field_expr).cloned();
-    // Opaque-handle fields (e.g. `usage` → LITERLLMUsage*) cannot be treated
+    // Opaque-handle fields (e.g. `usage` → SAMPLELLMUsage*) cannot be treated
     // as C strings — `strlen` / `strcmp` on a struct pointer is undefined
     // behavior (SIGABRT in practice). `not_empty` / `is_empty` collapse to
     // NULL checks; other string assertions are skipped for these fields.

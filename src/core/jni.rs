@@ -130,8 +130,8 @@ mod tests {
 
     #[test]
     fn jni_symbol_basic() {
-        let sym = jni_symbol("dev.kreuzberg.demo", "DemoBridge", "nativeFoo");
-        assert_eq!(sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeFoo");
+        let sym = jni_symbol("dev.sample_crate.demo", "DemoBridge", "nativeFoo");
+        assert_eq!(sym, "Java_dev_sample_crate_demo_DemoBridge_nativeFoo");
     }
 
     #[test]
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn jni_symbol_empty_method_gives_prefix() {
-        let prefix = jni_symbol("dev.kreuzberg.demo", "DemoBridge", "");
-        assert_eq!(prefix, "Java_dev_kreuzberg_demo_DemoBridge");
+        let prefix = jni_symbol("dev.sample_crate.demo", "DemoBridge", "");
+        assert_eq!(prefix, "Java_dev_sample_crate_demo_DemoBridge");
     }
 }

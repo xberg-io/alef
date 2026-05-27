@@ -5,7 +5,7 @@
 //!
 //! Pre-fix the codegen collected these bindings into a `HashMap<String, _>` and
 //! iterated `.values()` directly, which leaked `RandomState`-randomized
-//! iteration order into the generated PHP source. Concretely, tslp's
+//! iteration order into the generated PHP source. Concretely, sample_language_pack's
 //! `e2e/php/tests/ProcessTest.php` flipped the relative order of `$imports`
 //! and `$structure` between back-to-back `alef e2e generate` runs, producing
 //! noisy diffs and breaking the `CI: regen leaves zero diff` invariant.

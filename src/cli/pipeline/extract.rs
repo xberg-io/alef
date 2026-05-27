@@ -1132,13 +1132,13 @@ mod tests {
 
         // Short name hit
         assert!(
-            is_type_excluded("OutputFormat", "kreuzberg::types::OutputFormat", &exclude),
+            is_type_excluded("OutputFormat", "sample_crate::types::OutputFormat", &exclude),
             "plain entry must match when name matches"
         );
 
         // Different name — no match
         assert!(
-            !is_type_excluded("SomethingElse", "kreuzberg::types::SomethingElse", &exclude),
+            !is_type_excluded("SomethingElse", "sample_crate::types::SomethingElse", &exclude),
             "plain entry must not match when name differs"
         );
     }
@@ -1150,13 +1150,13 @@ mod tests {
     /// while sample_core::types::OutputFormat is retained.
     #[test]
     fn is_type_excluded_qualified_entry_matches_rust_path_not_name() {
-        let exclude = vec!["kreuzberg::core::config::formats::OutputFormat".to_string()];
+        let exclude = vec!["sample_crate::core::config::formats::OutputFormat".to_string()];
 
         // The internal variant — must be excluded.
         assert!(
             is_type_excluded(
                 "OutputFormat",
-                "kreuzberg::core::config::formats::OutputFormat",
+                "sample_crate::core::config::formats::OutputFormat",
                 &exclude
             ),
             "qualified entry must match the exact rust_path"
@@ -1164,7 +1164,7 @@ mod tests {
 
         // The public variant that shares the same short name — must NOT be excluded.
         assert!(
-            !is_type_excluded("OutputFormat", "kreuzberg::types::OutputFormat", &exclude),
+            !is_type_excluded("OutputFormat", "sample_crate::types::OutputFormat", &exclude),
             "qualified entry must NOT match a different rust_path with the same short name"
         );
     }

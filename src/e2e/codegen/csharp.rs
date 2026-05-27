@@ -100,7 +100,7 @@ impl E2eCodegen for CSharpCodegen {
         // TestSetup.cs will spawn the mock-server via [ModuleInitializer]
         // before any test loads — mirroring the Ruby spec_helper / Python
         // conftest spawn pattern. Without this, every fixture-bound test
-        // failed with `LiterLlmException : builder error` because reqwest
+        // failed with `SampleLlmException : builder error` because reqwest
         // rejected the relative URL when MOCK_SERVER_URL was unset.
         let needs_mock_server = groups
             .iter()
@@ -933,7 +933,7 @@ fn render_test_method(
     // to inferring from method name patterns for trait bridge registration/management methods.
     // Methods like `register_*`, `unregister_*`, `clear_*` are typically void-returning wrappers
     // around trait bridge operations that return meaningful values internally but expose no
-    // result to the caller (e.g., KreuzbergLib.RegisterOcrBackend returns void).
+    // result to the caller (e.g., SampleCrateLib.RegisterOcrBackend returns void).
     let returns_void = if call_config.returns_void {
         true
     } else {
@@ -3479,7 +3479,7 @@ fn snake_case_template_to_camel(template: &str) -> String {
     out
 }
 
-/// Build a C# call expression for a `method_result` assertion on a tree-sitter Tree.
+/// Build a C# call expression for a `method_result` assertion on a sample_language Tree.
 ///
 /// Maps well-known method names to the appropriate C# static helper calls on the
 /// generated lib class, falling back to `result_var.PascalCase()` for unknowns.
@@ -3550,7 +3550,7 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if cs_override.and_then(|o| o.client_factory.as_deref()).is_some() {
         return true;
     }
-    // C# binding provides a default class name (e.g., KreuzcrawlLib) if not overridden,
+    // C# binding provides a default class name (e.g., SampleCrawlerLib) if not overridden,
     // so any function name makes a callable available.
     cs_override.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty()
 }
@@ -3683,7 +3683,7 @@ fn is_visible_csharp_type(type_name: &str) -> bool {
             | "Chunk"
             | "ChunkMetadata"
             | "PluginException"
-            | "KreuzbergError"
+            | "SampleCrateError"
             | "OcrBackendType"
             | "ProcessingStage"
             | "OcrConfig"
@@ -4035,7 +4035,7 @@ mod tests {
             "DocumentExtractor",
             "ProcessImage",
             "ExtractBytes",
-            "kreuzberg",
+            "sample_crate",
         ] {
             assert!(
                 !emission.setup_block.contains(name),
@@ -4117,12 +4117,12 @@ mod tests {
 
     /// Test that void-returning methods like register_ocr_backend are emitted as statements,
     /// not as variable assignments. The returns_void flag should prevent:
-    ///   var result = KreuzbergLib.RegisterOcrBackend(...);  // ❌ WRONG - CS0815 Cannot assign void
+    ///   var result = SampleCrateLib.RegisterOcrBackend(...);  // ❌ WRONG - CS0815 Cannot assign void
     /// And instead emit:
-    ///   KreuzbergLib.RegisterOcrBackend(...);  // ✓ CORRECT
+    ///   SampleCrateLib.RegisterOcrBackend(...);  // ✓ CORRECT
     #[test]
     fn test_void_returning_register_calls_emit_as_statements() {
-        // Create a call config with returns_void = true (as set in kreuzberg alef.toml)
+        // Create a call config with returns_void = true (as set in sample_crate alef.toml)
         let call_config = CallConfig {
             function: "register_ocr_backend".to_string(),
             returns_void: true,

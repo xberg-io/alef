@@ -475,7 +475,7 @@ fn emit_rust_stub_method(
                         // Collect the error type name for import tracking only when it is a
                         // simple identifier (no path separators).  Fully-qualified names like
                         // `anyhow::Error` are already usable as-is in the signature without
-                        // a `use` import; only bare names like `KreuzbergError` need one.
+                        // a `use` import; only bare names like `SampleCrateError` need one.
                         if !err.contains("::") {
                             type_imports.push(err.clone());
                         }

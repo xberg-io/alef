@@ -33,7 +33,7 @@ fn build_validation_config(language: &str) -> (alef::e2e::config::E2eConfig, ale
 languages = ["{language}"]
 
 [[crates]]
-name = "kreuzcrawl"
+name = "sample_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -42,7 +42,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "Kreuzcrawl"
+module = "SampleCrawler"
 result_var = "result"
 async = true
 returns_result = true
@@ -53,20 +53,20 @@ args = [
 ]
 
 [crates.e2e.call.overrides.ruby]
-module = "Kreuzcrawl"
+module = "SampleCrawler"
 
 [crates.e2e.call.overrides.php]
-module = "Kreuzcrawl"
+module = "SampleCrawler"
 
 [crates.e2e.call.overrides.csharp]
-class = "Kreuzcrawl"
+class = "SampleCrawler"
 
 [crates.e2e.call.overrides.elixir]
-module = "Kreuzcrawl"
+module = "SampleCrawler"
 returns_result = true
 
 [crates.e2e.call.overrides.go]
-import_alias = "kreuzcrawl"
+import_alias = "sample_crawler"
 "#,
     );
     let cfg: NewAlefConfig = toml::from_str(&toml_src).expect("config parses");

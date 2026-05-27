@@ -97,7 +97,7 @@ impl E2eCodegen for JavaCodegen {
         // JUnit Platform LauncherSessionListener that spawns the mock-server
         // before any test runs and a META-INF/services SPI manifest registering
         // it. Without this, every fixture-bound test failed with
-        // `LiterLlmRsException: error sending request for url` because
+        // `SampleLlmRsException: error sending request for url` because
         // `System.getenv("MOCK_SERVER_URL")` was null.
         let needs_mock_server = groups
             .iter()
@@ -1189,7 +1189,7 @@ fn render_test_method(
         .or_else(|| {
             // Borrow from any other backend's options_type. Prefer non-language-prefixed
             // names (csharp/c/go/php/python) over wasm or ruby which use prefixed types
-            // like `WasmCreateBatchRequest` or `LiterLlm::CreateBatchRequest`.
+            // like `WasmCreateBatchRequest` or `SampleLlm::CreateBatchRequest`.
             for cand in ["csharp", "c", "go", "php", "python"] {
                 if let Some(o) = call_config.overrides.get(cand) {
                     if let Some(t) = &o.options_type {
@@ -2346,7 +2346,7 @@ fn render_assertion(
     out.push_str(&rendered);
 }
 
-/// Build a Java call expression for a `method_result` assertion on a tree-sitter Tree.
+/// Build a Java call expression for a `method_result` assertion on a sample_language Tree.
 ///
 /// Maps method names to the appropriate Java static/instance method calls.
 fn build_java_method_call(
@@ -2849,22 +2849,22 @@ fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 }
 
 /// Map a TypeRef to its Java stub type with fully-qualified names.
-/// For opaque named types (Kreuzberg domain types), use `dev.kreuzberg.{TypeName}`.
+/// For opaque named types (SampleCrate domain types), use `dev.sample_crate.{TypeName}`.
 /// For Collections, use FQN for List/Map with qualified inner types.
 fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Named(name) => {
             // Qualify all named types (ExtractionResult, ProcessingStage, etc.)
-            // with the kreuzberg package to match the binding FFI interface.
-            format!("dev.kreuzberg.{}", name)
+            // with the sample_crate package to match the binding FFI interface.
+            format!("dev.sample_crate.{}", name)
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) => format!("dev.kreuzberg.{}", name),
+            TypeRef::Named(name) => format!("dev.sample_crate.{}", name),
             other => java_stub_type_fqn(other),
         },
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(name) => format!("java.util.List<dev.kreuzberg.{}>", name),
+            TypeRef::Named(name) => format!("java.util.List<dev.sample_crate.{}>", name),
             other => format!("java.util.List<{}>", java_stub_type_fqn(other)),
         },
         TypeRef::Map(k, v) => {
@@ -2918,7 +2918,7 @@ pub fn emit_test_backend(
     let class_name = format!("TestStub{pascal_id}");
     // Java interface follows the I{TraitName} convention from the Panama FFM bridge.
     // Use fully-qualified name to avoid "cannot find symbol" errors in test compilation.
-    let interface_name = format!("dev.kreuzberg.I{}", trait_bridge.trait_name);
+    let interface_name = format!("dev.sample_crate.I{}", trait_bridge.trait_name);
 
     let plugin_name = fixture
         .input
@@ -3037,7 +3037,7 @@ mod test_backend_tests {
     /// Verify that no sample_core-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
-    fn java_stub_contains_no_kreuzberg_domain_names() {
+    fn java_stub_contains_no_sample_crate_domain_names() {
         let bridge = make_trait_bridge("TestTrait");
         let required_method = make_method("process_item", true);
         let methods = [&required_method];
@@ -3048,23 +3048,23 @@ mod test_backend_tests {
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
-            !output.contains("Kreuzberg"),
-            "must not contain literal 'Kreuzberg', got:\n{output}"
+            !output.contains("SampleCrate"),
+            "must not contain literal 'SampleCrate', got:\n{output}"
         );
         assert!(
-            !output.contains("kreuzberg::"),
-            "must not contain 'kreuzberg::', got:\n{output}"
+            !output.contains("sample_crate::"),
+            "must not contain 'sample_crate::', got:\n{output}"
         );
         assert!(
-            !output.contains("KreuzbergBridge"),
-            "must not contain 'KreuzbergBridge', got:\n{output}"
+            !output.contains("SampleCrateBridge"),
+            "must not contain 'SampleCrateBridge', got:\n{output}"
         );
         assert!(
             output.contains("TestStubMyTestFixture"),
             "class name must be derived from fixture id, got:\n{output}"
         );
         assert!(
-            output.contains("implements dev.kreuzberg.ITestTrait"),
+            output.contains("implements dev.sample_crate.ITestTrait"),
             "class must implement fully-qualified interface, got:\n{output}"
         );
         assert!(
@@ -3073,11 +3073,11 @@ mod test_backend_tests {
         );
     }
 
-    /// Test that stub method signatures use fully-qualified names for Kreuzberg domain types.
+    /// Test that stub method signatures use fully-qualified names for SampleCrate domain types.
     #[test]
-    fn java_stub_method_uses_fqn_for_kreuzberg_types() {
+    fn java_stub_method_uses_fqn_for_sample_crate_types() {
         let bridge = make_trait_bridge("DocumentExtractor");
-        // Method returning a Kreuzberg domain type
+        // Method returning a SampleCrate domain type
         let method = MethodDef {
             name: "extract_bytes".to_string(),
             params: vec![],
@@ -3105,8 +3105,8 @@ mod test_backend_tests {
 
         // Should use FQN for ExtractionResult return
         assert!(
-            output.contains("public dev.kreuzberg.ExtractionResult extractBytes"),
-            "return type must use FQN dev.kreuzberg.ExtractionResult, got:\n{output}"
+            output.contains("public dev.sample_crate.ExtractionResult extractBytes"),
+            "return type must use FQN dev.sample_crate.ExtractionResult, got:\n{output}"
         );
     }
 }
@@ -3145,7 +3145,7 @@ mod tests {
             "batch_scrape".to_string(),
             CallConfig {
                 function: "batchScrape".to_string(),
-                module: "com.example.kreuzcrawl".to_string(),
+                module: "com.example.sample_crawler".to_string(),
                 select_when: Some(SelectWhen {
                     input_has: Some("batch_urls".to_string()),
                     ..Default::default()
@@ -3157,7 +3157,7 @@ mod tests {
         let e2e_config = E2eConfig {
             call: CallConfig {
                 function: "scrape".to_string(),
-                module: "com.example.kreuzcrawl".to_string(),
+                module: "com.example.sample_crawler".to_string(),
                 ..CallConfig::default()
             },
             calls,

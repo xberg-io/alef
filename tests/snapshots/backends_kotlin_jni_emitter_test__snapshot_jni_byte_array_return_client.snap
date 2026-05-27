@@ -14,7 +14,7 @@ expression: client_content
     "LongMethod",
 )
 
-package dev.kreuzberg
+package dev.sample_crate
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

@@ -36,7 +36,7 @@ pub struct MagnusBackend;
 /// Handles both kebab-case (`parser-language-pack`) and snake_case
 /// (`parser_language_pack`) inputs, since both are valid Cargo crate
 /// name styles. The previous implementation split only on `-`, producing
-/// `Tree_sitter_language_pack` for snake_case crates — which Rubocop
+/// `Sample_language_pack` for snake_case crates — which Rubocop
 /// rejects as `Naming/ClassAndModuleCamelCase`.
 fn get_module_name(crate_name: &str) -> String {
     use heck::ToUpperCamelCase;
@@ -377,7 +377,7 @@ impl Backend for MagnusBackend {
         }
 
         // Generate module-level wrapper functions for streaming adapters that have an owner type.
-        // These allow calling `Kreuzcrawl.crawl_stream(engine, request)` at module level,
+        // These allow calling `SampleCrawler.crawl_stream(engine, request)` at module level,
         // mirroring the pattern of non-streaming functions like `crawl`.
         for adapter in &streaming_adapters {
             builder.add_item(&streaming::gen_streaming_module_function(adapter));
@@ -385,7 +385,7 @@ impl Backend for MagnusBackend {
 
         // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects.
         // Pass the host crate's canonical error type/constructor so generated `impl Plugin`
-        // and `impl {Trait}` blocks match the trait signatures (e.g. `Result<T, KreuzbergError>`).
+        // and `impl {Trait}` blocks match the trait signatures (e.g. `Result<T, SampleCrateError>`).
         // Check if any trait has async methods and add async_trait import if needed.
         if !config.trait_bridges.is_empty() {
             let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
@@ -1123,7 +1123,7 @@ gem_name = "my_gem"
         // Add an enum to the API surface
         api.enums.push(EnumDef {
             name: "Status".to_string(),
-            rust_path: "html_to_markdown::Status".to_string(),
+            rust_path: "sample_markdown::Status".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {

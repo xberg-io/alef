@@ -210,16 +210,16 @@ fn make_synthetic_api() -> ApiSurface {
     }
 }
 
-fn emit_synthetic_kreuzberg(c: &mut Criterion) {
+fn emit_synthetic_sample(c: &mut Criterion) {
     let api = black_box(make_synthetic_api());
     let config = black_box(make_config());
 
-    c.bench_function("emit_synthetic_kreuzberg", |b| {
+    c.bench_function("emit_synthetic_sample", |b| {
         b.iter(|| {
             let _ = SwiftBackend.generate_bindings(&api, &config);
         })
     });
 }
 
-criterion_group!(benches, emit_synthetic_kreuzberg);
+criterion_group!(benches, emit_synthetic_sample);
 criterion_main!(benches);

@@ -1848,7 +1848,7 @@ mod tests {
             "missing generic cache prefix: {rendered}"
         );
         assert!(
-            !rendered.contains("tslp"),
+            !rendered.contains("sample_language_pack"),
             "TypeScript cache isolation setup must not contain downstream project names: {rendered}"
         );
     }

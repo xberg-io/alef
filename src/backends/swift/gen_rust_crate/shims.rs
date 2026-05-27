@@ -584,7 +584,7 @@ mod tests {
     fn function(params: Vec<ParamDef>) -> FunctionDef {
         FunctionDef {
             name: "interact".to_string(),
-            rust_path: "kreuzcrawl::interact".to_string(),
+            rust_path: "sample_crawler::interact".to_string(),
             original_rust_path: String::new(),
             params,
             return_type: TypeRef::Named("InteractionResult".to_string()),
@@ -609,7 +609,7 @@ mod tests {
             TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
         )]);
         let enum_names = HashSet::from(["PageAction"]);
-        let type_paths = HashMap::from([("PageAction".to_string(), "kreuzcrawl::PageAction".to_string())]);
+        let type_paths = HashMap::from([("PageAction".to_string(), "sample_crawler::PageAction".to_string())]);
         let no_serde_names = HashSet::new();
         let handle_returned_types = HashSet::new();
 
@@ -624,14 +624,14 @@ mod tests {
 
         let shim = emit_function_shim(
             &f,
-            "kreuzcrawl",
+            "sample_crawler",
             &type_paths,
             &enum_names,
             &no_serde_names,
             &handle_returned_types,
         );
         assert!(shim.contains("actions: Vec<String>"));
-        assert!(shim.contains("::serde_json::from_str::<kreuzcrawl::PageAction>"));
+        assert!(shim.contains("::serde_json::from_str::<sample_crawler::PageAction>"));
         assert!(!shim.contains(".0"));
     }
 
@@ -639,20 +639,20 @@ mod tests {
     fn direct_enum_params_bridge_as_json_strings() {
         let f = function(vec![param("action", TypeRef::Named("PageAction".to_string()))]);
         let enum_names = HashSet::from(["PageAction"]);
-        let type_paths = HashMap::from([("PageAction".to_string(), "kreuzcrawl::PageAction".to_string())]);
+        let type_paths = HashMap::from([("PageAction".to_string(), "sample_crawler::PageAction".to_string())]);
         let no_serde_names = HashSet::new();
         let handle_returned_types = HashSet::new();
 
         let shim = emit_function_shim(
             &f,
-            "kreuzcrawl",
+            "sample_crawler",
             &type_paths,
             &enum_names,
             &no_serde_names,
             &handle_returned_types,
         );
         assert!(shim.contains("action: String"));
-        assert!(shim.contains("::serde_json::from_str::<kreuzcrawl::PageAction>"));
+        assert!(shim.contains("::serde_json::from_str::<sample_crawler::PageAction>"));
         assert!(!shim.contains("unimplemented!"));
     }
 }

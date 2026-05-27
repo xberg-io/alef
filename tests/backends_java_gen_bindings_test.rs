@@ -1022,11 +1022,11 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
 fn test_output_path_no_doubling() {
     use std::path::PathBuf;
 
-    let package = "dev.kreuzberg";
+    let package = "dev.sample_crate";
     let package_path = package.replace('.', "/");
 
     // Case 1: User configured the full package path (should NOT append again)
-    let output_dir_1 = "packages/java/src/main/java/dev/kreuzberg/";
+    let output_dir_1 = "packages/java/src/main/java/dev/sample_crate/";
     let base_path_1 = if output_dir_1.ends_with(&package_path) || output_dir_1.ends_with(&format!("{}/", package_path))
     {
         PathBuf::from(&output_dir_1)
@@ -1035,7 +1035,7 @@ fn test_output_path_no_doubling() {
     };
     assert_eq!(
         base_path_1,
-        PathBuf::from("packages/java/src/main/java/dev/kreuzberg/"),
+        PathBuf::from("packages/java/src/main/java/dev/sample_crate/"),
         "Should not double the package path"
     );
 
@@ -1049,7 +1049,7 @@ fn test_output_path_no_doubling() {
     };
     assert_eq!(
         base_path_2,
-        PathBuf::from("packages/java/src/main/java/dev/kreuzberg"),
+        PathBuf::from("packages/java/src/main/java/dev/sample_crate"),
         "Should append package path when not already present"
     );
 }
@@ -1268,7 +1268,7 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
             rust_path: "test_lib::process".to_string(),
             original_rust_path: String::new(),
             // Rust signature: fn(*const u8, usize, *const c_char) -> i32
-            // This mimics kreuzberg_extract_bytes signature
+            // This mimics sample_crate_extract_bytes signature
             params: vec![
                 ParamDef {
                     name: "content".to_string(),
@@ -2260,7 +2260,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
 /// Regression: streaming method template uses fully-qualified `java.util.stream.Stream<T>` and
 /// `java.util.stream.StreamSupport.stream(...)` in the method body. Adding
 /// `import java.util.stream.Stream;` is therefore redundant and triggers Checkstyle's
-/// `UnusedImports` rule (observed in liter-llm DefaultClient.java:12 after regeneration).
+/// `UnusedImports` rule (observed in sample-llm DefaultClient.java:12 after regeneration).
 /// This test asserts the import is absent for opaque-handle classes that own streaming adapters.
 #[test]
 fn test_no_stream_import_emitted_for_streaming_opaque_handle() {
@@ -2478,7 +2478,7 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
 
 #[test]
 fn optional_named_method_body_wraps_via_optional_of() {
-    // Regression for tslp Node.parent() / Node.child() / Parser.parse():
+    // Regression for sample_language_pack Node.parent() / Node.child() / Parser.parse():
     // when an instance method on an opaque type returns `Optional<NamedDto>`,
     // the body must build the value through `Optional.of(STREAM_MAPPER...)`
     // — never return a bare NamedDto (which fails javac's type inference).

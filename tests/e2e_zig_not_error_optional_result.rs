@@ -47,7 +47,7 @@ fn config_toml() -> &'static str {
 languages = ["zig"]
 
 [[crates]]
-name = "tree_sitter_language_pack"
+name = "sample_language_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -56,13 +56,13 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "process"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 args = [{ name = "source", field = "source_code", type = "string" }]
 
 [crates.e2e.calls.detect_content]
 function = "detect_language_from_content"
-module = "tree_sitter_language_pack"
+module = "sample_language_pack"
 result_var = "result"
 result_is_simple = true
 result_is_option = true
@@ -118,7 +118,7 @@ fn not_error_alone_does_not_emit_not_null_check() {
         "not_error must NOT emit `expect(result != null)` for Optional result. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("_ = try tree_sitter_language_pack.detect_language_from_content("),
+        rendered.contains("_ = try sample_language_pack.detect_language_from_content("),
         "call must still be emitted and `try`-propagated. Rendered:\n{rendered}"
     );
 }

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
-        rust_path: format!("kreuzberg::{}", name),
+        rust_path: format!("sample_crate::{}", name),
         original_rust_path: String::new(),
         fields: vec![],
         methods,
@@ -74,7 +74,7 @@ fn test_swift_trait_bridge_vec_phantom_symbols() {
         // Test wrapper implementation emission
         let wrapper = emit_trait_bridge_wrapper(
             &trait_def,
-            "kreuzberg",
+            "sample_crate",
             &HashSet::new(),
             &HashSet::new(),
             &std::collections::HashMap::new(),
@@ -113,8 +113,8 @@ fn test_swift_trait_bridge_vec_phantom_symbols() {
 
 #[test]
 fn test_swift_renderer_trait_bridge_vec_symbols_specifically() {
-    // Specific regression test for kreuzberg Renderer trait bridge
-    // (reported as kreuzberg v5.0.0-rc.3 CI failure: missing Vec_RendererBox symbols)
+    // Specific regression test for sample_crate Renderer trait bridge
+    // (reported as sample_crate v5.0.0-rc.3 CI failure: missing Vec_RendererBox symbols)
 
     let renderer_trait = make_trait_def("Renderer", vec![make_method("render", TypeRef::String, false)]);
 
@@ -123,7 +123,7 @@ fn test_swift_renderer_trait_bridge_vec_symbols_specifically() {
     let extern_block = emit_extern_block_for_trait_bridge(&renderer_trait, &visible_types);
     let wrapper = emit_trait_bridge_wrapper(
         &renderer_trait,
-        "kreuzberg",
+        "sample_crate",
         &HashSet::new(),
         &HashSet::new(),
         &std::collections::HashMap::new(),

@@ -1583,7 +1583,7 @@ mod tests {
             "DocumentExtractor",
             "process_image",
             "extract_bytes",
-            "kreuzberg",
+            "sample_crate",
         ] {
             assert!(
                 !emission.setup_block.contains(name),

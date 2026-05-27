@@ -86,7 +86,7 @@ name = "test-lib"
 sources = ["src/lib.rs"]
 
 [crates.php]
-extension_name = "html_to_markdown_rs"
+extension_name = "sample_markdown_rs"
 "#,
         );
         assert_eq!(php_autoload_namespace(&r), "Html\\To\\Markdown\\Rs");
@@ -100,14 +100,14 @@ extension_name = "html_to_markdown_rs"
 languages = ["php"]
 
 [[crates]]
-name = "html-to-markdown"
+name = "sample-markdown"
 sources = ["src/lib.rs"]
 
 [crates.php]
-extension_name = "html_to_markdown_rs"
-namespace = "HtmlToMarkdown"
+extension_name = "sample_markdown_rs"
+namespace = "SampleMarkdown"
 "#,
         );
-        assert_eq!(php_autoload_namespace(&r), "HtmlToMarkdown");
+        assert_eq!(php_autoload_namespace(&r), "SampleMarkdown");
     }
 }

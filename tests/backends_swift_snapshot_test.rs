@@ -448,7 +448,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
 
 #[test]
 fn snapshot_trait_bridge_inbound() {
-    // Simulates a kreuzberg-style plugin trait with a Plugin super-trait, async fallible
+    // Simulates a sample_crate-style plugin trait with a Plugin super-trait, async fallible
     // method using a Named param/return, plus a sync method returning a primitive.
     // Verifies the inbound (extern "Swift") code path: extern block, wrapper struct,
     // Plugin impl, Trait impl, and register/unregister entry points.
@@ -756,7 +756,7 @@ fn snapshot_tuple_field_as_vec() {
 ///
 /// This locks down the public shape of the streaming codepath. Changes to the
 /// emitted Rust shim or Swift wrapper require a deliberate snapshot review —
-/// not a blanket accept — because downstream consumers (kreuzcrawl, liter-llm)
+/// not a blanket accept — because downstream consumers (sample_crawler, sample-llm)
 /// depend on the exact Swift surface for their hand-written facade layer.
 #[test]
 fn snapshot_streaming_adapter() {
@@ -1093,7 +1093,7 @@ options_type = "ConversionOptions"
 /// Verifies that `intoRust()` on a primitive-only first-class struct emits a direct
 /// `RustBridge.{Type}(...)` bulk constructor call rather than the JSON roundtrip.
 ///
-/// Span is the canonical PoC case from tslp: all fields are `usize` (Swift `UInt`),
+/// Span is the canonical PoC case from sample_language_pack: all fields are `usize` (Swift `UInt`),
 /// type has a `Default` impl, so the swift-bridge `#[swift_bridge(init)] fn new(...)`
 /// extern is emitted and the host wrapper can call it directly.
 #[test]

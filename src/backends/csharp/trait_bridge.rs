@@ -606,7 +606,7 @@ mod tests {
     fn make_trait_def(name: &str) -> TypeDef {
         TypeDef {
             name: name.to_string(),
-            rust_path: format!("kreuzberg::{}", name),
+            rust_path: format!("sample_crate::{}", name),
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
@@ -656,7 +656,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public interface IOcrBackend"));
         assert!(content.contains("string Name { get; }"));
@@ -671,7 +671,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public interface IOcrBackend"));
         assert!(!content.contains("string Name { get; }"));
@@ -683,7 +683,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
     }
@@ -696,7 +696,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
@@ -713,7 +713,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
@@ -728,7 +728,7 @@ mod tests {
         bridge_cfg.exclude_languages = vec!["csharp".to_string()];
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(!content.contains("interface IOcrBackend"));
         assert!(!content.contains("class OcrBackendBridge"));
@@ -741,13 +741,13 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("RegisterOcrBackend"));
         assert!(!content.contains("UnregisterOcrBackend"));
         assert!(content.contains("[DllImport"));
-        assert!(content.contains("kreuzberg_register_ocr_backend"));
-        assert!(!content.contains("kreuzberg_unregister_ocr_backend"));
+        assert!(content.contains("sample_crate_register_ocr_backend"));
+        assert!(!content.contains("sample_crate_unregister_ocr_backend"));
     }
 
     #[test]
@@ -757,17 +757,17 @@ mod tests {
         // not from the alias values.
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        bridge_cfg.register_fn = Some("kreuzberg_register_ocr_backend".to_string());
-        bridge_cfg.unregister_fn = Some("kreuzberg_unregister_ocr_backend".to_string());
+        bridge_cfg.register_fn = Some("sample_crate_register_ocr_backend".to_string());
+        bridge_cfg.unregister_fn = Some("sample_crate_unregister_ocr_backend".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("RegisterOcrBackend"));
         assert!(content.contains("UnregisterOcrBackend"));
         assert!(content.contains("[DllImport"));
-        assert!(content.contains("kreuzberg_register_ocr_backend"));
-        assert!(content.contains("kreuzberg_unregister_ocr_backend"));
+        assert!(content.contains("sample_crate_register_ocr_backend"));
+        assert!(content.contains("sample_crate_unregister_ocr_backend"));
     }
 
     #[test]
@@ -783,15 +783,15 @@ mod tests {
         bridge_cfg.clear_fn = Some("clear_renderers".to_string());
         let bridges = vec![("Renderer".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["Renderer"].into_iter().collect();
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("EntryPoint = \"kreuzberg_register_renderer\""));
-        assert!(content.contains("EntryPoint = \"kreuzberg_unregister_renderer\""));
-        assert!(content.contains("EntryPoint = \"kreuzberg_clear_renderer\""));
+        assert!(content.contains("EntryPoint = \"sample_crate_register_renderer\""));
+        assert!(content.contains("EntryPoint = \"sample_crate_unregister_renderer\""));
+        assert!(content.contains("EntryPoint = \"sample_crate_clear_renderer\""));
         assert!(!content.contains("EntryPoint = \"register_renderer\""));
         assert!(!content.contains("EntryPoint = \"unregister_renderer\""));
         assert!(!content.contains("EntryPoint = \"clear_renderers\""));
-        assert!(!content.contains("kreuzberg_clear_renderers"));
+        assert!(!content.contains("sample_crate_clear_renderers"));
     }
 
     #[test]
@@ -805,10 +805,10 @@ mod tests {
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("EntryPoint = \"kreuzberg_clear_ocr_backend\""));
-        assert!(!content.contains("kreuzberg_clear_ocr_backends"));
+        assert!(content.contains("EntryPoint = \"sample_crate_clear_ocr_backend\""));
+        assert!(!content.contains("sample_crate_clear_ocr_backends"));
         assert!(!content.contains("EntryPoint = \"clear_ocr_backends\""));
         assert!(content.contains("ClearOcrBackend("));
     }
@@ -819,9 +819,9 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let content = gen_native_methods_trait_bridges("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(!content.contains("kreuzberg_clear_ocr_backend"));
+        assert!(!content.contains("sample_crate_clear_ocr_backend"));
         assert!(!content.contains("ClearOcrBackend("));
     }
 
@@ -833,7 +833,7 @@ mod tests {
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public static void Clear()"));
         assert!(content.contains("NativeMethods.ClearOcrBackend(out var outError)"));
@@ -846,7 +846,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(!content.contains("NativeMethods.ClearOcrBackend("));
     }
@@ -856,10 +856,10 @@ mod tests {
         // When unregister_fn is set, the registry class should contain an Unregister method.
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        bridge_cfg.unregister_fn = Some("kreuzberg_unregister_ocr_backend".to_string());
+        bridge_cfg.unregister_fn = Some("sample_crate_unregister_ocr_backend".to_string());
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(content.contains("public static void Unregister(string name)"));
@@ -873,7 +873,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(!content.contains("public static void Unregister(string name)"));
@@ -887,7 +887,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
@@ -902,7 +902,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
-        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));

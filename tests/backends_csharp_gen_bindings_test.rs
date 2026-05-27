@@ -12,11 +12,11 @@ fn test_basic_generation() {
 
     // Create test API surface
     let api = ApiSurface {
-        crate_name: "kreuzberg".to_string(),
+        crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
             name: "Config".to_string(),
-            rust_path: "kreuzberg::Config".to_string(),
+            rust_path: "sample_crate::Config".to_string(),
             original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
@@ -78,7 +78,7 @@ fn test_basic_generation() {
         }],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
-            rust_path: "kreuzberg::extract_file_sync".to_string(),
+            rust_path: "sample_crate::extract_file_sync".to_string(),
             original_rust_path: String::new(),
             params: vec![
                 ParamDef {
@@ -125,7 +125,7 @@ fn test_basic_generation() {
         }],
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
-            rust_path: "kreuzberg::OcrBackend".to_string(),
+            rust_path: "sample_crate::OcrBackend".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
@@ -163,7 +163,7 @@ fn test_basic_generation() {
     };
 
     // Create test config
-    let config = make_config("kreuzberg", Some("Kreuzberg"), true);
+    let config = make_config("sample_crate", Some("SampleCrate"), true);
 
     // Generate bindings
     let result = backend.generate_bindings(&api, &config);
@@ -181,11 +181,11 @@ fn test_basic_generation() {
         "Should generate NativeMethods.cs"
     );
     assert!(
-        file_names.iter().any(|f| f.contains("KreuzbergException.cs")),
+        file_names.iter().any(|f| f.contains("SampleCrateException.cs")),
         "Should generate exception class"
     );
     assert!(
-        file_names.iter().any(|f| f.contains("KreuzbergLib.cs")),
+        file_names.iter().any(|f| f.contains("SampleCrateLib.cs")),
         "Should generate wrapper class"
     );
     assert!(
@@ -208,16 +208,16 @@ fn test_basic_generation() {
         "Should define NativeMethods class"
     );
     assert!(
-        native_methods.content.contains("kreuzberg_ffi"),
-        "Should reference kreuzberg_ffi library"
+        native_methods.content.contains("sample_crate_ffi"),
+        "Should reference sample_crate_ffi library"
     );
 
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("KreuzbergLib.cs"))
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateLib.cs"))
         .unwrap();
     assert!(
-        wrapper.content.contains("public static class KreuzbergLib"),
+        wrapper.content.contains("public static class SampleCrateLib"),
         "Should define wrapper class"
     );
     assert!(
@@ -762,7 +762,7 @@ fn test_error_helper_preserves_base_error_acronym_class_name() {
     assert!(!wrapper.content.contains("GraphQlErrorException"));
 }
 
-/// Regression test for the GraphQLErrorException case in spikard: rustdoc with
+/// Regression test for the GraphQLErrorException case in sample_router: rustdoc with
 /// `# Examples`, ```ignore code fence, `Self::error_code`, `Result<T, E>` and
 /// intra-doc links must not leak verbatim into the generated `<summary>` element.
 /// Without sanitisation Roslyn rejected the result with CS1002/CS1519 errors.
@@ -795,7 +795,7 @@ fn test_error_class_doc_strips_rust_idioms_and_sections() {
                     Public alias for codes returned by [`Self::error_code`].\n\n\
                     # Examples\n\n\
                     ```ignore\n\
-                    use spikard_graphql::error::GraphQLError;\n\
+                    use sample_router_graphql::error::GraphQLError;\n\
                     let error = GraphQLError::AuthenticationError(\"x\".to_string());\n\
                     assert_eq!(error.status_code(), 401);\n\
                     ```\n"
@@ -1266,7 +1266,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
 
 /// Regression: when two thiserror enums in the same crate declare variants with
 /// the same name (e.g. `GraphQLError::ValidationError` and
-/// `SchemaError::ValidationError` in spikard), the C# backend used to emit two
+/// `SchemaError::ValidationError` in sample_router), the C# backend used to emit two
 /// `GeneratedFile` entries sharing the same path
 /// (`{VariantName}Exception.cs`). The downstream `write_files` step processes
 /// the file list with `rayon::par_iter`, so the two payloads racily overwrite
@@ -1288,10 +1288,10 @@ fn test_mixed_struct_skips_tuple_fields_only() {
 #[test]
 fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
     let backend = CsharpBackend;
-    let config = make_config("spikard", Some("Spikard"), true);
+    let config = make_config("sample_router", Some("SampleRouter"), true);
 
     // Two error enums, each declaring a `ValidationError` variant — the exact
-    // pattern from spikard that produced the corruption.
+    // pattern from sample_router that produced the corruption.
     let make_variant = |name: &str, doc: &str, is_unit: bool| ErrorVariant {
         name: name.to_string(),
         message_template: Some(format!("{}: {{0}}", name.to_lowercase())),
@@ -1303,7 +1303,7 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
     };
 
     let api = ApiSurface {
-        crate_name: "spikard".to_string(),
+        crate_name: "sample_router".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![],
@@ -1311,7 +1311,7 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
         errors: vec![
             ErrorDef {
                 name: "GraphQLError".to_string(),
-                rust_path: "spikard::GraphQLError".to_string(),
+                rust_path: "sample_router::GraphQLError".to_string(),
                 original_rust_path: String::new(),
                 // Longer doc on GraphQL side — produces a longer payload than
                 // the SchemaError side, exposing the truncate-race.
@@ -1334,7 +1334,7 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
             },
             ErrorDef {
                 name: "SchemaError".to_string(),
-                rust_path: "spikard::SchemaError".to_string(),
+                rust_path: "sample_router::SchemaError".to_string(),
                 original_rust_path: String::new(),
                 // Shorter doc on SchemaError side — would corrupt the longer
                 // GraphQL-side file if both were written to the same path.
@@ -1412,8 +1412,8 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
 
 /// Helper: build a ResolvedCrateConfig for C# binding tests.
 ///
-/// - `crate_name`: the crate name (e.g. `"test"`, `"kreuzberg"`)
-/// - `namespace`: optional C# namespace override (e.g. `Some("Kreuzberg")`)
+/// - `crate_name`: the crate name (e.g. `"test"`, `"sample_crate"`)
+/// - `namespace`: optional C# namespace override (e.g. `Some("SampleCrate")`)
 /// - `with_ffi`: whether to include FFI config (sets `ffi.prefix = crate_name`)
 fn make_config(crate_name: &str, namespace: Option<&str>, with_ffi: bool) -> ResolvedCrateConfig {
     let ns_line = match namespace {
@@ -1731,12 +1731,12 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
-        crate_name: "kreuzberg".to_string(),
+        crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![FunctionDef {
             name: "process_image".to_string(),
-            rust_path: "kreuzberg::process_image".to_string(),
+            rust_path: "sample_crate::process_image".to_string(),
             original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "data".to_string(),
@@ -1754,7 +1754,7 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
             }],
             return_type: TypeRef::Bytes,
             is_async: false,
-            error_type: Some("KreuzbergError".to_string()),
+            error_type: Some("SampleCrateError".to_string()),
             doc: String::new(),
             cfg: None,
             sanitized: false,
@@ -1773,7 +1773,7 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         handler_contracts: vec![],
     };
 
-    let config = make_config("kreuzberg", Some("Kreuzberg"), true);
+    let config = make_config("sample_crate", Some("SampleCrate"), true);
     let files = backend
         .generate_bindings(&api, &config)
         .expect("generation must succeed");
@@ -1820,8 +1820,8 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
 
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("KreuzbergLib.cs"))
-        .expect("KreuzbergLib.cs must be generated");
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateLib.cs"))
+        .expect("SampleCrateLib.cs must be generated");
 
     // Wrapper: return type must be byte[].
     assert!(
@@ -3219,7 +3219,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
         .iter()
         .find(|f| {
             let path_str = f.path.to_string_lossy();
-            path_str.ends_with("KreuzbergLib.cs")
+            path_str.ends_with("SampleCrateLib.cs")
                 || (path_str.ends_with(".cs") && f.content.contains("public static void Clear"))
         })
         .unwrap_or_else(|| {

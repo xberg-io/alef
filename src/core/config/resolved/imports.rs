@@ -13,7 +13,7 @@ impl ResolvedCrateConfig {
         self.core_import.clone().unwrap_or_else(|| self.name.replace('-', "_"))
     }
 
-    /// Get the crate error type name (e.g., `"KreuzbergError"`).
+    /// Get the crate error type name (e.g., `"SampleCrateError"`).
     ///
     /// Returns `[crate] error_type` if set, otherwise `"Error"`.
     pub fn error_type_name(&self) -> String {

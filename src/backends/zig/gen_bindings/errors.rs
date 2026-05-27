@@ -53,7 +53,7 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
     out.push_str("};\n");
 }
 
-/// Map a Rust error_type (e.g. `"anyhow::Error"`, `"KreuzbergError"`) to a
+/// Map a Rust error_type (e.g. `"anyhow::Error"`, `"SampleCrateError"`) to a
 /// Zig error-set identifier. If the path's last segment matches a declared
 /// error set, use it; otherwise fall back to the first declared error set
 /// (the project's main error type).

@@ -1,6 +1,6 @@
 //! Verifies the Swift e2e codegen emits client-object instantiation when
 //! `CallOverride.client_factory` is set, and falls back to free-function calls
-//! when it is absent (kreuzberg flat-function style unchanged).
+//! when it is absent (sample_crate flat-function style unchanged).
 //!
 //! Also verifies that `render_package_swift` always emits `.iOS(...)` alongside
 //! `.macOS(...)`, regardless of `client_factory` presence.
@@ -83,7 +83,7 @@ const BASE_TOML: &str = r#"
 languages = ["swift"]
 
 [[crates]]
-name = "liter-llm"
+name = "sample-llm"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -92,7 +92,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "liter_llm"
+module = "sample_llm"
 result_var = "result"
 async = true
 
@@ -142,7 +142,7 @@ options_via = "from_json"
 }
 
 /// When `client_factory` is absent, the generator must emit a free-function call.
-/// This ensures no regression for kreuzberg's flat-function swift binding.
+/// This ensures no regression for sample_crate's flat-function swift binding.
 #[test]
 fn without_client_factory_emits_free_function_call() {
     let toml = format!(
@@ -155,7 +155,7 @@ options_via = "from_json"
     let rendered = smoke_test_content(&files);
 
     assert!(
-        rendered.contains("try await LiterLlm.chat("),
+        rendered.contains("try await SampleLlm.chat("),
         "must call module-qualified free function chat directly. Rendered:\n{rendered}"
     );
     assert!(
@@ -213,7 +213,7 @@ options_via = "from_json"
 /// the dep (both at directories named `swift/`), the e2e package is emitted
 /// under `swift_e2e/`, and the dep is referenced by `.package(path:)` (no
 /// `name:`) with `.product(package: "<basename>")`. Regression test for the
-/// kreuzberg `packages/swift` case where consumer at `e2e/swift/` previously
+/// sample_crate `packages/swift` case where consumer at `e2e/swift/` previously
 /// collided with the dep at `packages/swift/`.
 #[test]
 fn package_swift_uses_path_basename_for_product_package_ref() {
@@ -249,7 +249,7 @@ options_via = "from_json"
     // The dep must be referenced by path basename in `.product(package:)`.
     // The default BASE_TOML uses path `../../packages/swift`, basename `swift`.
     assert!(
-        pkg.contains(r#".product(name: "LiterLlm", package: "swift")"#),
+        pkg.contains(r#".product(name: "SampleLlm", package: "swift")"#),
         "Package.swift must reference the dep by path basename `swift`. Content:\n{pkg}"
     );
     assert!(

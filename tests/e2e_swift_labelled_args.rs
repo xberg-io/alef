@@ -2,7 +2,7 @@
 //!
 //! The Swift backend must emit labelled arguments in free-function calls to match
 //! the high-level binding signatures. For example:
-//!   try TreeSitterLanguagePack.process(source: "x", config: configObj)
+//!   try SampleLanguagePack.process(source: "x", config: configObj)
 //! not:
 //!   try process("x", configObj)
 
@@ -17,7 +17,7 @@ fn build_swift_config() -> (alef::e2e::config::E2eConfig, alef::core::config::Re
 languages = ["swift"]
 
 [[crates]]
-name = "TreeSitterLanguagePack"
+name = "SampleLanguagePack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -26,7 +26,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "process"
-module = "TreeSitterLanguagePack"
+module = "SampleLanguagePack"
 result_var = "result"
 async = false
 args = [
@@ -35,7 +35,7 @@ args = [
 ]
 
 [crates.e2e.package.swift]
-name = "TreeSitterLanguagePack"
+name = "SampleLanguagePack"
 "#;
     let cfg: NewAlefConfig = toml::from_str(toml_src).expect("config parses");
     let e2e = cfg.crates[0].e2e.clone().unwrap();
@@ -101,10 +101,10 @@ fn swift_emits_labelled_arguments_on_free_function_calls() {
 
     // Verify it's not using bare positional args (this is a regression test
     // for the bug where no labels were emitted at all).
-    // The old incorrect pattern would be: try TreeSitterLanguagePack.process("..."
-    // The correct pattern should be: try TreeSitterLanguagePack.process(source: "..."
+    // The old incorrect pattern would be: try SampleLanguagePack.process("..."
+    // The correct pattern should be: try SampleLanguagePack.process(source: "..."
     let has_qualified_source_label =
-        content.contains("source:") && !content.contains("try TreeSitterLanguagePack.process(\"");
+        content.contains("source:") && !content.contains("try SampleLanguagePack.process(\"");
     assert!(
         has_qualified_source_label,
         "Swift call must qualify free-function with module name and use argument labels"
@@ -118,7 +118,7 @@ fn swift_qualifies_free_function_calls_with_module_name() {
 languages = ["swift"]
 
 [[crates]]
-name = "TreeSitterLanguagePack"
+name = "SampleLanguagePack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -127,13 +127,13 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "languageCount"
-module = "TreeSitterLanguagePack"
+module = "SampleLanguagePack"
 result_var = "result"
 async = false
 args = []
 
 [crates.e2e.package.swift]
-name = "TreeSitterLanguagePack"
+name = "SampleLanguagePack"
 "#;
     let cfg: NewAlefConfig = toml::from_str(toml_src).expect("config parses");
     let e2e = cfg.crates[0].e2e.clone().unwrap();
@@ -182,10 +182,10 @@ name = "TreeSitterLanguagePack"
     let content = &test_file.content;
 
     // The call must be module-qualified to resolve ambiguity between
-    // the high-level TreeSitterLanguagePack.languageCount() and
+    // the high-level SampleLanguagePack.languageCount() and
     // the swift-bridge RustBridge.languageCount().
     assert!(
-        content.contains("TreeSitterLanguagePack.languageCount()"),
+        content.contains("SampleLanguagePack.languageCount()"),
         "Swift free-function call must be qualified with module name. Generated code:\n{content}"
     );
 }

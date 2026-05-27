@@ -5,7 +5,7 @@
 //! 2. `object {TraitName}Bridge` — registration/unregistration wrapper that:
 //!    - Stores registered impls in a static map
 //!    - Calls native JNI methods for registration/unregistration
-//!    - Throws KreuzbergException on failure
+//!    - Throws SampleCrateException on failure
 
 use crate::backends::kotlin_android::naming::bridge_object_name;
 use crate::core::config::TraitBridgeConfig;
@@ -166,7 +166,7 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(content.contains("object OcrBackendBridge"));
@@ -182,7 +182,7 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.super_trait = None;
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(content.contains("object OcrBackendBridge"));
@@ -196,7 +196,7 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(content.contains("fun unregister(name: String): Unit"));
@@ -209,7 +209,7 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(content.contains("fun clearAll(): Unit"));
@@ -223,7 +223,7 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         bridge_cfg.unregister_fn = None;
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(!content.contains("fun unregister"));
@@ -235,7 +235,7 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         bridge_cfg.clear_fn = None;
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(!content.contains("fun clearAll"));
@@ -246,7 +246,7 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         let (_filename, content) =
-            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+            gen_trait_bridge_object("dev.sample_crate", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
                 .expect("should generate bridge");
 
         assert!(content.contains("fun getAll(): Map<String, IOcrBackend>"));

@@ -196,7 +196,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
 ///
 /// When `php_namespace` is provided, a separate `#[php(name = "Namespace\\ClassName")]` attribute
 /// is generated alongside the plain `#[php_class]` so that ext-php-rs 0.15+ registers the class
-/// in the correct PHP namespace (e.g. `Kreuzcrawl\CrawlConfig` instead of global `CrawlConfig`).
+/// in the correct PHP namespace (e.g. `SampleCrawler\CrawlConfig` instead of global `CrawlConfig`).
 /// Note: `#[php_class(name = "...")]` was removed in ext-php-rs 0.15; the two-attribute form is required.
 pub(crate) fn gen_php_struct(
     typ: &TypeDef,

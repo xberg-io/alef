@@ -45,7 +45,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Build Rust JNI library (release)
-        run: cargo build --release -p liter-llm-jni 2>/dev/null || echo "JNI crate not present in this repo; skipping"
+        run: cargo build --release -p sample-llm-jni 2>/dev/null || echo "JNI crate not present in this repo; skipping"
 
       - name: Generate e2e Android test sources
         run: cargo run -p alef -- generate --lang kotlin_android 2>/dev/null || echo "codegen step skipped"

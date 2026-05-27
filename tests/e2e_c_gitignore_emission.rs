@@ -17,7 +17,7 @@ fn build_config() -> NewAlefConfig {
 languages = ["ffi"]
 
 [[crates]]
-name = "html-to-markdown-rs"
+name = "sample-markdown-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
@@ -36,7 +36,7 @@ args = [
 ]
 
 [crates.e2e.call.overrides.c]
-header = "html_to_markdown.h"
+header = "sample_markdown.h"
 function = "htm_convert"
 prefix = "htm"
 "#;

@@ -1,5 +1,5 @@
 //! Regression tests for three Swift e2e codegen bugs surfaced by
-//! tree-sitter-language-pack against alef 0.17.15:
+//! sample-language-pack against alef 0.17.15:
 //!
 //! 1. Scalar field accessors on a chain that crosses an opaque (`type X;` in
 //!    swift-bridge, emitted as `typealias X = RustBridge.X`) parent must keep
@@ -36,7 +36,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["swift"]
 
 [[crates]]
-name = "ts_pack"
+name = "sample_pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -46,11 +46,11 @@ fields_array = ["structure"]
 
 [crates.e2e.call]
 function = "process"
-module = "ts_pack"
+module = "sample_pack"
 result_var = "result"
 
 # `result_type` on the (otherwise unused) `c` override gives the renderer a
-# stable IR root for type-aware dispatch — matches what tslp does in alef.toml.
+# stable IR root for type-aware dispatch — matches what sample_language_pack does in alef.toml.
 [crates.e2e.call.overrides.c]
 result_type = "ProcessResult"
 
@@ -86,7 +86,7 @@ fn make_field(name: &str, ty: TypeRef) -> FieldDef {
 fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
-        rust_path: format!("ts_pack::{name}"),
+        rust_path: format!("sample_pack::{name}"),
         original_rust_path: String::new(),
         fields,
         methods: vec![],
@@ -107,7 +107,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
     }
 }
 
-/// Build IR mirroring tslp's opaque `ProcessResult` whose `metrics` field
+/// Build IR mirroring sample_language_pack's opaque `ProcessResult` whose `metrics` field
 /// holds a first-class-eligible `FileMetrics` (all `usize` primitives).
 ///
 /// `ProcessResult` itself is forced opaque-by-emission because its
@@ -133,7 +133,7 @@ fn process_result_ir() -> Vec<TypeDef> {
         ),
         // StructureItem has a Named field that never lands in the known_dto_names
         // set, keeping StructureItem (and therefore ProcessResult) out of the
-        // first-class set. This mirrors the real tslp shape where StructureItem
+        // first-class set. This mirrors the real sample_language_pack shape where StructureItem
         // holds a `kind: StructureKind` (non-unit enum).
         make_type(
             "StructureItem",

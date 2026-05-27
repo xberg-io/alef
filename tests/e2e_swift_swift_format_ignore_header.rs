@@ -7,7 +7,7 @@
 //! `alef verify --exit-code` and breaking CI.
 //!
 //! Mirrors the same pattern in `alef-backend-swift`, where
-//! `HtmlToMarkdown.swift` already carries the directive.
+//! `SampleMarkdown.swift` already carries the directive.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -59,7 +59,7 @@ const BASE_TOML: &str = r#"
 languages = ["swift"]
 
 [[crates]]
-name = "tree-sitter-language-pack"
+name = "sample-language-pack"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -85,7 +85,7 @@ fn swift_sources(files: &[alef::core::backend::GeneratedFile]) -> Vec<&alef::cor
         .filter(|f| {
             let path = f.path.to_string_lossy();
             // Exclude Package.swift — SwiftPM manifests are not matched by
-            // typical `swift-format` hook regexes (the html-to-markdown hook
+            // typical `swift-format` hook regexes (the sample-markdown hook
             // is scoped to `packages/swift/.*\.swift$`, not e2e) and don't
             // need the ignore directive; only Test sources do.
             path.ends_with(".swift") && !path.ends_with("Package.swift")

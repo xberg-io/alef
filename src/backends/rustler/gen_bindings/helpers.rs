@@ -638,7 +638,7 @@ pub(super) fn gen_elixir_struct_module(
 ///
 /// The native NIF returns the opaque type as a Rustler resource (passed as
 /// `reference()` to Elixir). This wrapper wraps the reference in a struct
-/// (`%TreeSitterLanguagePack.Parser{ref: ...}`) and exposes the type's
+/// (`%SampleLanguagePack.Parser{ref: ...}`) and exposes the type's
 /// methods as functions that delegate to the corresponding NIF
 /// (`{type_lower}_{method_name}`) provided by `{AppModule}.Native`.
 ///
@@ -1615,7 +1615,7 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
-        let result = gen_elixir_enum_module(&format_enum, "Kreuzberg");
+        let result = gen_elixir_enum_module(&format_enum, "SampleCrate");
 
         // Should emit @type pdf with metadata field (not value_0) and concrete type (not term())
         assert!(
@@ -1698,7 +1698,7 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
-        let result = gen_elixir_enum_module(&image_source_enum, "Kreuzcrawl");
+        let result = gen_elixir_enum_module(&image_source_enum, "SampleCrawler");
 
         // @type should contain quoted atoms for special chars
         assert!(
@@ -1815,12 +1815,12 @@ mod tests {
         let mut known_types = AHashSet::new();
         known_types.insert("PdfMetadata".to_string());
 
-        let result = gen_elixir_enum_module_with_known_types(&format_enum, "Kreuzberg", &known_types);
+        let result = gen_elixir_enum_module_with_known_types(&format_enum, "SampleCrate", &known_types);
 
         // Known type should resolve to module.t()
         assert!(
-            result.contains("Kreuzberg.PdfMetadata.t()"),
-            "should resolve PdfMetadata to Kreuzberg.PdfMetadata.t(); got:\n{result}"
+            result.contains("SampleCrate.PdfMetadata.t()"),
+            "should resolve PdfMetadata to SampleCrate.PdfMetadata.t(); got:\n{result}"
         );
 
         // Unknown type should fall back to map()

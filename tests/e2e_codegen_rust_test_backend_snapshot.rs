@@ -81,7 +81,7 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         ..Default::default()
     };
 
-    // async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ExtractionResult, KreuzbergError>
+    // async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ExtractionResult, SampleCrateError>
     let extract = make_method(
         "extract",
         vec![
@@ -90,7 +90,7 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         ],
         TypeRef::Named("ExtractionResult".to_string()),
         true,
-        Some("KreuzbergError"),
+        Some("SampleCrateError"),
         false,
     );
 
@@ -125,10 +125,10 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         "type_imports must include ExtractionResult, got: {:?}",
         emission.type_imports
     );
-    // KreuzbergError is the error type — it must be imported too.
+    // SampleCrateError is the error type — it must be imported too.
     assert!(
-        emission.type_imports.contains(&"KreuzbergError".to_string()),
-        "type_imports must include KreuzbergError, got: {:?}",
+        emission.type_imports.contains(&"SampleCrateError".to_string()),
+        "type_imports must include SampleCrateError, got: {:?}",
         emission.type_imports
     );
     // Std types that are always in scope must not appear.

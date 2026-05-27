@@ -1824,7 +1824,7 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
 
 /// Regression test: tagged data enums with tuple variants holding distinct inner types
 /// must produce per-variant flat field names, not a shared `_0` field that collapses all
-/// variant types to the first one.  Mirrors the `Message` enum in liter-llm:
+/// variant types to the first one.  Mirrors the `Message` enum in sample-llm:
 ///   System(SystemMessage), User(UserMessage), Assistant(AssistantMessage)
 /// The flat struct must have distinct fields `system`, `user`, `assistant` (not `_0`).
 /// The From impls must reference those per-variant field names.
@@ -2854,7 +2854,7 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
             return_type: TypeRef::String,
             error_type: None,
             is_async: false,
-            doc: "Convert HTML to Markdown, returning a result.\n\n# Arguments\n\n* `html` - The HTML string to convert.\n\n# Example\n\n```rust\nuse test_lib::convert;\nlet result = convert(html, None).unwrap();\n```"
+            doc: "Convert markup conversion, returning a result.\n\n# Arguments\n\n* `html` - The HTML string to convert.\n\n# Example\n\n```rust\nuse test_lib::convert;\nlet result = convert(html, None).unwrap();\n```"
                 .to_string(),
             cfg: None,
             sanitized: false,
@@ -2888,7 +2888,7 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
 
     // Verify summary IS present
     assert!(
-        content.contains("Convert HTML to Markdown"),
+        content.contains("Convert markup conversion"),
         "Summary must be preserved in PHPDoc"
     );
 

@@ -21,7 +21,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["zig"]
 
 [[crates]]
-name = "kreuzcrawl"
+name = "sample_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -30,7 +30,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "kreuzcrawl"
+module = "sample_crawler"
 result_var = "result"
 async = false
 returns_result = true
@@ -39,12 +39,12 @@ args = [
 ]
 
 [crates.e2e.registry]
-github_repo = "https://github.com/example/kreuzcrawl"
+github_repo = "https://github.com/example/sample_crawler"
 
 [crates.e2e.registry.packages.zig]
-name = "kreuzcrawl"
+name = "sample_crawler"
 version = "1.2.3"
-hash = "kreuzcrawl-1.2.3-AAAAfakehashfortestonly000000000000000000000"
+hash = "sample_crawler-1.2.3-AAAAfakehashfortestonly000000000000000000000"
 "#;
 
 fn group() -> FixtureGroup {
@@ -105,11 +105,11 @@ fn registry_build_zig_consumes_published_dependency() {
     let content = render_registry_build_zig();
 
     assert!(
-        content.contains("b.dependency(\"kreuzcrawl\", .{"),
+        content.contains("b.dependency(\"sample_crawler\", .{"),
         "registry build.zig must consume the published package via b.dependency:\n{content}"
     );
     assert!(
-        content.contains(".module(\"kreuzcrawl\");"),
+        content.contains(".module(\"sample_crawler\");"),
         "registry build.zig must import the dependency's exported module:\n{content}"
     );
 }

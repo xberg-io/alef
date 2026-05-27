@@ -3384,11 +3384,11 @@ fn test_disambiguation_pass_runs_on_full_extract() {
 
 #[test]
 fn test_error_enum_methods_whitelist() {
-    // Simulates liter-llm's LiterLlmError with whitelisted introspection methods
+    // Simulates sample-llm's SampleLlmError with whitelisted introspection methods
     // plus a noisy Display::fmt that must be excluded.
     let source = r#"
         #[derive(Debug, thiserror::Error)]
-        pub enum LiterLlmError {
+        pub enum SampleLlmError {
             #[error("authentication failed")]
             AuthenticationFailed,
             #[error("rate limited: retry after {retry_after_secs}s")]
@@ -3399,7 +3399,7 @@ fn test_error_enum_methods_whitelist() {
             InvalidRequest { message: String },
         }
 
-        impl LiterLlmError {
+        impl SampleLlmError {
             pub fn status_code(&self) -> u16 {
                 match self {
                     Self::AuthenticationFailed => 401,
@@ -3433,7 +3433,7 @@ fn test_error_enum_methods_whitelist() {
 
     assert_eq!(surface.errors.len(), 1);
     let err = &surface.errors[0];
-    assert_eq!(err.name, "LiterLlmError");
+    assert_eq!(err.name, "SampleLlmError");
     assert_eq!(err.variants.len(), 4);
 
     // Exactly 3 whitelisted methods must be extracted, noisy helper excluded.
@@ -3473,7 +3473,7 @@ fn test_error_enum_methods_whitelist() {
 
 /// embed_texts_async has `<T: AsRef<str> + Send + 'static>` — the `'static` lifetime bound
 /// on a type parameter must not prevent monomorphization to String. This shape is exactly what
-/// kreuzberg exposes at its public API surface.
+/// sample_crate exposes at its public API surface.
 #[test]
 fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
     let source = r#"
@@ -3481,7 +3481,7 @@ fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
         pub async fn embed_texts_async<T: AsRef<str> + Send + 'static>(
             texts: Vec<T>,
             config: &EmbeddingConfig,
-        ) -> Result<Vec<Vec<f32>>, KreuzbergError> {
+        ) -> Result<Vec<Vec<f32>>, SampleCrateError> {
             todo!()
         }
     "#;
@@ -3521,12 +3521,12 @@ fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
         TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))))),
         "return type must be Vec<Vec<f32>>"
     );
-    assert_eq!(func.error_type.as_deref(), Some("KreuzbergError"));
+    assert_eq!(func.error_type.as_deref(), Some("SampleCrateError"));
 }
 
 #[test]
 fn wrapper_struct_alongside_per_element_struct_is_extracted() {
-    // Regression for kreuzcrawl's BatchScrapeResults: a wrapper struct
+    // Regression for sample_crawler's BatchScrapeResults: a wrapper struct
     // declared in the same module as the per-element struct and the
     // function returning it must appear in surface.types so codegen
     // resolves the function's return type to Named, not String.
