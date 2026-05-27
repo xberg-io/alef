@@ -704,4 +704,27 @@ mod tests {
             "all imports should come before the patch comment"
         );
     }
+
+    #[test]
+    fn test_package_json_includes_node_options_memory_cap() {
+        // NODE_OPTIONS=--max-old-space-size=4096 caps V8 heap to 4GB to prevent OOM
+        // on WASM e2e tests when compiling large WASM modules.
+        let pkg_json = render_package_json(
+            "@test/wasm",
+            "pkg",
+            false,
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            None,
+        );
+
+        assert!(
+            pkg_json.contains("NODE_OPTIONS=--max-old-space-size=4096"),
+            "package.json test script must include NODE_OPTIONS memory cap; got:\n{pkg_json}"
+        );
+        assert!(
+            pkg_json.contains("\"test\": \"NODE_OPTIONS=--max-old-space-size=4096 vitest run\""),
+            "NODE_OPTIONS must be part of the test script; got:\n{pkg_json}"
+        );
+    }
 }

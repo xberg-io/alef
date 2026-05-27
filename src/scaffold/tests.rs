@@ -2682,6 +2682,7 @@ fn cargo_config_disabling_individual_targets_omits_their_blocks() {
             x86_64_unknown_linux_musl: false,
             ..ScaffoldCargoTargets::default()
         },
+        build_jobs: 4,
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
@@ -2700,6 +2701,7 @@ fn cargo_config_disabling_macos_omits_dynamic_lookup() {
             macos_dynamic_lookup: false,
             ..ScaffoldCargoTargets::default()
         },
+        build_jobs: 4,
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
@@ -2713,6 +2715,7 @@ fn cargo_config_env_plain_string_renders_into_env_block() {
     env.insert("MY_VAR".to_string(), ScaffoldCargoEnvValue::Plain("hello".to_string()));
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
+        build_jobs: 4,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -2732,6 +2735,7 @@ fn cargo_config_env_structured_value_renders_with_relative() {
     );
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
+        build_jobs: 4,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -2747,6 +2751,7 @@ fn cargo_config_env_keys_are_sorted_for_determinism() {
     env.insert("MID".to_string(), ScaffoldCargoEnvValue::Plain("m".to_string()));
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
+        build_jobs: 4,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -2767,11 +2772,44 @@ fn cargo_config_env_string_with_quotes_is_escaped() {
     );
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
+        build_jobs: 4,
         env,
     };
     let rendered = render_cargo_config(&cargo);
     // Backslashes doubled, quotes escaped.
     assert!(rendered.contains("QUOTED = \"a\\\"b\\\\c\"\n"));
+}
+
+#[test]
+fn cargo_config_default_includes_build_jobs_limit() {
+    let rendered = render_cargo_config(&ScaffoldCargo::default());
+    // Default is 4 jobs to prevent OOM on 16 GB dev machines.
+    assert!(rendered.contains("[build]\nincremental = true\njobs = 4\n"),
+        "build_jobs default (4) must be in [build] section; got:\n{rendered}");
+}
+
+#[test]
+fn cargo_config_build_jobs_zero_disables_limit() {
+    let cargo = ScaffoldCargo {
+        targets: ScaffoldCargoTargets::default(),
+        build_jobs: 0,
+        env: Default::default(),
+    };
+    let rendered = render_cargo_config(&cargo);
+    assert!(!rendered.contains("jobs = "),
+        "build_jobs = 0 must not emit jobs limit; got:\n{rendered}");
+}
+
+#[test]
+fn cargo_config_build_jobs_custom_value_renders() {
+    let cargo = ScaffoldCargo {
+        targets: ScaffoldCargoTargets::default(),
+        build_jobs: 2,
+        env: Default::default(),
+    };
+    let rendered = render_cargo_config(&cargo);
+    assert!(rendered.contains("jobs = 2\n"),
+        "custom build_jobs value must render; got:\n{rendered}");
 }
 
 #[test]
@@ -2918,6 +2956,7 @@ fn scaffold_emits_cargo_config_with_env_block_for_sample_markup_style_ruby_path(
     );
     let config = cargo_only_config(ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
+        build_jobs: 4,
         env,
     });
     let api = test_api();

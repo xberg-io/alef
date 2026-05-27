@@ -112,6 +112,10 @@ pub struct ScaffoldCargo {
     /// aarch64-linux-gnu cross-gcc, x86_64-linux-musl, wasm32 bulk-memory).
     #[serde(default)]
     pub targets: ScaffoldCargoTargets,
+    /// Limit concurrent rustc jobs to prevent OOM during large builds.
+    /// Defaults to 4 (safe for 16 GB dev machines). Set to 0 to disable.
+    #[serde(default = "default_build_jobs")]
+    pub build_jobs: u32,
     /// Free-form `[env]` entries copied verbatim into the generated file.
     /// Values can be a plain string or `{ value, relative }`. Empty by default.
     #[serde(default)]
@@ -150,6 +154,10 @@ impl Default for ScaffoldCargoTargets {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_build_jobs() -> u32 {
+    4
 }
 
 /// Value for a `[scaffold.cargo.env]` entry. Either a bare string (renders as

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef scaffold: persist rustc job cap and Node memory cap mitigations in generated `.cargo/config.toml` and wasm e2e `package.json`.** OOM crashes on 16 GB dev machines during large WASM builds were prevented by four mitigations: rustc job limit (`jobs = 4` in `.cargo/config.toml`), WASM size optimization, and Node memory cap (`NODE_OPTIONS=--max-old-space-size=4096` in e2e test script). However, alef was regenerating both the cargo config and wasm e2e package.json from templates that lacked these settings, clobbering the mitigations on every `task alef:generate`. Now `[scaffold.cargo]` has a new `build_jobs` field (default `4`; set to `0` to disable), and the wasm e2e package.json template includes the `NODE_OPTIONS` heap cap in its test script. Both mitigations persist through regeneration. Added three unit tests in `src/scaffold/tests.rs` to verify default job limit, custom override, and zero-disabling behavior; added one test in `src/e2e/codegen/wasm.rs` to verify `NODE_OPTIONS` is emitted in the package.json test script.
+
 - **alef wasm e2e: consolidate setup.ts imports to prevent duplicate import statements.** The wasm e2e codegen was emitting setup.ts with two separate import blocks: one for wasm module init (`createRequire`, `readFileSync`, `fileURLToPath`) and another for file setup (`createRequire`, `fileURLToPath`, `dirname`, `join`), causing TypeScript "duplicate identifier" errors. Fixed by consolidating all imports into a single block at the top of the file, emitting `dirname` and `join` only when file setup is needed. Added unit test to verify import uniqueness.
 
 ### Added
