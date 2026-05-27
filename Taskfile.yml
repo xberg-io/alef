@@ -21,7 +21,7 @@ tasks:
     cmds:
       - prek autoupdate
       - cargo update
-      - gh-actions-updater --update .
+      - gau --update .
 
   upgrade:
     desc: "Upgrade dependencies to latest (including incompatible) then update"
