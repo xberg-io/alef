@@ -188,6 +188,8 @@ fn test_basic_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(
@@ -367,6 +369,8 @@ package = "dev.example"
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -422,6 +426,8 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
         ],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -460,6 +466,8 @@ fn test_package_default_when_unconfigured() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     // No java package and no scaffold repository configured
@@ -683,6 +691,8 @@ fn test_optional_field_defaults_in_builder() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(
@@ -841,6 +851,8 @@ fn test_no_standalone_builder_java_file_emitted() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("com.example");
@@ -943,6 +955,8 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend
@@ -1169,6 +1183,8 @@ type = "ChatCompletionRequest"
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let backend = JavaBackend;
@@ -1300,6 +1316,8 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(
@@ -1427,6 +1445,8 @@ fn test_dto_emits_as_record_with_fields_only() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("com.test");
@@ -1487,6 +1507,8 @@ fn test_opaque_handle_type_remains_class() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("com.test");
@@ -1612,6 +1634,8 @@ fn test_sum_type_sealed_interface_with_record_variants() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("com.test");
@@ -1745,6 +1769,8 @@ type = "EventRequest"
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let backend = JavaBackend;
@@ -1853,6 +1879,8 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend
@@ -1966,6 +1994,8 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend
@@ -2161,6 +2191,8 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("dev.test");
@@ -2335,6 +2367,8 @@ type = "EventRequest"
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let backend = JavaBackend;
@@ -2418,6 +2452,8 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("dev.test");
@@ -2516,6 +2552,8 @@ fn optional_named_method_body_wraps_via_optional_of() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("dev.test");
@@ -2627,6 +2665,8 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config_with_builder_always("dev.test");
@@ -2707,6 +2747,8 @@ fn json_util_centralizes_from_json_deserialization() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("dev.test");
@@ -2785,6 +2827,8 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("dev.test");
@@ -2853,6 +2897,8 @@ fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(
@@ -2986,6 +3032,8 @@ fn test_facade_no_java_lang_imports() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_test_config("com.example");

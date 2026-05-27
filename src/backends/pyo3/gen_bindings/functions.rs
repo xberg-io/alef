@@ -1472,7 +1472,7 @@ fn emit_adapter_wrapper(
             };
             out.push_str(&method_call);
         }
-        // Other patterns (SyncFunction, CallbackBridge, ServerLifecycle) are not applicable
+        // Other patterns (SyncFunction, CallbackBridge) are not applicable
         // to the Python api.py wrapper layer — skip them silently.
         _ => return,
     }

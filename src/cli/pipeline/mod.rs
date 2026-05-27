@@ -11,8 +11,8 @@ pub use commands::{build, clean, fmt, fmt_post_generate, lint, setup, test, test
 pub use extract::extract;
 pub use format::format_generated;
 pub use generate::{
-    collect_alef_headered_paths, diff_files, finalize_hashes, generate, generate_public_api, generate_stubs,
-    normalize_content, readme, scaffold, sweep_orphans, write_files, write_scaffold_files,
+    collect_alef_headered_paths, diff_files, finalize_hashes, generate, generate_public_api, generate_service_api,
+    generate_stubs, normalize_content, readme, scaffold, sweep_orphans, write_files, write_scaffold_files,
     write_scaffold_files_with_overwrite,
 };
 pub use helpers::init;

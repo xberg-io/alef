@@ -995,6 +995,8 @@ sources = ["src/lib.rs"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_config();
         let files = WasmBackend.generate_bindings(&api, &config).unwrap();
@@ -1031,6 +1033,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 

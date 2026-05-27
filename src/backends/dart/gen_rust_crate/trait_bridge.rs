@@ -800,6 +800,8 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             excluded_trait_names: excluded_traits.into_iter().map(String::from).collect(),
+            services: vec![],
+            handler_contracts: vec![],
             ..ApiSurface::default()
         }
     }

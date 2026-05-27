@@ -102,7 +102,7 @@ fn test_trait_bridge_sync_method() {
 
     let bridge_cfg = make_bridge_cfg("DocumentExtractor");
     let bridges = vec![("DocumentExtractor".to_string(), &bridge_cfg, &trait_def)];
-    let files = gen_trait_bridge_files(&bridges);
+    let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
     assert_eq!(files.len(), 1);
     let (filename, content) = &files[0];
@@ -127,7 +127,7 @@ fn test_trait_bridge_async_method() {
 
     let bridge_cfg = make_bridge_cfg("OcrBackend");
     let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-    let files = gen_trait_bridge_files(&bridges);
+    let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
     assert_eq!(files.len(), 1);
     let (filename, content) = &files[0];
@@ -160,7 +160,7 @@ fn test_trait_bridge_multiple_methods() {
 
     let bridge_cfg = make_bridge_cfg("PostProcessor");
     let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];
-    let files = gen_trait_bridge_files(&bridges);
+    let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
     assert_eq!(files.len(), 1);
     let (filename, content) = &files[0];
@@ -182,7 +182,7 @@ fn test_trait_bridge_excludes_swift() {
     bridge_cfg.exclude_languages = vec!["swift".to_string()];
 
     let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-    let files = gen_trait_bridge_files(&bridges);
+    let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
     assert!(files.is_empty());
 }
@@ -198,7 +198,7 @@ fn test_trait_bridge_skips_options_field() {
     bridge_cfg.bind_via = BridgeBinding::OptionsField;
 
     let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-    let files = gen_trait_bridge_files(&bridges);
+    let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
     // OptionsField bridges are handled by inbound plugin codegen, not outbound
     assert!(files.is_empty());
@@ -221,7 +221,7 @@ fn test_trait_bridge_primitive_params() {
 
     let bridge_cfg = make_bridge_cfg("Renderer");
     let bridges = vec![("Renderer".to_string(), &bridge_cfg, &trait_def)];
-    let files = gen_trait_bridge_files(&bridges);
+    let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
     assert_eq!(files.len(), 1);
     let (_filename, content) = &files[0];

@@ -27,6 +27,7 @@ use super::output::{
 };
 use super::package_metadata::PackageMetadataConfig;
 use super::publish::PublishConfig;
+use super::service::{HandlerContractConfig, ServiceConfig};
 use super::trait_bridge::TraitBridgeConfig;
 
 /// One `[[crates]]` entry — an independently published Rust facade plus its
@@ -223,6 +224,10 @@ pub struct RawCrateConfig {
     pub adapters: Vec<AdapterConfig>,
     #[serde(default)]
     pub trait_bridges: Vec<TraitBridgeConfig>,
+    #[serde(default)]
+    pub services: Vec<ServiceConfig>,
+    #[serde(default)]
+    pub handler_contracts: Vec<HandlerContractConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
     #[serde(default)]

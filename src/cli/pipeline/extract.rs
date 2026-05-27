@@ -117,6 +117,15 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // rewritten paths are used for the shortest-path preference heuristic).
     dedup_api_surface(&mut api);
 
+    // Run the service extraction pass last so all dedup / sanitization is
+    // complete before we classify methods and build service/handler-contract
+    // IR nodes.  Warnings are non-fatal (e.g. generic registration method not
+    // yet extracted); emit via tracing so they surface in verbose output.
+    let service_warnings = crate::extract::extractor::service::extract_services(&mut api, config);
+    for w in service_warnings {
+        tracing::warn!("{w}");
+    }
+
     cache::write_ir_cache(&config.name, &api, &cache_key).context("failed to write IR cache")?;
     info!(
         "Extracted {} types, {} functions, {} enums",
@@ -161,12 +170,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
     let mut merged = ApiSurface {
         crate_name: default_name.to_string(),
         version: version.clone(),
-        types: vec![],
-        functions: vec![],
-        enums: vec![],
-        errors: vec![],
-        excluded_type_paths: std::collections::HashMap::new(),
-        excluded_trait_names: std::collections::HashSet::new(),
+        ..ApiSurface::default()
     };
 
     for (crate_name, sources) in &groups {
@@ -1254,6 +1258,8 @@ mod tests {
             errors: vec![],
             excluded_type_paths: std::collections::HashMap::new(),
             excluded_trait_names: std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 

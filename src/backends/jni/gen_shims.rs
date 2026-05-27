@@ -45,6 +45,7 @@ impl Backend for JniBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: true,
+            supports_service_api: false,
         }
     }
 
@@ -1708,6 +1709,8 @@ namespace = "dev.kreuzberg"
             errors: vec![],
             excluded_type_paths: Default::default(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let content = emit_lib_rs(&api, &config);
         // The generated helper must NOT use `let _ = env.throw_new(...)` which

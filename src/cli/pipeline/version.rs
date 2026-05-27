@@ -2825,10 +2825,8 @@ BUNDLED WITH
         );
 
         for platform in &["linux-x64-gnu", "darwin-arm64", "win32-x64-msvc"] {
-            let manifest = std::fs::read_to_string(
-                root.join(format!("crates/mylib-node/npm/{platform}/package.json")),
-            )
-            .expect("read platform package.json");
+            let manifest = std::fs::read_to_string(root.join(format!("crates/mylib-node/npm/{platform}/package.json")))
+                .expect("read platform package.json");
             assert!(
                 manifest.contains(r#""version": "1.0.0""#),
                 "platform manifest {platform} must be bumped, got:\n{manifest}"

@@ -57,6 +57,7 @@ impl Backend for ZigBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: false,
+            supports_service_api: false,
         }
     }
 

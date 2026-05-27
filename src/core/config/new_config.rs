@@ -183,6 +183,49 @@ impl NewAlefConfig {
             }
         }
 
+        // --- Service skip_languages validation ----------------------------------
+        for service in &krate.services {
+            for lang in &service.skip_languages {
+                if !is_known_language(lang.as_str()) {
+                    return Err(ResolveError::InvalidConfig(format!(
+                        "crate `{}`: service `{}` has unknown language `{}` in skip_languages; \
+                         valid names are: python, node, ruby, php, elixir, wasm, ffi, go, java, \
+                         csharp, r, rust, kotlin, kotlin_android, swift, dart, gleam, zig, c, jni",
+                        krate.name, service.owner_type, lang
+                    )));
+                }
+            }
+        }
+
+        // --- Service/handler-contract cross-reference validation ----------------
+        // Every registration's callback_contract must match a handler_contract trait_name.
+        let contract_names: std::collections::HashSet<&str> = krate
+            .handler_contracts
+            .iter()
+            .map(|hc| hc.trait_name.as_str())
+            .collect();
+        for service in &krate.services {
+            for reg in &service.registrations {
+                if !contract_names.contains(reg.callback_contract.as_str()) {
+                    return Err(ResolveError::InvalidConfig(format!(
+                        "crate `{}`: service `{}` registration `{}` references \
+                         callback_contract `{}` which is not declared in [[crates.handler_contracts]]",
+                        krate.name, service.owner_type, reg.method, reg.callback_contract
+                    )));
+                }
+            }
+            // Validate entrypoint kinds are recognised
+            for ep in &service.entrypoints {
+                if ep.kind != "run" && ep.kind != "finalize" {
+                    return Err(ResolveError::InvalidConfig(format!(
+                        "crate `{}`: service `{}` entrypoint `{}` has unknown kind `{}`; \
+                         valid values are: `run`, `finalize`",
+                        krate.name, service.owner_type, ep.method, ep.kind
+                    )));
+                }
+            }
+        }
+
         Ok(ResolvedCrateConfig {
             name: krate.name.clone(),
             sources: krate.sources.clone(),
@@ -243,6 +286,8 @@ impl NewAlefConfig {
             e2e: krate.e2e.clone(),
             adapters: krate.adapters.clone(),
             trait_bridges: krate.trait_bridges.clone(),
+            services: krate.services.clone(),
+            handler_contracts: krate.handler_contracts.clone(),
             scaffold: merge_scaffold(
                 ws.scaffold.as_ref(),
                 krate.scaffold.as_ref(),

@@ -104,6 +104,8 @@ fn data_class_field_carries_kdoc() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = render(api);
     let config_kt = files
@@ -160,6 +162,8 @@ fn enum_variants_carry_kdoc() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = render(api);
     let mode_kt = files
@@ -227,6 +231,8 @@ fn module_free_function_facade_carries_kdoc() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = render(api);
     let module_kt = files
@@ -323,6 +329,8 @@ fn error_type_with_methods_emits_abstract_properties() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = render(api);
     // kotlin-android emits each error type as a separate .kt file.

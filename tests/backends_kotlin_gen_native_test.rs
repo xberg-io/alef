@@ -161,6 +161,8 @@ fn native_emits_three_files() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -185,6 +187,8 @@ fn native_struct_emits_data_class() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -261,6 +265,8 @@ fn native_unit_enum_emits_enum_class() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -295,6 +301,8 @@ fn native_function_uses_mem_scoped() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -344,6 +352,8 @@ fn native_fallible_function_checks_error_code() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -376,6 +386,8 @@ fn native_def_file_has_correct_fields() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -408,6 +420,8 @@ fn native_kt_file_is_at_correct_path() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

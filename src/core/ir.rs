@@ -56,6 +56,124 @@ pub struct ApiSurface {
     /// to default impl) or a struct/enum still usable via its qualified path.
     #[serde(default)]
     pub excluded_trait_names: std::collections::HashSet<String>,
+    /// Descriptions of owner/builder service types with their constructor,
+    /// configurator methods, registration points, and run/finalize entrypoints.
+    ///
+    /// Populated by the service extraction pass when `[[crates.services]]` config
+    /// entries are present. Empty for consumers that have not configured any services.
+    #[serde(default)]
+    pub services: Vec<ServiceDef>,
+    /// Async trait contracts that service registration callbacks must satisfy.
+    ///
+    /// Each entry describes the trait, its dispatch method, and the wire
+    /// request/response DTO names the callback receives and returns.
+    ///
+    /// Populated alongside [`Self::services`]. Empty when no services are configured.
+    #[serde(default)]
+    pub handler_contracts: Vec<HandlerContractDef>,
+}
+
+/// Describes an owner/builder type that acts as a service configurator and runner.
+///
+/// A service has:
+/// - A `constructor` that creates the initial owner instance.
+/// - Zero or more `configurators` — chaining methods that set options without callbacks.
+/// - Zero or more `registrations` — methods that bind a callback to a route/channel/slot.
+/// - One or more `entrypoints` — `run` (long-lived async) or `finalize` (consuming transform).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceDef {
+    /// Short name of the owner type (e.g. `"App"`).
+    pub name: String,
+    /// Fully-qualified Rust path to the owner type (e.g. `"my_crate::App"`).
+    pub rust_path: String,
+    /// The constructor method (e.g. `new`).
+    pub constructor: MethodDef,
+    /// Chaining methods that mutate configuration but take no callback.
+    pub configurators: Vec<MethodDef>,
+    /// Registration methods that accept a callback and optional metadata.
+    pub registrations: Vec<RegistrationDef>,
+    /// Long-lived run entrypoints or transforming finalize methods.
+    pub entrypoints: Vec<EntrypointDef>,
+    /// Documentation extracted from the owner type.
+    pub doc: String,
+    /// Optional `#[cfg(...)]` condition string.
+    pub cfg: Option<String>,
+}
+
+/// A registration method on a service — binds a host-language callback to a slot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrationDef {
+    /// Method name on the owner type (e.g. `"add_route"`).
+    pub method: String,
+    /// The parameter name that carries the callback (e.g. `"handler"`).
+    pub callback_param: String,
+    /// Name of the [`HandlerContractDef`] this callback must satisfy
+    /// (references [`HandlerContractDef::trait_name`]).
+    pub callback_contract: String,
+    /// Non-callback parameters (e.g. path pattern, HTTP method).
+    pub metadata_params: Vec<ParamDef>,
+    /// How `self` is received (`&self`, `&mut self`, or owned).
+    pub receiver: Option<ReceiverKind>,
+    /// Return type of the registration method.
+    pub return_type: TypeRef,
+    /// Error type if the registration is fallible.
+    pub error_type: Option<String>,
+    /// Documentation extracted from the method.
+    pub doc: String,
+}
+
+/// An entrypoint on a service — either a long-lived async `run` or a consuming `finalize`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntrypointDef {
+    /// Method name (e.g. `"run"` or `"into_router"`).
+    pub method: String,
+    /// Whether this is a blocking runner or a transforming finalizer.
+    pub kind: EntrypointKind,
+    /// True when the method is `async` or returns a `Future`.
+    pub is_async: bool,
+    /// Non-self parameters accepted by the entrypoint (e.g. socket address).
+    pub params: Vec<ParamDef>,
+    /// Return type (e.g. `()` for `run`, `Router` for `finalize`).
+    pub return_type: TypeRef,
+    /// Error type if the entrypoint is fallible.
+    pub error_type: Option<String>,
+    /// Documentation extracted from the method.
+    pub doc: String,
+}
+
+/// Discriminates between the two kinds of service entrypoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntrypointKind {
+    /// A long-running async method that drives the service until shutdown.
+    Run,
+    /// A consuming transform that converts the builder into another type (e.g. a router).
+    Finalize,
+}
+
+/// An async trait that registered service callbacks must satisfy.
+///
+/// Does **not** duplicate the trait's [`TypeDef`] already in [`ApiSurface::types`];
+/// instead it cross-references by name and adds service-specific metadata:
+/// the dispatch method, optional overrides, and the wire DTO names.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandlerContractDef {
+    /// Trait name as it appears in the surface (e.g. `"Handler"`).
+    pub trait_name: String,
+    /// Fully-qualified Rust path (e.g. `"my_crate::Handler"`).
+    pub rust_path: String,
+    /// The primary async dispatch method backends must implement.
+    pub dispatch: MethodDef,
+    /// Methods with default implementations that backends may optionally override.
+    pub optional_methods: Vec<MethodDef>,
+    /// Name of the wire request DTO the dispatch method receives (e.g. `"RequestData"`).
+    /// When `None`, the dispatch method signature is used verbatim.
+    pub wire_request_type: Option<String>,
+    /// Name of the wire response DTO the dispatch method returns (e.g. `"ResponseData"`).
+    /// When `None`, the dispatch method return type is used verbatim.
+    pub wire_response_type: Option<String>,
+    /// Documentation extracted from the trait.
+    pub doc: String,
 }
 
 /// A public struct exposed to bindings.

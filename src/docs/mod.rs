@@ -1153,6 +1153,8 @@ mod tests {
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
 
@@ -1284,6 +1286,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1340,6 +1344,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1398,6 +1404,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1550,6 +1558,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1616,6 +1626,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1667,6 +1679,8 @@ exclude_types = ["FfiHidden"]
             }],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1829,6 +1843,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(
@@ -1885,6 +1901,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -1957,6 +1975,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -2026,6 +2046,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
 
         let config = make_test_config();
@@ -2065,6 +2087,8 @@ exclude_types = ["FfiHidden"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
 
         let config = make_test_config();

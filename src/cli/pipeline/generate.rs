@@ -87,6 +87,44 @@ pub fn generate_stubs(
     Ok(results)
 }
 
+/// Generate service API (idiomatic app object + handler bridge) for backends that
+/// declare `supports_service_api`.  Only invoked when `api.services` is non-empty.
+/// Emits a warning for languages whose backends do not support service API yet.
+pub fn generate_service_api(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    if api.services.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let results: Vec<(Language, Vec<GeneratedFile>)> = languages
+        .par_iter()
+        .filter_map(|&lang| {
+            let backend = registry::get_backend(lang);
+            if !backend.capabilities().supports_service_api {
+                tracing::warn!(
+                    "backend `{}` does not support service API generation; \
+                     skipping service codegen for language `{lang}`",
+                    backend.name()
+                );
+                return None;
+            }
+            Some(lang)
+        })
+        .map(|lang| {
+            let backend = registry::get_backend(lang);
+            let files = backend.generate_service_api(api, config)?;
+            Ok((lang, files))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|(_, files)| !files.is_empty())
+        .collect();
+    Ok(results)
+}
+
 /// Generate public API wrappers for given languages.
 pub fn generate_public_api(
     api: &ApiSurface,

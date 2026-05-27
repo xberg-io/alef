@@ -1336,6 +1336,8 @@ gem_name = "test_lib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let code = gen_function(
             &func,
@@ -1362,6 +1364,8 @@ gem_name = "test_lib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let code = gen_function(
             &func,
@@ -1386,6 +1390,8 @@ gem_name = "test_lib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let code = gen_module_init(
             "TestLib",

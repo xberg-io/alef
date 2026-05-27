@@ -36,6 +36,7 @@ use crate::core::config::output::{
 };
 use crate::core::config::package_metadata::PackageMetadataConfig;
 use crate::core::config::publish::PublishConfig;
+use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
 use crate::core::config::tools::ToolsConfig;
 use crate::core::config::trait_bridge::TraitBridgeConfig;
 use crate::core::config::workspace::ClientConstructorConfig;
@@ -149,6 +150,8 @@ pub struct ResolvedCrateConfig {
     pub e2e: Option<E2eConfig>,
     pub adapters: Vec<AdapterConfig>,
     pub trait_bridges: Vec<TraitBridgeConfig>,
+    pub services: Vec<ServiceConfig>,
+    pub handler_contracts: Vec<HandlerContractConfig>,
     pub scaffold: Option<ScaffoldConfig>,
     pub package_metadata: Option<PackageMetadataConfig>,
     pub readme: Option<ReadmeConfig>,

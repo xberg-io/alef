@@ -188,6 +188,8 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(
@@ -290,6 +292,8 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(
