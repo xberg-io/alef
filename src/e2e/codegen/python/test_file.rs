@@ -371,9 +371,22 @@ fn build_thirdparty_imports(
         for arg in &cc.args {
             if let Some(elem_type) = &arg.element_type {
                 // Skip plain primitives / strings — only Named types need a Python-side import.
+                // `alef.toml` describes call args in a language-agnostic way, so the
+                // `element_type` value frequently uses Rust-style names (e.g.
+                // `String`, `u32`). The Python binding never re-exports those —
+                // they're rendered as native Python types (`str`, `int`, …) at
+                // the FFI boundary — so emitting `from <pkg> import String`
+                // hard-fails test collection with `ImportError`. Treat both
+                // Python-style and Rust-style primitive names as primitives.
                 let is_primitive = matches!(
                     elem_type.as_str(),
+                    // Python-style primitives
                     "str" | "int" | "float" | "bool" | "bytes" | "list" | "dict" | "tuple" | "Any"
+                    // Rust-style primitives that the binding emits as Python primitives
+                    | "String" | "&str" | "char"
+                    | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+                    | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+                    | "f32" | "f64"
                 );
                 if !is_primitive && !import_names.contains(elem_type) {
                     import_names.push(elem_type.clone());
