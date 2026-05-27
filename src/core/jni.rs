@@ -130,8 +130,10 @@ mod tests {
 
     #[test]
     fn jni_symbol_basic() {
+        // JNI spec §5.11.3: underscore in any identifier component (here in the
+        // package name `sample_crate`) is encoded as `_1`.
         let sym = jni_symbol("dev.sample_crate.demo", "DemoBridge", "nativeFoo");
-        assert_eq!(sym, "Java_dev_sample_crate_demo_DemoBridge_nativeFoo");
+        assert_eq!(sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeFoo");
     }
 
     #[test]
@@ -144,6 +146,6 @@ mod tests {
     #[test]
     fn jni_symbol_empty_method_gives_prefix() {
         let prefix = jni_symbol("dev.sample_crate.demo", "DemoBridge", "");
-        assert_eq!(prefix, "Java_dev_sample_crate_demo_DemoBridge");
+        assert_eq!(prefix, "Java_dev_sample_1crate_demo_DemoBridge");
     }
 }

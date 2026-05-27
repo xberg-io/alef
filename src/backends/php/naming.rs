@@ -89,7 +89,9 @@ sources = ["src/lib.rs"]
 extension_name = "sample_markdown_rs"
 "#,
         );
-        assert_eq!(php_autoload_namespace(&r), "Html\\To\\Markdown\\Rs");
+        // `sample_markdown_rs` → split on `_` → ["sample","markdown","rs"] →
+        // PascalCase each → `Sample\Markdown\Rs`.
+        assert_eq!(php_autoload_namespace(&r), "Sample\\Markdown\\Rs");
     }
 
     #[test]
