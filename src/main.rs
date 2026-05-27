@@ -602,6 +602,25 @@ fn main() -> Result<()> {
                     let _ = cache::write_generation_hashes(&cache_key, &hashes);
                 }
 
+                // Generate service API (idiomatic app/handler bridge) for backends
+                // that support it — only runs when surface.services is non-empty.
+                if !api.services.is_empty() {
+                    let svc_files = pipeline::generate_service_api(&api, resolved_cfg, &languages)?;
+                    if !svc_files.is_empty() {
+                        for (_, files) in &svc_files {
+                            for file in files {
+                                current_gen_paths.insert(base_dir.join(&file.path));
+                            }
+                        }
+                        let svc_count = pipeline::write_files(&svc_files, &base_dir)?;
+                        eprintln!("Generated {svc_count} service API files");
+                        any_written = true;
+                        for (lang, _) in &svc_files {
+                            changed_languages.insert(*lang);
+                        }
+                    }
+                }
+
                 // Generate public API wrappers — cache by content hash like
                 // bindings, otherwise we rewrite hundreds of files on every warm
                 // run for no net change.

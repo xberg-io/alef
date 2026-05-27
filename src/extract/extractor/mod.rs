@@ -3,6 +3,7 @@ mod disambiguation;
 mod functions;
 mod helpers;
 mod reexports;
+pub(crate) mod service;
 mod types;
 
 use std::path::{Path, PathBuf};

@@ -158,6 +158,8 @@ fn test_basic_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     // Create test config
@@ -309,6 +311,8 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("testlib", Some("Testlib"), true);
@@ -438,6 +442,8 @@ fn test_ffi_excluded_types_are_not_generated_for_pinvoke() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -513,6 +519,8 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -598,6 +606,8 @@ fn test_bool_param_call_site_matches_pinvoke_bool_decl() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -692,6 +702,8 @@ fn test_fallible_unit_opaque_method_checks_last_error_code() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -735,6 +747,8 @@ fn test_error_helper_preserves_base_error_acronym_class_name() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -801,6 +815,8 @@ fn test_error_class_doc_strips_rust_idioms_and_sections() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -852,6 +868,8 @@ fn test_namespace_resolution() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("my-lib", Some("MyCompany.MyLib"), false);
@@ -882,6 +900,8 @@ fn test_generated_header() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("test", None, false);
@@ -1018,6 +1038,8 @@ fn test_type_mapping() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("test", None, false);
@@ -1119,6 +1141,8 @@ fn test_tuple_struct_fields_skipped() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("test", None, false);
@@ -1213,6 +1237,8 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("test", None, false);
@@ -1324,6 +1350,8 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
         ],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).expect("generate ok");
@@ -1486,6 +1514,8 @@ fn test_duration_field_emits_single_nullable_not_double() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -1564,6 +1594,8 @@ fn test_optional_ulong_field_emits_single_nullable() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -1664,6 +1696,8 @@ fn test_plain_enum_with_default_emits_single_nullable() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -1735,6 +1769,8 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config("kreuzberg", Some("Kreuzberg"), true);
@@ -1872,6 +1908,8 @@ fn test_non_nullable_string_field_emits_required() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -1949,6 +1987,8 @@ fn test_nullable_field_does_not_emit_required() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -2026,6 +2066,8 @@ fn test_collection_field_does_not_emit_required() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -2103,6 +2145,8 @@ fn test_field_with_default_does_not_emit_required() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = minimal_csharp_config("test");
@@ -2179,6 +2223,8 @@ fn test_opaque_handle_wrapper_has_internal_handle() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2214,6 +2260,8 @@ fn test_file_scoped_namespace_emitted() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_config("test", Some("MyNs"), false);
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2336,6 +2384,8 @@ type = "ChatRequest"
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &config).unwrap();
     let client_file = files
@@ -2408,6 +2458,8 @@ fn test_bytes_field_default_uses_collection_expression() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &config).unwrap();
     let cs_file = files
@@ -2479,6 +2531,8 @@ fn test_using_directives_each_on_own_line() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &config).unwrap();
     let parser_file = files
@@ -2559,6 +2613,8 @@ type = "*const std::ffi::c_char"
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let backend = CsharpBackend;
@@ -2665,6 +2721,8 @@ fn test_record_method_bool_param_passes_bool_directly() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2818,6 +2876,8 @@ fn test_receiver_selfhandle_freed_on_named_param_failure() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2936,6 +2996,8 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3043,6 +3105,8 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3144,6 +3208,8 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

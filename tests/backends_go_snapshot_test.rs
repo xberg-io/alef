@@ -85,6 +85,8 @@ fn surface_for_type(typ: TypeDef) -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -216,6 +218,8 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let content = binding_content(&api, &make_config());
@@ -349,6 +353,8 @@ fn option_string_return_null_checks_and_boxes_value() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let content = binding_content(&api, &make_config());

@@ -117,6 +117,8 @@ fn record_components_carry_field_javadoc_in_multi_line_emit() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let dto = files
@@ -201,6 +203,8 @@ fn opaque_handle_instance_method_emits_javadoc_above_signature() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let class = files
@@ -261,6 +265,8 @@ fn plain_enum_variants_carry_summary_javadoc() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let mode = files
@@ -320,6 +326,8 @@ fn free_function_facade_emits_javadoc_above_static_method() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let combined = files.iter().map(|f| f.content.as_str()).collect::<String>();

@@ -75,7 +75,6 @@ pub enum AdapterPattern {
     AsyncMethod,
     CallbackBridge,
     Streaming,
-    ServerLifecycle,
 }
 
 /// Configuration for a single adapter.

@@ -1387,10 +1387,7 @@ mod tests {
             out.contains("extract_bytes:") && out.contains("callconv(.c)"),
             "extract_bytes method slot missing"
         );
-        assert!(
-            out.contains("process_result:"),
-            "process_result method slot missing"
-        );
+        assert!(out.contains("process_result:"), "process_result method slot missing");
 
         // Bytes param expands to ptr + len in vtable signature
         assert!(
@@ -1444,10 +1441,7 @@ mod tests {
         );
 
         // Thunk for render method should use C ABI types in its signature
-        assert!(
-            out.contains(".render ="),
-            "render thunk field missing"
-        );
+        assert!(out.contains(".render ="), "render thunk field missing");
 
         // Thunk should have callconv(.c) and i32 return for the fallible method
         assert!(

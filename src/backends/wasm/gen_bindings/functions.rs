@@ -1331,6 +1331,8 @@ mod tests {
             errors: vec![],
             excluded_type_paths: HashMap::new(),
             excluded_trait_names: std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
 
         let out = gen_function_with_emitted_dtos(

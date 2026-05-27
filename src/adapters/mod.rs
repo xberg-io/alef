@@ -74,13 +74,6 @@ pub fn build_adapter_bodies(config: &ResolvedCrateConfig, language: Language) ->
                 bodies.insert(impl_key, impl_code);
                 continue; // Don't insert into the normal body map
             }
-            AdapterPattern::ServerLifecycle => {
-                let body = format!(
-                    "compile_error!(\"adapter pattern not yet implemented: {}\")",
-                    adapter.name
-                );
-                bodies.insert(key, body);
-            }
         }
     }
 

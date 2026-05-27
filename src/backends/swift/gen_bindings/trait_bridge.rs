@@ -153,17 +153,13 @@ fn gen_single_trait_bridge_file(
             out.push_str(&format!(
                 "        let result = await self.bridge.{method_camel}({call_args_str})\n"
             ));
-            out.push_str(&format!(
-                "        return {call_expr}\n"
-            ));
+            out.push_str(&format!("        return {call_expr}\n"));
         } else {
             // Sync method without error: return the result directly
             out.push_str(&format!(
                 "        let result = self.bridge.{method_camel}({call_args_str})\n"
             ));
-            out.push_str(&format!(
-                "        return {call_expr}\n"
-            ));
+            out.push_str(&format!("        return {call_expr}\n"));
         }
 
         out.push_str("    }\n\n");
@@ -190,7 +186,7 @@ fn gen_single_trait_bridge_file(
          \x20\x20\x20\x20\x20\x20\x20\x20return \"{\\\"err\\\": \\(jsonString)}\"\n\
          \x20\x20\x20\x20}\n\
          \x20\x20\x20\x20return \"{\\\"err\\\": \\\"unknown error\\\"}\"\n\
-         }\n\n"
+         }\n\n",
     );
 
     // MARK: Registration Function
@@ -262,7 +258,11 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
             }
         }
         TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner, exclude_types)),
-        TypeRef::Map(k, v) => format!("[{}: {}]", swift_type_name(k, exclude_types), swift_type_name(v, exclude_types)),
+        TypeRef::Map(k, v) => format!(
+            "[{}: {}]",
+            swift_type_name(k, exclude_types),
+            swift_type_name(v, exclude_types)
+        ),
         TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner, exclude_types)),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Json => "String".to_string(), // JSON is marshalled as String
@@ -286,11 +286,7 @@ fn build_adapter_call_expr(
 ) -> (Vec<String>, String) {
     // Build the call arguments — for now, pass them through as-is
     // (they're already in the correct type after boundary marshalling)
-    let call_args: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| p.name.to_snake_case())
-        .collect();
+    let call_args: Vec<String> = method.params.iter().map(|p| p.name.to_snake_case()).collect();
 
     // Build the return expression — marshal the result back to the boundary type
     let return_expr = match &method.return_type {
@@ -298,9 +294,7 @@ fn build_adapter_call_expr(
             // Excluded type: encode to JSON string
             "try JSONEncoder().encode(result)...".to_string() // Placeholder
         }
-        TypeRef::String | TypeRef::Bytes | TypeRef::Primitive(_) | TypeRef::Unit => {
-            "result".to_string()
-        }
+        TypeRef::String | TypeRef::Bytes | TypeRef::Primitive(_) | TypeRef::Unit => "result".to_string(),
         _ => "result".to_string(), // Other types pass through
     };
 
@@ -401,7 +395,10 @@ mod tests {
         assert_eq!(swift_type_name(&TypeRef::String, &exclude_types), "String");
         assert_eq!(swift_type_name(&TypeRef::Bytes, &exclude_types), "Data");
         assert_eq!(swift_type_name(&TypeRef::Unit, &exclude_types), "Void");
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::I32), &exclude_types), "Int32");
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::I32), &exclude_types),
+            "Int32"
+        );
         assert_eq!(swift_type_name(&TypeRef::Duration, &exclude_types), "TimeInterval");
     }
 

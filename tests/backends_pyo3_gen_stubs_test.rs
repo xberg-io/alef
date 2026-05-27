@@ -145,6 +145,8 @@ fn test_basic_stubs() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -247,6 +249,8 @@ fn test_optional_field_stubs() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -342,6 +346,8 @@ fn test_enum_stubs() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -392,6 +398,8 @@ fn test_stubs_with_no_stubs_config() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     // Config WITHOUT stubs configuration
@@ -447,6 +455,8 @@ fn test_type_stubs_with_vec_fields() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -548,6 +558,8 @@ fn test_function_stubs_with_multiple_params() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -646,6 +658,8 @@ fn test_opaque_type_stubs() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -685,6 +699,8 @@ fn test_stubs_generated_header_flag() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -740,6 +756,8 @@ fn test_python_keyword_escaping_function_name() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -821,6 +839,8 @@ fn test_static_method_stubs() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -1029,6 +1049,8 @@ fn test_multiple_types_and_functions() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -1105,6 +1127,8 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -1168,6 +1192,8 @@ fn test_async_function_stub_uses_async_def() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -1243,6 +1269,8 @@ fn test_async_method_stub_uses_async_def() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();
@@ -1316,6 +1344,8 @@ fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_config_with_stubs();
     let result = backend.generate_type_stubs(&api, &config).unwrap();
@@ -1406,6 +1436,8 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_config_with_stubs();
     let result = backend.generate_type_stubs(&api, &config).unwrap();
@@ -1492,6 +1524,8 @@ fn test_opaque_type_with_constructor_emits_init_stub() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     // Config declares a constructor for DefaultClient with two params.
@@ -1578,6 +1612,8 @@ fn test_opaque_type_without_constructor_omits_init_stub() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config_with_stubs();

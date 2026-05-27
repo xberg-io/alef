@@ -176,6 +176,8 @@ fn test_basic_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -256,6 +258,8 @@ fn test_type_mapping() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -336,6 +340,8 @@ fn test_enum_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -370,6 +376,8 @@ fn test_generated_header() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -485,6 +493,8 @@ fn test_methods_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -570,6 +580,8 @@ fn test_error_types() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -659,6 +671,8 @@ fn test_async_function() {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -749,6 +763,8 @@ fn test_opaque_type() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -818,6 +834,8 @@ fn test_default_config() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -977,6 +995,8 @@ fn test_multiple_types_with_shared_error() {
         errors: vec![shared_error],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -1075,6 +1095,8 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -1152,6 +1174,8 @@ fn test_generate_public_api_delegates_to_api_class() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -1267,6 +1291,8 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -1369,6 +1395,8 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -1497,6 +1525,8 @@ fn make_api_php() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -1852,6 +1882,8 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2018,6 +2050,8 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2141,6 +2175,8 @@ fn test_stubs_non_void_methods_have_return_statements() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2255,6 +2291,8 @@ fn test_static_stubs_promote_parameters_after_first_optional() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2334,6 +2372,8 @@ fn test_vec_named_struct_parameter() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2417,6 +2457,8 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2495,6 +2537,8 @@ fn test_dto_properties_use_camel_case_php_names() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2586,6 +2630,8 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2690,6 +2736,8 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2758,6 +2806,8 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2819,6 +2869,8 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -2894,6 +2946,8 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -3211,6 +3265,8 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();

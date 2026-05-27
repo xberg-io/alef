@@ -212,6 +212,8 @@ fn make_demo_api() -> ApiSurface {
         }],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -823,6 +825,8 @@ fn real_ir_shape_optional_ref_result_async() {
         }],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_demo_config();
@@ -940,6 +944,8 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_demo_config();
@@ -1012,6 +1018,8 @@ fn method_ref_receiver_emits_const_cast() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_demo_config();
@@ -1096,6 +1104,8 @@ fn method_slice_u8_param_receives_jbytearray() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_demo_config();
@@ -1184,6 +1194,8 @@ fn method_pathbuf_param_receives_raw_string() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_demo_config();
@@ -1278,6 +1290,8 @@ fn method_slice_str_param_coerces_to_str_refs() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_demo_config();
@@ -1578,6 +1592,8 @@ fn empty_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: Default::default(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 

@@ -97,6 +97,12 @@ pub struct Capabilities {
     pub supports_result: bool,
     pub supports_callbacks: bool,
     pub supports_streaming: bool,
+    /// Whether this backend implements [`Backend::generate_service_api`].
+    ///
+    /// Backends that support service API generation set this to `true` and
+    /// override `generate_service_api`.  When `false` and a crate has non-empty
+    /// `services`, the generation pipeline emits a diagnostic warning.
+    pub supports_service_api: bool,
 }
 
 /// Trait that all language backends implement.
@@ -133,6 +139,22 @@ pub trait Backend: Send + Sync {
 
     /// Generate language-native public API wrappers. Optional — default returns empty.
     fn generate_public_api(
+        &self,
+        _api: &ApiSurface,
+        _config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        Ok(vec![])
+    }
+
+    /// Generate the idiomatic service/app object and async handler bridge for a
+    /// backend that supports service API generation.
+    ///
+    /// Called **after** `generate_bindings` and **before** `generate_public_api`
+    /// when `surface.services` is non-empty and `capabilities().supports_service_api`
+    /// is `true`.  Backends that do not yet implement service API generation leave
+    /// the default no-op in place; the pipeline emits a warning for crates that
+    /// configure services against an unsupporting backend.
+    fn generate_service_api(
         &self,
         _api: &ApiSurface,
         _config: &ResolvedCrateConfig,

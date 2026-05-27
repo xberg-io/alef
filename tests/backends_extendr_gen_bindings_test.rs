@@ -146,6 +146,8 @@ fn test_basic_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -242,6 +244,8 @@ fn test_type_mapping() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -316,6 +320,8 @@ fn test_enum_generation() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -408,6 +414,8 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
@@ -506,6 +514,8 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
@@ -566,6 +576,8 @@ fn test_generated_header() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -707,6 +719,8 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = make_config();
@@ -756,6 +770,8 @@ mod trait_bridge {
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -1172,6 +1188,8 @@ mod trait_bridge {
             errors: vec![],
             excluded_type_paths: Default::default(),
             excluded_trait_names: Default::default(),
+            services: vec![],
+            handler_contracts: vec![],
         };
 
         // Config with exclude_functions for R

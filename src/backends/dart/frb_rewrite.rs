@@ -1229,21 +1229,28 @@ Future<ExtractionResult> extractBytes(
         // Count escaped braces: each {{ becomes { and each }} becomes }.
         let escaped_open = replacement.matches("{{").count();
         let escaped_close = replacement.matches("}}").count();
-        assert_eq!(escaped_open, escaped_close,
+        assert_eq!(
+            escaped_open, escaped_close,
             "escaped brace mismatch (must be in pairs for format escaping): {} {{ vs {} }}",
-            escaped_open, escaped_close);
+            escaped_open, escaped_close
+        );
 
         // Check structure: the helper method should close with }} before init() opens.
         // Look for the sequence: `}} catch (_) {{ ... }} return null; }} ... init({{`
-        assert!(replacement.contains("static Future<ExternalLibrary?> _alefResolveExternalLibrary()"),
-            "helper method signature must exist");
-        assert!(replacement.contains("static Future<void> init({{"),
-            "init method signature must exist");
+        assert!(
+            replacement.contains("static Future<ExternalLibrary?> _alefResolveExternalLibrary()"),
+            "helper method signature must exist"
+        );
+        assert!(
+            replacement.contains("static Future<void> init({{"),
+            "init method signature must exist"
+        );
 
         // Verify the closing }} for the helper precedes the init opening
         let helper_ret_null = replacement.find("return null;").expect("helper must have return null");
-        let init_sig = replacement.find("static Future<void> init({{").expect("init sig must exist");
-        assert!(helper_ret_null < init_sig,
-            "helper return must precede init signature");
+        let init_sig = replacement
+            .find("static Future<void> init({{")
+            .expect("init sig must exist");
+        assert!(helper_ret_null < init_sig, "helper return must precede init signature");
     }
 }

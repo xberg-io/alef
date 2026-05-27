@@ -95,6 +95,8 @@ fn make_streaming_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -299,6 +301,8 @@ fn make_opaque_factory_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -443,6 +447,8 @@ fn make_handle_only_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -655,6 +661,8 @@ fn make_optional_params_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -815,6 +823,8 @@ fn make_nullable_primitives_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -992,6 +1002,8 @@ fn make_sealed_variants_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -1170,6 +1182,8 @@ fn make_tuple_error_api() -> ApiSurface {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -1333,6 +1347,8 @@ fn make_convert_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -1492,6 +1508,8 @@ fn make_batch_function_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -1656,6 +1674,8 @@ fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -1938,6 +1958,8 @@ fn make_exclude_types_api() -> ApiSurface {
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -2044,6 +2066,8 @@ fn make_trait_api() -> ApiSurface {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     }
 }
 
@@ -2356,6 +2380,8 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
     let config = make_minimal_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();

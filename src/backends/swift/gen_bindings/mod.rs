@@ -49,6 +49,7 @@ impl Backend for SwiftBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: true,
+            supports_service_api: false,
         }
     }
 

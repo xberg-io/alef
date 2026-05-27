@@ -958,6 +958,8 @@ visitor_callbacks = true
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -1472,6 +1474,8 @@ sources = ["src/lib.rs"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -1650,6 +1654,8 @@ sources = ["src/lib.rs"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -2208,6 +2214,8 @@ header_name = "mylib.h"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -2314,6 +2322,8 @@ header_name = "mylib.h"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -2514,6 +2524,8 @@ core_import = "my_custom_lib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = sample_config();
         let backend = FfiBackend;
@@ -2631,6 +2643,8 @@ type = "ChatRequest"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let backend = FfiBackend;
 
@@ -2756,6 +2770,8 @@ type = "*const std::ffi::c_char"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let backend = FfiBackend;
         let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2848,6 +2864,8 @@ type = "*const std::ffi::c_char"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -2933,6 +2951,8 @@ type = "*const std::ffi::c_char"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let config = sample_config();
         let backend = FfiBackend;

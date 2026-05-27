@@ -81,6 +81,8 @@ fn test_java_serde_default_tuple_field_uses_nullable_type_and_null_default() {
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let config = resolved_one(

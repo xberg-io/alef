@@ -95,6 +95,8 @@ fn test_error_method_uses_value_receiver() {
         }],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -166,6 +168,8 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -242,6 +246,8 @@ fn test_zero_default_dto_skips_functional_options() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -337,6 +343,8 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -433,6 +441,8 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -551,6 +561,8 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -673,6 +685,8 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

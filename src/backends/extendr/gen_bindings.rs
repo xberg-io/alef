@@ -2776,6 +2776,8 @@ package_name = "testlib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -2945,6 +2947,8 @@ package_name = "testlib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
@@ -3109,6 +3113,8 @@ package_name = "testlib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         }
     }
 
@@ -3268,6 +3274,8 @@ package_name = "testlib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
@@ -3345,6 +3353,8 @@ package_name = "testlib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
@@ -3420,6 +3430,8 @@ package_name = "testlib"
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
@@ -3717,6 +3729,8 @@ exclude_languages = ["r"]
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
         };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
