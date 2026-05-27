@@ -45,7 +45,7 @@ impl Backend for JniBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: true,
-            supports_service_api: false,
+            supports_service_api: true,
         }
     }
 
@@ -64,6 +64,14 @@ impl Backend for JniBackend {
             content,
             generated_header: true,
         }])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        super::service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
