@@ -610,6 +610,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "cmd_download_ffi_main.go.jinja",
         include_str!("templates/cmd_download_ffi_main.go.jinja"),
     ),
+    (
+        "embed_ffi.go.jinja",
+        include_str!("templates/embed_ffi.go.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

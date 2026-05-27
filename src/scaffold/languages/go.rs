@@ -10,7 +10,7 @@ pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> any
 
     let content = format!("module {module}\n\ngo 1.26\n", module = go_module,);
 
-    Ok(vec![
+    let mut files = vec![
         GeneratedFile {
             path: PathBuf::from("packages/go/go.mod"),
             content,
@@ -140,5 +140,16 @@ formatters:
             .to_string(),
             generated_header: false,
         },
-    ])
+    ];
+
+    // Create .lib/.gitkeep to ensure the .lib directory exists in the module.
+    // This directory will be referenced by go:embed directives in embed_ffi.go.
+    // Pre-built FFI libraries for different platforms should be placed here.
+    files.push(GeneratedFile {
+        path: PathBuf::from("packages/go/.lib/.gitkeep"),
+        content: String::new(),
+        generated_header: false,
+    });
+
+    Ok(files)
 }
