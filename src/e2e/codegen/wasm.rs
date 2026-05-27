@@ -446,6 +446,16 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
 fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
+
+    // Consolidated import block for both wasm init and file setup.
+    out.push_str("import { createRequire } from 'module';\n");
+    out.push_str("import { readFileSync } from 'fs';\n");
+    out.push_str("import { fileURLToPath } from 'url';\n");
+    if include_file_setup {
+        out.push_str("import { dirname, join } from 'path';\n");
+    }
+    out.push('\n');
+
     // Wasm module init — must run before any wasm export is called.
     // Published wasm-bindgen packages export `initSync` (synchronous, takes a
     // WebAssembly.Module or ArrayBuffer) and a default async `__wbg_init`.
@@ -456,9 +466,6 @@ fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &s
     // and works in both Node.js test workers and browser contexts.
     // For wasm-pack `--target nodejs` bundles that self-initialize synchronously
     // the import succeeds but `initSync` may be absent — the try/catch is a no-op.
-    out.push_str("import { createRequire } from 'module';\n");
-    out.push_str("import { readFileSync } from 'fs';\n");
-    out.push_str("import { fileURLToPath } from 'url';\n\n");
     out.push_str("// Pre-initialize the wasm-bindgen module so that exports are callable\n");
     out.push_str("// in every vitest worker. The async default export uses fetch() which\n");
     out.push_str("// does not support file:// URLs in Node.js; use initSync with a\n");
@@ -486,20 +493,21 @@ fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &s
     out.push_str("}\n\n");
     if include_file_setup {
         let file_only = render_file_setup(test_documents_dir);
-        // render_file_setup prepends its own header; strip the header lines
-        // (everything before the first `import`) when embedding.
-        let body_start = file_only.find("import { createRequire }").unwrap_or(0);
+        // render_file_setup prepends its own header; strip the header and import lines
+        // (everything before the first comment after imports).
+        let body_start = file_only
+            .find("// Patch CommonJS")
+            .or_else(|| file_only.find("// Change to"))
+            .unwrap_or(0);
         out.push_str(&file_only[body_start..]);
     }
     out
 }
 
 fn render_file_setup(test_documents_dir: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
-    let mut out = header;
-    out.push_str("import { createRequire } from 'module';\n");
-    out.push_str("import { fileURLToPath } from 'url';\n");
-    out.push_str("import { dirname, join } from 'path';\n\n");
+    // Note: imports are now consolidated in render_setup() to avoid duplication.
+    // This function returns the body content (after imports) for embedding.
+    let mut out = String::new();
     out.push_str("// Patch CommonJS `require('env')` and `require('wasi_snapshot_preview1')` to\n");
     out.push_str("// return shim objects. wasm-pack `--target nodejs` emits bare `require()`\n");
     out.push_str("// calls for these from getrandom/wasi transitives, but they are not real\n");
@@ -664,3 +672,36 @@ fn render_tsconfig() -> String {
 // `wasm-pack build --target nodejs` artifact is a flat self-initializing CJS
 // module — its `package.json` already sets `"main"` to the JS entry, so the
 // emitted `import … from "<pkg>"` resolves directly.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_setup_ts_no_duplicate_imports() {
+        // Test that setup.ts with file_setup does not emit duplicate imports.
+        // Both createRequire and fileURLToPath should appear exactly once.
+        let setup = render_setup("fixtures", true, "@sample_core/wasm");
+
+        let create_require_count = setup.matches("import { createRequire }").count();
+        let file_url_to_path_count = setup.matches("import { fileURLToPath }").count();
+        let read_file_sync_count = setup.matches("readFileSync").count();
+        let path_imports_count = setup.matches("import { dirname, join }").count();
+
+        assert_eq!(create_require_count, 1, "createRequire should be imported exactly once");
+        assert_eq!(
+            file_url_to_path_count, 1,
+            "fileURLToPath should be imported exactly once"
+        );
+        assert!(read_file_sync_count >= 2, "readFileSync should be imported and used"); // one import, multiple uses
+        assert_eq!(path_imports_count, 1, "dirname, join should be imported exactly once");
+
+        // Verify consolidated imports are at the top.
+        let first_import = setup.find("import {").expect("should have imports");
+        let first_patch_comment = setup.find("// Patch CommonJS").expect("should have patch comment");
+        assert!(
+            first_import < first_patch_comment,
+            "all imports should come before the patch comment"
+        );
+    }
+}
