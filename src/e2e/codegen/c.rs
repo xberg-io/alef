@@ -451,7 +451,7 @@ fn render_makefile(
     // pkg-config package name retains the original form (as declared in the .pc file).
     let link_lib_name = lib_name.replace('-', "_");
 
-    // 3-path fallback: ffi/ (download script) -> local repo build -> pkg-config.
+    // 4-path fallback: ffi/ (download script) -> local repo build -> download on-demand -> pkg-config.
     let _ = writeln!(out, "ifneq ($(wildcard $(FFI_DIR)/include/{header_name}),)");
     let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_DIR)/include");
     let _ = writeln!(
@@ -472,6 +472,10 @@ fn render_makefile(
     let _ = writeln!(out, "    LDFLAGS = $(shell pkg-config --libs {lib_name} 2>/dev/null)");
     let _ = writeln!(out, "endif");
     let _ = writeln!(out);
+    let _ = writeln!(out, "# Ensure FFI artifacts are downloaded if not present locally");
+    let _ = writeln!(out, "$(FFI_DIR)/include/{header_name}: download_ffi.sh");
+    let _ = writeln!(out, "\tbash download_ffi.sh");
+    let _ = writeln!(out);
 
     let src_files: Vec<String> = categories.iter().map(|c| format!("test_{c}.c")).collect();
     let srcs = src_files.join(" ");
@@ -483,8 +487,8 @@ fn render_makefile(
     let _ = writeln!(out);
     let _ = writeln!(out, "all: $(TARGET)");
     let _ = writeln!(out);
-    let _ = writeln!(out, "$(TARGET): $(SRCS)");
-    let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)");
+    let _ = writeln!(out, "$(TARGET): $(SRCS) $(FFI_DIR)/include/{header_name}");
+    let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)");
     let _ = writeln!(out);
 
     if !needs_mock_server {
