@@ -5,6 +5,7 @@ pub mod enums;
 pub mod errors;
 pub mod functions;
 pub mod methods;
+pub mod service_api;
 pub mod types;
 
 use crate::backends::pyo3::type_map::Pyo3Mapper;
@@ -424,6 +425,7 @@ impl Backend for Pyo3Backend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -1475,6 +1477,14 @@ mod alef_json_str_opt {
         });
 
         Ok(files)
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
