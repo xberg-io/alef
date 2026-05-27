@@ -23,6 +23,7 @@ pub(super) mod enums;
 pub(super) mod errors;
 pub(super) mod functions;
 pub(super) mod methods;
+pub(super) mod service_api;
 pub(super) mod types;
 
 /// Sanitise a rustdoc string for safe embedding in C# XML doc comments.
@@ -127,6 +128,7 @@ impl Backend for CsharpBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -594,6 +596,14 @@ impl Backend for CsharpBackend {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         // C#'s wrapper class IS the public API — no additional wrapper needed.
         Ok(vec![])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

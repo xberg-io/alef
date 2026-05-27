@@ -10,6 +10,7 @@ mod errors;
 mod functions;
 mod helpers;
 mod opaque_handles;
+mod service_api;
 mod types;
 
 use errors::emit_error_set;
@@ -57,7 +58,7 @@ impl Backend for ZigBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: false,
-            supports_service_api: false,
+            supports_service_api: true,
         }
     }
 
@@ -319,6 +320,14 @@ impl Backend for ZigBackend {
             content,
             generated_header: false,
         }])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

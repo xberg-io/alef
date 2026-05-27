@@ -2,6 +2,7 @@ mod dart_traits;
 mod errors;
 mod functions;
 mod render_type;
+mod service_api;
 mod trait_bridge;
 mod types;
 
@@ -19,6 +20,7 @@ use crate::backends::dart::gen_rust_crate;
 
 use dart_traits::emit_dart_traits;
 use functions::emit_function;
+use service_api as gen_service_api;
 use trait_bridge::emit_trait_bridge_methods;
 
 pub struct DartBackend;
@@ -41,7 +43,7 @@ impl Backend for DartBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: true,
-            supports_service_api: false,
+            supports_service_api: true,
         }
     }
 
@@ -251,6 +253,10 @@ impl Backend for DartBackend {
                 ],
             }],
         })
+    }
+
+    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        gen_service_api::generate(api, config)
     }
 }
 

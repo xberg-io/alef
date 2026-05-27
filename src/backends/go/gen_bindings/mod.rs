@@ -1,6 +1,7 @@
 mod functions;
 mod methods;
 pub(super) mod types;
+mod service_api;
 
 use functions::{gen_adapter_wrapper, gen_convert_with_visitor_wrapper, gen_function_wrapper};
 use methods::{gen_method_wrapper, gen_streaming_method_wrapper};
@@ -49,6 +50,7 @@ impl Backend for GoBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -319,6 +321,22 @@ impl Backend for GoBackend {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         // Go's binding.go IS the public API — no additional wrapper needed.
         Ok(vec![])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        let module_path = config.go_module();
+        let pkg_name = config
+            .go
+            .as_ref()
+            .and_then(|g| g.package_name.clone())
+            .unwrap_or_else(|| Self::package_name(&module_path));
+        let ffi_prefix = config.ffi_prefix();
+
+        service_api::generate(api, config, &pkg_name, &ffi_prefix)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

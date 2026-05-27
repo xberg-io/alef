@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use crate::backends::swift::gen_rust_crate;
 use crate::backends::swift::type_map::SwiftMapper;
 
+pub mod service_api;
 pub mod trait_bridge;
 
 pub struct SwiftBackend;
@@ -49,7 +50,7 @@ impl Backend for SwiftBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: true,
-            supports_service_api: false,
+            supports_service_api: true,
         }
     }
 
@@ -500,6 +501,10 @@ impl Backend for SwiftBackend {
                 generated_header: false,
             });
         }
+
+        // Emit service API classes if services are configured
+        let service_files = service_api::generate(api, config)?;
+        files.extend(service_files);
 
         Ok(files)
     }
