@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef vendor: append empty `[workspace]` to inner vendored Cargo.toml when no outer workspace manifest is generated.** `vendor_core_only(..., generate_workspace_manifest=false)` (used for languages like Elixir) copied the core crate into `{dest}/{crate}/Cargo.toml` but left it without any workspace marker. Downstream tooling (e.g. `publish-hex`'s "Generate Cargo.lock for native dependencies" loop, which iterates every `Cargo.toml` under `native/` and runs `cargo generate-lockfile`) then triggered cargo to walk up from the vendor path looking for a workspace, find the consumer repo's root workspace, and bail with "current package believes it's in a workspace when it's not". The fix appends an empty `[workspace]` table to the inner vendored Cargo.toml, making it a self-contained one-package workspace root. For Ruby (`generate_workspace_manifest=true`), the outer `{dest}/Cargo.toml` already claims membership and we preserve the existing behaviour (no inner `[workspace]`). (`src/publish/vendor.rs`)
+
 ## [0.20.0] - 2026-05-27
 
 ### Changed

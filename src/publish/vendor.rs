@@ -82,6 +82,20 @@ pub fn vendor_core_only(
     // 3c. Remove [lints] workspace = true.
     remove_workspace_lints(&mut crate_doc);
 
+    // 3d. When no outer workspace manifest is generated, append an empty
+    //     `[workspace]` table so the vendored crate is self-contained. Without
+    //     it `cargo` walks up from the vendor path looking for a workspace,
+    //     finds the consumer repo's root workspace (which doesn't list this
+    //     vendor path as a member), and bails with "current package believes
+    //     it's in a workspace when it's not". The empty `[workspace]` makes
+    //     this Cargo.toml act as both the package and a one-package workspace
+    //     root, which is a valid cargo pattern. When `generate_workspace_manifest`
+    //     is true (e.g. Ruby) the outer manifest claims ownership and we must
+    //     NOT add `[workspace]` to the inner crate.
+    if !generate_workspace_manifest && !crate_doc.as_table().contains_key("workspace") {
+        crate_doc.as_table_mut().insert("workspace", Item::Table(Table::new()));
+    }
+
     fs::write(&crate_manifest_path, crate_doc.to_string())
         .with_context(|| format!("writing {}", crate_manifest_path.display()))?;
 
