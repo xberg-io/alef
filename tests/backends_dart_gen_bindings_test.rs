@@ -1531,57 +1531,81 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        3,
-        "FRB config must have three PostProcessFile steps (exclude_functions on lib.dart, \
-         sealed_variants on lib.dart, sealed_variants on frb_generated.dart for the \
-         published-package native-lib loader)"
+        5,
+        "FRB config must have five PostProcessFile steps: (1) exclude_functions on lib.dart, \
+         (2) sealed_variants on lib.dart, (3) optional_fields_with_defaults on lib.dart, \
+         (4) exclude_functions on frb_generated.dart, (5) sealed_variants on frb_generated.dart \
+         for the published-package native-lib loader"
     );
 
-    // First step: exclude functions
-    if let PostBuildStep::PostProcessFile { processor, .. } = post_process_steps[0] {
+    let lib_dart_path = PathBuf::from("packages")
+        .join("dart")
+        .join("lib")
+        .join("src")
+        .join("demo_crate_bridge_generated")
+        .join("lib.dart");
+    let frb_generated_path = PathBuf::from("packages")
+        .join("dart")
+        .join("lib")
+        .join("src")
+        .join("demo_crate_bridge_generated")
+        .join("frb_generated.dart");
+
+    // (1) exclude_functions on lib.dart
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[0] {
         assert!(
             matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
             "First PostProcessFile must use FrbDartExcludeFunctions processor"
         );
+        assert_eq!(path, &lib_dart_path, "First PostProcessFile must target lib.dart");
     }
 
-    // Second step: sealed variants on lib.dart
+    // (2) sealed_variants on lib.dart
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[1] {
         assert_eq!(
             *processor,
             PostProcessor::FrbDartSealedVariants,
             "Second PostProcessFile must use FrbDartSealedVariants processor"
         );
-        let expected_path = PathBuf::from("packages")
-            .join("dart")
-            .join("lib")
-            .join("src")
-            .join("demo_crate_bridge_generated")
-            .join("lib.dart");
-        assert_eq!(
-            path, &expected_path,
-            "Second PostProcessFile path must point to frb-generated lib.dart for crate 'demo-crate'"
-        );
+        assert_eq!(path, &lib_dart_path, "Second PostProcessFile must target lib.dart");
     }
 
-    // Third step: sealed variants reused for the published-package native-lib loader
-    // injection into frb_generated.dart (idempotent — the loader fix is keyed off the
-    // FRB loader config present only in that file).
+    // (3) optional_fields_with_defaults on lib.dart — makes Dart constructor fields with
+    // Rust serde defaults optional.
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[2] {
         assert_eq!(
             *processor,
-            PostProcessor::FrbDartSealedVariants,
-            "Third PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
+            PostProcessor::FrbDartOptionalFieldsWithDefaults,
+            "Third PostProcessFile must use FrbDartOptionalFieldsWithDefaults processor"
         );
-        let expected_path = PathBuf::from("packages")
-            .join("dart")
-            .join("lib")
-            .join("src")
-            .join("demo_crate_bridge_generated")
-            .join("frb_generated.dart");
+        assert_eq!(path, &lib_dart_path, "Third PostProcessFile must target lib.dart");
+    }
+
+    // (4) exclude_functions on frb_generated.dart — filters Rust FFI bridge wrappers like
+    // `crateCalculateQualityScore` that are also emitted in frb_generated.dart.
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[3] {
+        assert!(
+            matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
+            "Fourth PostProcessFile must use FrbDartExcludeFunctions processor"
+        );
         assert_eq!(
-            path, &expected_path,
-            "Third PostProcessFile path must point to frb_generated.dart for the loader injection"
+            path, &frb_generated_path,
+            "Fourth PostProcessFile must target frb_generated.dart"
+        );
+    }
+
+    // (5) sealed_variants on frb_generated.dart — reused for the published-package
+    // native-lib loader injection (idempotent — the loader fix is keyed off the FRB
+    // loader config present only in that file).
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[4] {
+        assert_eq!(
+            *processor,
+            PostProcessor::FrbDartSealedVariants,
+            "Fifth PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
+        );
+        assert_eq!(
+            path, &frb_generated_path,
+            "Fifth PostProcessFile must target frb_generated.dart for the loader injection"
         );
     }
 }
@@ -1609,7 +1633,14 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
 
     assert_eq!(
         steps,
-        vec!["RunCommand", "PostProcessFile", "PostProcessFile", "PostProcessFile"],
+        vec![
+            "RunCommand",
+            "PostProcessFile",
+            "PostProcessFile",
+            "PostProcessFile",
+            "PostProcessFile",
+            "PostProcessFile"
+        ],
         "RunCommand must come before all PostProcessFile steps in post_build steps"
     );
 }

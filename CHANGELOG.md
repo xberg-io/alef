@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef integration tests: align test expectations + insta snapshots with spec-compliant JNI symbol encoding, updated dart FRB post-build step count, and gate jni service_api doc-tests as Java.** Three orthogonal test-side fixes surfaced when the CI integration suite ran post-`v0.20.0` cycle: (1) `tests/backends_jni_gen_shims_test.rs` and 8 paired insta `.snap` files asserted `Java_dev_sample_crate_demo_*` symbols on the demo fixture (package `dev.sample_crate.demo`), but the production `jni_symbol` function correctly encodes `_` → `_1` per JNI spec §5.11.3 (so the actual emitted symbol is `Java_dev_sample_1crate_demo_*`). Bulk-replaced `dev_sample_crate_` → `dev_sample_1crate_` across `tests/` (12 files). (2) `tests/backends_dart_gen_bindings_test.rs::build_config_for_frb_emits_post_process_file_step` and `..._run_command_precedes_post_process_file` asserted three PostProcessFile steps; the dart backend now emits five (added `FrbDartOptionalFieldsWithDefaults` on lib.dart, and a separate `FrbDartExcludeFunctions` pass on frb_generated.dart for the `crateCalculateQualityScore` filter). Updated test expectations to match — full per-step processor/path assertions retained. (3) Two doc-tests in `src/backends/jni/service_api.rs` (`gen_register_jni_function`, `gen_entrypoint_jni_function`) contained un-annotated code fences with Java pseudo-signatures (`public native void register{ServiceName}{MethodName}(Object handler);`) that rustdoc tried to compile as Rust. Marked both as `java,ignore`. (`tests/backends_jni_gen_shims_test.rs`, `tests/backends_dart_gen_bindings_test.rs`, `tests/snapshots/backends_jni_gen_shims_test__*.snap`, `src/backends/jni/service_api.rs`)
+
 ## [0.20.0] - 2026-05-27
 
 ### Changed

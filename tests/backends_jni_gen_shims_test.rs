@@ -320,7 +320,7 @@ fn snapshot_constructor_symbol_and_body() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("Java_dev_sample_crate_demo_DemoBridge_nativeCreateClient"),
+        content.contains("Java_dev_sample_1crate_demo_DemoBridge_nativeCreateClient"),
         "constructor symbol missing; got:\n{content}"
     );
     // Must return jlong (raw pointer) — NOT a JSON-encoded jstring.
@@ -555,10 +555,10 @@ fn emitted_symbols_match_kotlin_package() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Package `dev.sample_crate.demo` encodes as `dev_sample_crate_demo`.
+    // Package `dev.sample_crate.demo` encodes as `dev_sample_1crate_demo`.
     assert!(
-        content.contains("Java_dev_sample_crate_demo_"),
-        "symbols must use package prefix `dev_sample_crate_demo_`; got:\n{content}"
+        content.contains("Java_dev_sample_1crate_demo_"),
+        "symbols must use package prefix `dev_sample_1crate_demo_`; got:\n{content}"
     );
     // Bridge class `DemoBridge` appears after the package prefix.
     assert!(
@@ -625,17 +625,17 @@ fn jni_symbols_agree_with_alef_core_jni_helpers() {
     // Top-level function symbol.
     let fn_method = bridge_method_name("", "create_client");
     let fn_sym = jni_symbol(package, &bridge, &fn_method);
-    assert_eq!(fn_sym, "Java_dev_sample_crate_demo_DemoBridge_nativeCreateClient");
+    assert_eq!(fn_sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeCreateClient");
 
     // Instance method symbol.
     let method = bridge_method_name("DemoClient", "ping");
     let method_sym = jni_symbol(package, &bridge, &method);
-    assert_eq!(method_sym, "Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientPing");
+    assert_eq!(method_sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientPing");
 
     // Destructor symbol.
     let dtor = destructor_method_name("DemoClient");
     let dtor_sym = jni_symbol(package, &bridge, &dtor);
-    assert_eq!(dtor_sym, "Java_dev_sample_crate_demo_DemoBridge_nativeFreeDemoClient");
+    assert_eq!(dtor_sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeFreeDemoClient");
 }
 
 /// Streaming adapter shims (Start/Next/Free) are emitted for a `Streaming`
@@ -1610,15 +1610,15 @@ fn trait_bridge_emits_jni_shim_symbols() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_crate_DemoBridge_nativeRegisterOcrBackend"),
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeRegisterOcrBackend"),
         "missing nativeRegisterOcrBackend extern fn: {content}"
     );
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_crate_DemoBridge_nativeUnregisterOcrBackend"),
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeUnregisterOcrBackend"),
         "missing nativeUnregisterOcrBackend extern fn: {content}"
     );
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_crate_DemoBridge_nativeClearOcrBackends"),
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeClearOcrBackends"),
         "missing nativeClearOcrBackends extern fn: {content}"
     );
 

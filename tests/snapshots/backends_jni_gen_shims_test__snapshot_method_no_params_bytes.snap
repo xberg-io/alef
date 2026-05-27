@@ -92,7 +92,7 @@ where
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeCreateClient(
+pub unsafe extern "system" fn Java_dev_sample_1crate_demo_DemoBridge_nativeCreateClient(
     mut env: EnvUnowned,
     _class: JClass,
     api_key: JString,
@@ -119,7 +119,7 @@ pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeCreate
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientDoThing(
+pub unsafe extern "system" fn Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientDoThing(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -151,7 +151,7 @@ pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoCl
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientPing(
+pub unsafe extern "system" fn Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientPing(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -170,7 +170,7 @@ pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoCl
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoClientFetchBlob(
+pub unsafe extern "system" fn Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientFetchBlob(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -192,7 +192,7 @@ pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeDemoCl
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_dev_sample_crate_demo_DemoBridge_nativeFreeDemoClient(
+pub unsafe extern "system" fn Java_dev_sample_1crate_demo_DemoBridge_nativeFreeDemoClient(
     _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
