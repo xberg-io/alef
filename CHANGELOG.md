@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **alef zig publish: emit per-platform tarballs with distinct filenames.** `alef publish package --lang zig --target <T>` now produces `{crate}-zig-v{version}-{platform}.tar.gz` (mirroring the Go package naming scheme) instead of `{crate}-v{version}.tar.gz`. Previously all platform-specific builds collided on the same filename during GitHub Release asset upload, leaving only the final tarball in the release. Platform naming uses the Go ecosystem convention (e.g. `linux-x86_64`, `macos-arm64`).
+- **alef test-apps: install freshly-published packages in registry mode.** The Node and WASM test-app run commands now pass `pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0` (and `npm install --no-package-lock` on the npm path): they re-resolve from `package.json` instead of the committed lockfile, which pins the previous release, and bypass pnpm's `minimumReleaseAge` supply-chain gate, which otherwise rejects the just-released version under test. (`src/core/config/test_apps_run_defaults.rs`)
 
 ### Fixed
 

@@ -52,9 +52,15 @@ pub fn default_test_apps_run_config(
         Language::Node => {
             let pm = ctx.tools.node_pm();
             let run = match pm {
-                "npm" => format!("cd {test_apps_dir}/node && npm install && npm test"),
+                "npm" => format!("cd {test_apps_dir}/node && npm install --no-package-lock && npm test"),
                 "yarn" => format!("cd {test_apps_dir}/node && yarn install && yarn test"),
-                _ => format!("cd {test_apps_dir}/node && pnpm install && pnpm test"),
+                // Registry-mode: re-resolve from package.json (the committed lockfile pins the
+                // previous release) and disable pnpm's minimumReleaseAge supply-chain gate, which
+                // rejects packages published within its window — i.e. the just-released version
+                // under test.
+                _ => format!(
+                    "cd {test_apps_dir}/node && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm test"
+                ),
             };
             TestAppRunConfig {
                 precondition: Some(require_tool(pm)),
@@ -65,9 +71,13 @@ pub fn default_test_apps_run_config(
         Language::Wasm => {
             let pm = ctx.tools.node_pm();
             let run = match pm {
-                "npm" => format!("cd {test_apps_dir}/wasm && npm install && npm test"),
+                "npm" => format!("cd {test_apps_dir}/wasm && npm install --no-package-lock && npm test"),
                 "yarn" => format!("cd {test_apps_dir}/wasm && yarn install && yarn test"),
-                _ => format!("cd {test_apps_dir}/wasm && pnpm install && pnpm test"),
+                // See the Node arm: re-resolve and skip pnpm's minimumReleaseAge gate so the
+                // freshly-published version under test installs.
+                _ => format!(
+                    "cd {test_apps_dir}/wasm && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm test"
+                ),
             };
             TestAppRunConfig {
                 precondition: Some(require_tool(pm)),
@@ -362,7 +372,7 @@ mod tests {
     #[test]
     fn node_dispatches_on_package_manager() {
         for (pm, expected_pre, expected_cmd) in [
-            ("npm", "command -v npm >/dev/null 2>&1", "npm install && npm test"),
+            ("npm", "command -v npm >/dev/null 2>&1", "npm install --no-package-lock && npm test"),
             ("yarn", "command -v yarn >/dev/null 2>&1", "yarn install && yarn test"),
         ] {
             let tools = ToolsConfig {
@@ -474,7 +484,8 @@ mod tests {
         let c = cfg(Language::Wasm, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
         assert!(run.contains("cd test_apps/wasm"), "got: {run}");
-        assert!(run.contains("pnpm install && pnpm test"), "got: {run}");
+        assert!(run.contains("pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0"), "got: {run}");
+        assert!(run.contains("&& pnpm test"), "got: {run}");
     }
 
     #[test]
