@@ -261,7 +261,10 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     let service_lower = ffi_prefix.to_lowercase();
 
     // Service struct
-    out.push_str(&format!("// {} is a wrapper around the native service.\n", service_name));
+    out.push_str(&format!(
+        "// {} is a wrapper around the native service.\n",
+        service_name
+    ));
     if !service.doc.is_empty() {
         out.push_str(&format!("//\n// {}\n", service.doc.trim()));
     }
@@ -288,9 +291,7 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     ));
 
     // Destructor
-    out.push_str(&format!(
-        "// Close frees the {service_name} instance.\n"
-    ));
+    out.push_str(&format!("// Close frees the {service_name} instance.\n"));
     out.push_str(&format!(
         "func (s *{service_name}) Close() {{\n\
          \ts.mu.Lock()\n\
@@ -510,13 +511,19 @@ fn zero_value_for_type(go_type: &str) -> String {
 ///
 /// Returns one `GeneratedFile` when services are present:
 /// - `{output_dir}/service.go` — Go service wrapper
-pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str, ffi_prefix: &str) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn generate(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    pkg_name: &str,
+    ffi_prefix: &str,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     if api.services.is_empty() {
         return Ok(vec![]);
     }
 
     let output_dir = {
-        let mut d = crate::core::config::resolve_output_dir(config.output_paths.get("go"), &config.name, "packages/go/");
+        let mut d =
+            crate::core::config::resolve_output_dir(config.output_paths.get("go"), &config.name, "packages/go/");
         if !d.ends_with('/') {
             d.push('/');
         }

@@ -17,10 +17,10 @@
 //! All names and signatures are derived entirely from the [`ApiSurface`] IR — no
 //! transport- or domain-specific assumptions are made anywhere in this module.
 
+use crate::codegen::naming::to_csharp_name;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, ServiceDef, TypeRef};
-use crate::codegen::naming::to_csharp_name;
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::path::PathBuf;
 
@@ -74,9 +74,9 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
 
     // Service class
     let class_name = to_csharp_name(&service.name);
-    out.push_str(&format!("/// <summary>\n"));
+    out.push_str("/// <summary>\n");
     out.push_str(&format!("/// Service wrapper for {}.\n", service.name));
-    out.push_str(&format!("/// </summary>\n"));
+    out.push_str("/// </summary>\n");
     out.push_str(&format!("public class {class_name} {{\n\n"));
 
     // Private opaque handle field
@@ -91,7 +91,11 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
 
         if ctor.params.is_empty() {
             out.push_str(&format!("    public {class_name}() {{\n"));
-            out.push_str(&format!("        _handle = NativeMethods.{}_{}_new();\n", prefix.to_lowercase(), service.name.to_snake_case()));
+            out.push_str(&format!(
+                "        _handle = NativeMethods.{}_{}_new();\n",
+                prefix.to_lowercase(),
+                service.name.to_snake_case()
+            ));
             out.push_str("    }\n\n");
         } else {
             out.push_str(&format!("    public {class_name}("));
@@ -104,7 +108,11 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
                 out.push_str(&format!("{} {}", ty, name));
             }
             out.push_str(") {\n");
-            out.push_str(&format!("        _handle = NativeMethods.{}_{}_new();\n", prefix.to_lowercase(), service.name.to_snake_case()));
+            out.push_str(&format!(
+                "        _handle = NativeMethods.{}_{}_new();\n",
+                prefix.to_lowercase(),
+                service.name.to_snake_case()
+            ));
             out.push_str("    }\n\n");
         }
     }
@@ -225,7 +233,7 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
 
     // Destructor / Dispose
     let service_snake = service.name.to_snake_case();
-    out.push_str(&format!("    public void Dispose() {{\n"));
+    out.push_str("    public void Dispose() {\n");
     out.push_str(&format!(
         "        if (_handle != IntPtr.Zero) {{\n            NativeMethods.{}_{}_free(_handle);\n            _handle = IntPtr.Zero;\n        }}\n",
         prefix.to_lowercase(),
@@ -237,7 +245,9 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
     out.push_str("    /// <summary>\n");
     out.push_str("    /// Unmanaged callback trampoline that recovers the GC handle and invokes the handler.\n");
     out.push_str("    /// </summary>\n");
-    out.push_str("    [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]\n");
+    out.push_str(
+        "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]\n",
+    );
     out.push_str("    public static IntPtr UnmanagedCallersOnlyHandler(IntPtr ctx, IntPtr requestJson) {\n");
     out.push_str("        try {\n");
     out.push_str("            // Recover the GCHandle and invoke the delegate\n");
@@ -395,7 +405,10 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
             ));
             out.push_str(&format!(
                 "    public static extern {} {}_{}_ep_{}(\n",
-                return_type, prefix.to_lowercase(), service_snake, ep_method_snake
+                return_type,
+                prefix.to_lowercase(),
+                service_snake,
+                ep_method_snake
             ));
             out.push_str("        IntPtr owner");
 
@@ -672,8 +685,12 @@ mod tests {
         let files = generate(&api, &config).expect("generate should not fail");
         assert!(!files.is_empty(), "expected at least one file");
 
-        let has_service_class = files.iter().any(|f| f.path.to_string_lossy().contains("TestService.cs"));
-        let has_native_methods = files.iter().any(|f| f.path.to_string_lossy().contains("ServiceNativeMethods.cs"));
+        let has_service_class = files
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("TestService.cs"));
+        let has_native_methods = files
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("ServiceNativeMethods.cs"));
 
         assert!(has_service_class, "expected TestService.cs in output");
         assert!(has_native_methods, "expected ServiceNativeMethods.cs in output");

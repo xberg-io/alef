@@ -2784,8 +2784,10 @@ fn cargo_config_env_string_with_quotes_is_escaped() {
 fn cargo_config_default_includes_build_jobs_limit() {
     let rendered = render_cargo_config(&ScaffoldCargo::default());
     // Default is 4 jobs to prevent OOM on 16 GB dev machines.
-    assert!(rendered.contains("[build]\nincremental = true\njobs = 4\n"),
-        "build_jobs default (4) must be in [build] section; got:\n{rendered}");
+    assert!(
+        rendered.contains("[build]\nincremental = true\njobs = 4\n"),
+        "build_jobs default (4) must be in [build] section; got:\n{rendered}"
+    );
 }
 
 #[test]
@@ -2796,8 +2798,10 @@ fn cargo_config_build_jobs_zero_disables_limit() {
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
-    assert!(!rendered.contains("jobs = "),
-        "build_jobs = 0 must not emit jobs limit; got:\n{rendered}");
+    assert!(
+        !rendered.contains("jobs = "),
+        "build_jobs = 0 must not emit jobs limit; got:\n{rendered}"
+    );
 }
 
 #[test]
@@ -2808,8 +2812,10 @@ fn cargo_config_build_jobs_custom_value_renders() {
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
-    assert!(rendered.contains("jobs = 2\n"),
-        "custom build_jobs value must render; got:\n{rendered}");
+    assert!(
+        rendered.contains("jobs = 2\n"),
+        "custom build_jobs value must render; got:\n{rendered}"
+    );
 }
 
 #[test]

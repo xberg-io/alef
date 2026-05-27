@@ -1390,7 +1390,10 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = crate::e2e::codegen::emit_test_backend("elixir", trait_bridge, &methods, fixture);
+                    // Derive the NIF module from the test module path: the NIF module
+                    // follows the "{AppModule}.Native" convention used by the Elixir scaffold.
+                    let elixir_nif_module = format!("{module_path}.Native");
+                    let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
 
@@ -2563,10 +2566,16 @@ fn emit_tagged_enum_array(
 /// Generates a `defmodule TestStub{PascalId}` that implements the trait's required
 /// methods using language-appropriate default return values. The stub is registered
 /// via the trait bridge's `register_fn`.
+/// Emit the Elixir GenServer stub that implements a trait bridge for testing.
+///
+/// `nif_module` is the Elixir module that exposes `complete_trait_call/2` and
+/// `fail_trait_call/2` NIFs (e.g. `"MyApp.Native"` for a crate named `my_app`).
+/// Pass an empty string to use the conventional `Native` fallback.
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
+    nif_module: &str,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use heck::ToUpperCamelCase;
@@ -2574,6 +2583,11 @@ pub fn emit_test_backend(
 
     let pascal_id = fixture.id.to_upper_camel_case();
     let module_name = format!("TestStub{pascal_id}");
+
+    // Resolve the NIF module that exposes complete_trait_call/2.
+    // Falls back to "Native" when no explicit module is provided, which is
+    // correct for standalone e2e fixtures not tied to a specific crate namespace.
+    let effective_nif_module = if nif_module.is_empty() { "Native" } else { nif_module };
 
     // Derive the plugin name from the first argument's input field structure.
     // For "register_document_extractor_trait_bridge" with input { extractor: { name: "test-extractor" } },
@@ -2645,7 +2659,7 @@ pub fn emit_test_backend(
     // Emit the GenServer wrapper that Rustler NIFs can call via PID message passing.
     // Messages arrive as {:trait_call, method_atom, args_json_string, reply_id}.
     // The GenServer calls the stub module method, serializes the result to JSON, and
-    // passes it back to SampleCrate.complete_trait_call/2 NIF which unblocks the waiting Rust thread.
+    // passes it back to the NIF's complete_trait_call/2 which unblocks the waiting Rust thread.
     let _ = writeln!(setup, "unless Code.ensure_loaded?({genserver_module}) do");
     let _ = writeln!(setup, "defmodule {genserver_module} do");
     let _ = writeln!(setup, "  use GenServer");
@@ -2665,7 +2679,10 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "    args = Jason.decode!(args_json)");
     let _ = writeln!(setup, "    result = apply({qualified_module}, method_atom, args)");
     let _ = writeln!(setup, "    result_json = Jason.encode!(result)");
-    let _ = writeln!(setup, "    SampleCrate.complete_trait_call(reply_id, result_json)");
+    let _ = writeln!(
+        setup,
+        "    {effective_nif_module}.complete_trait_call(reply_id, result_json)"
+    );
     let _ = writeln!(setup, "    {{:noreply, state}}");
     let _ = writeln!(setup, "  end");
     let _ = writeln!(setup, "end");
@@ -2772,7 +2789,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
 
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
@@ -2807,7 +2824,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
@@ -2833,7 +2850,7 @@ mod test_backend_tests {
         let mut fixture = make_fixture("my_fixture_id");
         fixture.input = serde_json::json!({ "backend": { "name": "my-backend-name" } });
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
@@ -2851,7 +2868,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
 
         assert!(
             emission.setup_block.contains("E2e.TestStubs."),
@@ -2869,7 +2886,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
 
         assert!(
             emission.setup_block.contains("defmodule") && emission.setup_block.contains("GenServer"),
@@ -2883,7 +2900,7 @@ mod test_backend_tests {
         );
         assert!(
             emission.setup_block.contains("complete_trait_call"),
-            "GenServer must reply via SampleCrate.complete_trait_call/2 NIF, got:\n{}",
+            "GenServer must reply via the NIF complete_trait_call/2, got:\n{}",
             emission.setup_block
         );
     }
@@ -2897,7 +2914,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
 
         // arg_expr should be a lowercase variable name like "my_test_fixture_pid", not a module atom
         assert!(

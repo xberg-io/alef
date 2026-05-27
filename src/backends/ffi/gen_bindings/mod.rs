@@ -93,7 +93,11 @@ impl Backend for FfiBackend {
         Ok(files)
     }
 
-    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         service_api::generate(api, config)
     }
 

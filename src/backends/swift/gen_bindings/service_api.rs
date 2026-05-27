@@ -21,16 +21,11 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
-
-/// Find the `HandlerContractDef` by trait name in the surface.
-fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
-    api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
-}
 
 /// Map a `TypeRef` to a Swift type string for function parameters.
 fn typeref_to_swift_type(ty: &TypeRef) -> String {
@@ -94,7 +89,9 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     // Constructor
     out.push_str("    /// Create a new service instance.\n");
     out.push_str("    public init() {\n");
-    out.push_str(&format!("        self.opaqueHandle = RustBridge.{service_snake}New()\n"));
+    out.push_str(&format!(
+        "        self.opaqueHandle = RustBridge.{service_snake}New()\n"
+    ));
     out.push_str("    }\n\n");
 
     // Destructor
@@ -168,7 +165,9 @@ fn gen_registration_method(
 
     // Recover the handler from context (stored as an Int index)
     out.push_str("            // Recover the service instance from context\n");
-    out.push_str("            let service = Unmanaged<AnyObject>.fromOpaque(contextPtr).takeUnretainedValue() as! MyService\n");
+    out.push_str(
+        "            let service = Unmanaged<AnyObject>.fromOpaque(contextPtr).takeUnretainedValue() as! MyService\n",
+    );
     out.push_str("            let handlerIndex = Int(bitPattern: contextPtr)\n\n");
 
     // Call the handler
@@ -179,7 +178,9 @@ fn gen_registration_method(
     // Allocate and return response
     out.push_str("                // Allocate response string on C heap (caller must free)\n");
     out.push_str("                let responseBytes = responseJSON.utf8CString\n");
-    out.push_str("                let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n");
+    out.push_str(
+        "                let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n",
+    );
     out.push_str("                responsePtr.initialize(from: responseBytes, count: responseBytes.count)\n");
     out.push_str("                return responsePtr\n");
     out.push_str("            }\n");
@@ -189,7 +190,11 @@ fn gen_registration_method(
     // Call C registration function with metadata
     out.push_str("        guard let handle = opaqueHandle else { return }\n\n");
     out.push_str("        let contextPtr = Unmanaged.passUnretained(self as AnyObject).toOpaque()\n");
-    let method_camel_upper = format!("{}{}", method_camel.chars().next().unwrap().to_uppercase(), &method_camel[1..]);
+    let method_camel_upper = format!(
+        "{}{}",
+        method_camel.chars().next().unwrap().to_uppercase(),
+        &method_camel[1..]
+    );
     out.push_str(&format!(
         "        RustBridge.{service_snake}Register{method_camel_upper}(\n            handle,\n            trampolineFunc,\n            contextPtr"
     ));
@@ -296,11 +301,8 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         }
 
         let module_name = config.swift_module();
-        let base_dir = crate::core::config::resolve_output_dir(
-            config.output_paths.get("swift"),
-            &config.name,
-            "packages/swift",
-        );
+        let base_dir =
+            crate::core::config::resolve_output_dir(config.output_paths.get("swift"), &config.name, "packages/swift");
         let base_path = PathBuf::from(&base_dir);
 
         let path = if config.explicit_output.swift.is_some() {
@@ -329,7 +331,9 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::{EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeRef};
+    use crate::core::ir::{
+        EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeRef,
+    };
 
     fn make_fixture_surface() -> ApiSurface {
         let constructor = MethodDef {
@@ -457,10 +461,7 @@ mod tests {
             output.contains("public init()"),
             "expected `public init()` in output:\n{output}"
         );
-        assert!(
-            output.contains("deinit"),
-            "expected `deinit` in output:\n{output}"
-        );
+        assert!(output.contains("deinit"), "expected `deinit` in output:\n{output}");
         assert!(
             output.contains("RustBridge.test_serviceFree"),
             "expected C free call in deinit:\n{output}"
@@ -604,9 +605,6 @@ mod tests {
         };
 
         let files = generate(&api, &config).expect("generate should not fail");
-        assert!(
-            files.is_empty(),
-            "expected no files for service without registrations"
-        );
+        assert!(files.is_empty(), "expected no files for service without registrations");
     }
 }

@@ -255,7 +255,11 @@ impl Backend for DartBackend {
         })
     }
 
-    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         gen_service_api::generate(api, config)
     }
 }

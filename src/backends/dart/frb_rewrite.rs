@@ -1251,20 +1251,20 @@ Future<ExtractionResult> extractBytes(
         );
 
         // Check structure: the helper method should close with }} before init() opens.
-        // Look for the sequence: `}} catch (_) {{ ... }} return null; }} ... init({{`
+        // Look for the sequence: `} catch (_) { ... } return null; } ... init({`
         assert!(
             replacement.contains("static Future<ExternalLibrary?> _alefResolveExternalLibrary()"),
             "helper method signature must exist"
         );
         assert!(
-            replacement.contains("static Future<void> init({{"),
+            replacement.contains("static Future<void> init({"),
             "init method signature must exist"
         );
 
         // Verify the closing }} for the helper precedes the init opening
         let helper_ret_null = replacement.find("return null;").expect("helper must have return null");
         let init_sig = replacement
-            .find("static Future<void> init({{")
+            .find("static Future<void> init({")
             .expect("init sig must exist");
         assert!(helper_ret_null < init_sig, "helper return must precede init signature");
     }

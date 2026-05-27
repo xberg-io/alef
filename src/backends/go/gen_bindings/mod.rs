@@ -1,7 +1,7 @@
 mod functions;
 mod methods;
-pub(super) mod types;
 mod service_api;
+pub(super) mod types;
 
 use functions::{gen_adapter_wrapper, gen_convert_with_visitor_wrapper, gen_function_wrapper};
 use methods::{gen_method_wrapper, gen_streaming_method_wrapper};

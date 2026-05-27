@@ -597,7 +597,10 @@ sources = ["src/lib.rs"]
         assert_eq!(h.len(), 64);
         // Verify it differs from a plain blake3("") which would be a pure null hash.
         let plain_empty = blake3::hash(b"").to_hex().to_string();
-        assert_ne!(h, plain_empty, "inputs hash must include the alef:inputs prefix and ALEF_REV");
+        assert_ne!(
+            h, plain_empty,
+            "inputs hash must include the alef:inputs prefix and ALEF_REV"
+        );
     }
 
     #[test]

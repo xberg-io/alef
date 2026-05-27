@@ -105,7 +105,7 @@ pub struct PrecommitConfig {
 /// All fields default to canonical values that produce the same `.cargo/config.toml`
 /// across polyglot repos. Override individual targets via `targets`, or inject
 /// repo-specific `[env]` entries via `env`.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScaffoldCargo {
     /// Per-target cross-compile / rustflags overrides. Defaults emit the canonical
     /// 6-target template (macOS dynamic_lookup, Windows MSVC rust-lld x64+i686,
@@ -120,6 +120,16 @@ pub struct ScaffoldCargo {
     /// Values can be a plain string or `{ value, relative }`. Empty by default.
     #[serde(default)]
     pub env: HashMap<String, ScaffoldCargoEnvValue>,
+}
+
+impl Default for ScaffoldCargo {
+    fn default() -> Self {
+        Self {
+            targets: ScaffoldCargoTargets::default(),
+            build_jobs: default_build_jobs(),
+            env: HashMap::new(),
+        }
+    }
 }
 
 /// Per-target opt-out flags. All default to `true`.

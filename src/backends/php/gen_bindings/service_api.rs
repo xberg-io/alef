@@ -670,7 +670,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let service_rs = gen_service_rs(api, config);
 
     // PHP wrapper
-    // Extension name typically matches the Rust crate name (e.g., "spikard" for spikard-php)
+    // Extension name matches the Rust crate name with hyphens replaced by underscores.
     let extension_name = config.name.replace('-', "_");
     let service_php = gen_service_php(api, &extension_name);
 

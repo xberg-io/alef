@@ -80,10 +80,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, p
     let service_snake = service.name.to_snake_case();
     let prefix_lower = prefix.to_lowercase();
 
-    out.push_str(&format!(
-        "/// Service class for {}.\n",
-        class_name
-    ));
+    out.push_str(&format!("/// Service class for {}.\n", class_name));
     if !service.doc.is_empty() {
         out.push_str(&format!("///\n/// {}\n", service.doc.trim()));
     }
@@ -95,10 +92,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, p
     out.push_str("  int _contextCounter = 0;\n\n");
 
     // Constructor
-    out.push_str(&format!(
-        "  /// Create a new {} instance.\n",
-        class_name
-    ));
+    out.push_str(&format!("  /// Create a new {} instance.\n", class_name));
     out.push_str(&format!(
         "  {class_name}() {{\n    \
          _owner = _ffiBridge.lookupFunction<\n      \
@@ -109,10 +103,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, p
     ));
 
     // Destructor-like method
-    out.push_str(&format!(
-        "  /// Free the {} instance.\n",
-        class_name
-    ));
+    out.push_str(&format!("  /// Free the {} instance.\n", class_name));
     out.push_str("  void dispose() {\n");
     out.push_str(&format!(
         "    _ffiBridge.lookupFunction<void Function(ffi.Pointer<ffi.Void>), void Function(ffi.Pointer<ffi.Void>)>\n      \
@@ -161,10 +152,7 @@ fn gen_registration_method(
     params.push("_HandlerCallback? handler".to_string());
     let param_sig = params.join(", ");
 
-    out.push_str(&format!(
-        "  /// Register a handler callback for '{}'.\n",
-        method_name
-    ));
+    out.push_str(&format!("  /// Register a handler callback for '{}'.\n", method_name));
     if !reg.doc.is_empty() {
         out.push_str(&format!("  ///\n  /// {}\n", reg.doc.trim()));
     }
@@ -177,13 +165,13 @@ fn gen_registration_method(
     out.push_str("    _handlers[contextPtr.value] = _HandlerRegistry(handler);\n\n");
 
     // Call the C registration function
-    out.push_str(&format!(
+    out.push_str(
         "    final registerFn = _ffiBridge.lookupFunction<\n      \
          ffi.Int Function(\n        \
            ffi.Pointer<ffi.Void>,\n        \
            ffi.Pointer<ffi.NativeFunction<_HandlerCallback>>,\n        \
-           ffi.Pointer<ffi.Void>"
-    ));
+           ffi.Pointer<ffi.Void>",
+    );
 
     // Add metadata parameter types
     for meta_param in &reg.metadata_params {
@@ -191,13 +179,13 @@ fn gen_registration_method(
         out.push_str(&format!(",\n        {c_type}"));
     }
 
-    out.push_str(&format!(
+    out.push_str(
         "\n      ),\n      \
          int Function(\n        \
            ffi.Pointer<ffi.Void>,\n        \
            ffi.Pointer<ffi.NativeFunction<_HandlerCallback>>,\n        \
-           ffi.Pointer<ffi.Void>"
-    ));
+           ffi.Pointer<ffi.Void>",
+    );
 
     for meta_param in &reg.metadata_params {
         let dart_type = typeref_to_rust_ffi_type(&meta_param.ty);

@@ -63,7 +63,7 @@ fn elixir_stub_emits_super_trait_name_and_initialize() {
     let methods = vec![&extract_method];
     let fixture = make_fixture("my_extractor", json!({ "extractor": { "name": "test-extractor" } }));
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture);
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     // Should emit `name/0` from super-trait
@@ -93,7 +93,7 @@ fn elixir_stub_emits_embedding_backend_dimensions_as_one() {
     let methods = vec![&dimensions_method, &embed_method];
     let fixture = make_fixture("my_backend", json!({ "backend": { "name": "test-embedding-backend" } }));
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture);
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     // Should emit `dimensions` returning 1 (not 0)
@@ -124,7 +124,7 @@ fn elixir_stub_emits_all_required_trait_methods() {
     let methods = vec![&process_image, &supports_language, &backend_type];
     let fixture = make_fixture("my_ocr_backend", json!({ "backend": { "name": "test-backend" } }));
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture);
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     // All three required methods should be present

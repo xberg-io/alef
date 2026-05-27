@@ -1,7 +1,7 @@
 mod functions;
 mod helpers;
-pub mod types;
 pub mod service_api;
+pub mod types;
 
 use crate::backends::php::type_map::PhpMapper;
 use crate::codegen::builder::RustFileBuilder;

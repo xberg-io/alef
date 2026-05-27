@@ -2,8 +2,8 @@
 
 mod classes;
 pub mod functions;
-mod streaming;
 pub mod service_api;
+mod streaming;
 
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
