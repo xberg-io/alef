@@ -18,5 +18,6 @@
 //! for direct use by the cli pipeline via the `Language::Jni` arm.
 
 mod gen_shims;
+pub mod service_api;
 
 pub use gen_shims::JniBackend;
