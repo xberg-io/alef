@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.25] - 2026-05-27
+
 ### Fixed
 
 - **alef dart frb_rewrite: ensure balanced braces and parentheses in prologue generation.** The `frb_init_prologue_replacement` function generates Dart code that injects the `_alefResolveExternalLibrary()` helper method and replaces the `init` method prologue. The helper method is fully closed, and the init signature with opening brace are emitted, allowing the original FRB method body to continue seamlessly. Added documentation clarifying the brace-balancing structure and a unit test `prologue_replacement_has_balanced_braces_and_parens` to verify balanced delimiters (equal open/close braces and parens) on generated output. This prevents malformed Rust in kreuzberg's generated `packages/dart/rust/src/lib.rs` that would cause flutter_rust_bridge_codegen to stall indefinitely during Dart FFI binding generation. (`src/backends/dart/frb_rewrite.rs`)
