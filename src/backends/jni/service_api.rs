@@ -283,7 +283,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 /// Emit a JNI function that registers a Java handler for a registration method.
 ///
 /// Function signature (in Java):
-/// ```
+/// ```java,ignore
 /// public native void register{ServiceName}{MethodName}(Object handler);
 /// ```
 ///
@@ -402,7 +402,7 @@ fn gen_register_jni_function(
 /// Emit a JNI function for a service entrypoint (run or finalize).
 ///
 /// Function signatures (in Java):
-/// ```
+/// ```java,ignore
 /// public native void run{ServiceName}(long ownerHandle, String addr, ...);
 /// public native long finalize{ServiceName}(long ownerHandle, ...);
 /// ```
