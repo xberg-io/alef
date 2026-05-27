@@ -109,6 +109,12 @@ fn init_prologue_regex() -> &'static Regex {
 /// Build the patched `RustLib.init` prologue: the original signature plus a
 /// `externalLibrary ??= ...` resolution line, followed by the
 /// `_alefResolveExternalLibrary` helper method.
+///
+/// # Brace Balancing
+/// The generated string maintains balanced braces and parentheses. The
+/// `_alefResolveExternalLibrary()` helper method is fully closed (lines 126–204
+/// in the template), and the `init()` method signature and start are opened
+/// (lines 207–213), allowing the original FRB method body to follow seamlessly.
 fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
     format!(
         r#"  /// Resolve the prebuilt native library from environment variable,
@@ -1213,5 +1219,31 @@ Future<ExtractionResult> extractBytes(
             out.contains("this.cacheDir,"),
             "cacheDir field should remain, got:\n{out}"
         );
+    }
+
+    #[test]
+    fn prologue_replacement_helper_closes_before_init_opens() {
+        let replacement = frb_init_prologue_replacement("test_pkg", "test_mod", "test_stem");
+
+        // The format string uses {{ and }} to escape braces (literal { and } in output).
+        // Count escaped braces: each {{ becomes { and each }} becomes }.
+        let escaped_open = replacement.matches("{{").count();
+        let escaped_close = replacement.matches("}}").count();
+        assert_eq!(escaped_open, escaped_close,
+            "escaped brace mismatch (must be in pairs for format escaping): {} {{ vs {} }}",
+            escaped_open, escaped_close);
+
+        // Check structure: the helper method should close with }} before init() opens.
+        // Look for the sequence: `}} catch (_) {{ ... }} return null; }} ... init({{`
+        assert!(replacement.contains("static Future<ExternalLibrary?> _alefResolveExternalLibrary()"),
+            "helper method signature must exist");
+        assert!(replacement.contains("static Future<void> init({{"),
+            "init method signature must exist");
+
+        // Verify the closing }} for the helper precedes the init opening
+        let helper_ret_null = replacement.find("return null;").expect("helper must have return null");
+        let init_sig = replacement.find("static Future<void> init({{").expect("init sig must exist");
+        assert!(helper_ret_null < init_sig,
+            "helper return must precede init signature");
     }
 }
