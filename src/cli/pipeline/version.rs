@@ -740,11 +740,55 @@ pub fn sync_versions(
     // a `package.json` next to the NAPI-RS binding crate (alongside the Cargo
     // manifest) so `npm publish --workspace` can resolve the prebuilt binary.
     // `validate-versions` already checks this file; sync must write to it too.
+    //
+    // Two version surfaces live in this manifest and both must be bumped:
+    //   1. the top-level `"version"` (the parent NAPI package version), and
+    //   2. every `optionalDependencies` entry pointing at a sibling NAPI
+    //      platform package (e.g. `"@scope/foo-linux-x64-gnu": "X.Y.Z"`).
+    // Leaving (2) stale makes `pnpm install --frozen-lockfile` fail with
+    // `ERR_PNPM_OUTDATED_LOCKFILE` because the lockfile's recorded specifiers
+    // diverge from the manifest. The platform deps are emitted by the scaffold
+    // with the parent's version (see `scaffold_node`), so they are always
+    // in lock-step with the parent and can be rewritten unconditionally.
     for node_pkg in glob::glob("crates/*-node/package.json").into_iter().flatten().flatten() {
         if let Ok(content) = std::fs::read_to_string(&node_pkg) {
-            if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
-                std::fs::write(&node_pkg, &new_content)?;
+            let mut working = content.clone();
+            if let Some(rewritten) = replace_version_pattern(&working, r#""version":\s*"[^"]*""#, &version) {
+                working = rewritten;
+            }
+            // Rewrite sibling NAPI platform-package version pins. Source the
+            // parent package name from the manifest itself so this stays
+            // generic across consumers (no hardcoded scope/prefix).
+            if let Ok(pkg_json) = serde_json::from_str::<serde_json::Value>(&working) {
+                if let Some(parent_name) = pkg_json.get("name").and_then(|v| v.as_str()) {
+                    let pattern = format!(r#""({}-[^"]+)":\s*"[^"]*""#, regex::escape(parent_name));
+                    if let Ok(re) = regex::Regex::new(&pattern) {
+                        let replacement = format!(r#""$1": "{version}""#);
+                        working = re.replace_all(&working, replacement.as_str()).to_string();
+                    }
+                }
+            }
+            if working != content {
+                std::fs::write(&node_pkg, &working)?;
                 updated.push(node_pkg.to_string_lossy().to_string());
+                any_node_pkg_modified = true;
+            }
+        }
+    }
+
+    // Pre-staged NAPI platform manifests: crates/*-node/npm/<platform>/package.json.
+    // alef pre-stages these at scaffold time so `napi prepublish` does not have to
+    // `napi create-npm-dirs` during release; each carries its own top-level
+    // `"version"` that must follow the parent package version on every bump.
+    for platform_pkg in glob::glob("crates/*-node/npm/*/package.json")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if let Ok(content) = std::fs::read_to_string(&platform_pkg) {
+            if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
+                std::fs::write(&platform_pkg, &new_content)?;
+                updated.push(platform_pkg.to_string_lossy().to_string());
                 any_node_pkg_modified = true;
             }
         }
@@ -2701,6 +2745,99 @@ BUNDLED WITH
             node_pkg.contains(r#""version": "1.0.0""#),
             "crates/*-node/package.json must be bumped to canonical version, got:\n{node_pkg}"
         );
+    }
+
+    /// `sync_versions` must rewrite `optionalDependencies` pins to sibling NAPI
+    /// platform packages and the pre-staged platform manifests under
+    /// `crates/*-node/npm/<platform>/package.json`. Leaving these stale makes
+    /// `pnpm install --frozen-lockfile` fail with `ERR_PNPM_OUTDATED_LOCKFILE`
+    /// because the lockfile and manifest disagree on the platform-package
+    /// version. Regression test for the kreuzcrawl rc.34 Build Node bindings
+    /// failure where the top-level version was rc.34 but the `optionalDependencies`
+    /// and platform manifests stayed at rc.33.
+    #[test]
+    fn sync_versions_bumps_napi_platform_pins_and_manifests() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // crate-level manifest with optionalDependencies at the OLD version
+        std::fs::create_dir_all(root.join("crates/mylib-node")).expect("mkdir crates/mylib-node");
+        std::fs::write(
+            root.join("crates/mylib-node/package.json"),
+            "{\n  \"name\": \"@scope/mylib\",\n  \"version\": \"0.9.0\",\n  \"optionalDependencies\": {\n    \"@scope/mylib-linux-x64-gnu\": \"0.9.0\",\n    \"@scope/mylib-darwin-arm64\": \"0.9.0\",\n    \"@scope/mylib-win32-x64-msvc\": \"0.9.0\"\n  }\n}\n",
+        )
+        .expect("write crates/mylib-node/package.json");
+
+        // Pre-staged platform manifests at the OLD version
+        for platform in &["linux-x64-gnu", "darwin-arm64", "win32-x64-msvc"] {
+            let dir = root.join(format!("crates/mylib-node/npm/{platform}"));
+            std::fs::create_dir_all(&dir).expect("mkdir platform dir");
+            std::fs::write(
+                dir.join("package.json"),
+                format!("{{\n  \"name\": \"@scope/mylib-{platform}\",\n  \"version\": \"0.9.0\"\n}}\n"),
+            )
+            .expect("write platform package.json");
+        }
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let crate_pkg = std::fs::read_to_string(root.join("crates/mylib-node/package.json"))
+            .expect("read crates/mylib-node/package.json");
+        assert!(
+            !crate_pkg.contains("0.9.0"),
+            "old version must be gone from crates/mylib-node/package.json (including optionalDependencies), got:\n{crate_pkg}"
+        );
+        assert!(
+            crate_pkg.contains(r#""@scope/mylib-linux-x64-gnu": "1.0.0""#),
+            "optionalDependencies pin to linux-x64-gnu must be bumped, got:\n{crate_pkg}"
+        );
+        assert!(
+            crate_pkg.contains(r#""@scope/mylib-darwin-arm64": "1.0.0""#),
+            "optionalDependencies pin to darwin-arm64 must be bumped, got:\n{crate_pkg}"
+        );
+        assert!(
+            crate_pkg.contains(r#""@scope/mylib-win32-x64-msvc": "1.0.0""#),
+            "optionalDependencies pin to win32-x64-msvc must be bumped, got:\n{crate_pkg}"
+        );
+
+        for platform in &["linux-x64-gnu", "darwin-arm64", "win32-x64-msvc"] {
+            let manifest = std::fs::read_to_string(
+                root.join(format!("crates/mylib-node/npm/{platform}/package.json")),
+            )
+            .expect("read platform package.json");
+            assert!(
+                manifest.contains(r#""version": "1.0.0""#),
+                "platform manifest {platform} must be bumped, got:\n{manifest}"
+            );
+            assert!(
+                !manifest.contains("0.9.0"),
+                "old version must be gone from platform manifest {platform}, got:\n{manifest}"
+            );
+        }
     }
 
     /// `sync_versions` must bump BOTH the consumer pyproject

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef sync-versions: bump NAPI platform pins and pre-staged platform manifests in `crates/*-node/`.** `sync_versions` rewrote the top-level `"version"` of `crates/*-node/package.json` but never touched (a) the `optionalDependencies` block (each entry is a sibling NAPI platform package pinned to the same version) or (b) the pre-staged platform manifests at `crates/*-node/npm/<platform>/package.json` that `napi prepublish` ships. After a version bump the parent package was at the new version while every platform pin stayed at the old version, so `pnpm install --frozen-lockfile` on consumer CI rejected the manifest with `ERR_PNPM_OUTDATED_LOCKFILE` and the Build Node bindings job hard-failed. `sync_versions` now rewrites both surfaces: it reads the parent package `name` from the manifest and rewrites every `optionalDependencies` entry whose key starts with `<name>-` (the `napi_platform_package_name` shape), and globs `crates/*-node/npm/*/package.json` to bump the platform manifests' top-level `"version"`. Verified in kreuzcrawl rc.34 Publish Node bindings failure (run 26494601181), where the manifest had rc.34 but all `optionalDependencies` pins and platform manifests stayed at rc.33. (`src/cli/pipeline/version.rs`)
+
 ## [0.19.24] - 2026-05-27
 
 ### Fixed
