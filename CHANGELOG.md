@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.23] - 2026-05-27
+
+### Fixed
+
+- **alef go-backend: derive `embed_ffi.go` package name from config instead of hardcoding `tspack`.** The `embed_ffi.go.jinja` template hardcoded `package tspack` (a leftover from the template's tree-sitter-language-pack origin) and the render site passed an empty context, so every consumer's generated `embed_ffi.go` declared `package tspack` regardless of the configured Go package name — mismatching `binding.go`'s `package <pkg_name>`. Although `embed_ffi.go` is `//go:build ignore` (excluded from normal compilation, so `go build` was unaffected), the foreign package name was incorrect and misleading for vendoring tooling. The template now emits `package {{ pkg_name }}` and the render call threads `pkg_name` through. (`src/backends/go/templates/embed_ffi.go.jinja`, `src/backends/go/gen_bindings/mod.rs`)
+
+### Changed
+
+- **alef: align shared pre-commit hooks.** (`5fc63a3f`)
+
 ## [0.19.22] - 2026-05-27
 
 ### Added

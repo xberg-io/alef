@@ -294,7 +294,12 @@ impl Backend for GoBackend {
         // includes files that are referenced in the module; this directive tells Go
         // to include the include/ directory so that the cgo #include directives work
         // in vendored environments.
-        let embed_ffi_content = crate::backends::go::template_env::render("embed_ffi.go.jinja", minijinja::context! {});
+        let embed_ffi_content = crate::backends::go::template_env::render(
+            "embed_ffi.go.jinja",
+            minijinja::context! {
+                pkg_name => &pkg_name,
+            },
+        );
         files.push(GeneratedFile {
             path: PathBuf::from(format!("{output_dir}embed_ffi.go")),
             content: embed_ffi_content,
@@ -1029,6 +1034,30 @@ module = "github.com/test/test-lib"
         let files = backend.generate_bindings(&api, &config).unwrap();
         assert!(!files.is_empty());
         assert!(files[0].path.to_string_lossy().contains("binding.go"));
+
+        // embed_ffi.go must declare the same package as binding.go, never a
+        // hardcoded foreign package name.
+        let binding = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+            .expect("binding.go present");
+        let pkg_line = binding
+            .content
+            .lines()
+            .find(|l| l.starts_with("package "))
+            .expect("binding.go declares a package");
+        let embed = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("embed_ffi.go"))
+            .expect("embed_ffi.go present");
+        assert!(
+            !embed.content.contains("package tspack"),
+            "embed_ffi.go must not hardcode the tspack package name"
+        );
+        assert!(
+            embed.content.contains(pkg_line),
+            "embed_ffi.go package must match binding.go ({pkg_line})"
+        );
     }
 
     #[test]
