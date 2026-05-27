@@ -89,15 +89,57 @@ fn test_scaffold_python() {
 }
 
 #[test]
+fn test_scaffold_python_central_pyproject_ignores_source_output() {
+    let config = test_config_from_toml(
+        r#"
+[crates.output]
+python = "crates/my-lib-py/src/"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let files = language_files(&all_files);
+
+    assert_eq!(files[0].path, PathBuf::from("packages/python/pyproject.toml"));
+    assert!(
+        !files
+            .iter()
+            .any(|file| file.path == Path::new("crates/my-lib-py/src/pyproject.toml")),
+        "Python scaffold must not emit the old source-tree pyproject"
+    );
+}
+
+#[test]
+fn test_scaffold_python_pyproject_sdist_includes_local_rust_crates() {
+    let mut config = test_config();
+    config.extra_dependencies.insert(
+        "my-helper".to_string(),
+        toml::Value::Table({
+            let mut table = toml::map::Map::new();
+            table.insert("path".to_string(), toml::Value::String("../my-helper".to_string()));
+            table
+        }),
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let files = language_files(&all_files);
+    let pyproject = &files[0].content;
+
+    assert!(pyproject.contains(r#"{ path = "../../crates/my-lib-py/**/*", format = "sdist" }"#));
+    assert!(pyproject.contains(r#"{ path = "../../crates/my-lib/**/*", format = "sdist" }"#));
+    assert!(pyproject.contains(r#"{ path = "../../crates/my-helper/**/*", format = "sdist" }"#));
+}
+
+#[test]
 fn test_scaffold_node() {
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: crate package.json + crate index.js; scaffold_node_cargo: Cargo.toml.
+    // scaffold_node: parent package.json + index.js + platform package manifests; scaffold_node_cargo: Cargo.toml.
     // The dead `packages/node/` scaffold (parallel unscoped npm package) was removed —
     // the real publish target is `crates/<crate>-node/` built by NAPI-RS.
-    assert_eq!(files.len(), 3);
+    assert_eq!(files.len(), 11);
     assert_eq!(files[0].path, PathBuf::from("crates/my-lib-node/package.json"));
     assert!(files[0].content.contains("napi"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/index.js"));
@@ -108,8 +150,11 @@ fn test_scaffold_node() {
     assert!(files[1].content.contains("win32"));
     assert!(files[1].content.contains("my-lib-node.darwin-arm64.node"));
     assert!(files[1].content.contains("tryLoadBinding"));
-    assert_eq!(files[2].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[2].content.contains("napi-derive"));
+    let cargo = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/Cargo.toml"))
+        .expect("node Cargo.toml must be emitted");
+    assert!(cargo.content.contains("napi-derive"));
 }
 
 #[test]
@@ -197,10 +242,8 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 3 files
-    // (crate package.json + crate index.js + Cargo.toml — the dead `packages/node/`
-    // scaffold was removed).
-    assert_eq!(files.len(), 6);
+    // Python: 3 files; Node: 11 files (parent manifest, loader, platform manifests, Cargo.toml).
+    assert_eq!(files.len(), 14);
 }
 
 #[test]
@@ -654,6 +697,43 @@ fn test_scaffold_node_production_features() {
 }
 
 #[test]
+fn test_scaffold_node_package_json_centralizes_platform_metadata() {
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let parent = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/package.json"))
+        .expect("parent package.json must be emitted");
+    let parsed: serde_json::Value = serde_json::from_str(&parent.content).expect("valid parent package.json");
+    let optional_deps = parsed["optionalDependencies"]
+        .as_object()
+        .expect("optionalDependencies must be an object");
+    assert!(optional_deps.contains_key("my-lib-win32-arm64-msvc"));
+    assert!(optional_deps.contains_key("my-lib-linux-x64-musl"));
+    assert_eq!(parsed["engines"]["node"], ">= 18");
+    assert_eq!(parsed["publishConfig"]["access"], "public");
+    assert_eq!(parsed["exports"]["."]["types"], "./index.d.ts");
+
+    let targets = parsed["napi"]["targets"]
+        .as_array()
+        .expect("napi.targets must be an array");
+    assert!(targets.iter().any(|target| target == "aarch64-pc-windows-msvc"));
+    assert!(targets.iter().any(|target| target == "x86_64-unknown-linux-musl"));
+
+    let platform = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/npm/linux-x64-musl/package.json"))
+        .expect("musl platform package manifest must be emitted");
+    let platform_json: serde_json::Value =
+        serde_json::from_str(&platform.content).expect("valid platform package.json");
+    assert_eq!(platform_json["name"], "my-lib-linux-x64-musl");
+    assert_eq!(platform_json["libc"][0], "musl");
+    assert_eq!(platform_json["main"], "my-lib-node.linux-x64-musl.node");
+    assert_eq!(platform_json["publishConfig"]["access"], "public");
+}
+
+#[test]
 fn test_scaffold_ffi_with_core_import() {
     let config = test_config();
     let api = test_api();
@@ -919,6 +999,11 @@ fn test_scaffold_ruby_production_features() {
     let content = &files[0].content;
     assert!(content.contains("spec.required_ruby_version"));
     assert!(content.contains("spec.extensions"));
+    assert!(content.contains("README*"));
+    assert!(content.contains("LICENSE*"));
+    assert!(content.contains("lib/**/*"));
+    assert!(content.contains("ext/**/*"));
+    assert!(content.contains("sig/**/*"));
     assert!(content.contains("spec.metadata[\"keywords\"]"));
     assert!(content.contains("frozen_string_literal: true"));
     assert!(content.contains("spec.metadata[\"rubygems_mfa_required\"] = \"true\""));
@@ -1487,6 +1572,28 @@ fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() 
             .content
             .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock native/my_lib_nif/src)"),
         "content: {}",
+        mix_exs.content
+    );
+}
+
+#[test]
+fn test_scaffold_elixir_mix_exs_uses_configured_nif_targets() {
+    let config = test_config_from_toml(
+        r#"
+[crates.elixir]
+nif_targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
+
+    assert!(
+        mix_exs.content.contains(
+            "rustler_crates: [my_lib_nif: [mode: :release, targets: ~w(aarch64-apple-darwin x86_64-unknown-linux-gnu)]]"
+        ),
+        "mix.exs must wire configured nif_targets into rustler_crates; content:\n{}",
         mix_exs.content
     );
 }
@@ -2795,6 +2902,30 @@ fn wasm_package_name_fallback_when_no_node_suffix() {
 }
 
 #[test]
+fn wasm_package_name_uses_explicit_wasm_config() {
+    let config = test_config_from_toml(
+        r#"
+[crates.node]
+package_name = "@scope/foo-node"
+
+[crates.wasm]
+package_name = "@scope/foo-web"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
+    let pkg_json = files
+        .iter()
+        .find(|f| f.path.ends_with("package.json"))
+        .expect("wasm scaffold must emit package.json");
+    let parsed: serde_json::Value = serde_json::from_str(&pkg_json.content).expect("valid wasm package.json");
+    assert_eq!(parsed["name"], "@scope/foo-web");
+    assert_eq!(parsed["publishConfig"]["access"], "public");
+    assert_eq!(parsed["main"], "pkg/nodejs/my_lib_wasm.js");
+    assert_eq!(parsed["types"], "pkg/nodejs/my_lib_wasm.d.ts");
+}
+
+#[test]
 fn scaffold_emits_cargo_config_with_env_block_for_h2m_style_ruby_path() {
     let mut env = std::collections::HashMap::new();
     env.insert(
@@ -3421,6 +3552,28 @@ fn test_scaffold_r_core_dep_is_dual_form() {
     assert!(
         content.contains("extendr-api = "),
         "external extendr-api unchanged; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_scaffold_r_authors_r_parses_name_and_email() {
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let description = files.iter().find(|f| f.path.ends_with("DESCRIPTION")).unwrap();
+
+    assert!(
+        description
+            .content
+            .contains(r#"Authors@R: person("Ada", "Lovelace", email = "ada@example.com", role = c("aut", "cre"))"#),
+        "DESCRIPTION must split Authors@R name/email; content:\n{}",
+        description.content
     );
 }
 

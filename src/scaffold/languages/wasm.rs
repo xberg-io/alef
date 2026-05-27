@@ -15,13 +15,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     let mut files = vec![];
 
-    // Generate package.json for npm publishing.
-    // Strip the `-node` suffix (if present) before appending `-wasm` so that
-    // e.g. `@scope/foo-node` becomes `@scope/foo-wasm` instead of the wrong
-    // `@scope/foo-node-wasm`.
-    let node_pkg = config.node_package_name();
-    let base = node_pkg.strip_suffix("-node").unwrap_or(node_pkg.as_str());
-    let wasm_pkg_name = format!("{base}-wasm");
+    let wasm_pkg_name = config.wasm_package_name();
 
     // wasm-pack converts hyphens to underscores in the generated filenames
     // (Rust convention), so `sample-markdown` becomes `sample_markdown`
@@ -38,6 +32,9 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "type": "git",
     "url": "{repository}",
     "directory": "crates/{core_crate_dir}-wasm"
+  }},
+  "publishConfig": {{
+    "access": "public"
   }},
   "type": "module",
   "files": [

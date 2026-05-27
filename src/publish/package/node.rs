@@ -23,6 +23,7 @@ const DEFAULT_PLATFORMS: &[&str] = &[
     "darwin-x64",
     "darwin-arm64",
     "win32-x64-msvc",
+    "win32-arm64-msvc",
 ];
 
 /// Package a NAPI native binding for one target into a per-platform npm sub-package.
@@ -82,7 +83,16 @@ pub fn package_node(
         None => format!("{base_name}-{platform}"),
     };
     let (pkg_os, pkg_cpu, pkg_libc) = platform_to_os_cpu_libc(&platform);
-    let pkg_json = generate_sub_package_json(&sub_pkg_name, version, &dest_bin_name, pkg_os, pkg_cpu, pkg_libc);
+    let metadata = package_metadata(config);
+    let pkg_json = generate_sub_package_json(
+        &sub_pkg_name,
+        version,
+        &dest_bin_name,
+        pkg_os,
+        pkg_cpu,
+        pkg_libc,
+        &metadata,
+    );
     fs::write(platform_dir.join("package.json"), pkg_json)?;
 
     // Write a minimal README.
@@ -127,17 +137,43 @@ pub fn npm_platforms(config: &ResolvedCrateConfig) -> Vec<String> {
 fn platform_to_os_cpu_libc(platform: &str) -> (&'static str, &'static str, Option<&'static str>) {
     match platform {
         "linux-x64-gnu" => ("linux", "x64", Some("glibc")),
-        "linux-x64-musl" => ("linux", "x64", None),
+        "linux-x64-musl" => ("linux", "x64", Some("musl")),
         "linux-arm64-gnu" => ("linux", "arm64", Some("glibc")),
-        "linux-arm64-musl" => ("linux", "arm64", None),
+        "linux-arm64-musl" => ("linux", "arm64", Some("musl")),
         "darwin-x64" => ("darwin", "x64", None),
         "darwin-arm64" => ("darwin", "arm64", None),
         "win32-x64-msvc" => ("win32", "x64", None),
+        "win32-arm64-msvc" => ("win32", "arm64", None),
         "linux-arm-gnueabihf" => ("linux", "arm", Some("glibc")),
         _ => {
             // Best-effort split on '-'
             ("linux", "x64", None)
         }
+    }
+}
+
+struct PackageMetadata {
+    license: String,
+    repository_url: Option<String>,
+}
+
+fn package_metadata(config: &ResolvedCrateConfig) -> PackageMetadata {
+    let meta = crate::scaffold::scaffold_meta(config);
+    let repository_url = if meta.repository.is_empty() {
+        None
+    } else {
+        Some(meta.repository)
+    }
+    .map(|repository| {
+        if repository.starts_with("git+") {
+            repository
+        } else {
+            format!("git+{}.git", repository.trim_end_matches('/').trim_end_matches(".git"))
+        }
+    });
+    PackageMetadata {
+        license: meta.license,
+        repository_url,
     }
 }
 
@@ -148,22 +184,40 @@ fn generate_sub_package_json(
     os: &str,
     cpu: &str,
     libc: Option<&str>,
+    metadata: &PackageMetadata,
 ) -> String {
     let libc_field = if let Some(l) = libc {
         format!(",\n  \"libc\": [\"{l}\"]")
     } else {
         String::new()
     };
+    let repository_field = metadata
+        .repository_url
+        .as_deref()
+        .map(|url| {
+            format!(
+                r#",
+  "repository": {{
+    "type": "git",
+    "url": "{url}"
+  }}"#
+            )
+        })
+        .unwrap_or_default();
     format!(
         r#"{{
   "name": "{name}",
   "version": "{version}",
+  "license": "{license}"{repository_field},
   "os": ["{os}"],
   "cpu": ["{cpu}"]{libc_field},
   "main": "{bin_file}",
-  "files": ["{bin_file}"]
+  "files": ["{bin_file}"],
+  "engines": {{ "node": ">= 18" }},
+  "publishConfig": {{ "access": "public" }}
 }}
-"#
+"#,
+        license = metadata.license,
     )
 }
 
@@ -270,13 +324,36 @@ package_name = "@myorg/my-lib"
             "linux",
             "x64",
             Some("glibc"),
+            &PackageMetadata {
+                license: "MIT".to_string(),
+                repository_url: Some("git+https://github.com/scope/foo.git".to_string()),
+            },
         );
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["name"], "@scope/foo-linux-x64-gnu");
         assert_eq!(parsed["version"], "1.0.0");
+        assert_eq!(parsed["license"], "MIT");
+        assert_eq!(parsed["repository"]["url"], "git+https://github.com/scope/foo.git");
+        assert_eq!(parsed["publishConfig"]["access"], "public");
         assert!(parsed["os"].is_array());
         assert!(parsed["cpu"].is_array());
         assert!(parsed["libc"].is_array());
+    }
+
+    #[test]
+    fn platform_to_os_cpu_musl_sets_libc() {
+        let (os, cpu, libc) = platform_to_os_cpu_libc("linux-arm64-musl");
+        assert_eq!(os, "linux");
+        assert_eq!(cpu, "arm64");
+        assert_eq!(libc, Some("musl"));
+    }
+
+    #[test]
+    fn platform_to_os_cpu_win32_arm64() {
+        let (os, cpu, libc) = platform_to_os_cpu_libc("win32-arm64-msvc");
+        assert_eq!(os, "win32");
+        assert_eq!(cpu, "arm64");
+        assert!(libc.is_none());
     }
 
     #[test]
@@ -284,6 +361,7 @@ package_name = "@myorg/my-lib"
         let config = minimal_config();
         let platforms = npm_platforms(&config);
         assert!(!platforms.is_empty());
+        assert!(platforms.contains(&"win32-arm64-msvc".to_string()));
     }
 
     #[test]

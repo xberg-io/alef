@@ -19,6 +19,7 @@ use super::output::{
     BuildCommandConfig, CitationConfig, CleanConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
     PrecommitConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
+use super::package_metadata::PackageMetadataConfig;
 use super::tools::ToolsConfig;
 use super::{FormatConfig, GenerateConfig};
 
@@ -119,6 +120,11 @@ pub struct WorkspaceConfig {
     /// Per-crate `[scaffold]` values override this field-by-field.
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
+
+    /// Centralized package metadata for generated language manifests.
+    /// Per-crate `[crates.package_metadata]` values override this field-by-field.
+    #[serde(default)]
+    pub package_metadata: Option<PackageMetadataConfig>,
 
     /// Default generated-file header metadata.
     /// Per-crate `[scaffold.generated_header]` values override this field-by-field.

@@ -100,14 +100,13 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
         "extract_file is async — generated call must await, got:\n{body}"
     );
     // Imports the wasm package, not the npm node package.
-    // The WASM codegen uses dynamic `await import('mylib')` since v0.14.5.
-    let imports_wasm_pkg = body.contains("from 'mylib'")
-        || body.contains("from \"mylib\"")
-        || body.contains("import('mylib')")
-        || body.contains("import(\"mylib\")");
+    let imports_wasm_pkg = body.contains("from 'mylib-wasm'")
+        || body.contains("from \"mylib-wasm\"")
+        || body.contains("import('mylib-wasm')")
+        || body.contains("import(\"mylib-wasm\")");
     assert!(
         imports_wasm_pkg,
-        "expected import from wasm package 'mylib', got:\n{body}"
+        "expected import from wasm package 'mylib-wasm', got:\n{body}"
     );
     // describe() block is for the right category and contains the fixture id.
     assert!(body.contains("describe('smoke'"), "missing describe block");

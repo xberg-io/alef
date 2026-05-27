@@ -17,15 +17,7 @@ pub(crate) fn scaffold_ruby_cargo(
     let core_crate_dir = config.core_crate_dir();
     let pkg_dir = config.package_dir(Language::Ruby);
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-rb"),
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-rb"), version, "2024", &meta, &ws);
 
     let extra_deps = render_extra_deps(config, Language::Ruby);
 
@@ -195,7 +187,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.2.0"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
-  spec.files         = Dir.glob(%w[lib/**/* ext/**/* sig/**/* Steepfile]).reject {{ |f| f.include?("/native/target/") || f.include?("/native/tmp/") }}
+  spec.files         = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).reject {{ |f| f.include?("/native/target/") || f.include?("/native/tmp/") }}
   spec.require_paths = ["lib"]
   spec.extensions    = ["ext/{ext_name}/extconf.rb"]
 

@@ -31,6 +31,7 @@ use preconditions::{
 /// defaults are folded in.
 pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
     validate_tools(&config.tools)?;
+    validate_package_metadata(config)?;
     validate_section("lint", &config.lint, lint_main_fields, |c| c.precondition.as_deref())?;
     validate_section("test", &config.test, test_main_fields, |c| c.precondition.as_deref())?;
     validate_section("build_commands", &config.build_commands, build_main_fields, |c| {
@@ -41,6 +42,32 @@ pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> 
         c.precondition.as_deref()
     })?;
     validate_section("clean", &config.clean, clean_main_fields, |c| c.precondition.as_deref())?;
+    Ok(())
+}
+
+fn validate_package_metadata(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
+    const CRATES_IO_LIST_LIMIT: usize = 5;
+    let Some(meta) = &config.package_metadata else {
+        return Ok(());
+    };
+    if !meta.truncate_registry_lists {
+        if meta.keywords.len() > CRATES_IO_LIST_LIMIT {
+            return Err(AlefError::Config(format!(
+                "crate `{}` package_metadata.keywords has {} entries; crates.io supports at most {CRATES_IO_LIST_LIMIT}. \
+                 Reduce the list or set package_metadata.truncate_registry_lists = true.",
+                config.name,
+                meta.keywords.len()
+            )));
+        }
+        if meta.categories.len() > CRATES_IO_LIST_LIMIT {
+            return Err(AlefError::Config(format!(
+                "crate `{}` package_metadata.categories has {} entries; crates.io supports at most {CRATES_IO_LIST_LIMIT}. \
+                 Reduce the list or set package_metadata.truncate_registry_lists = true.",
+                config.name,
+                meta.categories.len()
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -255,6 +282,32 @@ sources = ["src/lib.rs"]
         );
         let config = resolve_first(&toml);
         validate_resolved(&config).expect("normal tool names should validate");
+    }
+
+    #[test]
+    fn package_metadata_keywords_over_crates_io_limit_errors() {
+        let toml = format!(
+            "{base}\n[crates.package_metadata]\nkeywords = [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"]\n",
+            base = base_config()
+        );
+        let config = resolve_first(&toml);
+        let err = validate_resolved(&config).expect_err("too many crates.io keywords should error");
+        let msg = format!("{err}");
+        assert!(msg.contains("package_metadata.keywords"), "got: {msg}");
+        assert!(msg.contains("at most 5"), "got: {msg}");
+    }
+
+    #[test]
+    fn package_metadata_can_opt_into_registry_list_truncation() {
+        let toml = format!(
+            "{base}\n[crates.package_metadata]\n\
+             truncate_registry_lists = true\n\
+             keywords = [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"]\n\
+             categories = [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"]\n",
+            base = base_config()
+        );
+        let config = resolve_first(&toml);
+        validate_resolved(&config).expect("explicit truncation opt-in should validate");
     }
 
     #[test]

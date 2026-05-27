@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef packaging: centralize generated package metadata and publish validation.** Added `[workspace.package_metadata]` and `[crates.package_metadata]` as the canonical source for generated package descriptions, links, authors, keywords, and categories. Alef now validates crates.io's five-keyword/category limit unless `truncate_registry_lists = true` is explicitly set, and package scaffolds use the centralized metadata before falling back to legacy `[scaffold]` fields.
+
+### Fixed
+
+- **alef packaging: generate and validate language package internals instead of relying on repo-local drift.** Python sdists now include the PyO3 crate, core crate, and local Rust path dependencies; Ruby gemspecs include README/LICENSE and generated type files; Node package scaffolding emits platform manifests, optional dependencies, `exports`, engines, musl libc metadata, and `win32-arm64-msvc`; WASM packages can use explicit package names and publish from Alef's manifest; Elixir scaffolds include `nif_targets`; PHP root Composer autoload points at `packages/php/src/`; publish validation detects stale Ruby/C# package entrypoints, Go `/vN` layout mismatches, Swift release placeholders, and missing Java/Dart/Zig metadata.
+
 ## [0.19.21] - 2026-05-26
 
 ### Added

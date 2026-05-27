@@ -34,6 +34,7 @@ use crate::core::config::output::{
     BuildCommandConfig, CitationConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig,
     ReadmeConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
+use crate::core::config::package_metadata::PackageMetadataConfig;
 use crate::core::config::publish::PublishConfig;
 use crate::core::config::tools::ToolsConfig;
 use crate::core::config::trait_bridge::TraitBridgeConfig;
@@ -149,6 +150,7 @@ pub struct ResolvedCrateConfig {
     pub adapters: Vec<AdapterConfig>,
     pub trait_bridges: Vec<TraitBridgeConfig>,
     pub scaffold: Option<ScaffoldConfig>,
+    pub package_metadata: Option<PackageMetadataConfig>,
     pub readme: Option<ReadmeConfig>,
     pub custom_files: HashMap<String, Vec<PathBuf>>,
     pub custom_modules: CustomModulesConfig,

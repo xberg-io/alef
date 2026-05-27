@@ -22,6 +22,8 @@ pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyh
 
     let authors_r = if meta.authors.is_empty() {
         r#"Authors@R: person("Author", "Name", email = "author@example.com", role = c("aut", "cre"))"#.to_string()
+    } else if let Some((given, family, email)) = parse_r_author(meta.authors.first().unwrap_or(&String::new())) {
+        format!("Authors@R: person(\"{given}\", \"{family}\", email = \"{email}\", role = c(\"aut\", \"cre\"))")
     } else {
         format!(
             "Authors@R: person(\"{}\", email = \"author@example.com\", role = c(\"aut\", \"cre\"))",
@@ -85,20 +87,26 @@ Config/testthat/edition: 3
     ])
 }
 
+fn parse_r_author(author: &str) -> Option<(String, String, String)> {
+    let (name, email) = author.rsplit_once('<')?;
+    let email = email.strip_suffix('>')?.trim();
+    if email.is_empty() {
+        return None;
+    }
+    let name = name.trim();
+    let (given, family) = name.rsplit_once(' ')?;
+    if given.is_empty() || family.is_empty() {
+        return None;
+    }
+    Some((given.to_string(), family.to_string(), email.to_string()))
+}
+
 pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-r"),
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-r"), version, "2024", &meta, &ws);
 
     // extendr requires staticlib (for R's dyn.load) + lib (for Rust tests).
     // "cdylib" alone causes linker failures on macOS/Linux.

@@ -60,9 +60,7 @@ pub(crate) fn cargo_package_header(
     name: &str,
     version: &str,
     edition: &str,
-    license: &str,
-    description: &str,
-    keywords: &[String],
+    meta: &ScaffoldMeta,
     ws: &WorkspacePackageInheritance,
 ) -> String {
     let version_line = if ws.version {
@@ -74,7 +72,7 @@ pub(crate) fn cargo_package_header(
     let license_line = if ws.license {
         "license.workspace = true".to_string()
     } else {
-        format!("license = \"{license}\"")
+        format!("license = \"{}\"", meta.license)
     };
     let readme_line = if ws.readme {
         "readme.workspace = true".to_string()
@@ -83,16 +81,19 @@ pub(crate) fn cargo_package_header(
     };
     let keywords_line = if ws.keywords {
         "keywords.workspace = true".to_string()
-    } else if keywords.is_empty() {
+    } else if meta.keywords.is_empty() {
         "keywords = []".to_string()
     } else {
-        let quoted: Vec<String> = keywords.iter().map(|k| format!("\"{k}\"")).collect();
+        let quoted: Vec<String> = meta.keywords.iter().map(|k| format!("\"{k}\"")).collect();
         format!("keywords = [{}]", quoted.join(", "))
     };
     let categories_line = if ws.categories {
         "categories.workspace = true".to_string()
-    } else {
+    } else if meta.categories.is_empty() {
         "categories = [\"text-processing\"]".to_string()
+    } else {
+        let quoted: Vec<String> = meta.categories.iter().map(|k| format!("\"{k}\"")).collect();
+        format!("categories = [{}]", quoted.join(", "))
     };
 
     let lines = vec![
@@ -101,7 +102,7 @@ pub(crate) fn cargo_package_header(
         version_line,
         edition_line,
         license_line,
-        format!("description = \"{description}\""),
+        format!("description = \"{}\"", meta.description),
         readme_line,
         keywords_line,
         categories_line,
@@ -402,25 +403,57 @@ pub struct ScaffoldMeta {
     pub license: String,
     pub repository: String,
     pub homepage: String,
+    pub documentation: String,
+    pub issues: String,
+    pub funding: String,
     pub authors: Vec<String>,
     pub keywords: Vec<String>,
+    pub categories: Vec<String>,
 }
 
 pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
     let scaffold = config.scaffold.as_ref();
+    let package = config.package_metadata.as_ref();
+    let truncate = package.map(|p| p.truncate_registry_lists).unwrap_or(false);
+    let mut keywords = package
+        .filter(|p| !p.keywords.is_empty())
+        .map(|p| p.keywords.clone())
+        .or_else(|| scaffold.map(|s| s.keywords.clone()))
+        .unwrap_or_default();
+    let mut categories = package.map(|p| p.categories.clone()).unwrap_or_default();
+    keywords.sort();
+    categories.sort();
+    if truncate {
+        keywords.truncate(5);
+        categories.truncate(5);
+    }
     ScaffoldMeta {
-        description: scaffold
-            .and_then(|s| s.description.clone())
+        description: package
+            .and_then(|p| p.description.clone())
+            .or_else(|| scaffold.and_then(|s| s.description.clone()))
             .unwrap_or_else(|| format!("Bindings for {}", config.name)),
-        license: scaffold
-            .and_then(|s| s.license.clone())
+        license: package
+            .and_then(|p| p.license.clone())
+            .or_else(|| scaffold.and_then(|s| s.license.clone()))
             .unwrap_or_else(|| "MIT".to_string()),
-        repository: scaffold
-            .and_then(|s| s.repository.clone())
+        repository: package
+            .and_then(|p| p.repository.clone())
+            .or_else(|| scaffold.and_then(|s| s.repository.clone()))
             .unwrap_or_else(|| format!("https://github.com/example/{}", config.name)),
-        homepage: scaffold.and_then(|s| s.homepage.clone()).unwrap_or_default(),
-        authors: scaffold.map(|s| s.authors.clone()).unwrap_or_default(),
-        keywords: scaffold.map(|s| s.keywords.clone()).unwrap_or_default(),
+        homepage: package
+            .and_then(|p| p.homepage.clone())
+            .or_else(|| scaffold.and_then(|s| s.homepage.clone()))
+            .unwrap_or_default(),
+        documentation: package.and_then(|p| p.documentation.clone()).unwrap_or_default(),
+        issues: package.and_then(|p| p.issues.clone()).unwrap_or_default(),
+        funding: package.and_then(|p| p.funding.clone()).unwrap_or_default(),
+        authors: package
+            .filter(|p| !p.authors.is_empty())
+            .map(|p| p.authors.clone())
+            .or_else(|| scaffold.map(|s| s.authors.clone()))
+            .unwrap_or_default(),
+        keywords,
+        categories,
     }
 }
 

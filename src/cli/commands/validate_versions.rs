@@ -108,9 +108,9 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
     // the manifest happens to hold. `to_pep440` is idempotent on already-normalised
     // input, so a final release ("1.2.3") round-trips unchanged.
     //
-    // `package_dir` may return a configured output path with a trailing separator
-    // (e.g. `crates/{lib}-py/src/`); joining via `Path::join` avoids the doubled
-    // slash that `format!("{dir}/pyproject.toml")` would produce.
+    // Check both the central package pyproject and the legacy/source-template
+    // pyproject when `[crates.output].python` points at a PyO3 source directory.
+    // Joining via `Path::join` avoids doubled slashes from trailing separators.
     let py_dir = config.package_dir(crate::core::config::extras::Language::Python);
     let py_path = join_manifest(&py_dir, "pyproject.toml");
     push_normalized_check(
@@ -121,6 +121,19 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_pyproject_version,
         to_pep440,
     );
+    if let Some(output_dir) = config.output_for("python") {
+        let output_path = join_manifest(&output_dir.to_string_lossy(), "pyproject.toml");
+        if output_path != py_path {
+            push_normalized_check(
+                &mut checks,
+                canonical,
+                &output_path,
+                workspace_root,
+                read_pyproject_version,
+                to_pep440,
+            );
+        }
+    }
 
     // Node: package.json `"version": "..."`
     let node_dir = config.package_dir(crate::core::config::extras::Language::Node);

@@ -7,7 +7,7 @@ use crate::{
     scaffold::cargo_package_header, scaffold::core_dep_features, scaffold::detect_workspace_inheritance,
     scaffold::render_extra_deps, scaffold::scaffold_meta, scaffold::to_pep440,
 };
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 /// pyproject-fmt's default `column_width` is 80 chars. Arrays whose inline
 /// rendering (`prefix_len + "[ a, b ]".len()`) fits within this width are
@@ -86,6 +86,73 @@ fn canonicalize_pep440_version(version: &str) -> String {
     format!("{}{}", segments.join("."), suffix)
 }
 
+fn normalized_components(path: &Path) -> Vec<String> {
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if components.last().is_some_and(|c| c != "..") {
+                    components.pop();
+                } else {
+                    components.push("..".to_string());
+                }
+            }
+            Component::Normal(part) => components.push(part.to_string_lossy().to_string()),
+            Component::RootDir | Component::Prefix(_) => {
+                components.push(component.as_os_str().to_string_lossy().to_string())
+            }
+        }
+    }
+    components
+}
+
+fn relative_path(from_dir: &str, to_path: &Path) -> String {
+    let from_components = normalized_components(Path::new(from_dir));
+    let to_components = normalized_components(to_path);
+    let common_len = from_components
+        .iter()
+        .zip(to_components.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut rel = vec!["..".to_string(); from_components.len().saturating_sub(common_len)];
+    rel.extend(to_components[common_len..].iter().cloned());
+    if rel.is_empty() { ".".to_string() } else { rel.join("/") }
+}
+
+fn sdist_rust_crate_includes(config: &ResolvedCrateConfig, pkg_dir: &str, core_crate_dir: &str) -> String {
+    let py_crate_dir = format!("crates/{core_crate_dir}-py");
+    let mut paths = vec![
+        format!("{}/**/*", relative_path(pkg_dir, Path::new(&py_crate_dir))),
+        format!(
+            "{}/**/*",
+            relative_path(pkg_dir, Path::new("crates").join(core_crate_dir).as_path())
+        ),
+    ];
+
+    for value in config.extra_deps_for_language(Language::Python).values() {
+        let Some(table) = value.as_table() else {
+            continue;
+        };
+        let Some(path) = table.get("path").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        if Path::new(path).is_absolute() {
+            continue;
+        }
+        let dep_path = Path::new(&py_crate_dir).join(path);
+        paths.push(format!("{}/**/*", relative_path(pkg_dir, &dep_path)));
+    }
+
+    paths.sort();
+    paths.dedup();
+    paths
+        .iter()
+        .map(|path| format!("  {{ path = \"{path}\", format = \"sdist\" }},"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub(crate) fn scaffold_python_cargo(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -95,15 +162,7 @@ pub(crate) fn scaffold_python_cargo(
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-py"),
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-py"), version, "2024", &meta, &ws);
 
     let extra_deps = render_extra_deps(config, Language::Python);
 
@@ -219,6 +278,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let core_crate_dir = config.core_crate_dir();
     let python_package = pip_name.replace('-', "_");
     let pkg_dir = config.package_dir(Language::Python);
+    let sdist_includes = sdist_rust_crate_includes(config, &pkg_dir, &core_crate_dir);
 
     let authors_toml = if meta.authors.is_empty() {
         String::new()
@@ -313,7 +373,7 @@ python-packages = [ "{python_package}" ]
 # the workspace [patch.crates-io] (when present) points at a path that is
 # missing from the tarball and the source build fails.
 include = [
-  {{ path = "../../crates/{crate_dir}/**/*", format = "sdist" }},
+{sdist_includes}
 ]
 
 [tool.ruff]
@@ -392,6 +452,7 @@ overrides = [
         python_package = python_package,
         module_name = module_name,
         crate_dir = core_crate_dir,
+        sdist_includes = sdist_includes,
         maturin_build_requires = canonicalize_pep440_specifier(tv::pypi::MATURIN_BUILD_REQUIRES),
         dev_group = dev_group_array,
         mypy_disable_codes = mypy_disable_codes,
@@ -416,7 +477,8 @@ overrides = [
 
 #[cfg(test)]
 mod tests {
-    use super::{canonicalize_pep440_specifier, canonicalize_pep440_version};
+    use super::{canonicalize_pep440_specifier, canonicalize_pep440_version, relative_path};
+    use std::path::Path;
 
     /// `pyproject-fmt` strips redundant trailing `.0` release segments from a
     /// single version number, keeping at least one segment.
@@ -444,5 +506,20 @@ mod tests {
         assert_eq!(canonicalize_pep440_specifier("==1.0"), "==1");
         // Surrounding whitespace inside clauses is normalized away.
         assert_eq!(canonicalize_pep440_specifier(">=1.0, <2.0"), ">=1,<2");
+    }
+
+    #[test]
+    fn relative_path_handles_sibling_package_and_crate_dirs() {
+        assert_eq!(
+            relative_path("packages/python", Path::new("crates/my-lib-py")),
+            "../../crates/my-lib-py"
+        );
+        assert_eq!(
+            relative_path(
+                "packages/python",
+                Path::new("crates/my-lib-py").join("../shared").as_path()
+            ),
+            "../../crates/shared"
+        );
     }
 }

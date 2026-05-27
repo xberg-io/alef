@@ -422,31 +422,50 @@ key = "value"
 
 ---
 
-## `[crates.scaffold]` -- Package Metadata
+## `[workspace.package_metadata]` / `[crates.package_metadata]` -- Package Metadata
 
-Metadata used when generating package manifests (`pyproject.toml`, `package.json`, `.gemspec`, `composer.json`, `mix.exs`, `go.mod`, `pom.xml`, `.csproj`, `DESCRIPTION`). Specified per-crate.
+Central metadata used when generating package manifests (`pyproject.toml`, `package.json`, `.gemspec`,
+`composer.json`, `mix.exs`, `go.mod`, `pom.xml`, `.csproj`, `DESCRIPTION`). Workspace values apply to every crate;
+per-crate values override them field-by-field.
 
 ```toml
-[[crates]]
-name = "my-library"
-
-[crates.scaffold]
+[workspace.package_metadata]
 description = "My library for doing things"
 license = "MIT"
 repository = "https://github.com/org/repo"
 homepage = "https://docs.example.com"
-authors = ["Your Name"]
+documentation = "https://docs.example.com"
+issues = "https://github.com/org/repo/issues"
+authors = ["Your Name <you@example.com>"]
 keywords = ["parsing", "extraction"]
+categories = ["text-processing"]
+
+[[crates]]
+name = "my-library"
+
+[crates.package_metadata]
+description = "Language bindings for my-library"
 ```
 
-| Field         | Type     | Default | Description                               |
-| ------------- | -------- | ------- | ----------------------------------------- |
-| `description` | string   | --      | Package description used in all manifests |
-| `license`     | string   | --      | SPDX license identifier                   |
-| `repository`  | string   | --      | Source code repository URL                |
-| `homepage`    | string   | --      | Project homepage or documentation URL     |
-| `authors`     | string[] | --      | List of package authors                   |
-| `keywords`    | string[] | --      | Keywords/tags for package registries      |
+| Field                     | Type     | Default | Description                                                     |
+| ------------------------- | -------- | ------- | --------------------------------------------------------------- |
+| `description`             | string   | --      | Package description used in all manifests                       |
+| `license`                 | string   | --      | SPDX license identifier                                         |
+| `repository`              | string   | --      | Source code repository URL                                      |
+| `homepage`                | string   | --      | Project homepage URL                                            |
+| `documentation`           | string   | --      | Documentation URL where the package registry supports one       |
+| `issues`                  | string   | --      | Issue tracker URL where the package registry supports one       |
+| `funding`                 | string   | --      | Funding/support URL where the package registry supports one     |
+| `authors`                 | string[] | --      | List of package authors                                         |
+| `keywords`                | string[] | `[]`    | Keywords/tags for package registries                            |
+| `categories`              | string[] | `[]`    | Registry categories/labels where supported                      |
+| `truncate_registry_lists` | bool     | `false` | Truncate registry-limited lists instead of failing validation   |
+
+crates.io supports at most five keywords/categories. Alef validates that limit by default; set
+`truncate_registry_lists = true` only when deterministic truncation is intended.
+
+Legacy `[crates.scaffold]` metadata is still accepted as a compatibility fallback, but new configs should use
+`package_metadata`.
 
 ---
 

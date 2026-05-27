@@ -127,6 +127,12 @@ pub fn package_swift(
     }
     copy_dir_recursive(&pkg_src, &staging).context("copying Swift package directory")?;
 
+    let root_manifest = workspace_root.join("Package.swift");
+    if root_manifest.exists() {
+        fs::copy(&root_manifest, staging.join("Package.swift")).context("copying root Swift Package.swift")?;
+    }
+    patch_root_package_manifest(&staging, version).context("patching root Swift Package.swift")?;
+
     // Emit XCFramework placeholder.
     let xcframework_dir = staging.join("xcframework");
     fs::create_dir_all(&xcframework_dir).context("creating xcframework placeholder directory")?;
@@ -156,6 +162,23 @@ pub fn package_swift(
         name: archive_name,
         checksum: None,
     })
+}
+
+fn patch_root_package_manifest(staging: &Path, version: &str) -> Result<()> {
+    let manifest = staging.join("Package.swift");
+    if !manifest.exists() {
+        return Ok(());
+    }
+    let mut content = fs::read_to_string(&manifest).context("reading staged Package.swift")?;
+    content = content.replace("__ALEF_SWIFT_VERSION__", version);
+    if content.contains("__ALEF_SWIFT_CHECKSUM__") {
+        let checksum = std::env::var("ALEF_SWIFT_CHECKSUM")
+            .or_else(|_| std::env::var("SWIFT_ARTIFACT_CHECKSUM"))
+            .context("ALEF_SWIFT_CHECKSUM must be set when Package.swift contains __ALEF_SWIFT_CHECKSUM__")?;
+        content = content.replace("__ALEF_SWIFT_CHECKSUM__", &checksum);
+    }
+    fs::write(&manifest, content).context("writing staged Package.swift")?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -236,5 +259,40 @@ module_name = "AlefCore"
 
         let artifact = package_swift(&config, tmp.path(), &output, "1.2.3").unwrap();
         assert_eq!(artifact.name, "AlefCore-1.2.3.tar.gz");
+    }
+
+    #[test]
+    fn patch_root_package_manifest_replaces_release_placeholders() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manifest = tmp.path().join("Package.swift");
+        fs::write(
+            &manifest,
+            r#"url: "https://example.test/releases/download/v__ALEF_SWIFT_VERSION__/Demo.zip",
+checksum: "__ALEF_SWIFT_CHECKSUM__"
+"#,
+        )
+        .unwrap();
+
+        unsafe {
+            std::env::set_var("ALEF_SWIFT_CHECKSUM", "abc123");
+        }
+        patch_root_package_manifest(tmp.path(), "1.2.3").unwrap();
+        unsafe {
+            std::env::remove_var("ALEF_SWIFT_CHECKSUM");
+        }
+
+        let content = fs::read_to_string(manifest).unwrap();
+        assert!(
+            content.contains("v1.2.3"),
+            "version placeholder must be replaced: {content}"
+        );
+        assert!(
+            content.contains("abc123"),
+            "checksum placeholder must be replaced: {content}"
+        );
+        assert!(
+            !content.contains("__ALEF_SWIFT_"),
+            "no Swift placeholders should remain: {content}"
+        );
     }
 }

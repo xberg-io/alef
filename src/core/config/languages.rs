@@ -384,6 +384,10 @@ pub struct ElixirConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmConfig {
+    /// npm package name for the WASM package. Defaults to the Node package
+    /// name with a trailing `-node` removed, plus `-wasm`.
+    #[serde(default)]
+    pub package_name: Option<String>,
     #[serde(default)]
     pub exclude_functions: Vec<String>,
     #[serde(default)]

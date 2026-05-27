@@ -14,15 +14,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-php"),
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-php"), version, "2024", &meta, &ws);
 
     let extra_deps = render_extra_deps(config, Language::Php);
 
@@ -224,7 +216,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     };
 
     let content = render_composer("src/");
-    let root_content = render_composer(&format!("{pkg_dir}/src/"));
+    let root_content = render_composer("packages/php/src/");
 
     let stubs_file = format!("stubs/{ext_name}_extension.php");
 
@@ -251,9 +243,9 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             content,
             generated_header: false,
         },
-        // Root composer.json is the Packagist/PIE manifest — Packagist indexes
-        // it from the repo root and PIE reads `extra.pie.binary.url-template`
-        // from it to download prebuilt extension binaries from GitHub Releases.
+        // Root composer.json is the Packagist/PIE manifest. Packagist indexes
+        // it from the repo root, so the autoload path must point at the package
+        // source directory.
         GeneratedFile {
             path: PathBuf::from("composer.json"),
             content: root_content,

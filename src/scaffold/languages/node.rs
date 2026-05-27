@@ -8,6 +8,28 @@ use crate::{
 };
 use std::path::PathBuf;
 
+const NAPI_TARGETS: &[&str] = &[
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+];
+
+const NAPI_PLATFORMS: &[&str] = &[
+    "linux-x64-gnu",
+    "linux-arm64-gnu",
+    "linux-x64-musl",
+    "linux-arm64-musl",
+    "darwin-x64",
+    "darwin-arm64",
+    "win32-x64-msvc",
+    "win32-arm64-msvc",
+];
+
 /// Check if a TypeRef or any of its nested types is Json
 fn type_ref_contains_json(ty: &TypeRef) -> bool {
     match ty {
@@ -74,15 +96,7 @@ pub(crate) fn scaffold_node_cargo(
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-node"),
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-node"), version, "2024", &meta, &ws);
 
     let extra_deps = render_extra_deps(config, Language::Node);
 
@@ -296,6 +310,59 @@ module.exports = nativeBinding;
     )
 }
 
+fn napi_platform_package_name(parent_package_name: &str, platform: &str) -> String {
+    format!("{parent_package_name}-{platform}")
+}
+
+fn napi_platform_os_cpu_libc(platform: &str) -> (&'static str, &'static str, Option<&'static str>) {
+    match platform {
+        "linux-x64-gnu" => ("linux", "x64", Some("glibc")),
+        "linux-arm64-gnu" => ("linux", "arm64", Some("glibc")),
+        "linux-x64-musl" => ("linux", "x64", Some("musl")),
+        "linux-arm64-musl" => ("linux", "arm64", Some("musl")),
+        "darwin-x64" => ("darwin", "x64", None),
+        "darwin-arm64" => ("darwin", "arm64", None),
+        "win32-x64-msvc" => ("win32", "x64", None),
+        "win32-arm64-msvc" => ("win32", "arm64", None),
+        _ => ("linux", "x64", None),
+    }
+}
+
+fn generate_napi_platform_package_json(
+    parent_package_name: &str,
+    binary_name: &str,
+    platform: &str,
+    version: &str,
+    license: &str,
+    repository_git_url: &str,
+) -> String {
+    let package_name = napi_platform_package_name(parent_package_name, platform);
+    let (os, cpu, libc) = napi_platform_os_cpu_libc(platform);
+    let libc_field = libc
+        .map(|value| format!(",\n  \"libc\": [\"{value}\"]"))
+        .unwrap_or_default();
+    let binary_file = format!("{binary_name}.{platform}.node");
+
+    format!(
+        r#"{{
+  "name": "{package_name}",
+  "version": "{version}",
+  "license": "{license}",
+  "repository": {{
+    "type": "git",
+    "url": "{repository_git_url}"
+  }},
+  "main": "{binary_file}",
+  "files": ["{binary_file}"],
+  "os": ["{os}"],
+  "cpu": ["{cpu}"]{libc_field},
+  "engines": {{ "node": ">= 18" }},
+  "publishConfig": {{ "access": "public" }}
+}}
+"#,
+    )
+}
+
 pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let package_name = config.node_package_name();
@@ -317,6 +384,22 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             repository_url.trim_end_matches('/').trim_end_matches(".git")
         )
     };
+    let optional_dependencies = NAPI_PLATFORMS
+        .iter()
+        .map(|platform| {
+            format!(
+                "    \"{}\": \"{}\"",
+                napi_platform_package_name(&package_name, platform),
+                version
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    let targets = NAPI_TARGETS
+        .iter()
+        .map(|target| format!("      \"{target}\""))
+        .collect::<Vec<_>>()
+        .join(",\n");
 
     // Crate-level package.json required by `napi build`
     let crate_pkg = format!(
@@ -331,17 +414,22 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "main": "index.js",
   "types": "index.d.ts",
+  "exports": {{
+    ".": {{
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    }}
+  }},
   "files": ["index.js", "index.d.ts", "*.node"],
+  "optionalDependencies": {{
+{optional_dependencies}
+  }},
   "napi": {{
     "packageName": "{package_name}",
     "binaryName": "{crate_dir}-node",
     "targets": [
-      "x86_64-unknown-linux-gnu",
-      "aarch64-unknown-linux-gnu",
-      "x86_64-apple-darwin",
-      "aarch64-apple-darwin",
-      "x86_64-pc-windows-msvc",
-      "aarch64-pc-windows-msvc"
+{targets}
     ]
   }},
   "scripts": {{
@@ -350,6 +438,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "prepublishOnly": "napi prepublish -t npm --skip-optional-publish"
   }},
   "engines": {{ "node": ">= 18" }},
+  "publishConfig": {{ "access": "public" }},
   "devDependencies": {{ "@napi-rs/cli": "{napi_rs_cli_crate}" }}
 }}
 "#,
@@ -359,16 +448,19 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         license = meta.license,
         repository_git_url = repository_git_url,
         crate_dir = crate_dir,
+        optional_dependencies = optional_dependencies,
+        targets = targets,
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
     );
 
     let crate_index_js = generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir), &package_name);
+    let binary_name = format!("{crate_dir}-node");
 
     // The npm publish target lives at `crates/{crate_dir}-node/` and is built by
     // NAPI-RS. We only emit the crate-level `package.json` + platform-dispatch
     // `index.js` here — the historical `packages/node/` scaffold was dead weight
     // that defined a parallel unscoped npm package that was never published.
-    Ok(vec![
+    let mut files = vec![
         GeneratedFile {
             path: PathBuf::from(format!("crates/{crate_dir}-node/package.json")),
             content: crate_pkg,
@@ -379,5 +471,18 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             content: crate_index_js,
             generated_header: false,
         },
-    ])
+    ];
+    files.extend(NAPI_PLATFORMS.iter().map(|platform| GeneratedFile {
+        path: PathBuf::from(format!("crates/{crate_dir}-node/npm/{platform}/package.json")),
+        content: generate_napi_platform_package_json(
+            &package_name,
+            &binary_name,
+            platform,
+            version,
+            &meta.license,
+            &repository_git_url,
+        ),
+        generated_header: false,
+    }));
+    Ok(files)
 }

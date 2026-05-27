@@ -21,15 +21,7 @@ pub(crate) fn scaffold_elixir_cargo(
     let pkg_dir = config.package_dir(Language::Elixir);
     let native_crate_dir = format!("{pkg_dir}/native/{nif_name}");
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &nif_name,
-        version,
-        "2024",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&nif_name, version, "2024", &meta, &ws);
 
     let extra_deps = render_extra_deps(config, Language::Elixir);
     let has_async =
@@ -173,6 +165,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let nif_name = format!("{app_name}_nif");
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Elixir);
+    let nif_targets = elixir_nif_targets(config).join(" ");
 
     // Jason is always required for Elixir bindings because generated data-class
     // serialization (pack_config, code_chunk, etc.) uses Jason.encode! / Jason.decode!,
@@ -320,7 +313,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
       app: :{app_name},
       version: "{version}",
       elixir: "~> 1.14",{elixirc_paths}
-      rustler_crates: [{nif_atom}: [mode: :release]],
+      rustler_crates: [{nif_atom}: [mode: :release, targets: ~w({nif_targets})]],
       description: "{description}",
       package: package(),
       deps: deps()
@@ -348,6 +341,7 @@ end
         module = app_name.to_pascal_case(),
         app_name = app_name,
         nif_atom = format_args!("{app_name}_nif"),
+        nif_targets = nif_targets,
         version = version,
         elixirc_paths = elixirc_paths_line,
         files_keyword = files_keyword,
@@ -513,4 +507,23 @@ end
     }
 
     Ok(files)
+}
+
+fn elixir_nif_targets(config: &ResolvedCrateConfig) -> Vec<String> {
+    config
+        .elixir
+        .as_ref()
+        .filter(|elixir| !elixir.nif_targets.is_empty())
+        .map(|elixir| elixir.nif_targets.clone())
+        .unwrap_or_else(|| {
+            [
+                "aarch64-apple-darwin",
+                "aarch64-unknown-linux-gnu",
+                "x86_64-unknown-linux-gnu",
+                "x86_64-pc-windows-gnu",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+        })
 }

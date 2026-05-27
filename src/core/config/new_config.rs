@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::extras::{Language, is_known_language};
 use super::output::{BuildCommandConfig, GeneratedHeaderConfig, PrecommitConfig, ScaffoldConfig};
+use super::package_metadata::PackageMetadataConfig;
 use super::raw_crate::RawCrateConfig;
 use super::resolve_helpers::{merge_map, resolve_output_paths};
 use super::resolved::ResolvedCrateConfig;
@@ -247,6 +248,10 @@ impl NewAlefConfig {
                 krate.scaffold.as_ref(),
                 ws.generated_header.as_ref(),
                 ws.precommit.as_ref(),
+            ),
+            package_metadata: PackageMetadataConfig::merge(
+                ws.package_metadata.as_ref(),
+                krate.package_metadata.as_ref(),
             ),
             readme: krate.readme.clone(),
             custom_files: krate.custom_files.clone(),

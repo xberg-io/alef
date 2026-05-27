@@ -402,6 +402,16 @@ enum E2eAction {
         /// versions instead of local path dependencies.
         #[arg(long)]
         registry: bool,
+        /// Run e2e formatters on emitted files. Default: false for fast
+        /// regeneration; pass `--format` to opt in.
+        #[arg(
+            long,
+            default_value_t = false,
+            default_missing_value = "true",
+            num_args = 0..=1,
+            action = clap::ArgAction::Set,
+        )]
+        format: bool,
     },
     /// Initialize fixture directory with schema and example.
     Init,
@@ -433,6 +443,16 @@ enum TestAppsAction {
         /// Delete the test_apps/<lang>/ directory before regenerating.
         #[arg(long)]
         clean: bool,
+        /// Run e2e formatters on emitted files. Default: false for fast
+        /// regeneration; pass `--format` to opt in.
+        #[arg(
+            long,
+            default_value_t = false,
+            default_missing_value = "true",
+            num_args = 0..=1,
+            action = clap::ArgAction::Set,
+        )]
+        format: bool,
         /// Maximum parallel jobs (0 = all cores, 1 = sequential).
         #[arg(short, long, default_value = "0")]
         jobs: usize,
@@ -1439,7 +1459,9 @@ fn main() -> Result<()> {
                         eprintln!("Generating e2e test suites...");
                         let files = alef::e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types, &api.enums)?;
                         e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
-                        alef::e2e::format::run_formatters(&files, e2e_config);
+                        if format {
+                            alef::e2e::format::run_formatters(&files, e2e_config);
+                        }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
@@ -1476,7 +1498,9 @@ fn main() -> Result<()> {
                             alef::e2e::generate_e2e(resolved_cfg, registry_e2e_ref, None, &api.types, &api.enums)?;
                         let test_apps_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                         e2e_count += test_apps_count;
-                        alef::e2e::format::run_formatters(&files, registry_e2e_ref);
+                        if format {
+                            alef::e2e::format::run_formatters(&files, registry_e2e_ref);
+                        }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
@@ -1657,7 +1681,7 @@ fn main() -> Result<()> {
                 .unwrap_or_else(|| crates_to_process[0]);
             let e2e_config = resolved_cfg.e2e.as_ref().context("no [e2e] section in alef.toml")?;
             match action {
-                E2eAction::Generate { lang, registry } => {
+                E2eAction::Generate { lang, registry, format } => {
                     if registry {
                         eprintln!(
                             "warning: `alef e2e generate --registry` is deprecated. \
@@ -1700,8 +1724,9 @@ fn main() -> Result<()> {
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
-                        // Run per-language formatters
-                        alef::e2e::format::run_formatters(&files, e2e_ref);
+                        if format {
+                            alef::e2e::format::run_formatters(&files, e2e_ref);
+                        }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
@@ -1814,7 +1839,12 @@ fn main() -> Result<()> {
             // Validate that at least one crate has an [e2e] section.
             let _ = _resolved_cfg.e2e.as_ref().context("no [e2e] section in alef.toml")?;
             match action {
-                TestAppsAction::Generate { lang, clean, jobs: _ } => {
+                TestAppsAction::Generate {
+                    lang,
+                    clean,
+                    format,
+                    jobs: _,
+                } => {
                     let config_toml = std::fs::read_to_string(config_path)?;
                     let base_dir = std::env::current_dir()?;
                     let mut grand_count: usize = 0;
@@ -1861,7 +1891,9 @@ fn main() -> Result<()> {
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
-                        alef::e2e::format::run_formatters(&files, e2e_ref);
+                        if format {
+                            alef::e2e::format::run_formatters(&files, e2e_ref);
+                        }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();

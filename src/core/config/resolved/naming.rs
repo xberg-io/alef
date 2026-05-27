@@ -21,6 +21,19 @@ impl ResolvedCrateConfig {
             .unwrap_or_else(|| self.name.clone())
     }
 
+    /// Get the WASM npm package name.
+    pub fn wasm_package_name(&self) -> String {
+        self.wasm
+            .as_ref()
+            .and_then(|w| w.package_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| {
+                let node_pkg = self.node_package_name();
+                let base = node_pkg.strip_suffix("-node").unwrap_or(node_pkg.as_str());
+                format!("{base}-wasm")
+            })
+    }
+
     /// Get the Ruby gem name.
     pub fn ruby_gem_name(&self) -> String {
         self.ruby
@@ -185,6 +198,42 @@ module_name = "mymod"
     fn node_package_name_defaults_to_crate_name() {
         let r = minimal();
         assert_eq!(r.node_package_name(), "test-lib");
+    }
+
+    #[test]
+    fn wasm_package_name_defaults_from_node_package_name() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["node", "wasm"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.node]
+package_name = "@scope/test-lib-node"
+"#,
+        );
+        assert_eq!(r.wasm_package_name(), "@scope/test-lib-wasm");
+    }
+
+    #[test]
+    fn wasm_package_name_uses_explicit_override() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["wasm"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.wasm]
+package_name = "@scope/explicit-wasm"
+"#,
+        );
+        assert_eq!(r.wasm_package_name(), "@scope/explicit-wasm");
     }
 
     #[test]

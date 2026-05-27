@@ -74,14 +74,7 @@ impl E2eCodegen for WasmCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| {
-                // Default: derive from WASM crate name (config.name + "-wasm")
-                // wasm-pack transforms the crate name to the package name by replacing
-                // dashes with the crate separator in Cargo (e.g., sample_core-wasm -> sample_core_wasm).
-                // However, the published npm package might use the module name, which is typically
-                // the crate name without "-wasm". Fall back to the module path.
-                module_path.clone()
-            });
+            .unwrap_or_else(|| config.wasm_package_name());
         let pkg_version = wasm_pkg
             .as_ref()
             .and_then(|p| p.version.as_ref())

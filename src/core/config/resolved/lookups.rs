@@ -33,6 +33,7 @@ impl ResolvedCrateConfig {
         // sub-directory rather than the package root (where the publish
         // manifest — pyproject.toml, package.json, Package.swift, build.zig,
         // pubspec.yaml, build.gradle.kts, mix.exs, gemspec, pom.xml — lives):
+        //   - Python:        `crates/{name}-py/src/`
         //   - Node/Wasm:     `crates/{name}-{lang}/src/`
         //   - Elixir:        `packages/elixir/native/<nif>/src/`
         //   - Ruby:          `packages/ruby/ext/<ext>/src/`
@@ -48,7 +49,8 @@ impl ResolvedCrateConfig {
         // expect.
         if !matches!(
             lang,
-            Language::Node
+            Language::Python
+                | Language::Node
                 | Language::Wasm
                 | Language::Elixir
                 | Language::Ruby
@@ -611,6 +613,27 @@ r = "packages/r/src/rust/src/"
 "#,
         );
         assert_eq!(r.package_dir(Language::R), "packages/r");
+    }
+
+    #[test]
+    fn package_dir_python_ignores_source_output_override() {
+        // The PyO3 `[crates.output]` points at the Rust source directory
+        // (`crates/demo-py/src/`), but the publish manifest (`pyproject.toml`)
+        // lives at the central Python package root.
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.output]
+python = "crates/demo-py/src/"
+"#,
+        );
+        assert_eq!(r.package_dir(Language::Python), "packages/python");
     }
 
     #[test]

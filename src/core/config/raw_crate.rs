@@ -25,6 +25,7 @@ use super::output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
     ScaffoldConfig, SetupConfig, TestConfig, UpdateConfig,
 };
+use super::package_metadata::PackageMetadataConfig;
 use super::publish::PublishConfig;
 use super::trait_bridge::TraitBridgeConfig;
 
@@ -224,6 +225,8 @@ pub struct RawCrateConfig {
     pub trait_bridges: Vec<TraitBridgeConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
+    #[serde(default)]
+    pub package_metadata: Option<PackageMetadataConfig>,
     #[serde(default)]
     pub readme: Option<ReadmeConfig>,
     #[serde(default)]

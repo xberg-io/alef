@@ -67,15 +67,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
-    let pkg_header = cargo_package_header(
-        &format!("{core_crate_dir}-ffi"),
-        version,
-        "2021",
-        &meta.license,
-        &meta.description,
-        &meta.keywords,
-        &ws,
-    );
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-ffi"), version, "2021", &meta, &ws);
 
     // FFI Cargo.toml dependency policy:
     // - `serde_json` and `tokio` are pinned to major versions; cargo will pick
