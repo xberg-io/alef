@@ -1,3 +1,5 @@
+pub mod service_api;
+
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::doc_emission::{parse_arguments_bullets, parse_rustdoc_sections};
 use crate::codegen::generators::trait_bridge::find_bridge_field;
@@ -108,6 +110,7 @@ impl Backend for ExtendrBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -865,6 +868,14 @@ impl Backend for ExtendrBackend {
         }
 
         Ok(files)
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

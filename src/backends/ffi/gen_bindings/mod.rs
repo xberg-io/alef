@@ -1,5 +1,6 @@
 mod functions;
 mod helpers;
+mod service_api;
 mod types;
 
 use crate::codegen::builder::RustFileBuilder;
@@ -46,6 +47,7 @@ impl Backend for FfiBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -89,6 +91,10 @@ impl Backend for FfiBackend {
         ];
 
         Ok(files)
+    }
+
+    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
