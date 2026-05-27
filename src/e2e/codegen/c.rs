@@ -453,6 +453,17 @@ fn render_makefile(
     let _ = writeln!(out, "\tbash download_ffi.sh");
     let _ = writeln!(out);
 
+    // Resolve the header to whichever location holds it (downloaded ffi/ or
+    // in-tree FFI crate). When set, the build target omits the
+    // download-triggering prerequisite below — this avoids 404s on release
+    // commits where download_ffi.sh's pinned VERSION points at assets not
+    // yet published, but CI has already staged a locally-built header.
+    let _ = writeln!(
+        out,
+        "HEADER_PATH := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include/{header_name},$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include/{header_name}))"
+    );
+    let _ = writeln!(out);
+
     // Dynamically select FFI library location using shell tests (evaluated at compilation time for each command)
     // Priority: downloaded ffi/ > in-tree > pkg-config
     let _ = writeln!(
@@ -486,7 +497,10 @@ fn render_makefile(
     let _ = writeln!(out);
     let _ = writeln!(out, "all: $(TARGET)");
     let _ = writeln!(out);
-    let _ = writeln!(out, "$(TARGET): $(SRCS) $(FFI_DIR)/include/{header_name}");
+    let _ = writeln!(
+        out,
+        "$(TARGET): $(SRCS) $(if $(HEADER_PATH),,$(FFI_DIR)/include/{header_name})"
+    );
     let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)");
     let _ = writeln!(out);
 
