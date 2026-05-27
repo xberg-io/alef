@@ -758,10 +758,12 @@ fn main() -> Result<()> {
                     pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
 
-                // Finalise per-file hashes after all formatters have run, so the
-                // embedded `alef:hash:` line describes the actual on-disk content
-                // and `alef verify` can recompute it without regenerating.
-                pipeline::finalize_hashes(&current_gen_paths, &sources_hash)?;
+                // Finalise per-file hashes after all formatters have run.
+                // The embedded hash is derived from generation inputs (alef rev +
+                // sources + alef.toml), not from file content, so formatter rewrites
+                // never invalidate it.
+                let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+                pipeline::finalize_hashes(&current_gen_paths, &sources_hash, &alef_toml_bytes)?;
 
                 // Always re-sync versions across user-owned manifests.
                 if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None) {
@@ -854,7 +856,8 @@ fn main() -> Result<()> {
                     .iter()
                     .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
                     .collect();
-                pipeline::finalize_hashes(&stub_paths, &sources_hash)?;
+                let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+                pipeline::finalize_hashes(&stub_paths, &sources_hash, &alef_toml_bytes)?;
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
             println!("Generated {grand_total} stub files");
@@ -892,10 +895,11 @@ fn main() -> Result<()> {
                 }
                 let files = pipeline::scaffold(&api, resolved_cfg, &languages)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
+                let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 let count = pipeline::write_scaffold_files(&files, &base_dir)?;
                 let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                 let scaffold_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
-                pipeline::finalize_hashes(&scaffold_paths, &sources_hash)?;
+                pipeline::finalize_hashes(&scaffold_paths, &sources_hash, &alef_toml_bytes)?;
                 cache::write_stage_hash(&resolved_cfg.name, "scaffold", &stage_hash, &output_paths)?;
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
@@ -940,10 +944,11 @@ fn main() -> Result<()> {
                 }
                 let files = pipeline::readme(&api, resolved_cfg, &languages)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
+                let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                 let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                 let readme_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
-                pipeline::finalize_hashes(&readme_paths, &sources_hash)?;
+                pipeline::finalize_hashes(&readme_paths, &sources_hash, &alef_toml_bytes)?;
                 cache::write_stage_hash(&resolved_cfg.name, "readme", &stage_hash, &output_paths)?;
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
@@ -982,10 +987,11 @@ fn main() -> Result<()> {
                 }
                 let files = alef::docs::generate_docs(&api, resolved_cfg, &languages, &output)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
+                let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                 let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                 let doc_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
-                pipeline::finalize_hashes(&doc_paths, &sources_hash)?;
+                pipeline::finalize_hashes(&doc_paths, &sources_hash, &alef_toml_bytes)?;
                 cache::write_stage_hash(&resolved_cfg.name, "docs", &stage_hash, &output_paths)?;
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
@@ -1174,28 +1180,31 @@ fn main() -> Result<()> {
             // `blake3(sources_hash || file_content_without_hash_line)` and
             // compares with the embedded `alef:hash:<hex>` line. There is no
             // alef-version dimension and no `alef.toml` dimension, so a green
-            // `alef verify` stays green after upgrading the alef CLI as long
-            // as the rust sources and on-disk file contents are unchanged.
-            //
-            // Verify never regenerates and never writes — pure read+rehash.
+            // Verify never regenerates and never writes — pure read+compare.
+            // The embedded hash is a generation-inputs fingerprint; verify
+            // re-derives it from current (alef rev + sources + alef.toml) and
+            // compares, so formatter drift never causes false-positive failures.
             // The legacy `--compile` / `--lint` / `--lang` flags are accepted
             // but ignored; run `alef build` / `alef lint` / `alef test` for
             // those concerns.
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
-            eprintln!("Verifying alef-generated files (per-file hash mode)");
+            eprintln!("Verifying alef-generated files (inputs-hash mode)");
             let base_dir = std::env::current_dir()?;
 
-            // Collect sources hashes for all selected crates so that the
-            // file walk can validate each file against ANY crate's hash.
-            // A file is valid if it matches at least one crate's sources hash
-            // (each file was generated by exactly one crate).
-            let all_sources_hashes: Vec<String> = crates_to_process
+            // Read the alef.toml bytes once — same bytes used at generate time.
+            let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+
+            // Collect inputs hashes for all selected crates so that the file
+            // walk can validate each file against ANY crate's inputs hash.
+            // A file is valid if it matches at least one crate's inputs hash.
+            let all_inputs_hashes: Vec<String> = crates_to_process
                 .iter()
                 .filter_map(|c| cache::sources_hash(&c.sources).ok())
+                .map(|sh| alef::core::hash::compute_inputs_hash(&sh, &alef_toml_bytes))
                 .collect();
 
-            let stale = verify_walk_multi(&base_dir, &all_sources_hashes)?;
+            let stale = verify_walk_multi(&base_dir, &all_inputs_hashes)?;
 
             // Version consistency check: run per crate, accumulate mismatches.
             let mut all_version_mismatches: Vec<String> = Vec::new();
@@ -1596,10 +1605,10 @@ fn main() -> Result<()> {
                     pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
 
-                // Finalise per-file hashes after every formatter has run, so
-                // `alef verify` can recompute the same hash from on-disk content.
+                // Finalise per-file hashes after every formatter has run.
                 eprintln!("Finalising hashes...");
-                pipeline::finalize_hashes(&current_gen_paths, &sources_hash)?;
+                let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+                pipeline::finalize_hashes(&current_gen_paths, &sources_hash, &alef_toml_bytes)?;
 
                 grand_binding_count += binding_count;
                 grand_stub_count += stub_count;
@@ -1670,7 +1679,8 @@ fn main() -> Result<()> {
             }
 
             // Finalise per-file hashes after formatting.
-            pipeline::finalize_hashes(&all_paths, &sources_hash)?;
+            let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+            pipeline::finalize_hashes(&all_paths, &sources_hash, &alef_toml_bytes)?;
 
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
             Ok(())
@@ -1741,6 +1751,7 @@ fn main() -> Result<()> {
                         let languages = lang.as_deref();
                         let files = alef::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
+                        let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
                         if format {
@@ -1749,7 +1760,7 @@ fn main() -> Result<()> {
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
-                        pipeline::finalize_hashes(&path_set, &sources_hash)?;
+                        pipeline::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
 
                         // Sweep orphan alef-generated files scoped to effective_output() of
                         // the current mode — local mode sweeps e2e/, registry mode sweeps
@@ -1908,6 +1919,7 @@ fn main() -> Result<()> {
                         let languages = lang.as_deref();
                         let files = alef::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
+                        let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
                         if format {
@@ -1916,7 +1928,7 @@ fn main() -> Result<()> {
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
-                        pipeline::finalize_hashes(&path_set, &sources_hash)?;
+                        pipeline::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
 
                         // Sweep orphans scoped to test_apps/ only — never touches e2e/.
                         let sweep_roots: Vec<PathBuf> = if lang.is_some() {
@@ -2413,15 +2425,17 @@ fn format_languages(languages: &[alef::core::config::Language]) -> String {
 /// Multi-crate variant of [`verify_walk`].
 ///
 /// A file is considered valid if its embedded `alef:hash:` matches the hash
-/// computed using ANY of the provided `sources_hashes`.  In a multi-crate
-/// workspace each file was generated by exactly one crate, so the file passes
-/// verification when it matches its generating crate's hash.
-fn verify_walk_multi(base_dir: &std::path::Path, sources_hashes: &[String]) -> anyhow::Result<Vec<String>> {
-    if sources_hashes.is_empty() {
+/// Walk the repo from `base_dir`, find every alef-headered file, and return
+/// the list of stale ones — where the embedded `alef:hash:<hex>` does not match
+/// any of the provided `inputs_hashes`.  In a multi-crate workspace each file
+/// was generated by exactly one crate, so the file passes verification when it
+/// matches its generating crate's inputs hash.
+fn verify_walk_multi(base_dir: &std::path::Path, inputs_hashes: &[String]) -> anyhow::Result<Vec<String>> {
+    if inputs_hashes.is_empty() {
         return Ok(Vec::new());
     }
-    if sources_hashes.len() == 1 {
-        return verify_walk(base_dir, &sources_hashes[0]);
+    if inputs_hashes.len() == 1 {
+        return verify_walk(base_dir, &inputs_hashes[0]);
     }
 
     const SKIP_DIRS: &[&str] = &[
@@ -2490,10 +2504,9 @@ fn verify_walk_multi(base_dir: &std::path::Path, sources_hashes: &[String]) -> a
             let Some(disk_hash) = alef::core::hash::extract_hash(&content) else {
                 continue;
             };
-            // A file is valid if it matches ANY crate's sources hash.
-            let valid = sources_hashes
-                .iter()
-                .any(|sh| alef::core::hash::compute_file_hash(sh, &content) == disk_hash);
+            // A file is valid if its embedded hash matches ANY crate's inputs hash.
+            // The comparison is a simple string equality — no file content is rehashed.
+            let valid = inputs_hashes.iter().any(|ih| ih == &disk_hash);
             if !valid {
                 stale.push(path.display().to_string());
             }
@@ -2505,16 +2518,19 @@ fn verify_walk_multi(base_dir: &std::path::Path, sources_hashes: &[String]) -> a
 }
 
 /// Walk the consumer's repo from `base_dir`, find every alef-headered file, and
-/// return the list of stale ones — where
-/// `compute_file_hash(sources_hash, on_disk_content)` doesn't match the
-/// embedded `alef:hash:` line.
+/// return the list of stale ones — where the embedded `alef:hash:<hex>` does not
+/// equal `inputs_hash`.
+///
+/// Verification is a direct string equality check against the generation-inputs
+/// hash (alef rev + sources + alef.toml). File content is never rehashed, so
+/// post-generation formatter rewrites cannot cause false-positive staleness.
 ///
 /// Skips obvious build/cache directories (`target/`, `node_modules/`, `_build/`,
 /// `.alef/`, `parsers/`, `dist/`, `vendor/`, `.git/`) so verify stays fast on
 /// large repos. Files without the alef header marker are skipped silently —
 /// those are user-owned (scaffold-once Cargo.toml templates, composer.json,
 /// gemspec, package.json, lockfiles, etc.) and alef has no claim.
-fn verify_walk(base_dir: &std::path::Path, sources_hash: &str) -> anyhow::Result<Vec<String>> {
+fn verify_walk(base_dir: &std::path::Path, inputs_hash: &str) -> anyhow::Result<Vec<String>> {
     const SKIP_DIRS: &[&str] = &[
         ".git",
         ".alef",
@@ -2585,12 +2601,9 @@ fn verify_walk(base_dir: &std::path::Path, sources_hash: &str) -> anyhow::Result
             let Some(disk_hash) = alef::core::hash::extract_hash(&content) else {
                 continue;
             };
-            // Recompute the per-file hash from the on-disk byte content.
-            // `compute_file_hash` strips the existing `alef:hash:` line so the
-            // computation is symmetric with the post-format finalisation in
-            // `pipeline::finalize_hashes`.
-            let expected = alef::core::hash::compute_file_hash(sources_hash, &content);
-            if disk_hash != expected {
+            // Direct string comparison: the embedded hash is an inputs fingerprint,
+            // not derived from file content. No rehashing needed.
+            if disk_hash != inputs_hash {
                 stale.push(path.display().to_string());
             }
         }

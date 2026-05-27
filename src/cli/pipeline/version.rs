@@ -1178,16 +1178,19 @@ pub fn sync_versions(
         updated.iter().map(std::path::PathBuf::from).collect();
     finalize_paths.extend(text_replacement_paths);
     if !finalize_paths.is_empty() {
+        let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
         match super::super::cache::sources_hash(&config.sources) {
-            Ok(sources_hash) => match super::generate::finalize_hashes(&finalize_paths, &sources_hash) {
-                Ok(n) if n > 0 => {
-                    debug!("  Finalized alef:hash in {n} file(s)");
+            Ok(sources_hash) => {
+                match super::generate::finalize_hashes(&finalize_paths, &sources_hash, &alef_toml_bytes) {
+                    Ok(n) if n > 0 => {
+                        debug!("  Finalized alef:hash in {n} file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("Could not finalize hashes after version sync: {e}");
+                    }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!("Could not finalize hashes after version sync: {e}");
-                }
-            },
+            }
             Err(e) => {
                 warn!("Could not compute sources hash for finalize_hashes: {e}");
             }
@@ -1419,12 +1422,12 @@ fn regenerate_readmes(config: &ResolvedCrateConfig, config_path: &std::path::Pat
     let languages = config.languages.clone();
     let readme_files = readme(&api, config, &languages)?;
     let base_dir = std::path::PathBuf::from(".");
-    let _ = config_path; // unused now that the embedded hash is per-file content-derived
     let sources_hash = super::super::cache::sources_hash(&config.sources)?;
+    let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
     let count = super::generate::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)?;
     let paths: std::collections::HashSet<std::path::PathBuf> =
         readme_files.iter().map(|f| base_dir.join(&f.path)).collect();
-    super::generate::finalize_hashes(&paths, &sources_hash)?;
+    super::generate::finalize_hashes(&paths, &sources_hash, &alef_toml_bytes)?;
     Ok(count)
 }
 
@@ -2492,7 +2495,8 @@ end"#;
         std::fs::write(&path, content).expect("write");
 
         let paths: std::collections::HashSet<std::path::PathBuf> = std::iter::once(path.clone()).collect();
-        let n = generate::finalize_hashes(&paths, "test-sources-hash").expect("finalize ok");
+        let alef_toml_bytes = b"[workspace]\nlanguages = [\"ruby\"]\n";
+        let n = generate::finalize_hashes(&paths, "test-sources-hash", alef_toml_bytes).expect("finalize ok");
         assert_eq!(n, 1, "finalize_hashes must update the file with the alef:hash line");
 
         let updated = std::fs::read_to_string(&path).expect("read");
@@ -2514,12 +2518,13 @@ end"#;
         std::fs::write(&path, content).expect("write");
 
         let paths: std::collections::HashSet<std::path::PathBuf> = std::iter::once(path.clone()).collect();
+        let alef_toml_bytes = b"[workspace]\nlanguages = [\"ruby\"]\n";
 
-        let _ = generate::finalize_hashes(&paths, "sources").expect("first finalize");
+        let _ = generate::finalize_hashes(&paths, "sources", alef_toml_bytes).expect("first finalize");
         let after_first = std::fs::read_to_string(&path).expect("read after first");
 
-        let n2 = generate::finalize_hashes(&paths, "sources").expect("second finalize");
-        assert_eq!(n2, 0, "second finalize_hashes must be a no-op (same hash)");
+        let n2 = generate::finalize_hashes(&paths, "sources", alef_toml_bytes).expect("second finalize");
+        assert_eq!(n2, 0, "second finalize_hashes must be a no-op (same inputs hash)");
 
         let after_second = std::fs::read_to_string(&path).expect("read after second");
         assert_eq!(after_first, after_second, "content must not change on second finalize");

@@ -4,6 +4,15 @@ use std::path::{Path, PathBuf};
 const CACHE_DIR: &str = ".alef";
 const PER_FILE_CACHE_NAME: &str = "sources_hash.cache";
 
+/// Read the raw bytes of the alef config file for use in [`compute_inputs_hash`].
+///
+/// Returns an empty `Vec` when the file is absent or unreadable — callers
+/// treat missing bytes as "empty config", which still produces a stable hash
+/// when combined with `sources_hash`.
+pub fn read_alef_toml_bytes(config_path: &Path) -> Vec<u8> {
+    fs::read(config_path).unwrap_or_default()
+}
+
 /// Compute the per-run sources hash that drives both the IR cache and the
 /// embedded `alef:hash:` value. Pure function of the rust source files
 /// (paths + content); independent of `alef.toml` and the alef CLI version, so

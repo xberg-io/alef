@@ -564,6 +564,61 @@ sources = ["src/lib.rs"]
         assert_eq!(h.len(), 64, "blake3 hex output is 64 chars");
     }
 
+    // ----- compute_inputs_hash ------------------------------------------------
+
+    #[test]
+    fn inputs_hash_is_stable() {
+        let h1 = compute_inputs_hash("abc", b"toml");
+        let h2 = compute_inputs_hash("abc", b"toml");
+        assert_eq!(h1, h2, "compute_inputs_hash must be deterministic");
+        assert_eq!(h1.len(), 64, "blake3 hex output is 64 chars");
+    }
+
+    #[test]
+    fn inputs_hash_changes_when_sources_hash_changes() {
+        let h1 = compute_inputs_hash("sources_a", b"toml");
+        let h2 = compute_inputs_hash("sources_b", b"toml");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn inputs_hash_changes_when_alef_toml_changes() {
+        let h1 = compute_inputs_hash("sources", b"[workspace]\nlanguages=[\"python\"]\n");
+        let h2 = compute_inputs_hash("sources", b"[workspace]\nlanguages=[\"ruby\"]\n");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn inputs_hash_changes_when_alef_rev_changes() {
+        // We cannot change ALEF_REV at runtime, but we can verify the hash
+        // includes a non-trivial prefix by checking that an empty sources_hash
+        // and empty toml still produces a non-trivial 64-char hex string.
+        let h = compute_inputs_hash("", b"");
+        assert_eq!(h.len(), 64);
+        // Verify it differs from a plain blake3("") which would be a pure null hash.
+        let plain_empty = blake3::hash(b"").to_hex().to_string();
+        assert_ne!(h, plain_empty, "inputs hash must include the alef:inputs prefix and ALEF_REV");
+    }
+
+    #[test]
+    fn inputs_hash_tolerates_empty_alef_toml() {
+        // Empty alef_toml_bytes is valid (e.g. in unit tests without a real config).
+        let h = compute_inputs_hash("some_sources_hash", b"");
+        assert_eq!(h.len(), 64);
+    }
+
+    #[test]
+    fn inputs_hash_differs_from_file_hash() {
+        // compute_inputs_hash and compute_file_hash must not collide — they use
+        // different domain separators so the outputs are distinct even when given
+        // the same source input.
+        let sources = "abc";
+        let content = "fn a() {}\n";
+        let ih = compute_inputs_hash(sources, content.as_bytes());
+        let fh = compute_file_hash(sources, content);
+        assert_ne!(ih, fh, "inputs hash and file hash must not collide");
+    }
+
     #[test]
     fn crate_sources_hash_differs_across_crates_with_disjoint_sources() {
         use crate::core::config::resolved::ResolvedCrateConfig;
