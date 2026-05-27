@@ -5,4 +5,4 @@
 {{ param_docs }}
      * @return VisitResult How to proceed with traversal (Continue, Skip, or Custom output)
      */
-    public function {{ method_name }}(NodeContext $context{{ method_params }}): VisitResult;
+    public function {{ method_name }}(NodeContext $context{% if method_params %}, {{ method_params }}{% endif %}): VisitResult;
