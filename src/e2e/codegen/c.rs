@@ -646,10 +646,7 @@ fn render_download_script(github_repo: &str, version: &str, ffi_pkg_name: &str) 
         "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}"
     );
     let _ = writeln!(out, "if [ -d \"$EXTRACTED_DIR\" ]; then");
-    let _ = writeln!(
-        out,
-        "  rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib"
-    );
+    let _ = writeln!(out, "  rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
     let _ = writeln!(
         out,
         "  mv \"$EXTRACTED_DIR\"/include \"$EXTRACTED_DIR\"/lib \"$FFI_DIR\"/"

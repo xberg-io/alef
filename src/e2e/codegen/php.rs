@@ -2892,17 +2892,19 @@ mod trait_bridge_tests {
         // Simulate a direct trait method.
         let extract_bytes = make_method(
             "extract_bytes",
-            vec![
-                ("content", TypeRef::Bytes),
-                ("mime_type", TypeRef::String),
-            ],
+            vec![("content", TypeRef::Bytes), ("mime_type", TypeRef::String)],
             TypeRef::Named("ExtractionResult".to_string()),
             false,
         );
 
         // Simulate super-trait methods (Plugin trait).
         let name_method = make_method("name", vec![], TypeRef::String, false);
-        let priority_method = make_method("priority", vec![], TypeRef::Primitive(crate::core::ir::PrimitiveType::U32), false);
+        let priority_method = make_method(
+            "priority",
+            vec![],
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+            false,
+        );
 
         let mut fixture = make_fixture("test_super_trait_methods");
         fixture.input = serde_json::json!({

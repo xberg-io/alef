@@ -2649,16 +2649,19 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "unless Code.ensure_loaded?({genserver_module}) do");
     let _ = writeln!(setup, "defmodule {genserver_module} do");
     let _ = writeln!(setup, "  use GenServer");
-    let _ = writeln!(setup, "");
+    let _ = writeln!(setup);
     let _ = writeln!(setup, "  def start_link(_opts) do");
     let _ = writeln!(setup, "    GenServer.start_link(__MODULE__, nil)");
     let _ = writeln!(setup, "  end");
-    let _ = writeln!(setup, "");
+    let _ = writeln!(setup);
     let _ = writeln!(setup, "  @impl true");
     let _ = writeln!(setup, "  def init(_), do: {{:ok, nil}}");
-    let _ = writeln!(setup, "");
+    let _ = writeln!(setup);
     let _ = writeln!(setup, "  @impl true");
-    let _ = writeln!(setup, "  def handle_info({{:trait_call, method_atom, args_json, reply_id}}, state) do");
+    let _ = writeln!(
+        setup,
+        "  def handle_info({{:trait_call, method_atom, args_json, reply_id}}, state) do"
+    );
     let _ = writeln!(setup, "    args = Jason.decode!(args_json)");
     let _ = writeln!(setup, "    result = apply({qualified_module}, method_atom, args)");
     let _ = writeln!(setup, "    result_json = Jason.encode!(result)");
@@ -2908,7 +2911,9 @@ mod test_backend_tests {
             emission.arg_expr
         );
         assert!(
-            emission.setup_block.contains(&format!("{{:ok, {}}}", emission.arg_expr)),
+            emission
+                .setup_block
+                .contains(&format!("{{:ok, {}}}", emission.arg_expr)),
             "setup_block must start GenServer and assign its PID to the arg_expr variable, got:\n{}",
             emission.setup_block
         );
