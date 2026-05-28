@@ -550,6 +550,11 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
     for p in &method.params {
         let c_type = rust_to_c_type(&p.ty);
         params.push(format!("{} {}", p.name, c_type));
+        // Bytes params carry a companion length so the trampoline can convert via
+        // unsafe.Slice rather than C.GoString (which stops at NUL bytes).
+        if matches!(p.ty, TypeRef::Bytes) {
+            params.push(format!("{}Len C.size_t", p.name));
+        }
     }
     if !matches!(method.return_type, TypeRef::Unit) {
         params.push("outResult **C.char".to_string());
@@ -828,6 +833,11 @@ fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
     for p in &method.params {
         let cty = rust_to_plain_c_type(&p.ty);
         params.push(format!("{} {}", cty, p.name));
+        // Bytes params carry a companion length so the trampoline can read the full
+        // buffer without NUL-truncation (mirrors vtable.rs / call_body.rs pattern).
+        if matches!(p.ty, TypeRef::Bytes) {
+            params.push(format!("size_t {}_len", p.name));
+        }
     }
     if !matches!(method.return_type, TypeRef::Unit) {
         params.push("char** out_result".to_string());
@@ -922,38 +932,17 @@ fn gen_param_conversion(out: &mut String, param: &crate::core::ir::ParamDef) {
             out.push('\n');
         }
         TypeRef::Bytes => {
-            // Bytes are JSON-encoded (base64) like other complex types across FFI
-            out.push_str(&crate::backends::go::template_env::render(
-                "var_bytes_decl.jinja",
-                minijinja::context! {
-                    var_name => &var_name,
-                },
+            // Use unsafe.Slice(ptr, len) so the full byte slice is available even
+            // when the data contains embedded NUL bytes (fixes issue #114).
+            // The companion {name}Len parameter is emitted alongside the pointer.
+            let name = &param.name;
+            let len_name = format!("{name}Len");
+            out.push_str(&format!(
+                "\tvar {var_name} []byte\n\
+                 \tif {name} != nil {{\n\
+                 \t\t{var_name} = unsafe.Slice((*byte)(unsafe.Pointer({name})), int({len_name}))\n\
+                 \t}}\n\n"
             ));
-            out.push_str(&crate::backends::go::template_env::render(
-                "if_nil_check.jinja",
-                minijinja::context! {
-                    param => param.name.as_str(),
-                },
-            ));
-            out.push_str("\t\tvar b64str string\n");
-            out.push_str(&crate::backends::go::template_env::render(
-                "json_unmarshal_unsafe.jinja",
-                minijinja::context! {
-                    param => param.name.as_str(),
-                },
-            ));
-            out.push('\n');
-            out.push_str("\t\tif decoded, err := base64.StdEncoding.DecodeString(b64str); err == nil {\n");
-            out.push_str(&crate::backends::go::template_env::render(
-                "var_assign.jinja",
-                minijinja::context! {
-                    var => &var_name,
-                    expr => "decoded",
-                },
-            ));
-            out.push_str("\t\t}\n");
-            out.push_str("\t}\n");
-            out.push('\n');
         }
         TypeRef::Vec(_) => {
             // Vec types unmarshal directly from JSON array
@@ -1344,6 +1333,105 @@ mod tests {
             }
             other => panic!("expected Map<String, Json>, got {:?}", other),
         }
+    }
+
+    /// Regression (#114): the CGo trampoline signature for a Bytes parameter must include
+    /// a companion `{name}Len C.size_t` parameter.  Without it the trampoline has no way
+    /// to bound the read when the payload contains embedded NUL bytes (0x00).
+    #[test]
+    fn trampoline_bytes_param_includes_len_companion() {
+        let method = crate::core::ir::MethodDef {
+            name: "process".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let mut out = String::new();
+        gen_trampoline(&mut out, "Ingester", "Ingester", &method);
+
+        // The CGo trampoline must declare the length companion so the Go body can
+        // use unsafe.Slice(ptr, len) rather than C.GoString() which stops at 0x00.
+        assert!(
+            out.contains("payloadLen C.size_t"),
+            "trampoline must include `payloadLen C.size_t` for Bytes param;\nactual:\n{out}"
+        );
+        // The conversion body must use unsafe.Slice, not GoString (which NUL-truncates).
+        assert!(
+            out.contains("unsafe.Slice"),
+            "trampoline conversion must use unsafe.Slice for Bytes param;\nactual:\n{out}"
+        );
+        // Must NOT fall back to the old base64 roundtrip.
+        assert!(
+            !out.contains("base64"),
+            "trampoline must not use base64 encoding for Bytes param;\nactual:\n{out}"
+        );
+    }
+
+    /// Regression (#114): the C preamble extern declaration for a Bytes parameter
+    /// must include `size_t {name}_len` so the linker resolves the trampoline correctly.
+    #[test]
+    fn c_trampoline_signature_bytes_param_includes_len_companion() {
+        let method = crate::core::ir::MethodDef {
+            name: "process".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let sig = c_trampoline_signature("goIngesterProcess", &method);
+        assert!(
+            sig.contains("size_t payload_len"),
+            "C preamble sig must include `size_t payload_len`;\nactual:\n{sig}"
+        );
     }
 
     #[test]

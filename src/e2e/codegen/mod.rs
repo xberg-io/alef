@@ -28,6 +28,7 @@ pub mod gleam;
 pub mod go;
 pub mod homebrew;
 pub mod java;
+mod java_mvnw;
 pub mod kotlin;
 pub mod kotlin_android;
 pub mod php;

@@ -1016,6 +1016,7 @@ fn ts_builder_expression(
         type_defs,
         enums,
         wasm_type_prefix,
+        0,
     )
 }
 
@@ -1225,6 +1226,7 @@ fn class_name_from_type_ref(ty: &TypeRef) -> Option<String> {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn ts_builder_expression_inner(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
@@ -1235,7 +1237,13 @@ fn ts_builder_expression_inner(
     type_defs: &[TypeDef],
     enums: &[EnumDef],
     wasm_type_prefix: &str,
+    depth: usize,
 ) -> String {
+    // Use a depth-indexed variable name so nested IIFEs don't shadow each other.
+    // Without this, `const _u = WasmConversionOptions.default(); _u.preprocessing =
+    // (() => { const _u = WasmPreprocessingOptions.default(); ... })()` triggers
+    // oxlint `no-shadow` on every nested-options expression.
+    let var = format!("_u{depth}");
     if lang == "node" || (lang == "wasm" && is_tagged_data_enum(type_name, enums, wasm_type_prefix)) {
         // For node: if this type itself is a tagged-data enum, rename its serde_tag
         // key to "kind". The napi-rs backend hardcodes `#[napi(js_name = "kind")]`
@@ -1293,9 +1301,9 @@ fn ts_builder_expression_inner(
     // (emitted unconditionally on every wasm wrapper that derives `Default`)
     // returns a fresh instance the test body can then drive via setters.
     let init_stmt = if type_name.starts_with("Wasm") {
-        format!("const _u = {type_name}.default();")
+        format!("const {var} = {type_name}.default();")
     } else {
-        format!("const _u = new {type_name}();")
+        format!("const {var} = new {type_name}();")
     };
 
     // Build derived nested_types from the IR registry and merge with the
@@ -1325,10 +1333,11 @@ fn ts_builder_expression_inner(
                     type_defs,
                     enums,
                     wasm_type_prefix,
+                    depth + 1,
                 );
-                stmts.push(format!("_u.{camel_key} = {nested_expr};"));
+                stmts.push(format!("{var}.{camel_key} = {nested_expr};"));
             } else {
-                stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
+                stmts.push(format!("{var}.{camel_key} = {};", json_to_js_camel(val)));
             }
         } else if let serde_json::Value::Array(items) = val {
             // wasm-bindgen rejects plain object literals where it expects class
@@ -1351,15 +1360,16 @@ fn ts_builder_expression_inner(
                                 type_defs,
                                 enums,
                                 wasm_type_prefix,
+                                depth + 1,
                             )
                         } else {
                             json_to_js(item)
                         }
                     })
                     .collect();
-                stmts.push(format!("_u.{camel_key} = [{}];", element_exprs.join(", ")));
+                stmts.push(format!("{var}.{camel_key} = [{}];", element_exprs.join(", ")));
             } else {
-                stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
+                stmts.push(format!("{var}.{camel_key} = {};", json_to_js(val)));
             }
         } else if let Some(enum_type) = enum_fields
             .get(key.as_str())
@@ -1370,22 +1380,22 @@ fn ts_builder_expression_inner(
             // convention) so the alef.toml `enum_fields = { codeBlockStyle = "..." }` style
             // matches fixtures written with snake_case keys.
             if let serde_json::Value::String(s) = val {
-                stmts.push(format!("_u.{camel_key} = {enum_type}.{};", s));
+                stmts.push(format!("{var}.{camel_key} = {enum_type}.{};", s));
             } else {
-                stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
+                stmts.push(format!("{var}.{camel_key} = {};", json_to_js(val)));
             }
         } else if is_bigint {
             // wasm-bindgen u64/i64 setters require BigInt. Plain numeric
             // literals must be suffixed with `n`; non-literal numeric
             // values are wrapped in `BigInt(...)`.
             let raw = json_to_js(val);
-            stmts.push(format!("_u.{camel_key} = {};", to_bigint_literal(&raw)));
+            stmts.push(format!("{var}.{camel_key} = {};", to_bigint_literal(&raw)));
         } else {
-            stmts.push(format!("_u.{camel_key} = {};", json_to_js(val)));
+            stmts.push(format!("{var}.{camel_key} = {};", json_to_js(val)));
         }
     }
 
-    stmts.push("return _u;".to_string());
+    stmts.push(format!("return {var};"));
     let body = stmts.join(" ");
     format!("(() => {{ {body} }})()")
 }
@@ -1552,6 +1562,7 @@ fn build_args_and_setup(
                                         type_defs,
                                         enums,
                                         wasm_type_prefix,
+                                        0,
                                     )
                                 } else {
                                     json_to_js_camel(val)
@@ -1914,9 +1925,10 @@ mod tests {
             &[],
             &[],
             "Wasm",
+            0,
         );
         assert!(
-            result.contains("const _u = WasmChatCompletionTool.default();"),
+            result.contains("const _u0 = WasmChatCompletionTool.default();"),
             "wasm builder must instantiate via `.default()` for non-Config classes;\n\
              actual:\n{result}",
         );
@@ -1943,6 +1955,7 @@ mod tests {
             &[],
             &[],
             "",
+            0,
         );
         // Node path returns an object literal cast — no `default()` call.
         assert!(

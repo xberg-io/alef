@@ -236,12 +236,19 @@ fn gen_single_trait_bridge(
         .methods
         .iter()
         .map(|method| {
-            let unmanaged_params = method
-                .params
-                .iter()
-                .map(|p| format!("{} {}", csharp_unmanaged_type(&p.ty), to_csharp_name(&p.name)))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let mut parts: Vec<String> = Vec::new();
+            for p in &method.params {
+                let p_camel = p.name.to_lower_camel_case();
+                // Use camelCase for delegate parameters (idiomatic C# P/Invoke convention).
+                parts.push(format!("{} {}", csharp_unmanaged_type(&p.ty), p_camel));
+                // Bytes params carry a companion length so callers can read the full buffer
+                // without NUL-truncation (mirrors the vtable.rs and call_body.rs pattern).
+                if matches!(p.ty, TypeRef::Bytes) {
+                    let len_name = format!("{p_camel}Len");
+                    parts.push(format!("UIntPtr {len_name}"));
+                }
+            }
+            let unmanaged_params = parts.join(", ");
             serde_json::json!({
                 "pascal_name": to_csharp_name(&method.name),
                 "params_empty": method.params.is_empty(),
@@ -424,13 +431,20 @@ fn gen_single_trait_bridge(
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
 
-        // Build parameter signature for unmanaged delegate (what we receive)
-        let unmanaged_param_sig = method
-            .params
-            .iter()
-            .map(|p| format!("{} {}", csharp_unmanaged_type(&p.ty), to_csharp_name(&p.name)))
-            .collect::<Vec<_>>()
-            .join(", ");
+        // Build parameter signature for unmanaged delegate (what we receive).
+        // Bytes params carry a companion UIntPtr {name}Len so the callback can
+        // copy the full buffer without NUL-truncation.
+        // Use camelCase for all delegate parameters (idiomatic C# P/Invoke convention).
+        let mut sig_parts: Vec<String> = Vec::new();
+        for p in &method.params {
+            let p_camel = p.name.to_lower_camel_case();
+            sig_parts.push(format!("{} {}", csharp_unmanaged_type(&p.ty), p_camel));
+            if matches!(p.ty, TypeRef::Bytes) {
+                let len_name = format!("{p_camel}Len");
+                sig_parts.push(format!("UIntPtr {len_name}"));
+            }
+        }
+        let unmanaged_param_sig = sig_parts.join(", ");
 
         let params_decl = if unmanaged_param_sig.is_empty() {
             String::new()
@@ -454,7 +468,8 @@ fn gen_single_trait_bridge(
         // Marshal parameters from IntPtr to managed types
         let mut param_call_parts = Vec::new();
         for param in &method.params {
-            let param_name = to_csharp_name(&param.name);
+            // Use camelCase so the variable name matches the delegate signature.
+            let param_name = param.name.to_lower_camel_case();
             let managed_type = csharp_type_visible(&param.ty, visible_type_names);
             let is_non_api = matches!(&param.ty, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
 
@@ -471,9 +486,10 @@ fn gen_single_trait_bridge(
                     param_call_parts.push(format!("managed_{param_name}"));
                 }
                 TypeRef::Bytes => {
+                    let len_name = format!("{param_name}Len");
                     callbacks.push_str(&render(
                         "callback_bytes_param.jinja",
-                        minijinja::context! { param_name },
+                        minijinja::context! { param_name, len_name },
                     ));
                     param_call_parts.push(format!("managed_{param_name}"));
                 }
@@ -878,6 +894,66 @@ mod tests {
         assert!(content.contains("public static class OcrBackendRegistry"));
         assert!(!content.contains("public static void Unregister(string name)"));
         assert!(!content.contains("NativeMethods.UnregisterOcrBackend"));
+    }
+
+    /// Regression (#114): the `[UnmanagedFunctionPointer]` delegate type for a Bytes parameter
+    /// must include `UIntPtr {name}Len` immediately after the `IntPtr {name}` field.
+    /// The callback marshalling must use `Marshal.Copy(ptr, dst, 0, len)` rather than reading
+    /// bytes as a NUL-terminated JSON string, which silently truncates payloads containing 0x00.
+    #[test]
+    fn test_bridge_delegate_bytes_param_includes_len_companion() {
+        let mut trait_def = make_trait_def("Processor");
+        trait_def.methods.push(crate::core::ir::MethodDef {
+            name: "ingest".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        let bridge_cfg = make_bridge_cfg("Processor", None);
+        let bridges = vec![("Processor".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["Processor"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
+
+        // Delegate type must carry the length companion parameter.
+        assert!(
+            content.contains("UIntPtr payloadLen"),
+            "delegate signature must include `UIntPtr payloadLen` for Bytes param;\nactual:\n{content}"
+        );
+        // Callback body must use Marshal.Copy for bounded binary copy, not string deserialization.
+        assert!(
+            content.contains("Marshal.Copy(payload"),
+            "callback must use Marshal.Copy for Bytes param;\nactual:\n{content}"
+        );
+        // Must not revert to the old JSON/base64 string path.
+        assert!(
+            !content.contains("MarshalBytesFromIntPtr"),
+            "callback must not use MarshalBytesFromIntPtr;\nactual:\n{content}"
+        );
     }
 
     #[test]

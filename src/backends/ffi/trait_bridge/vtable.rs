@@ -55,6 +55,12 @@ impl FfiBridgeGenerator {
             for p in &method.params {
                 let cty = Self::c_param_type(&p.ty);
                 params.push(format!("{}: {}", p.name, cty));
+                // Bytes are passed as raw `*const u8` with a companion `_len: usize`
+                // so the callee can read the full buffer without NUL-truncation.
+                // Matches the regular-function generator's contract.
+                if matches!(p.ty, crate::core::ir::TypeRef::Bytes) {
+                    params.push(format!("{}_len: usize", p.name));
+                }
             }
             let has_error = method.error_type.is_some();
             let (out_params, ret_ty) = Self::c_return_convention(&method.return_type, has_error);
@@ -416,6 +422,46 @@ mod tests {
             !out.contains("SampleCrateError::Plugin"),
             "default emission must not embed downstream-specific sample_crate literals;\n\
              actual:\n{out}"
+        );
+    }
+
+    /// Regression (#114): vtable struct field for a Bytes parameter must emit both
+    /// `{name}: *const u8` and a companion `{name}_len: usize`.  Binary payloads
+    /// can contain embedded NUL bytes (0x00), so the C callee must use an explicit
+    /// length rather than a NUL-terminated scan.
+    #[test]
+    fn vtable_struct_bytes_param_emits_len_companion() {
+        let generator = make_generator();
+        let bridge_cfg = make_bridge_cfg("Processor");
+        let mut method = make_method("process", TypeRef::Unit, false);
+        method.params.push(crate::core::ir::ParamDef {
+            name: "payload".to_string(),
+            ty: TypeRef::Bytes,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+        });
+        let trait_def = make_trait_def("Processor", vec![method]);
+        let spec = make_spec(&trait_def, &bridge_cfg);
+
+        let out = generator.gen_vtable_struct(&spec);
+        // The pointer field must be present
+        assert!(
+            out.contains("payload: *const u8"),
+            "vtable Bytes param must emit `payload: *const u8`;\nactual:\n{out}"
+        );
+        // The length companion must follow — without it the callee cannot determine
+        // where the buffer ends when a 0x00 byte appears in the payload.
+        assert!(
+            out.contains("payload_len: usize"),
+            "vtable Bytes param must emit companion `payload_len: usize`;\nactual:\n{out}"
         );
     }
 

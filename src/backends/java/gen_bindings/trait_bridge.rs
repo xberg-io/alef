@@ -378,6 +378,10 @@ fn gen_bridge_file(
                 _ => "MemorySegment.class".to_string(),
             };
             method_type_params.push(class_literal);
+            // Bytes params carry a companion long length (mirrors vtable.rs pattern).
+            if matches!(param.ty, TypeRef::Bytes) {
+                method_type_params.push("long.class".to_string());
+            }
         }
         if !matches!(method.return_type, TypeRef::Unit) {
             method_type_params.push("MemorySegment.class".to_string());
@@ -391,6 +395,10 @@ fn gen_bridge_file(
                 _ => "ValueLayout.ADDRESS".to_string(),
             };
             func_desc_params.push(ffi_layout);
+            // Bytes params carry a companion ValueLayout.JAVA_LONG length (mirrors vtable.rs).
+            if matches!(param.ty, TypeRef::Bytes) {
+                func_desc_params.push("ValueLayout.JAVA_LONG".to_string());
+            }
         }
         if !matches!(method.return_type, TypeRef::Unit) {
             func_desc_params.push("ValueLayout.ADDRESS".to_string());
@@ -424,6 +432,11 @@ fn gen_bridge_file(
                         sig_params.push(format!("MemorySegment {local}_in"));
                     }
                 }
+                // Bytes params carry a companion long length so the handler can
+                // bound the MemorySegment read (fixes issue #114).
+                if matches!(param.ty, TypeRef::Bytes) {
+                    sig_params.push(format!("long {local}Len"));
+                }
             }
             if !matches!(method.return_type, TypeRef::Unit) {
                 sig_params.push("MemorySegment outResult".to_string());
@@ -442,11 +455,17 @@ fn gen_bridge_file(
                     // into a missing class.
                     if let TypeRef::Named(name) = &param.ty {
                         if !visible_type_names.contains(name.as_str()) {
-                            unmarshal_params.push(format_unmarshal_param(&local, &segment, &TypeRef::String));
+                            unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty, None));
                             continue;
                         }
                     }
-                    unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty));
+                    // Pass the len variable name for Bytes so the unmarshal can use it.
+                    let bytes_len = if matches!(param.ty, TypeRef::Bytes) {
+                        Some(format!("{local}Len"))
+                    } else {
+                        None
+                    };
+                    unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty, bytes_len.as_deref()));
                 }
             }
 
@@ -517,7 +536,11 @@ fn gen_bridge_file(
 }
 
 /// Format unmarshal code for a single parameter without writing to a string.
-fn format_unmarshal_param(local: &str, segment: &str, ty: &TypeRef) -> String {
+///
+/// `bytes_len` must be `Some(len_var)` when `ty` is `TypeRef::Bytes` — the len var
+/// bounds the `reinterpret()` call so the full binary payload is readable even when
+/// it contains embedded NUL bytes (fixes issue #114).
+fn format_unmarshal_param(local: &str, segment: &str, ty: &TypeRef, bytes_len: Option<&str>) -> String {
     match ty {
         TypeRef::Primitive(_) => {
             // Primitives are declared directly in the handler signature with their Java primitive
@@ -527,7 +550,8 @@ fn format_unmarshal_param(local: &str, segment: &str, ty: &TypeRef) -> String {
             String::new()
         }
         TypeRef::Bytes => {
-            format!("byte[] {local} = {segment}.reinterpret(Long.MAX_VALUE).toArray(ValueLayout.JAVA_BYTE);")
+            let len = bytes_len.unwrap_or("Long.MAX_VALUE");
+            format!("byte[] {local} = {segment}.reinterpret({len}).toArray(ValueLayout.JAVA_BYTE);")
         }
         TypeRef::String => {
             format!("String {local} = {segment}.reinterpret(Long.MAX_VALUE).getString(0);")
@@ -828,6 +852,54 @@ mod tests {
         assert!(body.contains("toArray(ValueLayout.JAVA_BYTE)"));
         assert!(body.contains("OcrConfig"));
         assert!(body.contains("Paths.get("));
+    }
+
+    /// Regression (#114): the Panama FFM handler signature for a Bytes parameter must include
+    /// a `long {name}Len` companion, and the unmarshal expression must use that length to
+    /// bound the MemorySegment read (`reinterpret(len)` not `reinterpret(Long.MAX_VALUE)`).
+    /// Without the companion parameter, embedded NUL bytes (0x00) in the payload cause the
+    /// callee to read past the end of the buffer.
+    #[test]
+    fn bridge_handler_bytes_param_includes_len_companion_and_bounded_reinterpret() {
+        let trait_def = make_trait(
+            "Processor",
+            vec![make_method(
+                "ingest",
+                TypeRef::Unit,
+                vec![crate::core::ir::ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Bytes,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                }],
+            )],
+        );
+        let visible = all_named_visible(&trait_def.methods);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
+        let body = files.bridge_content.as_str();
+
+        // The handler method signature must carry the length companion.
+        assert!(
+            body.contains("long payloadLen"),
+            "handler signature must include `long payloadLen` for Bytes param;\nactual:\n{body}"
+        );
+        // The unmarshal must use the bounded reinterpret(payloadLen), never Long.MAX_VALUE.
+        assert!(
+            body.contains("reinterpret(payloadLen)"),
+            "Bytes unmarshal must use `reinterpret(payloadLen)`;\nactual:\n{body}"
+        );
+        assert!(
+            !body.contains("Long.MAX_VALUE"),
+            "Bytes unmarshal must not use `Long.MAX_VALUE` (unbounded read);\nactual:\n{body}"
+        );
     }
 
     #[test]

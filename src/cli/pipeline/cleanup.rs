@@ -74,6 +74,34 @@ pub fn cleanup_orphaned_files(current_gen_paths: &HashSet<PathBuf>) -> anyhow::R
 /// dropped its `src/main/java/` Java DTO emit and left stale alef-marked Java
 /// files behind). The `has_alef_hash` gate is the safety net that prevents
 /// deletion of user-customised files and vendored artefacts.
+/// Consumer dependency cache directory names. The cleanup walker must NEVER
+/// descend into these because they contain alef-generated files that were
+/// installed from registries (PyPI venv, Hex deps, npm node_modules, Composer
+/// vendor, Bundler vendor, Rust target, etc.). Those files have legitimate
+/// `alef:hash:` headers from the published package but are not part of the
+/// current generator output — they belong to a downstream consumer's cache.
+const DEPENDENCY_CACHE_DIRS: &[&str] = &[
+    ".venv",
+    "venv",
+    "__pypackages__",
+    "node_modules",
+    "deps",       // Elixir/mix hex deps
+    "_build",     // Elixir/mix build
+    "vendor",     // Composer / Bundler
+    "target",     // Rust cargo build (also typically gitignored)
+    ".cargo",
+    "pkg",        // wasm-pack output
+    ".gradle",    // Gradle build cache
+    ".m2",        // Maven local repo
+    ".cache",
+];
+
+fn is_consumer_dependency_dir(dir: &Path) -> bool {
+    dir.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|name| DEPENDENCY_CACHE_DIRS.contains(&name))
+}
+
 fn cleanup_dir_recursive(
     dir: &Path,
     normalized_gen_paths: &HashSet<PathBuf>,
@@ -85,6 +113,13 @@ fn cleanup_dir_recursive(
         let path = entry.path();
 
         if path.is_dir() {
+            // Skip well-known consumer dependency cache dirs unconditionally.
+            // These directories hold alef-generated files installed from
+            // registries (.venv, deps, node_modules, vendor, …) — they belong
+            // to the consumer's install cache, not the current emission.
+            if is_consumer_dependency_dir(&path) {
+                continue;
+            }
             // Recurse if the subdirectory itself is touched, contains a touched
             // path, OR is a descendant of any touched dir. Combined with the
             // alef-header check below, this lets us sweep stale binding output

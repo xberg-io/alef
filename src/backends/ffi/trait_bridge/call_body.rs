@@ -298,6 +298,12 @@ impl FfiBridgeGenerator {
                 }
             };
             call_args.push(arg);
+            // Bytes params get a companion `.len()` argument so the callee can
+            // read the full buffer without NUL-truncation. Matches the vtable
+            // signature emitted by vtable.rs.
+            if matches!(&p.ty, TypeRef::Bytes) {
+                call_args.push(format!("{}.len()", p.name));
+            }
         }
 
         // Prepare out-params
@@ -695,6 +701,60 @@ mod tests {
 
         let body = generator.gen_vtable_call_body(&method, &spec, true);
         assert!(body.contains("_rc != 0"), "bool return must compare rc to 0");
+    }
+
+    /// Regression (#114): call body for a Bytes parameter must pass both `.as_ptr()` and
+    /// `.len()` to the vtable call.  The vtable field now has a companion `{name}_len: usize`
+    /// immediately after `{name}: *const u8`, and the call body must supply both arguments.
+    /// A payload containing a 0x00 byte would be silently truncated if only the pointer were
+    /// passed and the callee fell back to a strlen scan.
+    #[test]
+    fn call_body_bytes_param_passes_ptr_and_len() {
+        let generator = make_generator();
+        let bridge_cfg = make_bridge_cfg();
+        let method = MethodDef {
+            name: "ingest".to_string(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
+        let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
+
+        let body = generator.gen_vtable_call_body(&method, &spec, true);
+        assert!(
+            body.contains("data.as_ptr()"),
+            "call body must pass `.as_ptr()` for Bytes param;\nactual:\n{body}"
+        );
+        assert!(
+            body.contains("data.len()"),
+            "call body must pass `.len()` companion for Bytes param;\nactual:\n{body}"
+        );
     }
 
     /// Regression: sync method bodies (inside_closure=false) must not emit bare &'static str
