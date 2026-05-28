@@ -2959,6 +2959,143 @@ fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) ->
     }
 }
 
+/// Map a TypeRef to its Java stub type with excluded-types context.
+///
+/// When a Named type is in `excluded_types`, it is substituted with `String`
+/// (matching the trait-bridge interface which serializes excluded types to JSON strings).
+/// Otherwise behaves like `java_stub_type_fqn`.
+fn java_stub_type_with_context(
+    ty: &crate::core::ir::TypeRef,
+    binding_pkg: &str,
+    excluded_types: &std::collections::HashSet<&str>,
+) -> String {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
+            "String".to_string()
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
+                "String".to_string()
+            }
+            other => java_stub_type_with_context(other, binding_pkg, excluded_types),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
+                "java.util.List<String>".to_string()
+            }
+            other => {
+                let inner_type = java_stub_type_with_context(other, binding_pkg, excluded_types);
+                format!("java.util.List<{inner_type}>")
+            }
+        },
+        TypeRef::Map(k, v) => {
+            let key_type = java_stub_type_with_context(k, binding_pkg, excluded_types);
+            let val_type = java_stub_type_with_context(v, binding_pkg, excluded_types);
+            format!("java.util.Map<{}, {}>", key_type, val_type)
+        }
+        _ => java_stub_type_fqn(ty, binding_pkg),
+    }
+}
+
+/// Boxed version of java_stub_type_with_context for use as a CompletableFuture generic parameter.
+fn java_boxed_stub_type_with_context(
+    ty: &crate::core::ir::TypeRef,
+    binding_pkg: &str,
+    excluded_types: &std::collections::HashSet<&str>,
+) -> String {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Unit => "Void".to_string(),
+        _ => {
+            let t = java_stub_type_with_context(ty, binding_pkg, excluded_types);
+            // Box primitives for use as generic type parameters.
+            match t.as_str() {
+                "boolean" => "Boolean".to_string(),
+                "byte" => "Byte".to_string(),
+                "short" => "Short".to_string(),
+                "int" => "Integer".to_string(),
+                "long" => "Long".to_string(),
+                "float" => "Float".to_string(),
+                "double" => "Double".to_string(),
+                "byte[]" => "byte[]".to_string(), // byte[] stays as-is (already boxed in Java)
+                _ => t,
+            }
+        }
+    }
+}
+
+/// Return the default value for a type, substituting excluded types with `""`.
+fn java_stub_default_with_context(
+    ty: &crate::core::ir::TypeRef,
+    excluded_types: &std::collections::HashSet<&str>,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) -> String {
+    use crate::core::ir::TypeRef;
+
+    match ty {
+        TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
+            "\"\"".to_string()
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !excluded_types.is_empty() && excluded_types.contains(n.as_str())) => {
+            "\"\"".to_string()
+        }
+        _ => defaults.emit_default(ty),
+    }
+}
+
+/// Emit a single Java stub method with excluded-types context.
+///
+/// Like `emit_java_stub_method` but with excluded_types substitution.
+/// Excluded types are rendered as `String` in signatures and default to `""`.
+fn emit_java_stub_method_with_context(
+    out: &mut String,
+    method_java: &str,
+    method: &crate::core::ir::MethodDef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    binding_pkg: &str,
+    excluded_types: &std::collections::HashSet<&str>,
+) {
+    use std::fmt::Write as _;
+
+    let ret_java = java_stub_type_with_context(&method.return_type, binding_pkg, excluded_types);
+    let default_val = java_stub_default_with_context(&method.return_type, excluded_types, defaults);
+
+    // Use java_stub_type_with_context for all parameter types to handle excluded types
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "{} {}",
+                java_stub_type_with_context(&p.ty, binding_pkg, excluded_types),
+                p.name.to_lower_camel_case()
+            )
+        })
+        .collect();
+    let params_str = params.join(", ");
+
+    let _ = writeln!(out, "    @Override");
+    if method.is_async {
+        let ret_boxed = java_boxed_stub_type_with_context(&method.return_type, binding_pkg, excluded_types);
+        let _ = writeln!(
+            out,
+            "    public java.util.concurrent.CompletableFuture<{ret_boxed}> {method_java}({params_str}) {{"
+        );
+        let _ = writeln!(
+            out,
+            "        return java.util.concurrent.CompletableFuture.completedFuture({default_val});"
+        );
+        let _ = writeln!(out, "    }}");
+    } else if ret_java == "void" {
+        let _ = writeln!(out, "    public void {method_java}({params_str}) {{}}");
+    } else {
+        let _ = writeln!(out, "    public {ret_java} {method_java}({params_str}) {{");
+        let _ = writeln!(out, "        return {default_val};");
+        let _ = writeln!(out, "    }}");
+    }
+}
+
 /// Emit a Java test backend stub class for a trait bridge.
 ///
 /// Generates a class implementing `I{TraitName}` (the Panama FFM interface). Required
@@ -2974,6 +3111,26 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
     binding_pkg: &str,
+) -> super::TestBackendEmission {
+    emit_test_backend_with_context(
+        trait_bridge,
+        methods,
+        fixture,
+        binding_pkg,
+        &Default::default(),
+    )
+}
+
+/// Like `emit_test_backend` but with excluded_types context.
+///
+/// Excluded types are substituted with `String` in method signatures and default to `""`.
+/// This matches how the trait-bridge interface serializes binding-excluded types to JSON strings.
+pub fn emit_test_backend_with_context(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+    binding_pkg: &str,
+    excluded_types: &std::collections::HashSet<&str>,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use std::fmt::Write as _;
@@ -3015,7 +3172,7 @@ pub fn emit_test_backend(
                     "    public String {method_java}() {{ return \"{plugin_name}\"; }}"
                 );
             } else {
-                emit_java_stub_method(&mut setup, &method_java, method, &*defaults, binding_pkg);
+                emit_java_stub_method_with_context(&mut setup, &method_java, method, &*defaults, binding_pkg, excluded_types);
             }
         }
     }
@@ -3033,7 +3190,7 @@ pub fn emit_test_backend(
             continue;
         }
         let method_java = method.name.to_lower_camel_case();
-        emit_java_stub_method(&mut setup, &method_java, method, &*defaults, binding_pkg);
+        emit_java_stub_method_with_context(&mut setup, &method_java, method, &*defaults, binding_pkg, excluded_types);
     }
 
     let _ = writeln!(setup, "}}");

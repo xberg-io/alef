@@ -18,13 +18,30 @@ let args_json = {
 
 let method = "{{ method_name }}";
 
-tokio::task::spawn_blocking(move || {
-    let mut env = rustler::OwnedEnv::new();
-    let _ = env.send_and_clear(&pid, |env| {
-        (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),
-         method, args_json.as_str(), reply_id).encode(env)
+// Check if we're already in a tokio runtime context. If not, create one.
+let _rt_guard = if tokio::runtime::Handle::try_current().is_err() {
+    Some(tokio::runtime::Runtime::new().unwrap())
+} else {
+    None
+};
+
+if let Some(ref rt) = _rt_guard {
+    rt.spawn_blocking(move || {
+        let mut env = rustler::OwnedEnv::new();
+        let _ = env.send_and_clear(&pid, |env| {
+            (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),
+             method, args_json.as_str(), reply_id).encode(env)
+        });
     });
-});
+} else {
+    tokio::task::spawn_blocking(move || {
+        let mut env = rustler::OwnedEnv::new();
+        let _ = env.send_and_clear(&pid, |env| {
+            (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),
+             method, args_json.as_str(), reply_id).encode(env)
+        });
+    });
+}
 
 match rx.blocking_recv() {
 {%- if has_error %}

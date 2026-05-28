@@ -480,12 +480,18 @@ fn gen_single_trait_bridge(
             format!("{}, ", unmanaged_param_sig)
         };
 
+        // For Unit / primitive returns the callback has NO trailing out params,
+        // so `params_decl` IS the whole parameter list. The Jinja-emitted variants
+        // for complex returns concatenate a fixed prefix/suffix and require the
+        // trailing `, ` baked into `params_decl`; here we must strip it.
+        let params_decl_no_trailing = params_decl.trim_end().trim_end_matches(',').to_string();
+
         if method.return_type == TypeRef::Unit {
             // void return: no out params
             callbacks.push_str(&format!(
                 "    private int {}FnCallback({}) {{\n",
                 method.name.to_lower_camel_case(),
-                params_decl
+                params_decl_no_trailing
             ));
         } else if is_primitive_return {
             // Primitive return: return directly (no out params)
@@ -510,7 +516,7 @@ fn gen_single_trait_bridge(
                 "    private {} {}FnCallback({}) {{\n",
                 return_c_type,
                 method.name.to_lower_camel_case(),
-                params_decl
+                params_decl_no_trailing
             ));
         } else {
             // Complex return: use out params
