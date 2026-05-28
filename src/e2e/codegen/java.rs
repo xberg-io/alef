@@ -2839,58 +2839,6 @@ fn method_to_camel(snake: &str) -> String {
     snake.to_lower_camel_case()
 }
 
-/// Emit a single Java stub method into `out`.
-///
-/// Uses proper Java types from `JavaMapper` for params and return type.
-/// Async methods return `CompletableFuture<T>` completed with the default value.
-/// `binding_pkg` qualifies named types with the actual binding package (e.g. `dev.example`).
-fn emit_java_stub_method(
-    out: &mut String,
-    method_java: &str,
-    method: &crate::core::ir::MethodDef,
-    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
-    binding_pkg: &str,
-) {
-    use std::fmt::Write as _;
-
-    let ret_java = java_stub_type_fqn(&method.return_type, binding_pkg);
-    let default_val = defaults.emit_default(&method.return_type);
-
-    // Use java_stub_type_fqn for all parameter types to ensure proper FQN qualification
-    let params: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| {
-            format!(
-                "{} {}",
-                java_stub_type_fqn(&p.ty, binding_pkg),
-                p.name.to_lower_camel_case()
-            )
-        })
-        .collect();
-    let params_str = params.join(", ");
-
-    let _ = writeln!(out, "    @Override");
-    if method.is_async {
-        let ret_boxed = java_boxed_stub_type_fqn(&method.return_type, binding_pkg);
-        let _ = writeln!(
-            out,
-            "    public java.util.concurrent.CompletableFuture<{ret_boxed}> {method_java}({params_str}) {{"
-        );
-        let _ = writeln!(
-            out,
-            "        return java.util.concurrent.CompletableFuture.completedFuture({default_val});"
-        );
-        let _ = writeln!(out, "    }}");
-    } else if ret_java == "void" {
-        let _ = writeln!(out, "    public void {method_java}({params_str}) {{}}");
-    } else {
-        let _ = writeln!(out, "    public {ret_java} {method_java}({params_str}) {{");
-        let _ = writeln!(out, "        return {default_val};");
-        let _ = writeln!(out, "    }}");
-    }
-}
-
 /// Map a TypeRef to its Java type with fully-qualified names for use in test stubs.
 /// This variant ensures all types are qualified (e.g., `java.util.List` not `List`).
 fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
@@ -2951,30 +2899,6 @@ fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> Strin
             format!("java.util.Map<{}, {}>", key_type, val_type)
         }
         _ => java_type_fqn(ty),
-    }
-}
-
-/// Boxed version of java_stub_type_fqn for use as a CompletableFuture generic parameter.
-/// Ensures all types are boxed (no primitives) and fully qualified.
-fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> String {
-    use crate::core::ir::TypeRef;
-    match ty {
-        TypeRef::Unit => "Void".to_string(),
-        _ => {
-            let t = java_stub_type_fqn(ty, binding_pkg);
-            // Box primitives for use as generic type parameters.
-            match t.as_str() {
-                "boolean" => "Boolean".to_string(),
-                "byte" => "Byte".to_string(),
-                "short" => "Short".to_string(),
-                "int" => "Integer".to_string(),
-                "long" => "Long".to_string(),
-                "float" => "Float".to_string(),
-                "double" => "Double".to_string(),
-                "byte[]" => "byte[]".to_string(), // byte[] stays as-is (already boxed in Java)
-                _ => t,
-            }
-        }
     }
 }
 
