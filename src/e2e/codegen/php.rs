@@ -2622,8 +2622,11 @@ pub fn emit_test_backend_with_ns(
         .iter()
         .filter(|m| !(trait_bridge.super_trait.is_some() && m.name == "name"))
     {
-        // PHP convention uses camelCase method names (ext-php-rs auto-converts snake_case).
-        let php_name = method.name.to_lower_camel_case();
+        // Stubs must match the generated interface signature, which preserves
+        // snake_case Rust names verbatim (the interface does not opt into the
+        // ext-php-rs `#[php(name = ...)]` camelCase rename — see
+        // packages/php/src/DocumentExtractor.php for the canonical contract).
+        let php_name = method.name.clone();
         // Named types are not defined in the PHP binding scope.  The PHP bridge
         // deserialises the return value via json_decode, so return a JSON-safe
         // empty-object string instead of attempting a constructor call.
@@ -2760,10 +2763,10 @@ mod trait_bridge_tests {
             "setup_block must not hardcode domain method names, got:\n{}",
             emission.setup_block
         );
-        // Must emit the method name from MethodDef (PHP camelCase).
+        // Must emit the method name verbatim from MethodDef (PHP snake_case).
         assert!(
-            emission.setup_block.contains("doThing"),
-            "setup_block must contain the PHP camelCase method name 'doThing', got:\n{}",
+            emission.setup_block.contains("do_thing"),
+            "setup_block must contain the PHP snake_case method name 'do_thing', got:\n{}",
             emission.setup_block
         );
         // Must emit Plugin name method when super_trait is set.
@@ -2885,7 +2888,7 @@ mod trait_bridge_tests {
         let expected_setup = concat!(
             "$stub = new class implements DocumentExtractor {\n",
             "    public function name(): string { return 'test-extractor'; }\n",
-            "    public function extractBytes($content, $mime_type, $config): mixed { return '{}'; }\n",
+            "    public function extract_bytes($content, $mime_type, $config): mixed { return '{}'; }\n",
             "};\n",
         );
         assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
@@ -2938,8 +2941,8 @@ mod trait_bridge_tests {
             "setup_block must include priority() from super-trait (Plugin)"
         );
         assert!(
-            emission.setup_block.contains("public function extractBytes("),
-            "setup_block must include extractBytes() from direct trait (DocumentExtractor)"
+            emission.setup_block.contains("public function extract_bytes("),
+            "setup_block must include extract_bytes() from direct trait (DocumentExtractor)"
         );
         assert!(
             emission.setup_block.contains("my-extractor"),
@@ -3005,8 +3008,8 @@ mod trait_bridge_tests {
             emission.setup_block
         );
         assert!(
-            emission.setup_block.contains("public function processImage("),
-            "processImage() must be present, got:\n{}",
+            emission.setup_block.contains("public function process_image("),
+            "process_image() must be present, got:\n{}",
             emission.setup_block
         );
     }
@@ -3059,13 +3062,13 @@ mod trait_bridge_tests {
         // PHP requires implementations of ALL abstract methods, including those with
         // default implementations in the Rust trait.
         assert!(
-            emission.setup_block.contains("public function extractBytes("),
-            "extractBytes() must be emitted, got:\n{}",
+            emission.setup_block.contains("public function extract_bytes("),
+            "extract_bytes() must be emitted, got:\n{}",
             emission.setup_block
         );
         assert!(
-            emission.setup_block.contains("public function asSyncExtractor()"),
-            "asSyncExtractor() with default impl must be emitted for PHP interface, got:\n{}",
+            emission.setup_block.contains("public function as_sync_extractor()"),
+            "as_sync_extractor() with default impl must be emitted for PHP interface, got:\n{}",
             emission.setup_block
         );
         assert!(
