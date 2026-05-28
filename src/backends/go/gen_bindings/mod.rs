@@ -15,7 +15,6 @@ use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
-use heck::ToPascalCase;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -534,34 +533,8 @@ fn gen_go_file(
     out.push_str(&gen_ptr_helper());
     out.push_str("\n\n");
 
-    // Generate trait bridge exports (//export trampolines called by C)
-    let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
-    if has_plugin_bridges {
-        let bridges: Vec<_> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|bridge_cfg| {
-                api.types
-                    .iter()
-                    .find(|t| t.name == bridge_cfg.trait_name)
-                    .map(|trait_def| {
-                        minijinja::Value::from_serialize(serde_json::json!({
-                            "pascal_name": trait_def.name,
-                            "methods": trait_def.methods.iter().map(|m| serde_json::json!({
-                                "name": m.name.to_pascal_case(),
-                            })).collect::<Vec<_>>(),
-                        }))
-                    })
-            })
-            .collect();
-        out.push_str(&crate::backends::go::template_env::render(
-            "plugin_bridge_exports.jinja",
-            minijinja::context! {
-                bridges => bridges,
-            },
-        ));
-        out.push('\n');
-    }
+    // Note: trait bridge exports (//export trampolines) are emitted by trait_bridges.go
+    // (generated when has_plugin_bridges is true). Do NOT emit them here to avoid duplication.
 
     // Generate error types: a single consolidated sentinel `var (...)` block
     // across all ErrorDefs (variant-name collisions are disambiguated by
