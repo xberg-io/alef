@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef php trait-bridge async: avoid "Cannot start a runtime from within a runtime" panic by preferring the current tokio handle when one exists.** Generated PHP trait-bridge async method bodies unconditionally called `WORKER_RUNTIME.block_on(...)`. When the host (e.g., kreuzberg's HTTP server or a PHP test harness with an active tokio context) had already entered a multi-threaded runtime, the inner `block_on` panicked with `Cannot start a runtime from within a runtime` — a non-unwinding panic that aborts the PHP test host (Abort trap 6 around PHP e2e test 63). The fix wraps the async body with `Handle::try_current()`: if a runtime is already active, use `tokio::task::block_in_place(|| handle.block_on(...))` to reuse the outer runtime; otherwise fall back to the previous `WORKER_RUNTIME.block_on(...)` path. This keeps single-threaded PHP-extension contexts working while making the bridge safe to call from within an outer tokio runtime. (`src/backends/php/templates/async_method_body.jinja`)
+
 ### Added
 
 - `sync-versions` now triggers e2e codegen so test_apps version pins stay in sync. Use `--no-regen` to opt out. After updating `[crates.e2e.registry.packages.*].version` fields in `alef.toml`, `alef sync-versions` automatically regenerates `test_apps/` scaffold files (pyproject.toml, mix.exs, build.zig.zon, Package.swift, etc.) so the version pins embedded in those generated files reflect the new workspace version atomically — no separate `task alef:generate` step required. This prevents the class of bug seen in the tslp rc.13 release, where 4 of 15 test_apps (python, elixir, zig, swift) still pinned the prior rc.12 version because sync-versions updated alef.toml but the generated files were never regenerated. (`src/cli/pipeline/version.rs`, `src/main.rs`)

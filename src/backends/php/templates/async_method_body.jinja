@@ -5,17 +5,35 @@ let {{ param_name }} = {{ param_name }}.to_string();
 {% endfor %}
 
 // SAFETY: PHP objects are single-threaded within a request.
-// The block_on executes within the async runtime.
-WORKER_RUNTIME.block_on(async {
-    match unsafe { (*inner_obj).try_call_method("{{ method_name }}", {{ args_expr }}) } {
+// Use block_in_place if already in a tokio context; otherwise use block_on.
+if let Ok(handle) = tokio::runtime::Handle::try_current() {
+    tokio::task::block_in_place(|| {
+        handle.block_on(async {
+            match unsafe { (*inner_obj).try_call_method("{{ method_name }}", {{ args_expr }}) } {
 {% if is_result_type %}
-        Ok(val) => {
-            let json_str = val.string().unwrap_or_default();
-            serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
-        }
+                Ok(val) => {
+                    let json_str = val.string().unwrap_or_default();
+                    serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
+                }
 {% else %}
-        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),
+                Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),
 {% endif %}
-        Err(e) => Err({{ call_error_expr }}),
-    }
-})
+                Err(e) => Err({{ call_error_expr }}),
+            }
+        })
+    })
+} else {
+    WORKER_RUNTIME.block_on(async {
+        match unsafe { (*inner_obj).try_call_method("{{ method_name }}", {{ args_expr }}) } {
+{% if is_result_type %}
+            Ok(val) => {
+                let json_str = val.string().unwrap_or_default();
+                serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
+            }
+{% else %}
+            Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),
+{% endif %}
+            Err(e) => Err({{ call_error_expr }}),
+        }
+    })
+}
