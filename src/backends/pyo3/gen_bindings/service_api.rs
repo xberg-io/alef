@@ -298,9 +298,15 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
     out.push_str("use pyo3::prelude::*;\n");
     out.push_str("use pyo3::types::{PyList, PyTuple, PyString};\n");
-    out.push_str("use std::sync::Arc;\n\n");
+    out.push_str("use std::sync::Arc;\n");
+    out.push_str("use serde_json;\n");
+    out.push_str("use std::future::Future;\n");
+    out.push_str("use std::pin::Pin;\n");
+    out.push_str("use axum::http::Request;\n");
+    out.push_str("use axum::body::Body;\n\n");
 
-    // Emit one handler bridge per unique handler contract referenced by any registration
+    // Emit one handler bridge per unique handler contract referenced by any registration.
+    // Skip non-object-safe traits (WebSocketHandler, SseEventProducer) which use RPITIT.
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -310,7 +316,15 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             .collect();
         names.sort_unstable();
         names.dedup();
-        names.iter().filter_map(|n| find_contract(api, n)).collect()
+        names
+            .iter()
+            .filter_map(|n| find_contract(api, n))
+            .filter(|c| {
+                // PyO3 pyo3 backend cannot generate bridges for non-object-safe traits.
+                // WebSocketHandler and SseEventProducer use RPITIT (impl Trait return type).
+                c.trait_name != "WebSocketHandler" && c.trait_name != "SseEventProducer"
+            })
+            .collect()
     };
 
     for contract in &referenced_contracts {
@@ -338,9 +352,32 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Py{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types
+    // Determine wire types — use plain serde_json::Value, not re-exported from core
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
+
+    // Special handling: if the wire type includes the core import prefix, strip it
+    let req_type = if req_type.contains("::") {
+        req_type.split("::").last().unwrap_or(req_type)
+    } else {
+        req_type
+    };
+    let resp_type = if resp_type.contains("::") {
+        resp_type.split("::").last().unwrap_or(resp_type)
+    } else {
+        resp_type
+    };
+
+    // FIXME(generic): this special-cases the `Handler` contract whose dispatch method has an
+    // extra, non-wire `Request<Body>` parameter the bridge ignores. The foreign `Request<Body>`
+    // type cannot be reconstructed from the (sanitized) IR, so it is hardcoded here. Before this
+    // lands in alef proper, drive the ignored leading dispatch params + their concrete paths from
+    // `contract.dispatch.params` / config rather than matching the trait name.
+    let (extra_param, wire_name) = if trait_name == "Handler" {
+        (", _request: axum::http::Request<axum::body::Body>", "request_data")
+    } else {
+        ("", "request")
+    };
 
     out.push_str(&format!(
         "/// Generated pyo3 bridge for the `{trait_name}` contract.\n\
@@ -378,60 +415,75 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl
+    // Trait impl — returns a boxed future directly without async_trait
+    // Use proper module paths for serde_json::Value since it's not re-exported from core_import
+    let req_path = if req_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::{req_type},\n    \
-             ) -> Result<{core_import}::{resp_type}, Box<dyn std::error::Error + Send + Sync>> {{\n        \
-                 let callable = Python::with_gil(|py| self.callable.clone_ref(py));\n        \
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> Pin<Box<dyn Future<Output = Result<{resp_path}, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {{\n        \
+                 // Acquire Python GIL in a thread-safe context before entering the async block.\n        \
+                 // Py<PyAny> holds a GIL-independent reference that can be used outside the GIL.\n        \
+                 let callable = pyo3::Python::attach(|py| self.callable.clone_ref(py));\n        \
                  let is_async = self.is_async;\n\n        \
-                 // Serialize the request to a Python-friendly dict via serde_json\n        \
-                 let req_json = serde_json::to_string(&request)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 let raw_result = if is_async {{\n            \
-                     // Async callable: hand off to pyo3_async_runtimes so it drives\n            \
-                     // the Python event loop without blocking the Tokio executor.\n            \
-                     let future = Python::with_gil(|py| -> PyResult<_> {{\n                \
-                         let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                \
-                         let coro = callable.call1(py, (req_obj,))?;\n                \
-                         pyo3_async_runtimes::tokio::into_future(coro.into_bound(py))\n            \
-                     }})\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n            \
-                     let py_result = future.await\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n            \
-                     Python::with_gil(|py| {{\n                \
-                         let json_mod = py.import(\"json\")?;\n                \
-                         let json_str: String = json_mod\n                    \
-                             .call_method1(\"dumps\", (py_result.bind(py),))?\n                    \
-                             .extract()?;\n                \
-                         Ok::<String, PyErr>(json_str)\n            \
-                     }})\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n        \
-                 }} else {{\n            \
-                     // Sync callable: run in a blocking thread so we never hold the GIL\n            \
-                     // on the async executor.\n            \
-                     tokio::task::spawn_blocking(move || {{\n                \
-                         Python::with_gil(|py| {{\n                    \
+                 Box::pin(async move {{\n            \
+                     // Serialize the request to a Python-friendly dict via serde_json\n            \
+                     let req_json = serde_json::to_string(&{wire_name})\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n            \
+                     let raw_result = if is_async {{\n                \
+                         // Async callable: hand off to pyo3_async_runtimes so it drives\n                \
+                         // the Python event loop without blocking the Tokio executor.\n                \
+                         let future = pyo3::Python::attach(|py| -> PyResult<_> {{\n                    \
                              let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                    \
-                             let result = callable.call1(py, (req_obj,))?;\n                    \
+                             let coro = callable.call1(py, (req_obj,))?;\n                    \
+                             pyo3_async_runtimes::tokio::into_future(coro.into_bound(py))\n                \
+                         }})\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n                \
+                         let py_result = future.await\n                    \
+                             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n                \
+                         pyo3::Python::attach(|py| {{\n                    \
                              let json_mod = py.import(\"json\")?;\n                    \
                              let json_str: String = json_mod\n                        \
-                                 .call_method1(\"dumps\", (result.bind(py),))?\n                        \
+                                 .call_method1(\"dumps\", (py_result.bind(py),))?\n                        \
                                  .extract()?;\n                    \
                              Ok::<String, PyErr>(json_str)\n                \
-                         }})\n            \
-                     }})\n            \
-                     .await\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n        \
-                 }};\n\n        \
-                 // Deserialize the JSON result back into the wire response DTO.\n        \
-                 let response: {core_import}::{resp_type} = serde_json::from_str(&raw_result)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n        \
-                 Ok(response)\n    \
+                         }})\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n            \
+                     }} else {{\n                \
+                         // Sync callable: run in a blocking thread so we never hold the GIL\n                \
+                         // on the async executor.\n                \
+                         tokio::task::spawn_blocking(move || {{\n                    \
+                             pyo3::Python::attach(|py| {{\n                        \
+                                 let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                        \
+                                 let result = callable.call1(py, (req_obj,))?;\n                        \
+                                 let json_mod = py.import(\"json\")?;\n                        \
+                                 let json_str: String = json_mod\n                            \
+                                     .call_method1(\"dumps\", (result.bind(py),))?\n                            \
+                                     .extract()?;\n                        \
+                                 Ok::<String, PyErr>(json_str)\n                    \
+                             }})\n                \
+                         }})\n                \
+                         .await\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n            \
+                     }};\n\n            \
+                     // Deserialize the JSON result back into the wire response DTO.\n            \
+                     let response: {resp_path} = serde_json::from_str(&raw_result)\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n            \
+                     Ok(response)\n        \
+                 }})\n    \
              }}\n\
          }}\n\n"
     ));
@@ -509,13 +561,40 @@ fn gen_run_pyfunction(
             ));
 
             if meta_count > 0 {
-                out.push_str("                let meta: &Bound<'_, PyTuple> = tuple.get_item(1)?.downcast()?;\n");
+                // Bind the metadata item to a local first — `tuple.get_item(1)?` is a temporary
+                // and `.downcast()` borrows from it, so chaining would drop it while borrowed.
+                out.push_str("                let meta_item = tuple.get_item(1)?;\n");
+                out.push_str("                let meta: &Bound<'_, PyTuple> = meta_item.downcast()?;\n");
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
-                    let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
-                    out.push_str(&format!(
-                        "                let {}: {} = meta.get_item({i})?.extract()?;\n",
-                        meta_param.name, rust_ty,
-                    ));
+                    // A metadata param whose type is a generated opaque binding type is a
+                    // `#[pyclass]` wrapping `inner: Arc<core>`. pyo3 can only extract the BINDING
+                    // pyclass, not the core type the owner method expects — so extract the binding
+                    // type and unwrap `.inner` to core. (`service` is a descendant of the crate
+                    // root where the pyclass is defined, so the private `inner` field is in scope.)
+                    let opaque_named = match &meta_param.ty {
+                        TypeRef::Named(n) => api
+                            .types
+                            .iter()
+                            .find(|t| &t.name == n && !t.is_trait && t.is_opaque)
+                            .map(|_| n.clone()),
+                        _ => None,
+                    };
+                    if let Some(name) = opaque_named {
+                        out.push_str(&format!(
+                            "                let {pname}_binding: crate::{name} = meta.get_item({i})?.extract()?;\n",
+                            pname = meta_param.name,
+                        ));
+                        out.push_str(&format!(
+                            "                let {pname}: {core_import}::{name} = (*{pname}_binding.inner).clone();\n",
+                            pname = meta_param.name,
+                        ));
+                    } else {
+                        let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
+                        out.push_str(&format!(
+                            "                let {}: {} = meta.get_item({i})?.extract()?;\n",
+                            meta_param.name, rust_ty,
+                        ));
+                    }
                 }
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
                 out.push_str(&format!(
