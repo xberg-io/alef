@@ -1734,9 +1734,22 @@ fn build_args_and_setup(
                             }
                         }
                     }
-                    // Call java::emit_test_backend directly (not the generic dispatch) so
-                    // we can pass the actual binding package for proper type qualification.
-                    let emission = emit_test_backend(trait_bridge, &methods, fixture, &config.java_package());
+                    // Collect binding-excluded type names from IR and hardcoded overrides.
+                    // These types are never emitted as Java classes; the trait-bridge interface
+                    // serializes them to JSON strings, so stubs must use String and default to "".
+                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
+                        .iter()
+                        .filter(|t| t.binding_excluded)
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    // Hardcoded overrides for types always excluded in trait bridges.
+                    excluded_named.insert("InternalDocument");
+                    excluded_named.insert("ExtractionResult");
+                    excluded_named.insert("OcrBackendType");
+                    excluded_named.insert("ProcessingStage");
+                    excluded_named.insert("SyncExtractor");
+                    // Call java::emit_test_backend_with_context so stubs handle excluded types correctly.
+                    let emission = emit_test_backend_with_context(trait_bridge, &methods, fixture, &config.java_package(), &excluded_named);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
