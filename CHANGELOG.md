@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `sync-versions` now triggers e2e codegen so test_apps version pins stay in sync. Use `--no-regen` to opt out. After updating `[crates.e2e.registry.packages.*].version` fields in `alef.toml`, `alef sync-versions` automatically regenerates `test_apps/` scaffold files (pyproject.toml, mix.exs, build.zig.zon, Package.swift, etc.) so the version pins embedded in those generated files reflect the new workspace version atomically — no separate `task alef:generate` step required. This prevents the class of bug seen in the tslp rc.13 release, where 4 of 15 test_apps (python, elixir, zig, swift) still pinned the prior rc.12 version because sync-versions updated alef.toml but the generated files were never regenerated. (`src/cli/pipeline/version.rs`, `src/main.rs`)
+
 ### Fixed
 
 - **alef kotlin_android e2e: always emit `useJUnitPlatform()` for JUnit 5 test discovery in both local and registry modes.** Registry-mode test_apps (used by standalone `test_apps/` directories in polyglot repos) require JUnit Platform configuration to enable test discovery, but the gradle configuration was only emitted in local mode. The previous codegen incorrectly assumed "In registry mode no host-JVM tests run," leaving `tasks.withType<Test>` block empty, preventing Gradle from discovering and running tests. This caused `testDebugUnitTest` to fail with "no tests discovered" even though test sources were present. The fix ensures the `tasks.withType<Test> { useJUnitPlatform() }` block is always emitted regardless of dependency mode; local mode additionally configures `java.library.path` and working directory for native library loading. Fixes rc.13 Kotlin Android test_app failures. (`src/e2e/codegen/kotlin_android.rs`)

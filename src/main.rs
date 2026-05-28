@@ -776,7 +776,9 @@ fn main() -> Result<()> {
                 pipeline::finalize_hashes(&current_gen_paths, &sources_hash, &alef_toml_bytes)?;
 
                 // Always re-sync versions across user-owned manifests.
-                if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None) {
+                // Pass no_regen=true: alef generate owns the test_apps/ stage
+                // itself and will regenerate them in its own pass below.
+                if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None, true) {
                     tracing::warn!("version sync failed: {e}");
                 }
 

@@ -1459,26 +1459,59 @@ pub(crate) fn sync_registry_package_versions(
 /// `sync_versions` pipeline so the update is atomic with the alef.toml mutation
 /// performed by `sync_registry_package_versions`.
 ///
+/// The config is reloaded from `config_path` (which was just updated by
+/// `sync_registry_package_versions`) so that the regenerated scaffold files
+/// pick up the new registry package version values, not the stale in-memory
+/// values from the config that was loaded before `sync_versions` ran.
+///
 /// Returns the number of files written (0 when everything was already current).
 fn regenerate_test_apps_after_sync(
     config: &ResolvedCrateConfig,
-    e2e_config: &crate::core::config::e2e::E2eConfig,
+    _e2e_config: &crate::core::config::e2e::E2eConfig,
     config_path: &std::path::Path,
 ) -> anyhow::Result<usize> {
     use crate::core::config::e2e::DependencyMode;
+    use crate::core::config::NewAlefConfig;
 
-    // Build a registry-mode clone of the e2e config so `generate_e2e` uses
-    // published-package coordinates rather than local path dependencies.
+    // Reload alef.toml from disk so the in-memory config reflects the
+    // registry package version that `sync_registry_package_versions` just wrote.
+    // The stale in-memory `config.e2e` would produce pyproject.toml / mix.exs /
+    // build.zig.zon with the old version pins — exactly the rc.13 bug this
+    // function is designed to prevent.
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("failed to read {} for test_apps regen", config_path.display()))?;
+    let new_alef_cfg: NewAlefConfig =
+        toml::from_str(&raw).with_context(|| format!("failed to parse {} for test_apps regen", config_path.display()))?;
+    let mut resolved_crates = new_alef_cfg
+        .resolve()
+        .with_context(|| format!("failed to resolve {} for test_apps regen", config_path.display()))?;
+
+    // Find the matching crate by name. Fall back to the first crate with an
+    // [e2e] block when the name doesn't match (e.g. single-crate repos).
+    let fresh_config = resolved_crates
+        .iter()
+        .position(|c| c.name == config.name && c.e2e.is_some())
+        .or_else(|| resolved_crates.iter().position(|c| c.e2e.is_some()))
+        .map(|idx| resolved_crates.swap_remove(idx))
+        .ok_or_else(|| anyhow::anyhow!("no crate with [e2e] block found in reloaded config"))?;
+
+    let e2e_config = fresh_config
+        .e2e
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("reloaded crate has no [e2e] block"))?;
+
+    // Build a registry-mode clone so `generate_e2e` uses published-package
+    // coordinates rather than local path dependencies.
     let mut registry_config = e2e_config.clone();
     registry_config.dep_mode = DependencyMode::Registry;
     let e2e_ref = &registry_config;
 
     // Extract IR (empty for repos with no sources configured — the scaffold
     // files like pyproject.toml do not require IR content).
-    let api = extract(config, config_path, false)?;
+    let api = extract(&fresh_config, config_path, false)?;
 
     // Generate test_apps/ scaffold files for all configured e2e languages.
-    let files = crate::e2e::generate_e2e(config, e2e_ref, None, &api.types, &api.enums)?;
+    let files = crate::e2e::generate_e2e(&fresh_config, e2e_ref, None, &api.types, &api.enums)?;
     if files.is_empty() {
         return Ok(0);
     }
@@ -1486,7 +1519,7 @@ fn regenerate_test_apps_after_sync(
     let base_dir = std::path::PathBuf::from(".");
     let count = super::generate::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
-    let sources_hash = super::super::cache::sources_hash(&config.sources)?;
+    let sources_hash = super::super::cache::sources_hash(&fresh_config.sources)?;
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
     let path_set: std::collections::HashSet<std::path::PathBuf> =
         files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -2808,7 +2841,7 @@ BUNDLED WITH
         // Switch into the tempdir for the duration of the call — sync_versions
         // resolves relative paths against CWD.
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
         // Always restore the CWD before unwrapping, so a panic doesn't leave
         // the test runner in a broken directory.
         let _ = std::env::set_current_dir(&original_cwd);
@@ -2886,7 +2919,7 @@ BUNDLED WITH
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -2972,7 +3005,7 @@ BUNDLED WITH
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -3191,7 +3224,7 @@ tokio = { version = "1.0", features = ["full"] }
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -3525,7 +3558,7 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -3986,6 +4019,110 @@ packages:
         assert!(
             sync_e2e_dart_pubspec_lock(content, "0.3.0-rc.28").is_none(),
             "no path-source means nothing to update"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // sync_versions auto test_apps regen
+    // -----------------------------------------------------------------------
+
+    /// Regression test for the rc.13 incident: after `sync-versions` updates
+    /// `[crates.e2e.registry.packages.python].version` in alef.toml, the
+    /// generated `test_apps/python/pyproject.toml` must contain the new version
+    /// string rather than the stale prior version.
+    ///
+    /// This test exercises `sync_versions` with `no_regen=false` (the default
+    /// for direct CLI invocations). The alef.toml has a minimal `[e2e]` block
+    /// with an empty fixtures directory so `generate_e2e` runs scaffold-only
+    /// (no IR extraction needed for pyproject.toml generation).
+    #[test]
+    fn sync_versions_regenerates_test_apps_pins() {
+        use crate::core::config::NewAlefConfig;
+
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        // Workspace Cargo.toml at the target version (1.2.3).
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.2.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Empty fixtures directory (generate_e2e accepts empty fixture sets —
+        // scaffold files like pyproject.toml are always emitted).
+        std::fs::create_dir_all(root.join("fixtures")).expect("mkdir fixtures");
+
+        // alef.toml: minimal [e2e] block with registry python package pinned at
+        // the stale version "0.0.0". sync_versions must update this AND regenerate
+        // test_apps/python/pyproject.toml with the bumped version.
+        //
+        // [crates.e2e.call] is required by the schema; module/function both
+        // default to empty string via #[serde(default)].
+        let alef_toml = format!(
+            concat!(
+                "[workspace]\n",
+                "languages = [\"python\"]\n\n",
+                "[[crates]]\n",
+                "name = \"mylib\"\n",
+                "sources = []\n",
+                "version_from = \"{cargo_toml}\"\n\n",
+                "[crates.e2e]\n",
+                "fixtures = \"fixtures\"\n",
+                "languages = [\"python\"]\n\n",
+                "[crates.e2e.call]\n",
+                "module = \"mylib\"\n",
+                "function = \"parse\"\n\n",
+                "[crates.e2e.registry.packages.python]\n",
+                "name = \"mylib\"\n",
+                "version = \"0.0.0\"\n",
+            ),
+            cargo_toml = root.join("Cargo.toml").display().to_string().replace('\\', "/"),
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        // no_regen=false: auto-regen must fire and update test_apps/.
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        // alef.toml registry version must be bumped.
+        let updated_toml = std::fs::read_to_string(&alef_toml_path).expect("read alef.toml");
+        assert!(
+            updated_toml.contains("version = \"1.2.3\""),
+            "alef.toml registry package version must be updated to 1.2.3:\n{updated_toml}"
+        );
+        assert!(
+            !updated_toml.contains("version = \"0.0.0\""),
+            "stale 0.0.0 must be gone from alef.toml:\n{updated_toml}"
+        );
+
+        // test_apps/python/pyproject.toml must reference the new version.
+        let pyproject_path = root.join("test_apps/python/pyproject.toml");
+        assert!(
+            pyproject_path.exists(),
+            "test_apps/python/pyproject.toml must be generated by auto-regen"
+        );
+        let pyproject = std::fs::read_to_string(&pyproject_path).expect("read pyproject.toml");
+        // The dependency line must reference the new registry version.
+        // The e2e project's own `version = "0.0.0"` header is intentional and
+        // unrelated to the registry pin — assert on the dependency entry specifically.
+        assert!(
+            pyproject.contains("mylib==1.2.3"),
+            "test_apps/python/pyproject.toml must pin the new registry version 1.2.3:\n{pyproject}"
+        );
+        assert!(
+            !pyproject.contains("mylib==0.0.0"),
+            "stale registry pin mylib==0.0.0 must be gone from test_apps/python/pyproject.toml:\n{pyproject}"
         );
     }
 }
