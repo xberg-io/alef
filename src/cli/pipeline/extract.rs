@@ -1023,7 +1023,7 @@ fn normalize_field_type_paths(api: &mut ApiSurface) {
         canonical.entry(e.name.clone()).or_insert_with(|| e.rust_path.clone());
     }
 
-    let mut fix = |fields: &mut Vec<crate::core::ir::FieldDef>| {
+    let fix = |fields: &mut Vec<crate::core::ir::FieldDef>| {
         for field in fields {
             if field.type_rust_path.is_none() {
                 continue;

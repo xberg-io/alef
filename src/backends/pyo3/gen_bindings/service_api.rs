@@ -368,16 +368,16 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         resp_type
     };
 
-    // FIXME(generic): this special-cases the `Handler` contract whose dispatch method has an
-    // extra, non-wire `Request<Body>` parameter the bridge ignores. The foreign `Request<Body>`
-    // type cannot be reconstructed from the (sanitized) IR, so it is hardcoded here. Before this
-    // lands in alef proper, drive the ignored leading dispatch params + their concrete paths from
-    // `contract.dispatch.params` / config rather than matching the trait name.
-    let (extra_param, wire_name) = if trait_name == "Handler" {
-        (", _request: axum::http::Request<axum::body::Body>", "request_data")
-    } else {
-        ("", "request")
-    };
+    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
+    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
+    // types cannot be reconstructed from the sanitized surface, so the library supplies them
+    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
     out.push_str(&format!(
         "/// Generated pyo3 bridge for the `{trait_name}` contract.\n\
@@ -428,61 +428,81 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
+    // The future's `Output` is the contract dispatch's real return type when the library
+    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
+    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
+    // fallible computation produces the wire `Result` and the adapter converts it into the
+    // dispatch return type — keeping the generator ignorant of the library's response model.
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
     out.push_str(&format!(
         "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
              fn {dispatch_name}(\n        \
                  &self{extra_param},\n        \
                  {wire_name}: {req_path},\n    \
-             ) -> Pin<Box<dyn Future<Output = Result<{resp_path}, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {{\n        \
+             ) -> Pin<Box<dyn Future<Output = {output_type}> + Send + '_>> {{\n        \
                  // Acquire Python GIL in a thread-safe context before entering the async block.\n        \
                  // Py<PyAny> holds a GIL-independent reference that can be used outside the GIL.\n        \
                  let callable = pyo3::Python::attach(|py| self.callable.clone_ref(py));\n        \
                  let is_async = self.is_async;\n\n        \
                  Box::pin(async move {{\n            \
-                     // Serialize the request to a Python-friendly dict via serde_json\n            \
-                     let req_json = serde_json::to_string(&{wire_name})\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n            \
-                     let raw_result = if is_async {{\n                \
-                         // Async callable: hand off to pyo3_async_runtimes so it drives\n                \
-                         // the Python event loop without blocking the Tokio executor.\n                \
-                         let future = pyo3::Python::attach(|py| -> PyResult<_> {{\n                    \
-                             let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                    \
-                             let coro = callable.call1(py, (req_obj,))?;\n                    \
-                             pyo3_async_runtimes::tokio::into_future(coro.into_bound(py))\n                \
-                         }})\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n                \
-                         let py_result = future.await\n                    \
-                             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n                \
-                         pyo3::Python::attach(|py| {{\n                    \
-                             let json_mod = py.import(\"json\")?;\n                    \
-                             let json_str: String = json_mod\n                        \
-                                 .call_method1(\"dumps\", (py_result.bind(py),))?\n                        \
-                                 .extract()?;\n                    \
-                             Ok::<String, PyErr>(json_str)\n                \
-                         }})\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n            \
-                     }} else {{\n                \
-                         // Sync callable: run in a blocking thread so we never hold the GIL\n                \
-                         // on the async executor.\n                \
-                         tokio::task::spawn_blocking(move || {{\n                    \
-                             pyo3::Python::attach(|py| {{\n                        \
+                     let outcome: {wire_output} = async move {{\n                \
+                         // Serialize the request to a Python-friendly dict via serde_json\n                \
+                         let req_json = serde_json::to_string(&{wire_name})\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                         let raw_result = if is_async {{\n                    \
+                             // Async callable: hand off to pyo3_async_runtimes so it drives\n                    \
+                             // the Python event loop without blocking the Tokio executor.\n                    \
+                             let future = pyo3::Python::attach(|py| -> PyResult<_> {{\n                        \
                                  let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                        \
-                                 let result = callable.call1(py, (req_obj,))?;\n                        \
+                                 let coro = callable.call1(py, (req_obj,))?;\n                        \
+                                 pyo3_async_runtimes::tokio::into_future(coro.into_bound(py))\n                    \
+                             }})\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n                    \
+                             let py_result = future.await\n                        \
+                                 .map_err(|e| Box::new(e) as {box_err})?;\n                    \
+                             pyo3::Python::attach(|py| {{\n                        \
                                  let json_mod = py.import(\"json\")?;\n                        \
                                  let json_str: String = json_mod\n                            \
-                                     .call_method1(\"dumps\", (result.bind(py),))?\n                            \
+                                     .call_method1(\"dumps\", (py_result.bind(py),))?\n                            \
                                      .extract()?;\n                        \
                                  Ok::<String, PyErr>(json_str)\n                    \
-                             }})\n                \
-                         }})\n                \
-                         .await\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?\n            \
-                     }};\n\n            \
-                     // Deserialize the JSON result back into the wire response DTO.\n            \
-                     let response: {resp_path} = serde_json::from_str(&raw_result)\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n            \
-                     Ok(response)\n        \
+                             }})\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?\n                \
+                         }} else {{\n                    \
+                             // Sync callable: run in a blocking thread so we never hold the GIL\n                    \
+                             // on the async executor.\n                    \
+                             tokio::task::spawn_blocking(move || {{\n                        \
+                                 pyo3::Python::attach(|py| {{\n                            \
+                                     let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                            \
+                                     let result = callable.call1(py, (req_obj,))?;\n                            \
+                                     let json_mod = py.import(\"json\")?;\n                            \
+                                     let json_str: String = json_mod\n                                \
+                                         .call_method1(\"dumps\", (result.bind(py),))?\n                                \
+                                         .extract()?;\n                            \
+                                     Ok::<String, PyErr>(json_str)\n                        \
+                                 }})\n                    \
+                             }})\n                    \
+                             .await\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?\n                \
+                         }};\n\n                \
+                         // Deserialize the JSON result back into the wire response DTO.\n                \
+                         let response: {resp_path} = serde_json::from_str(&raw_result)\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
+                         Ok(response)\n            \
+                     }}\n            \
+                     .await;\n\n            \
+                     {tail}\n        \
                  }})\n    \
              }}\n\
          }}\n\n"
@@ -912,6 +932,10 @@ mod tests {
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),
             wire_response_type: Some("ResponseData".to_owned()),
+            dispatch_extra_params: vec![],
+            wire_param_name: None,
+            dispatch_return_type: None,
+            response_adapter: None,
             doc: "Async trait for handling requests.".to_owned(),
         };
 
@@ -1022,8 +1046,8 @@ mod tests {
             "expected trait impl:\n{output}"
         );
         assert!(
-            output.contains("async fn handle("),
-            "expected async dispatch method:\n{output}"
+            output.contains("fn handle(") && output.contains("Pin<Box<dyn Future<Output"),
+            "expected dispatch method returning a boxed future:\n{output}"
         );
     }
 
