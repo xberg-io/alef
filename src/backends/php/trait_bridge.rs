@@ -37,7 +37,10 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec!["std::sync::Arc".to_string()]
+        vec![
+            "std::sync::Arc".to_string(),
+            "ext_php_rs::rc::PhpRc".to_string(),
+        ]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
