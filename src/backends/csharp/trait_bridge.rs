@@ -9,7 +9,7 @@
 use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
-use crate::core::ir::{TypeDef, TypeRef};
+use crate::core::ir::{PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -249,10 +249,38 @@ fn gen_single_trait_bridge(
                 }
             }
             let unmanaged_params = parts.join(", ");
+            let is_primitive_return = matches!(
+                &method.return_type,
+                TypeRef::Primitive(_) | TypeRef::Unit
+            );
+            let delegate_return_type = if is_primitive_return {
+                match &method.return_type {
+                    TypeRef::Primitive(p) => match p {
+                        PrimitiveType::I8 => "sbyte",
+                        PrimitiveType::I16 => "short",
+                        PrimitiveType::I32 => "int",
+                        PrimitiveType::I64 => "long",
+                        PrimitiveType::U8 => "byte",
+                        PrimitiveType::U16 => "ushort",
+                        PrimitiveType::U32 => "uint",
+                        PrimitiveType::U64 => "ulong",
+                        PrimitiveType::F32 => "float",
+                        PrimitiveType::F64 => "double",
+                        PrimitiveType::Bool => "int", // bool marshalled as int
+                        _ => "int",
+                    },
+                    TypeRef::Unit => "int",
+                    _ => "int",
+                }
+            } else {
+                "int"
+            };
             serde_json::json!({
                 "pascal_name": to_csharp_name(&method.name),
                 "params_empty": method.params.is_empty(),
                 "unmanaged_params": unmanaged_params,
+                "is_primitive_return": is_primitive_return,
+                "delegate_return_type": delegate_return_type,
             })
         })
         .collect();
@@ -431,6 +459,12 @@ fn gen_single_trait_bridge(
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
 
+        // Check if return type is a primitive (non-complex type)
+        let is_primitive_return = matches!(
+            &method.return_type,
+            TypeRef::Primitive(_) | TypeRef::Unit
+        );
+
         // Build parameter signature for unmanaged delegate (what we receive).
         // Bytes params carry a companion UIntPtr {name}Len so the callback can
         // copy the full buffer without NUL-truncation.
@@ -452,16 +486,44 @@ fn gen_single_trait_bridge(
             format!("{}, ", unmanaged_param_sig)
         };
 
-        if is_options_field {
-            callbacks.push_str(&render(
-                "callback_header_options.jinja",
-                minijinja::context! { method_pascal, params_decl },
-            ));
+        if method.return_type == TypeRef::Unit {
+            // void return: no out params
+            callbacks.push_str(&format!("    private int {}FnCallback({}) {{\n",
+                method.name.to_lower_camel_case(), params_decl));
+        } else if is_primitive_return {
+            // Primitive return: return directly (no out params)
+            let return_c_type = match &method.return_type {
+                TypeRef::Primitive(p) => match p {
+                    PrimitiveType::I8 => "sbyte",
+                    PrimitiveType::I16 => "short",
+                    PrimitiveType::I32 => "int",
+                    PrimitiveType::I64 => "long",
+                    PrimitiveType::U8 => "byte",
+                    PrimitiveType::U16 => "ushort",
+                    PrimitiveType::U32 => "uint",
+                    PrimitiveType::U64 => "ulong",
+                    PrimitiveType::F32 => "float",
+                    PrimitiveType::F64 => "double",
+                    PrimitiveType::Bool => "int", // bool marshalled as int for C ABI
+                    _ => "int", // fallback
+                },
+                _ => "int",
+            };
+            callbacks.push_str(&format!("    private {} {}FnCallback({}) {{\n",
+                return_c_type, method.name.to_lower_camel_case(), params_decl));
         } else {
-            callbacks.push_str(&render(
-                "callback_header_full.jinja",
-                minijinja::context! { method_pascal, params_decl },
-            ));
+            // Complex return: use out params
+            if is_options_field {
+                callbacks.push_str(&render(
+                    "callback_header_options.jinja",
+                    minijinja::context! { method_pascal, params_decl },
+                ));
+            } else {
+                callbacks.push_str(&render(
+                    "callback_header_full.jinja",
+                    minijinja::context! { method_pascal, params_decl },
+                ));
+            }
         }
         callbacks.push_str("        try {\n");
 
@@ -523,8 +585,13 @@ fn gen_single_trait_bridge(
                 "callback_void_call.jinja",
                 minijinja::context! { method_pascal, param_call },
             ));
-            callbacks.push_str("            outResult = IntPtr.Zero;\n");
+            callbacks.push_str("            return 0;\n");
+        } else if is_primitive_return {
+            // Primitive return: call method and return directly
+            callbacks.push_str(&format!("            var result = _impl.{}({});\n", method_pascal, param_call));
+            callbacks.push_str("            return (int)result;\n");
         } else {
+            // Complex return: use out params
             callbacks.push_str(&render(
                 "callback_result_call.jinja",
                 minijinja::context! { method_pascal, param_call, result_var => "methodResult" },
@@ -544,22 +611,31 @@ fn gen_single_trait_bridge(
                 "callback_result_serialize.jinja",
                 minijinja::context! { serialize_expr },
             ));
+            if !is_options_field {
+                callbacks.push_str("            outError = IntPtr.Zero;\n");
+            }
+            callbacks.push_str("            return 0;\n");
         }
 
-        if !is_options_field {
-            callbacks.push_str("            outError = IntPtr.Zero;\n");
-        }
-        callbacks.push_str("            return 0;\n");
         if is_options_field {
             callbacks.push_str("        } catch (Exception) {\n");
-        } else {
+        } else if !is_primitive_return {
             callbacks.push_str("        } catch (Exception ex) {\n");
+        } else {
+            callbacks.push_str("        } catch (Exception) {\n");
         }
-        callbacks.push_str("            outResult = IntPtr.Zero;\n");
-        if !is_options_field {
+
+        if !is_primitive_return {
+            callbacks.push_str("            outResult = IntPtr.Zero;\n");
+        }
+        if !is_options_field && !is_primitive_return {
             callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message);\n");
         }
-        callbacks.push_str("            return 1;\n");
+        if !is_primitive_return {
+            callbacks.push_str("            return 1;\n");
+        } else {
+            callbacks.push_str("            return 0;\n");
+        }
         callbacks.push_str("        }\n");
         callbacks.push_str("    }\n");
         callbacks.push('\n');

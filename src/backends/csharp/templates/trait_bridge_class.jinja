@@ -27,6 +27,15 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {% for method in methods %}
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+{% if method.is_primitive_return %}
+{# Primitive returns: return directly, no out params #}
+{% if method.params_empty %}
+    private delegate {{ method.delegate_return_type }} {{ method.pascal_name }}Fn(IntPtr userData);
+{% else %}
+    private delegate {{ method.delegate_return_type }} {{ method.pascal_name }}Fn(IntPtr userData, {{ method.unmanaged_params }});
+{% endif %}
+{% else %}
+{# Complex returns: use out params #}
 {% if method.params_empty %}
 {% if is_options_field %}
     private delegate int {{ method.pascal_name }}Fn(IntPtr userData, out IntPtr outResult);
@@ -38,6 +47,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
     private delegate int {{ method.pascal_name }}Fn(IntPtr userData, {{ method.unmanaged_params }}, out IntPtr outResult);
 {% else %}
     private delegate int {{ method.pascal_name }}Fn(IntPtr userData, {{ method.unmanaged_params }}, out IntPtr outResult, out IntPtr outError);
+{% endif %}
 {% endif %}
 {% endif %}
 {% endfor %}
