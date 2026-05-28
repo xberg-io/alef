@@ -18,9 +18,9 @@ impl {{ wrapper }} {
         // The ZendObject is passed to us as &mut, but we need to store a pointer
         // that may outlive this function call (when registered in global registry).
         // Incrementing the refcount ensures the object won't be garbage-collected
-        // while we hold a reference to it.
+        // while we hold a reference to it. We use ext_php_rs::sys::GC_ADDREF macro.
         unsafe {
-            php_obj.add_ref();
+            ext_php_rs::sys::GC_ADDREF(&mut (*php_obj).gc);
         }
 
         Self {
@@ -41,8 +41,7 @@ impl Drop for {{ wrapper }} {
         // SAFETY: Decrement the refcount we incremented in new().
         // This allows PHP to garbage-collect the object when the bridge is dropped.
         unsafe {
-            let obj_ref = &mut *self.inner;
-            obj_ref.del_ref();
+            ext_php_rs::sys::GC_DELREF(&mut (*self.inner).gc);
         }
     }
 }

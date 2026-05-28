@@ -277,7 +277,7 @@ pub(super) fn render_test_function(
     );
 
     // Append trait-bridge teardown after assertions. This restores shared
-    // global state (e.g. the kreuzberg plugin registries) between pytest
+    // global state (e.g. downstream plugin registries) between pytest
     // tests in the same process. See `emit_test_backend` for the rationale.
     if !teardown_block.is_empty() {
         if !result_assertions.ends_with('\n') {

@@ -3813,7 +3813,7 @@ pub fn emit_test_backend(
 /// IR but are never emitted as Go structs; the trait-bridge interface serialises them to JSON.
 ///
 /// `import_alias` — the import alias used for the binding package in the generated test file
-/// (e.g. `"kreuzberg"`).  When non-empty, `Named` types are qualified as `{alias}.{GoName}`
+/// (e.g. `"myproject"`).  When non-empty, `Named` types are qualified as `{alias}.{GoName}`
 /// so the stub compiles from `package e2e_test` which imports the binding under that alias.
 ///
 /// `enum_names` — set of type names that are enums in the IR (used to determine zero-values
@@ -4339,9 +4339,9 @@ mod trait_bridge_tests {
     #[test]
     fn test_go_stub_excluded_types_and_import_alias() {
         // Method: extract_bytes(content []byte, mimeType string, config ExtractionConfig) (InternalDocument, error)
-        // With excluded_types={"InternalDocument"} and import_alias="kreuzberg":
+        // With excluded_types={"InternalDocument"} and import_alias="myproject":
         //   - InternalDocument → json.RawMessage
-        //   - ExtractionConfig → kreuzberg.ExtractionConfig
+        //   - ExtractionConfig → myproject.ExtractionConfig
         let extract_method = make_method(
             "extract_bytes",
             vec![
@@ -4368,7 +4368,7 @@ mod trait_bridge_tests {
 
         let enum_names = std::collections::HashSet::new();
         let emission =
-            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg", &enum_names);
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "myproject", &enum_names);
 
         // InternalDocument return type must become json.RawMessage.
         assert!(
@@ -4379,8 +4379,8 @@ mod trait_bridge_tests {
 
         // Named type ExtractionConfig must be qualified with import alias.
         assert!(
-            emission.setup_block.contains("kreuzberg.ExtractionConfig"),
-            "named type ExtractionConfig must be qualified as kreuzberg.ExtractionConfig, got:\n{}",
+            emission.setup_block.contains("myproject.ExtractionConfig"),
+            "named type ExtractionConfig must be qualified as myproject.ExtractionConfig, got:\n{}",
             emission.setup_block
         );
 

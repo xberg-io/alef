@@ -4,8 +4,29 @@
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::java::JavaCodegen;
-use alef::e2e::fixture::{Fixture, FixtureGroup, MockResponse};
-use std::collections::BTreeMap;
+use alef::e2e::fixture::{Fixture, FixtureGroup};
+
+const TOML: &str = r#"
+[workspace]
+languages = ["java"]
+
+[[crates]]
+name = "sample_crate"
+sources = ["src/lib.rs"]
+
+[crates.java]
+package = "dev.sample_crate"
+ffi_style = "panama"
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+java_group_id = "dev.sample_crate"
+
+[crates.e2e.call]
+function = "noop"
+result_var = "result"
+"#;
 
 fn make_fixture(id: &str) -> Fixture {
     Fixture {
@@ -17,32 +38,29 @@ fn make_fixture(id: &str) -> Fixture {
         env: None,
         call: None,
         input: serde_json::json!({"request": {}}),
-        mock_response: Some(MockResponse {
-            status_code: 200,
-            headers: BTreeMap::new(),
-            body: "{}".to_string(),
-        }),
-        http: None,
-        assertions: Vec::new(),
+        mock_response: None,
         visitor: None,
+        args: Vec::new(),
+        assertions: Vec::new(),
+        source: "smoke.json".to_string(),
+        http: None,
     }
 }
 
 #[test]
 fn test_java_mvnw_wrapper_files_emitted() {
-    let config = NewAlefConfig::fixture_config();
-    let e2e_config = config.e2e.clone().unwrap();
+    let cfg: NewAlefConfig = toml::from_str(TOML).expect("config parses");
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![FixtureGroup {
         category: "smoke".to_string(),
         fixtures: vec![make_fixture("test_basic")],
     }];
 
-    let java_gen = JavaCodegen;
-    let generated = java_gen
-        .generate(&groups, &e2e_config, &config, &[], &[])
+    let generated = JavaCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generate failed");
 
-    // Check that wrapper files are present
     let paths: Vec<&str> = generated.iter().map(|f| f.path.to_str().unwrap()).collect();
 
     assert!(
@@ -60,7 +78,6 @@ fn test_java_mvnw_wrapper_files_emitted() {
         "maven-wrapper.properties not found in generated files"
     );
 
-    // Verify content contains expected text
     for file in &generated {
         let path_str = file.path.to_str().unwrap();
         if path_str.ends_with("mvnw") {
