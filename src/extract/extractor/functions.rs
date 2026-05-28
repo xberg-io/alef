@@ -155,6 +155,19 @@ pub(crate) fn extract_impl_block(
         _ => return,
     };
 
+    // Opaque types expose no public fields, so no field-based constructor is generated for them —
+    // a hand-written `new` returning `Self` is their only constructor and must be preserved. For
+    // field-based (data-class) types the derived field constructor supersedes such a `new`, so it
+    // is dropped (below). Unknown types are treated as opaque to keep the constructor.
+    //
+    // A constructor on a *generic* impl block (e.g. `impl<T> ValueDependency<T>`) cannot be lowered
+    // to a concrete binding — there is no single `T` — so such constructors are never preserved.
+    let type_is_opaque = item.generics.params.is_empty()
+        && type_index
+            .get(&type_name)
+            .map(|&idx| surface.types[idx].is_opaque)
+            .unwrap_or(true);
+
     let methods: Vec<MethodDef> = item
         .items
         .iter()
@@ -173,8 +186,10 @@ pub(crate) fn extract_impl_block(
                     if method_name.starts_with('_') {
                         return None;
                     }
-                    // Skip methods named "new" that return Self — constructor already generated from fields
-                    if method_name == "new" {
+                    // Skip methods named "new" that return Self for field-based types — the
+                    // constructor is already generated from fields. Opaque types have no field
+                    // constructor, so their `new` must be preserved as the constructor.
+                    if method_name == "new" && !type_is_opaque {
                         if let syn::ReturnType::Type(_, ty) = &method.sig.output {
                             if matches!(&**ty, syn::Type::Path(p) if p.path.is_ident("Self")) {
                                 return None;

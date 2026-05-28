@@ -674,10 +674,13 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
 
     if ep.is_async {
         // Drive the async entrypoint on the Tokio runtime that pyo3_async_runtimes
-        // already configured.
+        // already configured. The GIL is released for the duration of the (potentially
+        // long-running, blocking) entrypoint so host callbacks invoked from within it can
+        // re-acquire the GIL — holding it here would deadlock any callback that needs it.
         format!(
-            "    pyo3_async_runtimes::tokio::get_runtime()\n        \
-             .block_on(owner.{ep_method}({args_str}))\n        \
+            "    _py.detach(|| {{\n        \
+             pyo3_async_runtimes::tokio::get_runtime().block_on(owner.{ep_method}({args_str}))\n    \
+             }})\n        \
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )
     } else {

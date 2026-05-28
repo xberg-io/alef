@@ -151,6 +151,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef elixir: emit mix.exs rustler_crates in multi-line pre-formatted shape.** The Elixir scaffold was emitting `rustler_crates` as a single line, which exceeded mix format's default 98-character line limit when there were 4+ target triples. This caused mix format to reflow the line into multi-line form during CI, making the committed mix.exs drift from alef's emission, which triggered "Versions are out of sync" failures in downstream polyglot repos. The fix emits the `rustler_crates` block pre-formatted to match mix format's canonical multi-line shape, preventing format drift. (`src/scaffold/languages/elixir.rs`)
 
+- **Preserve `new`-returns-`Self` constructors for opaque types.** The extractor dropped every static `new` returning `Self`, assuming a field-based constructor would be generated instead — but opaque types (no public fields) have no field constructor, leaving them with no way to be constructed from a binding. `new` is now kept for opaque types (those with a non-generic impl block); field-based types still drop it in favor of the derived field constructor, and generic impls (e.g. `impl<T> Foo<T>`) never preserve it since their constructor cannot be lowered to a concrete binding. (`src/extract/extractor/functions.rs`)
+
+- **pyo3 service run entrypoint: release the GIL during the blocking serve loop.** The generated run entrypoint held the GIL across `block_on(owner.run())`, so any host callback invoked from within the entrypoint (e.g. a request handler) deadlocked trying to re-acquire it. The blocking entrypoint call is now wrapped in `Python::detach`, releasing the GIL for its duration. (`src/backends/pyo3/gen_bindings/service_api.rs`)
+
 ## [0.20.6] - 2026-05-28
 
 ### Fixed
