@@ -13,10 +13,72 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, ServiceDef, TypeRef};
-use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use crate::core::jni::{bridge_method_name, jni_package, service_bridge_class_name};
+use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
 // ──────────────────────────────────────────────────────────────── helpers ──
+
+/// Emit external fun declarations inside the service bridge object.
+fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef) {
+    // Constructor: uses bridge_method_name for naming consistency
+    let ctor_method = bridge_method_name(&service.name, "new");
+    out.push_str("    /**\n");
+    out.push_str("     * Allocate a new service instance via JNI.\n");
+    out.push_str("     */\n");
+    out.push_str(&format!("    external fun {ctor_method}(): Long\n\n"));
+
+    // Destructor
+    let dtor_method = bridge_method_name(&service.name, "free");
+    out.push_str("    /**\n");
+    out.push_str("     * Free the service instance via JNI.\n");
+    out.push_str("     */\n");
+    out.push_str(&format!("    external fun {dtor_method}(handle: Long)\n\n"));
+
+    // Registration externals
+    for reg in &service.registrations {
+        // Use bridge_method_name for consistency with jni backend
+        let register_method = bridge_method_name(&service.name, &format!("register_{}", reg.method));
+
+        out.push_str("    /**\n");
+        out.push_str(&format!("     * Register a handler for {} via JNI.\n", reg.method));
+        out.push_str("     */\n");
+        out.push_str(&format!("    external fun {register_method}(\n"));
+        out.push_str("        handle: Long,\n");
+        out.push_str("        handler: (String) -> String");
+
+        // Metadata parameter types
+        for meta_param in &reg.metadata_params {
+            let kotlin_ty = kotlin_type_for_metadata(&meta_param.ty);
+            out.push_str(&format!(",\n        {}: {}", meta_param.name, kotlin_ty));
+        }
+
+        out.push_str("\n    ): Int\n\n");
+    }
+
+    // Entrypoint externals
+    for ep in &service.entrypoints {
+        let ep_method = bridge_method_name(&service.name, &ep.method);
+        let return_type = match ep.kind {
+            EntrypointKind::Run => "Unit",
+            EntrypointKind::Finalize => "Long",
+        };
+
+        out.push_str("    /**\n");
+        out.push_str(&format!("     * {} the service via JNI.\n", ep.method));
+        out.push_str("     */\n");
+        out.push_str(&format!("    external fun {ep_method}(\n"));
+
+        out.push_str("        handle: Long");
+
+        for param in &ep.params {
+            let kotlin_ty = kotlin_type_for_metadata(&param.ty);
+            out.push_str(&format!(",\n        {}: {}", param.name, kotlin_ty));
+        }
+
+        out.push_str(&format!("\n    ): {}\n\n", return_type));
+    }
+}
 
 /// Map a Kotlin type for metadata parameters.
 fn kotlin_type_for_metadata(ty: &TypeRef) -> String {
@@ -46,12 +108,10 @@ fn kotlin_type_for_metadata(ty: &TypeRef) -> String {
 
 /// Generate an idiomatic Kotlin service wrapper class.
 ///
-/// The class:
-/// - Holds the opaque `long` owner handle
-/// - Implements `Closeable` with `close()` calling native destructor
-/// - Exposes registration methods accepting Kotlin lambdas
-/// - Exposes entrypoint methods (run/finalize)
-fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) -> String {
+/// Emits two components:
+/// 1. A top-level `object {ServiceName}ServiceBridge` with `external fun` declarations
+/// 2. A `public class {ServiceName}` wrapping the opaque handle and delegating to the bridge
+fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, lib_name: &str) -> String {
     let mut out = String::new();
 
     // File header and package
@@ -62,8 +122,28 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
     // Imports
     out.push_str("import java.io.Closeable\n\n");
 
-    // Class declaration
+    // Bridge object: holds external fun declarations
     let class_name = service.name.to_upper_camel_case();
+    let bridge_object_name = service_bridge_class_name(&service.name);
+    out.push_str("/**\n");
+    out.push_str(&format!(
+        " * JNI bridge object for {} service.\n",
+        service.name
+    ));
+    out.push_str(" *\n");
+    out.push_str(" * Contains native declarations matched to JNI symbols.\n");
+    out.push_str(" */\n");
+    out.push_str(&format!("private object {bridge_object_name} {{\n"));
+    out.push_str("    init {\n");
+    out.push_str(&format!("        System.loadLibrary(\"{lib_name}\")\n"));
+    out.push_str("    }\n\n");
+
+    // Emit external funs in the bridge object (placed inline here; detailed below)
+    emit_service_bridge_externals(&mut out, service);
+
+    out.push_str("}\n\n");
+
+    // Class declaration
     out.push_str("/**\n");
     out.push_str(&format!(" * Service wrapper for {}.\n", service.name));
     out.push_str(" *\n");
@@ -74,32 +154,26 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
     out.push_str("    private var handle: Long = 0L,\n");
     out.push_str(") : Closeable {\n\n");
 
-    // Static initializer block to load native library
-    out.push_str("    companion object {\n");
-    out.push_str("        init {\n");
-    out.push_str("            System.loadLibrary(\"spikard_jni\")\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
-
     // Constructor
-    let service_snake = service.name.to_snake_case();
+    let ctor_method = bridge_method_name(&service.name, "new");
     out.push_str("    /**\n");
     out.push_str(&format!("     * Allocate a new {} instance.\n", service.name));
     out.push_str("     */\n");
     out.push_str("    init {\n");
     out.push_str(&format!(
-        "        handle = nativeConstructor_{service_snake}()\n"
+        "        handle = {bridge_object_name}.{ctor_method}()\n"
     ));
     out.push_str("    }\n\n");
 
     // Closeable impl: destructor
+    let dtor_method = bridge_method_name(&service.name, "free");
     out.push_str("    /**\n");
     out.push_str("     * Free the native owner.\n");
     out.push_str("     */\n");
     out.push_str("    override fun close() {\n");
     out.push_str("        if (handle != 0L) {\n");
     out.push_str(&format!(
-        "            nativeFree_{service_snake}(handle)\n"
+        "            {bridge_object_name}.{dtor_method}(handle)\n"
     ));
     out.push_str("            handle = 0L\n");
     out.push_str("        }\n");
@@ -108,8 +182,8 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
     // Registration methods
     for reg in &service.registrations {
         let reg_method = &reg.method;
-        let service_pascal = service.name.to_upper_camel_case();
-        let method_pascal = reg_method.to_upper_camel_case();
+        // Use bridge_method_name for consistency with the bridge object externals
+        let native_register_name = bridge_method_name(&service.name, &format!("register_{}", reg_method));
 
         out.push_str("    /**\n");
         out.push_str(&format!("     * Register a handler for {}.\n", reg_method));
@@ -135,10 +209,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
         }
 
         out.push_str("\n    ): Int {\n");
-        out.push_str("        return nativeRegister");
-        out.push_str(&service_pascal);
-        out.push_str(&method_pascal);
-        out.push_str("(\n");
+        out.push_str(&format!("        return {bridge_object_name}.{native_register_name}(\n"));
         out.push_str("            handle,\n");
         out.push_str("            handler,\n");
 
@@ -160,7 +231,6 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
     // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_method = &ep.method;
-        let service_pascal = service.name.to_upper_camel_case();
 
         out.push_str("    /**\n");
         out.push_str(&format!("     * {}.\n", ep_method));
@@ -200,12 +270,12 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
             .join(", ");
         out.push_str(&format!("    fun {}({}): {} {{\n", ep_method, params_str, return_type));
 
-        // Call native entrypoint
+        // Call native entrypoint via bridge object
+        let ep_method_name = bridge_method_name(&service.name, &ep.method);
         match ep.kind {
             EntrypointKind::Run => {
                 out.push_str(&format!(
-                    "        nativeRun{}(\n",
-                    service_pascal
+                    "        {bridge_object_name}.{ep_method_name}(\n"
                 ));
                 out.push_str("            handle");
 
@@ -218,8 +288,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
             }
             EntrypointKind::Finalize => {
                 out.push_str(&format!(
-                    "        return nativeFinalize{}(\n",
-                    service_pascal
+                    "        return {bridge_object_name}.{ep_method_name}(\n"
                 ));
                 out.push_str("            handle");
 
@@ -234,107 +303,6 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str) ->
 
         out.push_str("    }\n\n");
     }
-
-    // External native declarations
-    out.push_str("    private companion object {\n");
-
-    // Constructor
-    out.push_str("        /**\n");
-    out.push_str("         * Allocate a new service instance via JNI.\n");
-    out.push_str(&format!(
-        "         * Maps to: Java_com_example_constructor_{service_snake}()\n"
-    ));
-    out.push_str("         */\n");
-    out.push_str(&format!(
-        "        external fun nativeConstructor_{service_snake}(): Long\n"
-    ));
-
-    // Destructor
-    out.push_str("        /**\n");
-    out.push_str("         * Free the service instance via JNI.\n");
-    out.push_str(&format!(
-        "         * Maps to: Java_com_example_free_{service_snake}(env, class, handle)\n"
-    ));
-    out.push_str("         */\n");
-    out.push_str(&format!(
-        "        external fun nativeFree_{service_snake}(handle: Long)\n"
-    ));
-
-    // Registration externals
-    for reg in &service.registrations {
-        let service_pascal = service.name.to_upper_camel_case();
-        let method_pascal = reg.method.to_upper_camel_case();
-
-        out.push_str("        /**\n");
-        out.push_str(&format!("         * Register a handler for {} via JNI.\n", reg.method));
-        out.push_str(&format!(
-            "         * Maps to: Java_com_example_register{}{}\n",
-            service_pascal, method_pascal
-        ));
-        out.push_str("         */\n");
-        out.push_str(&format!(
-            "        external fun nativeRegister{}{}(\n",
-            service_pascal, method_pascal
-        ));
-        out.push_str("            handle: Long,\n");
-        out.push_str("            handler: (String) -> String");
-
-        // Metadata parameter types
-        for meta_param in &reg.metadata_params {
-            let kotlin_ty = kotlin_type_for_metadata(&meta_param.ty);
-            out.push_str(&format!(",\n            {}: {}", meta_param.name, kotlin_ty));
-        }
-
-        out.push_str("\n        ): Int\n");
-    }
-
-    // Entrypoint externals
-    for ep in &service.entrypoints {
-        let service_pascal = service.name.to_upper_camel_case();
-        let return_type = match ep.kind {
-            EntrypointKind::Run => "Unit",
-            EntrypointKind::Finalize => "Long",
-        };
-
-        out.push_str("        /**\n");
-        out.push_str(&format!("         * {} the service via JNI.\n", ep.method));
-
-        match ep.kind {
-            EntrypointKind::Run => {
-                out.push_str(&format!(
-                    "         * Maps to: Java_com_example_run{}\n",
-                    service_pascal
-                ));
-                out.push_str("         */\n");
-                out.push_str(&format!(
-                    "        external fun nativeRun{}(\n",
-                    service_pascal
-                ));
-            }
-            EntrypointKind::Finalize => {
-                out.push_str(&format!(
-                    "         * Maps to: Java_com_example_finalize{}\n",
-                    service_pascal
-                ));
-                out.push_str("         */\n");
-                out.push_str(&format!(
-                    "        external fun nativeFinalize{}(\n",
-                    service_pascal
-                ));
-            }
-        }
-
-        out.push_str("            handle: Long");
-
-        for param in &ep.params {
-            let kotlin_ty = kotlin_type_for_metadata(&param.ty);
-            out.push_str(&format!(",\n            {}: {}", param.name, kotlin_ty));
-        }
-
-        out.push_str(&format!("\n        ): {}\n", return_type));
-    }
-
-    out.push_str("    }\n");
 
     out.push_str("}\n");
 
@@ -352,7 +320,10 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         return Ok(vec![]);
     }
 
-    let package = config.kotlin_package();
+    // Use the same package resolver as the jni backend so the Kotlin `external fun`
+    // declarations and the jni `Java_*` symbols agree.
+    let package = jni_package(config);
+    let lib_name = config.jni_lib_name();
     let output_dir = config
         .output_paths
         .get("kotlin")
@@ -364,7 +335,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let mut files = Vec::new();
 
     for service in &api.services {
-        let kotlin = gen_service_kotlin(api, service, &package);
+        let kotlin = gen_service_kotlin(api, service, &package, &lib_name);
         let class_name = service.name.to_upper_camel_case();
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.kt", class_name)),
@@ -497,7 +468,7 @@ mod tests {
     fn gen_service_kotlin_contains_class() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         assert!(kotlin.contains("package com.example"));
         assert!(kotlin.contains("class TestService("));
@@ -508,9 +479,9 @@ mod tests {
     fn gen_service_kotlin_declares_external_constructor() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
-        assert!(kotlin.contains("external fun nativeConstructor_test_service()"));
+        assert!(kotlin.contains("external fun nativeTestServiceNew()"));
         assert!(kotlin.contains(": Long"));
     }
 
@@ -518,27 +489,27 @@ mod tests {
     fn gen_service_kotlin_declares_external_destructor() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
-        assert!(kotlin.contains("external fun nativeFree_test_service(handle: Long)"));
+        assert!(kotlin.contains("external fun nativeTestServiceFree(handle: Long)"));
     }
 
     #[test]
     fn gen_service_kotlin_implements_closeable() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         assert!(kotlin.contains(": Closeable"));
         assert!(kotlin.contains("override fun close()"));
-        assert!(kotlin.contains("nativeFree_test_service(handle)"));
+        assert!(kotlin.contains("nativeTestServiceFree(handle)"));
     }
 
     #[test]
     fn gen_service_kotlin_registration_method_accepts_lambda() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Registration method name matches
         assert!(kotlin.contains("fun add_handler("));
@@ -554,10 +525,10 @@ mod tests {
     fn gen_service_kotlin_registration_calls_native() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Registration calls the native register function with exact name
-        assert!(kotlin.contains("nativeRegisterTestServiceAddHandler("));
+        assert!(kotlin.contains("nativeTestServiceRegisterAddHandler("));
 
         // Passes handle, handler lambda, and metadata
         assert!(kotlin.contains("handle,"));
@@ -569,10 +540,10 @@ mod tests {
     fn gen_service_kotlin_declares_external_register() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Native register declaration
-        assert!(kotlin.contains("external fun nativeRegisterTestServiceAddHandler("));
+        assert!(kotlin.contains("external fun nativeTestServiceRegisterAddHandler("));
         assert!(kotlin.contains("handle: Long"));
         assert!(kotlin.contains("handler: (String) -> String"));
         assert!(kotlin.contains("path: String"));
@@ -583,7 +554,7 @@ mod tests {
     fn gen_service_kotlin_entrypoint_method() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Entrypoint method signature
         assert!(kotlin.contains("fun run("));
@@ -595,10 +566,10 @@ mod tests {
     fn gen_service_kotlin_entrypoint_calls_native() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Entrypoint calls native run
-        assert!(kotlin.contains("nativeRunTestService("));
+        assert!(kotlin.contains("nativeTestServiceRun("));
         assert!(kotlin.contains("handle,"));
         assert!(kotlin.contains("addr"));
     }
@@ -607,10 +578,10 @@ mod tests {
     fn gen_service_kotlin_declares_external_run() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Native run declaration
-        assert!(kotlin.contains("external fun nativeRunTestService("));
+        assert!(kotlin.contains("external fun nativeTestServiceRun("));
         assert!(kotlin.contains("handle: Long"));
         assert!(kotlin.contains("addr: String"));
         assert!(kotlin.contains("): Unit"));
@@ -620,17 +591,17 @@ mod tests {
     fn gen_service_kotlin_loads_native_library() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         assert!(kotlin.contains("System.loadLibrary"));
-        assert!(kotlin.contains("spikard_jni"));
+        assert!(kotlin.contains("demo_jni"));
     }
 
     #[test]
     fn gen_service_kotlin_has_no_stubs() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         assert!(!kotlin.contains("TODO"));
         assert!(!kotlin.contains("stub"));
@@ -682,17 +653,17 @@ mod tests {
         api.services[0].entrypoints.push(finalize_ep);
 
         let service = &api.services[0];
-        let kotlin = gen_service_kotlin(&api, service, "com.example");
+        let kotlin = gen_service_kotlin(&api, service, "com.example", "demo_jni");
 
         // Verify finalize method signature
         assert!(kotlin.contains("fun shutdown()"));
         assert!(kotlin.contains("): Long"));
 
         // Verify native finalize call
-        assert!(kotlin.contains("nativeFinalizeTestService("));
+        assert!(kotlin.contains("nativeTestServiceShutdown("));
 
         // Verify external finalize declaration
-        assert!(kotlin.contains("external fun nativeFinalizeTestService("));
+        assert!(kotlin.contains("external fun nativeTestServiceShutdown("));
         assert!(kotlin.contains("): Long"));
     }
 }

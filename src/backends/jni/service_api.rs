@@ -15,6 +15,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::jni::{bridge_method_name, jni_package, jni_symbol, service_bridge_class_name};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -69,6 +70,7 @@ fn typeref_to_jni_type(ty: &TypeRef, _core_import: &str) -> String {
 ///   service lifecycle (run/finalize)
 pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let core_import = config.core_import_name();
+    let package = jni_package(config);
     let mut out = String::new();
 
     // File-level attributes
@@ -80,9 +82,13 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     out.push_str("use std::sync::OnceLock;\n");
     out.push_str("use serde_json;\n\n");
 
-    // Emit service opaque types and constructor/destructor
+    // Emit service opaque types and constructor/destructor.
+    // The JVM class hosting the `external fun`s is the per-service bridge object
+    // `{ServicePascal}ServiceBridge` — it MUST match the Kotlin `object` name so the
+    // `Java_*` symbols and the Kotlin `external fun` declarations link.
     for service in &api.services {
-        gen_service_opaque(&mut out, service, &core_import);
+        let service_bridge_class = service_bridge_class_name(&service.name);
+        gen_service_opaque(&mut out, service, &core_import, &package, &service_bridge_class);
     }
 
     // Emit one handler bridge per unique handler contract referenced by any registration
@@ -104,11 +110,12 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     // Emit handler registration and lifecycle entry points per service
     for service in &api.services {
+        let service_bridge_class = service_bridge_class_name(&service.name);
         for reg in &service.registrations {
-            gen_register_jni_function(&mut out, service, reg, api, &core_import);
+            gen_register_jni_function(&mut out, service, reg, api, &core_import, &package, &service_bridge_class);
         }
         for ep in &service.entrypoints {
-            gen_entrypoint_jni_function(&mut out, service, ep, &core_import);
+            gen_entrypoint_jni_function(&mut out, service, ep, &core_import, &package, &service_bridge_class);
         }
     }
 
@@ -116,7 +123,13 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 }
 
 /// Emit the opaque service type and its constructor/destructor.
-fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str) {
+fn gen_service_opaque(
+    out: &mut String,
+    service: &ServiceDef,
+    _core_import: &str,
+    package: &str,
+    service_bridge_class: &str,
+) {
     let opaque_name = format!("{}Opaque", service.name);
     let service_snake = service.name.to_snake_case();
     let owner_path = &service.rust_path;
@@ -135,13 +148,16 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
     ));
 
     // Constructor: allocates and returns an opaque handle as jlong
+    // Use shared bridge_method_name for consistency
+    let ctor_method = bridge_method_name(&service.name, "new");
+    let ctor_symbol = jni_symbol(package, service_bridge_class, &ctor_method);
     out.push_str(&format!(
         "/// Allocate a new {} instance.\n\
          ///\n\
          /// Returns the address as a jlong pointer. This pointer must be freed via free_{}().\n\
          /// Never dereference this pointer after freeing it.\n\
          #[no_mangle]\n\
-         pub extern \"system\" fn Java_com_example_constructor_{service_snake}() -> jlong {{\n    \
+         pub extern \"system\" fn {ctor_symbol}() -> jlong {{\n    \
              let owner = {}::{}();\n    \
              let opaque = Box::new({}({{\n        \
                  inner: owner,\n    \
@@ -152,6 +168,8 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
     ));
 
     // Destructor: frees the opaque handle
+    let dtor_method = bridge_method_name(&service.name, "free");
+    let dtor_symbol = jni_symbol(package, service_bridge_class, &dtor_method);
     out.push_str(&format!(
         "/// Free a {0} instance allocated by constructor_{1}().\n\
          ///\n\
@@ -160,7 +178,7 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
          /// - After this call, handle is invalid and must not be dereferenced.\n\
          /// - Calling this twice on the same handle causes undefined behavior.\n\
          #[no_mangle]\n\
-         pub extern \"system\" fn Java_com_example_free_{1}(_env: EnvUnowned, _class: JClass, handle: jlong) {{\n    \
+         pub extern \"system\" fn {dtor_symbol}(_env: EnvUnowned, _class: JClass, handle: jlong) {{\n    \
              if handle != 0 {{\n        \
                  // SAFETY: handle was allocated by into_raw above; we are the sole owner\n        \
                  // and this is the final drop.\n        \
@@ -294,6 +312,8 @@ fn gen_register_jni_function(
     reg: &RegistrationDef,
     api: &ApiSurface,
     core_import: &str,
+    package: &str,
+    service_bridge_class: &str,
 ) {
     let service_pascal = service.name.to_upper_camel_case();
     let method_pascal = reg.method.to_upper_camel_case();
@@ -302,6 +322,8 @@ fn gen_register_jni_function(
     if let Some(contract) = find_contract(api, contract_name) {
         let bridge_name = format!("Jni{}Bridge", contract_name.to_upper_camel_case());
         let opaque_name = format!("{}Opaque", service.name);
+        let register_method = bridge_method_name(&service.name, &format!("register_{}", reg.method));
+        let symbol = jni_symbol(package, service_bridge_class, &register_method);
 
         out.push_str(&format!(
             "/// Register a Java handler for `{service_pascal}::{method_pascal}`.\n\
@@ -314,7 +336,7 @@ fn gen_register_jni_function(
              ///\n\
              /// Returns 0 on success, non-zero error code on failure.\n\
              #[no_mangle]\n\
-             pub extern \"system\" fn Java_com_example_register{service_pascal}{method_pascal}(\n        \
+             pub extern \"system\" fn {symbol}(\n        \
                  env: EnvUnowned,\n        \
                  _class: JClass,\n        \
                  owner_handle: jlong,\n        \
@@ -411,11 +433,14 @@ fn gen_entrypoint_jni_function(
     service: &ServiceDef,
     ep: &crate::core::ir::EntrypointDef,
     core_import: &str,
+    package: &str,
+    service_bridge_class: &str,
 ) {
     let service_pascal = service.name.to_upper_camel_case();
     let ep_pascal = ep.method.to_upper_camel_case();
-    let fn_name = format!("{}{}", ep.method, service_pascal);
     let opaque_name = format!("{}Opaque", service.name);
+    let ep_method = bridge_method_name(&service.name, &ep.method);
+    let symbol = jni_symbol(package, service_bridge_class, &ep_method);
 
     out.push_str(&format!(
         "/// Drive `{service_pascal}::{ep_pascal}` from Java/Kotlin.\n\
@@ -429,7 +454,7 @@ fn gen_entrypoint_jni_function(
         EntrypointKind::Run => {
             out.push_str(&format!(
                 "#[no_mangle]\n\
-                 pub extern \"system\" fn Java_com_example_{fn_name}(\n        \
+                 pub extern \"system\" fn {symbol}(\n        \
                      _env: EnvUnowned,\n        \
                      _class: JClass,\n        \
                      owner_handle: jlong"
@@ -479,7 +504,7 @@ fn gen_entrypoint_jni_function(
         EntrypointKind::Finalize => {
             out.push_str(&format!(
                 "#[no_mangle]\n\
-                 pub extern \"system\" fn Java_com_example_{fn_name}(\n        \
+                 pub extern \"system\" fn {symbol}(\n        \
                      _env: EnvUnowned,\n        \
                      _class: JClass,\n        \
                      owner_handle: jlong"
@@ -757,7 +782,7 @@ mod tests {
             "expected extern system ABI:\n{output}"
         );
         assert!(
-            output.contains("registerTestServiceAddHandler"),
+            output.contains("nativeTestServiceRegisterAddHandler"),
             "expected register function for TestService.add_handler:\n{output}"
         );
         // Verify the register function actually calls owner.add_handler
@@ -788,7 +813,7 @@ mod tests {
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
         assert!(
-            output.contains("runTestService"),
+            output.contains("nativeTestServiceRun"),
             "expected run entrypoint function:\n{output}"
         );
         // Verify the run function creates a tokio runtime
@@ -821,8 +846,8 @@ mod tests {
         );
         // Verify constructor entry point
         assert!(
-            output.contains("constructor_test_service"),
-            "expected constructor_test_service entry point:\n{output}"
+            output.contains("nativeTestServiceNew"),
+            "expected nativeTestServiceNew entry point:\n{output}"
         );
         // Verify it calls the Rust constructor
         assert!(
@@ -844,8 +869,8 @@ mod tests {
         let output = gen_service_rs(&surface, &config);
         // Verify free entry point
         assert!(
-            output.contains("free_test_service"),
-            "expected free_test_service entry point:\n{output}"
+            output.contains("nativeTestServiceFree"),
+            "expected nativeTestServiceFree entry point:\n{output}"
         );
         // Verify it reconstructs from raw pointer
         assert!(
