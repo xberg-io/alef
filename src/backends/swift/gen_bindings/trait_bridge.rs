@@ -309,6 +309,7 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
 /// Get the Swift type name for a TypeRef.
 ///
 /// Protocol methods use native types (excluded types as native structs).
+#[allow(clippy::only_used_in_recursion)]
 fn swift_type_name_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -621,13 +622,13 @@ mod tests {
 
         // Protocol method must accept native type InternalDocument
         assert!(
-            content.contains("func extract_bytes(content: Data) throws -> InternalDocument"),
+            content.contains("func extractBytes(content: Data) throws -> InternalDocument"),
             "protocol method must use native type InternalDocument, got:\n{content}"
         );
 
         // Adapter method must return String (JSON marshalling)
         assert!(
-            content.contains("func extract_bytesCall(content: Data) throws -> String"),
+            content.contains("func extractBytesCall(content: Data) throws -> String"),
             "adapter method must marshal to String, got:\n{content}"
         );
 
