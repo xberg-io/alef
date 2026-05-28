@@ -1988,9 +1988,11 @@ fn build_args_and_setup(
                         .filter(|t| t.binding_excluded)
                         .map(|t| t.name.as_str())
                         .collect();
-                    // InternalDocument is a special case: it's always excluded in Go trait bridges,
-                    // even though it may not be marked as binding_excluded in the IR.
+                    // InternalDocument and SyncExtractor are special cases: they're always excluded in Go trait bridges,
+                    // even though they may not be marked as binding_excluded in the IR.
+                    // SyncExtractor is marked alef(skip) in source but appears in DocumentExtractor.as_sync_extractor() return type.
                     excluded_named.insert("InternalDocument");
+                    excluded_named.insert("SyncExtractor");
                     // Collect enum names for proper Go zero-value generation.
                     // Enums map to string types in Go, so their zero-value is "" not nil.
                     let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
