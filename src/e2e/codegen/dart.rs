@@ -290,6 +290,29 @@ fn render_test_file(
         })
     });
 
+    // Collect plugin trait types used in test_backend arguments. These types must be imported
+    // from the main package (e.g., DocumentExtractor, OcrBackend, etc.) so test stubs can extend them.
+    let used_trait_types: std::collections::HashSet<String> = fixtures
+        .iter()
+        .flat_map(|f| {
+            if f.is_http_test() {
+                return vec![];
+            }
+            let call_config =
+                e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            f.resolved_args(call_config)
+                .iter()
+                .filter_map(|a| {
+                    if a.arg_type == "test_backend" {
+                        a.trait_name.clone()
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
     // Non-HTTP fixtures that build a mock-server URL still reference `Platform.environment`
     // (from `dart:io`). This applies to `mock_url` and `mock_url_list` args and to fixtures
     // routed through a `client_factory` (per-call override or per-language override) that
@@ -339,6 +362,10 @@ fn render_test_file(
         let _ = writeln!(out, "import 'dart:typed_data';");
     }
     let _ = writeln!(out, "import 'package:{pkg_name}/{pkg_name}.dart';");
+    // Import plugin trait types used in test_backend arguments so stubs can extend them.
+    for trait_type in &used_trait_types {
+        let _ = writeln!(out, "import 'package:{pkg_name}/{pkg_name}.dart' show {trait_type};");
+    }
     // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
     // FRB places its generated dart sources under `lib/src/{module_name}_bridge_generated/`,
     // where `module_name` is the snake_cased crate name (independent of the pubspec `name`,
