@@ -73,8 +73,13 @@ fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>)
     for typ in &mut filtered.types {
         typ.fields
             .retain(|field| !references_excluded_type(&field.ty, exclude_types));
-        typ.methods
-            .retain(|method| !signature_references_excluded_type(&method.params, &method.return_type, exclude_types));
+        // Do NOT filter trait methods — they will use type substitution in trait bridge generation.
+        // Only filter methods on non-trait types.
+        if !typ.is_trait {
+            typ.methods.retain(|method| {
+                !signature_references_excluded_type(&method.params, &method.return_type, exclude_types)
+            });
+        }
     }
     filtered
         .enums

@@ -1796,11 +1796,9 @@ fn build_args_and_setup(
                     excluded_named.insert("SyncExtractor");
 
                     // Remove any methods that return excluded types — they don't appear in the Java interface.
-                    methods.retain(|m| {
-                        match &m.return_type {
-                            crate::core::ir::TypeRef::Named(n) => !excluded_named.contains(n.as_str()),
-                            _ => true,
-                        }
+                    methods.retain(|m| match &m.return_type {
+                        crate::core::ir::TypeRef::Named(n) => !excluded_named.contains(n.as_str()),
+                        _ => true,
                     });
 
                     // Call java::emit_test_backend_with_context so stubs handle excluded types correctly.
