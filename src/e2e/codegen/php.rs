@@ -2614,11 +2614,13 @@ pub fn emit_test_backend_with_ns(
         );
     }
 
-    // Emit stubs for all required methods (skip those with default implementations).
+    // Emit stubs for all required methods.
+    // PHP interfaces require ALL abstract methods to be implemented, even if they have
+    // default implementations in the Rust trait.
     // When super_trait is set, name() is already hardcoded above, so exclude it from iteration.
     for method in methods
         .iter()
-        .filter(|m| !(m.has_default_impl || (trait_bridge.super_trait.is_some() && m.name == "name")))
+        .filter(|m| !(trait_bridge.super_trait.is_some() && m.name == "name"))
     {
         // PHP convention uses camelCase method names (ext-php-rs auto-converts snake_case).
         let php_name = method.name.to_lower_camel_case();
@@ -3000,6 +3002,75 @@ mod trait_bridge_tests {
         assert!(
             emission.setup_block.contains("public function processImage("),
             "processImage() must be present, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Verify that test stubs emit methods with default implementations.
+    /// PHP interfaces require ALL abstract methods to be implemented, even if the
+    /// Rust trait has default implementations.
+    #[test]
+    fn test_backend_includes_default_impl_methods() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        // Direct trait method (no default impl).
+        let extract_bytes = make_method(
+            "extract_bytes",
+            vec![
+                ("content", TypeRef::Bytes),
+                ("mime_type", TypeRef::String),
+                ("config", TypeRef::Named("ExtractionConfig".to_string())),
+            ],
+            TypeRef::Named("ExtractionResult".to_string()),
+            false,
+        );
+
+        // Method with default impl in Rust trait.
+        let mut as_sync_extractor = make_method("as_sync_extractor", vec![], TypeRef::String, false);
+        as_sync_extractor.has_default_impl = true;
+
+        // Super-trait method with default impl.
+        let mut priority = make_method(
+            "priority",
+            vec![],
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+            false,
+        );
+        priority.has_default_impl = true;
+
+        let mut fixture = make_fixture("test_default_impl_methods");
+        fixture.input = serde_json::json!({
+            "extractor": { "type": "test", "name": "test-default-impl" }
+        });
+
+        let methods = vec![&extract_bytes, &as_sync_extractor, &priority];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // PHP requires implementations of ALL abstract methods, including those with
+        // default implementations in the Rust trait.
+        assert!(
+            emission.setup_block.contains("public function extractBytes("),
+            "extractBytes() must be emitted, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("public function asSyncExtractor()"),
+            "asSyncExtractor() with default impl must be emitted for PHP interface, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("public function priority()"),
+            "priority() with default impl must be emitted for PHP interface, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("test-default-impl"),
+            "Backend name must be correct, got:\n{}",
             emission.setup_block
         );
     }
