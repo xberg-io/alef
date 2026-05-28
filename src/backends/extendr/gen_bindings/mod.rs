@@ -1004,7 +1004,8 @@ pub fn decode_options(options: Robj) -> std::result::Result<crate::ConversionOpt
     // If unwrapping as ExternalPtr failed, the input is not a valid options object
     Err("options must be NULL, or an ExternalPtr from ConversionOptions$default()".to_string())
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Returns true if the function return type cannot be handled by extendr's `#[extendr]` macro

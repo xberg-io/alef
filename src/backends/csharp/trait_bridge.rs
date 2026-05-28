@@ -249,10 +249,7 @@ fn gen_single_trait_bridge(
                 }
             }
             let unmanaged_params = parts.join(", ");
-            let is_primitive_return = matches!(
-                &method.return_type,
-                TypeRef::Primitive(_) | TypeRef::Unit
-            );
+            let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_) | TypeRef::Unit);
             let delegate_return_type = if is_primitive_return {
                 match &method.return_type {
                     TypeRef::Primitive(p) => match p {
@@ -460,10 +457,7 @@ fn gen_single_trait_bridge(
         let method_pascal = to_csharp_name(&method.name);
 
         // Check if return type is a primitive (non-complex type)
-        let is_primitive_return = matches!(
-            &method.return_type,
-            TypeRef::Primitive(_) | TypeRef::Unit
-        );
+        let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_) | TypeRef::Unit);
 
         // Build parameter signature for unmanaged delegate (what we receive).
         // Bytes params carry a companion UIntPtr {name}Len so the callback can
@@ -488,8 +482,11 @@ fn gen_single_trait_bridge(
 
         if method.return_type == TypeRef::Unit {
             // void return: no out params
-            callbacks.push_str(&format!("    private int {}FnCallback({}) {{\n",
-                method.name.to_lower_camel_case(), params_decl));
+            callbacks.push_str(&format!(
+                "    private int {}FnCallback({}) {{\n",
+                method.name.to_lower_camel_case(),
+                params_decl
+            ));
         } else if is_primitive_return {
             // Primitive return: return directly (no out params)
             let return_c_type = match &method.return_type {
@@ -505,12 +502,16 @@ fn gen_single_trait_bridge(
                     PrimitiveType::F32 => "float",
                     PrimitiveType::F64 => "double",
                     PrimitiveType::Bool => "int", // bool marshalled as int for C ABI
-                    _ => "int", // fallback
+                    _ => "int",                   // fallback
                 },
                 _ => "int",
             };
-            callbacks.push_str(&format!("    private {} {}FnCallback({}) {{\n",
-                return_c_type, method.name.to_lower_camel_case(), params_decl));
+            callbacks.push_str(&format!(
+                "    private {} {}FnCallback({}) {{\n",
+                return_c_type,
+                method.name.to_lower_camel_case(),
+                params_decl
+            ));
         } else {
             // Complex return: use out params
             if is_options_field {
@@ -588,7 +589,10 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            return 0;\n");
         } else if is_primitive_return {
             // Primitive return: call method and return directly
-            callbacks.push_str(&format!("            var result = _impl.{}({});\n", method_pascal, param_call));
+            callbacks.push_str(&format!(
+                "            var result = _impl.{}({});\n",
+                method_pascal, param_call
+            ));
             callbacks.push_str("            return (int)result;\n");
         } else {
             // Complex return: use out params

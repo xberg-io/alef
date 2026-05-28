@@ -1,1 +1,1 @@
-    private int {{ method_pascal }}FnCallback(IntPtr userData, {{ params_decl }}out IntPtr outResult) {
+    private int {{ method_pascal }}FnCallback(IntPtr userData{%- if params_decl %}, {{ params_decl }}{% endif %}, out IntPtr outResult) {

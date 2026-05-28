@@ -285,10 +285,14 @@ fn build_adapter_call_expr(
 ) -> (Vec<String>, String) {
     // Build the call arguments with Swift argument labels (name: value format)
     // Swift requires explicit labels for all method arguments
-    let call_args: Vec<String> = method.params.iter().map(|p| {
-        let name = p.name.to_snake_case();
-        format!("{}: {}", name, name)
-    }).collect();
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let name = p.name.to_snake_case();
+            format!("{}: {}", name, name)
+        })
+        .collect();
 
     // Build the return expression — marshal the result back to the boundary type
     let return_expr = match &method.return_type {

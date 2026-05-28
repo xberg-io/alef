@@ -377,11 +377,7 @@ fn build_thirdparty_imports(
             let Some(trait_name) = arg.trait_name.as_deref() else {
                 continue;
             };
-            if let Some(bridge) = config
-                .trait_bridges
-                .iter()
-                .find(|tb| tb.trait_name == trait_name)
-            {
+            if let Some(bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == trait_name) {
                 if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
                     let unregister_str = unregister_fn.to_string();
                     if !import_names.contains(&unregister_str) {
