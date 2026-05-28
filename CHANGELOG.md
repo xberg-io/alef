@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef java trait-bridge interface: honour `ffi_skip_methods` so generated `I{Trait}` interfaces stay in sync with their bridges.** Methods listed in a trait-bridge's `ffi_skip_methods` (e.g., `as_sync_extractor` on `DocumentExtractor`, which returns `Option<&dyn SyncExtractor>` — a trait-object reference with no FFI representation) were correctly skipped in the upcall/vtable bridge but still emitted into the public `I{Trait}.java` interface. E2e test stubs that `implements I{Trait}` were then required to override a method the bridge cannot dispatch, producing `is not abstract and does not override abstract method` compile errors. The fix threads `ffi_skip_methods` into `gen_interface_file` and filters the rendered method list, keeping the interface aligned with the bridge surface and unblocking Java e2e test compilation. (`src/backends/java/gen_bindings/trait_bridge.rs`, `src/backends/java/gen_bindings/mod.rs`)
+
 ## [0.20.4] - 2026-05-28
 
 ### Fixed

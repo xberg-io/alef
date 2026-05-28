@@ -445,6 +445,7 @@ impl Backend for JavaBackend {
                     bridge_cfg.clear_fn.as_deref(),
                     &visible_type_names,
                     &exclude_types,
+                    &bridge_cfg.ffi_skip_methods,
                 );
 
                 files.push(GeneratedFile {

@@ -104,9 +104,17 @@ pub fn gen_trait_bridge_files(
     clear_fn: Option<&str>,
     visible_type_names: &HashSet<&str>,
     excluded_types: &HashSet<String>,
+    ffi_skip_methods: &[String],
 ) -> BridgeFiles {
     BridgeFiles {
-        interface_content: gen_interface_file(trait_def, package, has_super_trait, visible_type_names, excluded_types),
+        interface_content: gen_interface_file(
+            trait_def,
+            package,
+            has_super_trait,
+            visible_type_names,
+            excluded_types,
+            ffi_skip_methods,
+        ),
         bridge_content: gen_bridge_file(
             trait_def,
             prefix,
@@ -207,13 +215,21 @@ fn gen_interface_file(
     has_super_trait: bool,
     visible_type_names: &HashSet<&str>,
     excluded_types: &HashSet<String>,
+    ffi_skip_methods: &[String],
 ) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
+
+    // Methods listed in `ffi_skip_methods` cannot cross the C FFI vtable (e.g.
+    // `as_sync_extractor` returns `Option<&dyn SyncExtractor>` which has no FFI
+    // representation). They are skipped in the bridge AND in the interface so
+    // generated test stubs do not have to implement them.
+    let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
 
     // Determine which imports are needed based on method signatures
     let signatures_text: String = trait_def
         .methods
         .iter()
+        .filter(|m| !skipped.contains(m.name.as_str()))
         .map(|m| {
             let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params = m
@@ -239,6 +255,7 @@ fn gen_interface_file(
     let methods: Vec<Value> = trait_def
         .methods
         .iter()
+        .filter(|m| !skipped.contains(m.name.as_str()))
         .map(|m| {
             let return_type_str = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params_str = m
@@ -709,6 +726,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         assert!(files.interface_content.starts_with("package dev.sample_crate;"));
         assert!(files.interface_content.contains("public interface IOcrBackend"));
@@ -731,6 +749,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         assert!(!files.interface_content.contains("String name();"));
         assert!(files.interface_content.contains("String apply()"));
@@ -751,6 +770,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(body.starts_with("package dev.sample_crate;"));
@@ -777,6 +797,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void unregisterOcrBackend(String name)"));
@@ -799,6 +820,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
@@ -818,6 +840,7 @@ mod tests {
             Some("clear_ocr_backends"),
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void clearOcrBackends()"));
@@ -841,6 +864,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(!body.contains("public static void clearOcrBackends()"));
@@ -860,6 +884,7 @@ mod tests {
             Some("clear_ocr_backends"),
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void unregisterOcrBackend(String name)"));
@@ -936,6 +961,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("toArray(ValueLayout.JAVA_BYTE)"));
@@ -982,6 +1008,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
 
@@ -1051,6 +1078,7 @@ mod tests {
             None,
             &visible,
             &excluded,
+            &[],
         );
         let body = files.bridge_content.as_str();
         // The handler signature should have `byte level`, not `MemorySegment level_in`
