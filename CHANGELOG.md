@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-05-28
+
 ### Fixed
 
 - **alef php e2e codegen: dedup super-trait `name()` method in anonymous-class test backend emission.** Generated PHP e2e test files emitted anonymous classes that declared `name()` twice — once hardcoded to return the backend name (phase A, when `super_trait` is set), and again iterating all methods from the methods vec that had no default impl (phase B). This caused a PHP fatal `Cannot redeclare Kreuzberg\DocumentExtractor@anonymous::name()` at autoload time. The fix excludes `name()` from phase B's method iteration when phase A has already hardcoded it (`super_trait.is_some() && m.name == "name"`). Added unit test `test_backend_no_duplicate_name_with_super_trait` to verify exactly one `function name()` declaration in the output. (`src/e2e/codegen/php.rs`)
