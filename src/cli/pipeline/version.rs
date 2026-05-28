@@ -1470,8 +1470,8 @@ fn regenerate_test_apps_after_sync(
     _e2e_config: &crate::core::config::e2e::E2eConfig,
     config_path: &std::path::Path,
 ) -> anyhow::Result<usize> {
-    use crate::core::config::e2e::DependencyMode;
     use crate::core::config::NewAlefConfig;
+    use crate::core::config::e2e::DependencyMode;
 
     // Reload alef.toml from disk so the in-memory config reflects the
     // registry package version that `sync_registry_package_versions` just wrote.
@@ -1480,8 +1480,8 @@ fn regenerate_test_apps_after_sync(
     // function is designed to prevent.
     let raw = std::fs::read_to_string(config_path)
         .with_context(|| format!("failed to read {} for test_apps regen", config_path.display()))?;
-    let new_alef_cfg: NewAlefConfig =
-        toml::from_str(&raw).with_context(|| format!("failed to parse {} for test_apps regen", config_path.display()))?;
+    let new_alef_cfg: NewAlefConfig = toml::from_str(&raw)
+        .with_context(|| format!("failed to parse {} for test_apps regen", config_path.display()))?;
     let mut resolved_crates = new_alef_cfg
         .resolve()
         .with_context(|| format!("failed to resolve {} for test_apps regen", config_path.display()))?;

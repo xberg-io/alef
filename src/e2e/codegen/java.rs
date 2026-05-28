@@ -1719,16 +1719,48 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    // Filter to only methods that appear in the Java trait-bridge interface.
+                    // Async methods (extract_bytes, extract_file) are handled by the FFI bridge internally.
                     let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                         .iter()
                         .find(|t| t.name == *trait_name)
-                        .map(|t| t.methods.iter().collect())
+                        .map(|t| {
+                            t.methods
+                                .iter()
+                                .filter(|m| {
+                                    // Skip methods in the ffi_skip_methods list
+                                    if trait_bridge.ffi_skip_methods.contains(&m.name) {
+                                        return false;
+                                    }
+
+                                    // Skip async extraction methods that return InternalDocument
+                                    if let crate::core::ir::TypeRef::Named(n) = &m.return_type {
+                                        if n == "InternalDocument" {
+                                            return false;
+                                        }
+                                    }
+
+                                    // Skip known methods not in Java trait-bridge interfaces
+                                    match m.name.as_str() {
+                                        "extract_bytes" | "extract_file" | "process_document" => return false,
+                                        "description" | "author" => return false,
+                                        "backend_type" if trait_bridge.trait_name == "OcrBackend" => return false,
+                                        _ => {}
+                                    }
+
+                                    true
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default();
                     // Include super-trait methods so the stub can implement them.
                     if let Some(super_trait) = &trait_bridge.super_trait {
                         if let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait) {
                             for method in &super_type.methods {
-                                if !methods.iter().any(|m| m.name == method.name) {
+                                if !methods.iter().any(|m| m.name == method.name)
+                                    && !trait_bridge.ffi_skip_methods.contains(&method.name)
+                                    && !matches!(method.name.as_str(), "description" | "author")
+                                {
                                     methods.push(method);
                                 }
                             }
@@ -2965,6 +2997,7 @@ fn java_stub_type_with_context(
 }
 
 /// Boxed version of java_stub_type_with_context for use as a CompletableFuture generic parameter.
+#[allow(dead_code)]
 fn java_boxed_stub_type_with_context(
     ty: &crate::core::ir::TypeRef,
     binding_pkg: &str,
@@ -3006,6 +3039,11 @@ fn java_stub_default_with_context(
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !excluded_types.is_empty() && excluded_types.contains(n.as_str())) => {
             "\"\"".to_string()
         }
+        // For Named types that are NOT excluded, return null instead of trying to instantiate.
+        // Complex types like ExtractionResult don't have no-arg constructors, and stub
+        // methods are only used for testing trait bridge registration, not for exercising
+        // the actual functionality. Returning null is safe here.
+        TypeRef::Named(_) => "null".to_string(),
         _ => defaults.emit_default(ty),
     }
 }

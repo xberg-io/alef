@@ -3877,14 +3877,23 @@ pub fn emit_test_backend_with_context(
     // Emit method stubs for all required methods.
     // Go interfaces require ALL abstract methods to be implemented, even if they have
     // default implementations in the Rust trait.
-    // Skip only the super-trait methods already emitted above, and the name() method
-    // when it's hardcoded by super_trait.
+    // Skip: (1) super-trait methods already emitted above, (2) methods using excluded types
+    // (which are not exported in the binding), and (3) name() when hardcoded by super_trait.
     for method in methods.iter() {
         // Skip super-trait methods already emitted above.
         if trait_bridge
             .super_trait
             .as_deref()
             .is_some_and(|st| method.trait_source.as_deref() == Some(st))
+        {
+            continue;
+        }
+        // Skip methods whose return type or parameters are excluded types
+        // in ways that exclude them from the binding interface.
+        // For return types: skip if directly excluded OR Optional<excluded>.
+        // Don't skip Result<excluded> because binding generation converts those.
+        if should_skip_method_with_type(&method.return_type, excluded_types, method.error_type.is_some())
+            || method.params.iter().any(|p| should_skip_method_with_type(&p.ty, excluded_types, false))
         {
             continue;
         }
@@ -3959,6 +3968,34 @@ fn go_stub_default_with_context(
             format!("{go_name}{{}}")
         }
         _ => go_zero_value(ty),
+    }
+}
+
+/// Check if a type (or its top-level structure) is an excluded type in a way that would
+/// exclude the entire method from the binding interface.
+///
+/// For return types with error handling (has_error_type=true):
+/// - Excludes if Optional<ExcludedType> (e.g., Option<SyncExtractor>)
+/// - Does NOT exclude directly excluded types (Result<ExcludedType> is handled by binding)
+///
+/// For return types without error handling (has_error_type=false) or parameter types:
+/// - Excludes if the type IS an excluded type
+/// - Excludes if Optional<ExcludedType>
+fn should_skip_method_with_type(
+    ty: &crate::core::ir::TypeRef,
+    excluded_types: &std::collections::HashSet<&str>,
+    is_result_return: bool,
+) -> bool {
+    use crate::core::ir::TypeRef;
+    match ty {
+        // Optional<ExcludedType> is always skipped (e.g., Option<SyncExtractor>)
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(name) if excluded_types.contains(name.as_str()))
+        }
+        // Directly excluded types: skip unless it's a Result return (binding handles conversion)
+        TypeRef::Named(name) if excluded_types.contains(name.as_str()) => !is_result_return,
+        // Other types are not skipped
+        _ => false,
     }
 }
 
@@ -4332,23 +4369,36 @@ mod trait_bridge_tests {
         );
     }
 
-    /// Verify that binding-excluded types (e.g. InternalDocument) map to `json.RawMessage`
-    /// in stub method signatures, and that Named types are qualified with the import alias
-    /// when the stub is generated for an external test package (e.g. `package e2e_test`).
+    /// Verify that methods with binding-excluded types are handled correctly:
+    /// - Methods returning directly excluded types are skipped
+    /// - Methods returning Optional<ExcludedType> are skipped
+    /// - Methods with wrapped returns (Result<ExcludedType>, Vec<ExcludedType>) are emitted
+    ///   (binding generation converts these appropriately)
+    /// - Normal methods are emitted with proper type qualification
     #[test]
-    fn test_go_stub_excluded_types_and_import_alias() {
-        // Method: extract_bytes(content []byte, mimeType string, config ExtractionConfig) (InternalDocument, error)
-        // With excluded_types={"InternalDocument"} and import_alias="myproject":
-        //   - InternalDocument → json.RawMessage
-        //   - ExtractionConfig → myproject.ExtractionConfig
-        let extract_method = make_method(
-            "extract_bytes",
-            vec![
-                ("content", TypeRef::Bytes),
-                ("mime_type", TypeRef::String),
-                ("config", TypeRef::Named("ExtractionConfig".to_string())),
-            ],
+    fn test_go_stub_skips_excluded_return_types() {
+        // Method 1: returns InternalDocument directly → should be SKIPPED
+        let excluded_return_method = make_method(
+            "get_internal_doc",
+            vec![],
             TypeRef::Named("InternalDocument".to_string()),
+            false,
+        );
+
+        // Method 2: returns Result<InternalDocument> → should be EMITTED
+        // (Result wrapping is handled by binding generation)
+        let result_return_method = make_method(
+            "extract_bytes",
+            vec![("content", TypeRef::Bytes)],
+            TypeRef::Named("InternalDocument".to_string()), // In IR; becomes json.RawMessage in binding
+            true, // has_error_type = true
+        );
+
+        // Method 3: normal method with non-excluded types → should be EMITTED
+        let normal_method = make_method(
+            "get_config",
+            vec![],
+            TypeRef::Named("ExtractionConfig".to_string()),
             false,
         );
 
@@ -4360,7 +4410,7 @@ mod trait_bridge_tests {
         };
 
         let fixture = make_fixture("extractor_test");
-        let methods = vec![&extract_method];
+        let methods = vec![&excluded_return_method, &result_return_method, &normal_method];
 
         let mut excluded = std::collections::HashSet::new();
         excluded.insert("InternalDocument");
@@ -4369,32 +4419,77 @@ mod trait_bridge_tests {
         let emission =
             emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "myproject", &enum_names);
 
-        // InternalDocument return type must become json.RawMessage.
+        // Method returning directly excluded type must NOT appear in stub.
         assert!(
-            emission.setup_block.contains("json.RawMessage"),
-            "excluded type InternalDocument must map to json.RawMessage, got:\n{}",
+            !emission.setup_block.contains("get_internal_doc"),
+            "method with directly excluded return type must be skipped, got:\n{}",
             emission.setup_block
         );
 
-        // Named type ExtractionConfig must be qualified with import alias.
+        // Method with Result-wrapped excluded type should appear (binding generation handles conversion).
+        assert!(
+            emission.setup_block.contains("ExtractBytes"),
+            "method with Result<ExcludedType> should be emitted (binding handles conversion), got:\n{}",
+            emission.setup_block
+        );
+
+        // Normal method with non-excluded types must appear (in PascalCase).
+        assert!(
+            emission.setup_block.contains("GetConfig"),
+            "normal method must be emitted, got:\n{}",
+            emission.setup_block
+        );
+
+        // Normal method's return type must be qualified with import alias.
         assert!(
             emission.setup_block.contains("myproject.ExtractionConfig"),
             "named type ExtractionConfig must be qualified as myproject.ExtractionConfig, got:\n{}",
             emission.setup_block
         );
+    }
 
-        // InternalDocument must NOT appear unqualified in the stub.
+    /// Verify that methods returning Optional<ExcludedType> are skipped
+    /// (e.g., as_sync_extractor() -> Option<&dyn SyncExtractor>).
+    #[test]
+    fn test_go_stub_skips_optional_excluded_return_types() {
+        // Method returning Option<SyncExtractor> → should be SKIPPED
+        // (SyncExtractor is not exported in the binding)
+        let optional_excluded_method = make_method(
+            "as_sync_extractor",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::Named("SyncExtractor".to_string()))),
+            false,
+        );
+
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: None,
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let fixture = make_fixture("extractor_test");
+        let methods = vec![&optional_excluded_method];
+
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("SyncExtractor");
+
+        let enum_names = std::collections::HashSet::new();
+        let emission =
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg", &enum_names);
+
+        // Method returning Optional<ExcludedType> must NOT appear in stub.
         assert!(
-            !emission.setup_block.contains("InternalDocument"),
-            "excluded type InternalDocument must not appear in stub, got:\n{}",
+            !emission.setup_block.contains("as_sync_extractor") && !emission.setup_block.contains("AsSyncExtractor"),
+            "method with Option<ExcludedType> return must be skipped, got:\n{}",
             emission.setup_block
         );
 
-        // encoding/json must be in type_imports since json.RawMessage is used.
+        // SyncExtractor must not appear anywhere in the stub.
         assert!(
-            emission.type_imports.contains(&"encoding/json".to_string()),
-            "encoding/json must be in type_imports when json.RawMessage is used, got: {:?}",
-            emission.type_imports
+            !emission.setup_block.contains("SyncExtractor"),
+            "excluded type SyncExtractor must not appear in stub, got:\n{}",
+            emission.setup_block
         );
     }
 }

@@ -370,8 +370,14 @@ mod tests {
         let run = c.run.unwrap().commands().join(" ");
         assert_eq!(c.precondition.as_deref(), Some("command -v pnpm >/dev/null 2>&1"));
         assert!(run.contains("cd test_apps/node"), "got: {run}");
-        assert!(run.contains("pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0"), "got: {run}");
-        assert!(run.contains("pnpm --config.minimumReleaseAge=0 test"), "pnpm test must pass minimumReleaseAge=0 for pnpm 11.3+ compatibility; got: {run}");
+        assert!(
+            run.contains("pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0"),
+            "got: {run}"
+        );
+        assert!(
+            run.contains("pnpm --config.minimumReleaseAge=0 test"),
+            "pnpm test must pass minimumReleaseAge=0 for pnpm 11.3+ compatibility; got: {run}"
+        );
     }
 
     #[test]
