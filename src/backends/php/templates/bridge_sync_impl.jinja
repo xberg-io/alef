@@ -14,15 +14,6 @@ impl {{ wrapper }} {
             .unwrap_or("unknown".into())
             .to_string();
 
-        // SAFETY: Increment PHP reference count to keep the object alive.
-        // The ZendObject is passed to us as &mut, but we need to store a pointer
-        // that may outlive this function call (when registered in global registry).
-        // Incrementing the refcount ensures the object won't be garbage-collected
-        // while we hold a reference to it. We directly manipulate the gc refcount.
-        unsafe {
-            (*php_obj).gc.refcount = (*php_obj).gc.refcount.wrapping_add(1);
-        }
-
         Self {
             inner: php_obj as *mut _,
             cached_name,

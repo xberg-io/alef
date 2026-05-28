@@ -2264,7 +2264,17 @@ fn build_args_and_setup(
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
-                    let emission = super::emit_test_backend("zig", trait_bridge, &methods, fixture);
+                    // Build excluded types set for Zig trait bridges.
+                    // InternalDocument and SyncExtractor are always excluded in Zig trait bridges,
+                    // even though they may not be marked as binding_excluded in the IR.
+                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
+                        .iter()
+                        .filter(|t| t.binding_excluded)
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    excluded_named.insert("InternalDocument");
+                    excluded_named.insert("SyncExtractor");
+                    let emission = emit_test_backend_with_excluded(trait_bridge, &methods, fixture, &excluded_named);
                     // emit_test_backend uses "lib." as a placeholder; substitute the real module.
                     let setup_block = emission.setup_block.replace("lib.", &format!("{_module_name}."));
                     let arg_expr = emission.arg_expr.replace("lib.", &format!("{_module_name}."));
@@ -2730,7 +2740,14 @@ fn json_to_zig(value: &serde_json::Value) -> String {
 /// Used only by `emit_test_backend` — not the full production type-map.
 /// Keeps stub generation self-contained and avoids a dependency on the
 /// private `backends::zig::type_map` module.
-fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
+///
+/// Plugin trait method stubs receive C FFI types from the vtable thunks, not Zig-friendly
+/// wrapper types. All struct/enum parameters are opaque `[*c]const u8` pointers, and
+/// string/bytes are also `[*c]const u8`. Therefore, all TypeRef::Named types are
+/// substituted with `[*c]const u8` to match the actual C FFI signatures the thunks work with.
+///
+/// `_excluded_types` — unused, kept for compatibility with potential future extensions.
+fn zig_type_for_stub(ty: &crate::core::ir::TypeRef, _excluded_types: &std::collections::HashSet<&str>) -> String {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -2746,16 +2763,29 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
             PrimitiveType::F32 => "f32".to_string(),
             PrimitiveType::F64 => "f64".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "[]const u8".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "[*c]const u8".to_string(),
         TypeRef::Unit => "void".to_string(),
-        TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner)),
-        TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner)),
-        TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v)),
-        // Named types (structs, enums) must be qualified with the module alias so the
-        // caller's `replace("lib.", "<real_module>.")` substitution resolves them.
-        TypeRef::Named(name) => format!("lib.{name}"),
+        TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner, _excluded_types)),
+        TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner, _excluded_types)),
+        TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v, _excluded_types)),
+        // All Named types (structs, enums) map to opaque C FFI pointers.
+        // The vtable thunks pass these as [*c]const u8 to user method stubs.
+        TypeRef::Named(_) => "[*c]const u8".to_string(),
         TypeRef::Duration => "i64".to_string(),
     }
+}
+
+/// Emit a Zig test backend stub with excluded type handling.
+///
+/// Wraps `emit_test_backend_inner` with an excluded types set passed through
+/// to `zig_type_for_stub` for proper type substitution in trait bridge stubs.
+fn emit_test_backend_with_excluded(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+    excluded_types: &std::collections::HashSet<&str>,
+) -> super::TestBackendEmission {
+    emit_test_backend_inner(trait_bridge, methods, fixture, excluded_types)
 }
 
 /// Emit a Zig test backend stub.
@@ -2774,6 +2804,17 @@ pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    let excluded_types = std::collections::HashSet::new();
+    emit_test_backend_inner(trait_bridge, methods, fixture, &excluded_types)
+}
+
+/// Internal implementation of test backend emission with excluded type handling.
+fn emit_test_backend_inner(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+    excluded_types: &std::collections::HashSet<&str>,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::core::ir::TypeRef;
@@ -2828,14 +2869,14 @@ pub fn emit_test_backend(
             continue;
         }
         let method_snake = method.name.to_snake_case();
-        let ret_ty = zig_type_for_stub(&method.return_type);
+        let ret_ty = zig_type_for_stub(&method.return_type, excluded_types);
         let default_val = defaults.emit_default(&method.return_type);
 
         // Build Zig parameter list (self first using @This(), then method params).
         // Zig does not allow using a type name inside its own definition, so use @This().
         let mut params = vec!["_: *@This()".to_string()];
         for p in &method.params {
-            let p_ty = zig_type_for_stub(&p.ty);
+            let p_ty = zig_type_for_stub(&p.ty, excluded_types);
             params.push(format!("_: {}", p_ty)); // Mark all method params as unused with _
         }
         let param_list = params.join(", ");

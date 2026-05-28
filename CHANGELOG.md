@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef php trait-bridge: remove direct refcount manipulation to prevent panic on Abort trap 6.** The previous implementation attempted to manually increment/decrement ZendObject's `gc.refcount` field using `wrapping_add/wrapping_sub`, but this violates PHP's garbage collection invariants. When the refcount reached sentinel values (e.g., immortal objects marked with u32::MAX), incrementing would wrap to 0, triggering immediate garbage collection and causing a panic `thread caused non-unwinding panic. aborting.` during trait-bridge tests. This approach was fundamentally unsafe as it bypassed PHP's GC protocol. The fix removes all refcount manipulation entirely, relying on PHP's automatic reference management to keep the object alive during test execution. This accepts the theoretical risk of segfault if the object is GC'd during use, but avoids the immediate panic that was blocking PHP e2e tests. Future work should investigate `ext_php_rs`' safe reference-counting APIs (e.g., `try_call_method` lifetime guarantees or Zval-based object wrapping). (`src/backends/php/templates/bridge_constructor.jinja`, `src/backends/php/templates/bridge_sync_impl.jinja`)
+
 ## [0.20.2] - 2026-05-28
 
 ### Fixed

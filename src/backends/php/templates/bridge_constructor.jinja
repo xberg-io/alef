@@ -26,13 +26,3 @@ impl {{ wrapper }} {
 // and is never accessed concurrently from multiple threads.
 unsafe impl Send for {{ wrapper }} {}
 unsafe impl Sync for {{ wrapper }} {}
-
-impl Drop for {{ wrapper }} {
-    fn drop(&mut self) {
-        // SAFETY: Decrement the refcount we incremented in new().
-        // This allows PHP to garbage-collect the object when the bridge is dropped.
-        unsafe {
-            (*self.inner).gc.refcount = (*self.inner).gc.refcount.wrapping_sub(1);
-        }
-    }
-}
