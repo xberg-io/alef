@@ -22,6 +22,7 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let freezed = pub_dev::FREEZED;
     let build_runner = pub_dev::BUILD_RUNNER;
     let json_serializable = pub_dev::JSON_SERIALIZABLE;
+    let native_assets_cli = pub_dev::NATIVE_ASSETS_CLI;
     let style = dart_style(config);
 
     let dependency_block = match style {
@@ -36,6 +37,8 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         DartStyle::Ffi => format!(
             r#"  # Raw dart:ffi bindings use package:ffi for native memory helpers.
   ffi: '{ffi_package}'
+  # Native-assets build hook resolves the FFI shared library at consumer build time (Dart 3.0+).
+  native_assets_cli: '{native_assets_cli}'
   # Product-type DTOs use @freezed annotation for code generation.
   freezed_annotation: '{freezed_annotation}'
   json_annotation: '{json_annotation}'
@@ -208,7 +211,7 @@ void main() {{
         module_name = module_name,
     );
 
-    Ok(vec![
+    let mut files = vec![
         GeneratedFile {
             path: PathBuf::from("packages/dart/pubspec.yaml"),
             content: pubspec_yaml,
@@ -249,5 +252,71 @@ void main() {{
             content: changelog,
             generated_header: false,
         },
-    ])
+    ];
+
+    if matches!(style, DartStyle::Ffi) {
+        let build_dart = format!(
+            r#"// Dart 3.0+ native-assets build hook.
+// Resolves the FFI shared library produced by `cargo build --release -p {crate_name}-ffi`
+// and bundles it into the consumer's Dart application at build time.
+// See: https://dart.dev/interop/c-interop#native-assets
+
+import 'dart:io' as io;
+import 'package:native_assets_cli/native_assets_cli.dart';
+
+const _crateName = '{crate_name}';
+const _packageName = '{pubspec_name}';
+
+Future<void> main(List<String> args) async {{
+  await build(args, (input, output) async {{
+    final libFile = input.config.targetOS.dylibFileName(_crateName);
+    final repoRoot = _findRepoRoot(io.Directory.current);
+    final candidates = <io.File>[
+      io.File('${{repoRoot.path}}/target/release/$libFile'),
+      io.File('${{repoRoot.path}}/crates/${{_crateName}}-ffi/target/release/$libFile'),
+      io.File('${{repoRoot.path}}/packages/dart/rust/target/release/$libFile'),
+    ];
+    for (final candidate in candidates) {{
+      if (candidate.existsSync()) {{
+        output.addAsset(NativeCodeAsset(
+          package: _packageName,
+          name: '${{_packageName}}.dart',
+          file: candidate.uri,
+          linkMode: DynamicLoadingBundled(),
+          os: input.config.targetOS,
+          architecture: input.config.targetArchitecture,
+        ));
+        return;
+      }}
+    }}
+    throw StateError(
+      'Native library $libFile not found. '
+      'Build it with: cargo build --release -p ${{_crateName}}-ffi',
+    );
+  }});
+}}
+
+io.Directory _findRepoRoot(io.Directory start) {{
+  io.Directory current = start;
+  while (current.path != current.parent.path) {{
+    if (io.File('${{current.path}}/Cargo.toml').existsSync() &&
+        io.Directory('${{current.path}}/.git').existsSync()) {{
+      return current;
+    }}
+    current = current.parent;
+  }}
+  return start;
+}}
+"#,
+            crate_name = crate_name,
+            pubspec_name = pubspec_name,
+        );
+        files.push(GeneratedFile {
+            path: PathBuf::from("packages/dart/hook/build.dart"),
+            content: build_dart,
+            generated_header: false,
+        });
+    }
+
+    Ok(files)
 }

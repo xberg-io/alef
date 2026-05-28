@@ -368,6 +368,9 @@ pub mod pub_dev {
 
     // renovate: datasource=pub depName=json_serializable
     pub const JSON_SERIALIZABLE: &str = "^6.13.2";
+
+    // renovate: datasource=pub depName=native_assets_cli
+    pub const NATIVE_ASSETS_CLI: &str = "^0.13.0";
 }
 
 /// Platform / toolchain pins. None of these auto-bump; track manually.

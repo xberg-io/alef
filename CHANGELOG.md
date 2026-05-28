@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **scaffold/dart: include `native_assets_cli` in FFI-style pubspec dependencies (Dart 3.0+).** The native-assets build hook resolves the FFI shared library at consumer build time, removing the need for downstream consumers to manually wire `Process.run('cargo build')` or copy dylibs into asset folders. Pin tracked via the new `pub_dev::NATIVE_ASSETS_CLI = "^0.13.0"` constant in `template_versions.rs` (renovate-managed). (`src/core/template_versions.rs`, `src/scaffold/languages/dart.rs`)
+
 ### Fixed
 
 - **zig codegen: normalize platform suffixes to project-wide canonical names (`macos-x86_64`, `windows-x86_64`) so generated `build.zig.zon` URLs resolve to actual published assets.** Previously emitted `macos-amd64` and `windows-x64`, causing `.hash = "TODO"` placeholders because those platform-suffixed release assets don't exist in tslp's artifact uploads. The project-wide canonical names come from the publish workflow (shared across all language bindings). (`src/e2e/codegen/zig.rs`)
