@@ -57,9 +57,10 @@ pub fn default_test_apps_run_config(
                 // Registry-mode: re-resolve from package.json (the committed lockfile pins the
                 // previous release) and disable pnpm's minimumReleaseAge supply-chain gate, which
                 // rejects packages published within its window — i.e. the just-released version
-                // under test.
+                // under test. The flag must be passed to both `pnpm install` and `pnpm test`
+                // because pnpm 11.3+ runs its own policy check during test invocation.
                 _ => format!(
-                    "cd {test_apps_dir}/node && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm test"
+                    "cd {test_apps_dir}/node && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm --config.minimumReleaseAge=0 test"
                 ),
             };
             TestAppRunConfig {
@@ -74,9 +75,11 @@ pub fn default_test_apps_run_config(
                 "npm" => format!("cd {test_apps_dir}/wasm && npm install --no-package-lock && npm test"),
                 "yarn" => format!("cd {test_apps_dir}/wasm && yarn install && yarn test"),
                 // See the Node arm: re-resolve and skip pnpm's minimumReleaseAge gate so the
-                // freshly-published version under test installs.
+                // freshly-published version under test installs. The flag must be passed to
+                // both `pnpm install` and `pnpm test` because pnpm 11.3+ runs its own policy
+                // check during test invocation.
                 _ => format!(
-                    "cd {test_apps_dir}/wasm && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm test"
+                    "cd {test_apps_dir}/wasm && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm --config.minimumReleaseAge=0 test"
                 ),
             };
             TestAppRunConfig {
@@ -498,7 +501,10 @@ mod tests {
             run.contains("pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0"),
             "got: {run}"
         );
-        assert!(run.contains("&& pnpm test"), "got: {run}");
+        assert!(
+            run.contains("pnpm --config.minimumReleaseAge=0 test"),
+            "pnpm test must also pass minimumReleaseAge=0 flag for pnpm 11.3+ compatibility; got: {run}"
+        );
     }
 
     #[test]
