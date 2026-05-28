@@ -27,6 +27,24 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
+/// Render a (possibly multi-line) doc string as a Go doc comment block.
+///
+/// Every line is prefixed with `//` so multi-paragraph rustdoc (e.g. Markdown
+/// `# Errors` sections) cannot leak un-commented source into the generated Go file.
+/// Emits a leading `//` separator line, then one comment line per doc line.
+fn go_doc_block(doc: &str) -> String {
+    let mut out = String::from("//\n");
+    for line in doc.trim_end().lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            out.push_str("//\n");
+        } else {
+            out.push_str(&format!("// {line}\n"));
+        }
+    }
+    out
+}
+
 /// Convert a TypeRef to a Go type string for signatures.
 fn typeref_to_go_type(ty: &TypeRef) -> String {
     match ty {
@@ -266,7 +284,7 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         service_name
     ));
     if !service.doc.is_empty() {
-        out.push_str(&format!("//\n// {}\n", service.doc.trim()));
+        out.push_str(&go_doc_block(&service.doc));
     }
     out.push_str(&format!(
         "type {} struct {{\n\
@@ -342,7 +360,7 @@ fn gen_registration_method(
         method_name_pascal, method_name
     ));
     if !reg.doc.is_empty() {
-        out.push_str(&format!("//\n// {}\n", reg.doc.trim()));
+        out.push_str(&go_doc_block(&reg.doc));
     }
 
     let return_type = if reg.error_type.is_some() {
@@ -378,15 +396,16 @@ fn gen_registration_method(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{}Opaque)(s.owner),\n\
          \t\tC.handler_callback_t(C.service_handler_callback),\n\
-         \t\tunsafe.Pointer(ctxID)",
+         \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake, service_name
     ));
 
-    // Add metadata params as arguments
+    // Add metadata params as arguments (Go requires a trailing comma when the
+    // closing paren is on its own line, so every argument line ends with `,`).
     for meta_param in &reg.metadata_params {
-        out.push_str(&format!(",\n\t\tC.CString({})", meta_param.name));
+        out.push_str(&format!("\t\tC.CString({}),\n", meta_param.name));
     }
-    out.push_str("\n\t)\n\n");
+    out.push_str("\t)\n\n");
 
     if reg.error_type.is_some() {
         out.push_str("\tif ret != 0 {\n");
@@ -432,12 +451,11 @@ fn gen_entrypoint_method(
     };
 
     let return_type = typeref_to_go_type(&ep.return_type);
-    let return_sig = if !return_type.is_empty() {
-        format!(" ({})", return_type)
-    } else if ep.error_type.is_some() {
-        " error".to_owned()
-    } else {
-        String::new()
+    let return_sig = match (!return_type.is_empty(), ep.error_type.is_some()) {
+        (true, true) => format!(" ({return_type}, error)"),
+        (true, false) => format!(" ({return_type})"),
+        (false, true) => " error".to_owned(),
+        (false, false) => String::new(),
     };
 
     out.push_str(&format!(
@@ -445,7 +463,7 @@ fn gen_entrypoint_method(
         ep_method_pascal, ep_method
     ));
     if !ep.doc.is_empty() {
-        out.push_str(&format!("//\n// {}\n", ep.doc.trim()));
+        out.push_str(&go_doc_block(&ep.doc));
     }
 
     out.push_str(&format!(
@@ -471,14 +489,14 @@ fn gen_entrypoint_method(
     // Call C entrypoint function
     out.push_str(&format!(
         "\tC.{}_{}_ep_{}(\n\
-         \t\t(*C.{}Opaque)(s.owner)",
+         \t\t(*C.{}Opaque)(s.owner),\n",
         service_lower, service_snake, ep_name_snake, service_name
     ));
 
     for ep_param in &ep.params {
-        out.push_str(&format!(",\n\t\tC.CString({})", ep_param.name));
+        out.push_str(&format!("\t\tC.CString({}),\n", ep_param.name));
     }
-    out.push_str("\n\t)\n");
+    out.push_str("\t)\n");
 
     // Return statement
     if ep.error_type.is_some() {
