@@ -139,6 +139,28 @@ pub struct HandlerContractConfig {
     /// in the trait).  Subset of the trait's method names.
     #[serde(default)]
     pub optional_overrides: Vec<String>,
+    /// Verbatim parameter declarations the generated bridge inserts *before* the wire
+    /// request parameter and then ignores in the body. Used when the dispatch method
+    /// has leading parameters whose concrete types cannot be reconstructed from the
+    /// sanitized surface (e.g. foreign framework types). Default: none.
+    #[serde(default)]
+    pub dispatch_extra_params: Vec<String>,
+    /// Name of the wire request parameter in the generated dispatch signature.
+    /// When absent, defaults to `"request"`.
+    #[serde(default)]
+    pub wire_param_name: Option<String>,
+    /// Verbatim return type for the generated dispatch future's `Output`. When absent,
+    /// the bridge synthesizes `Result<{wire_response}, Box<dyn Error + Send + Sync>>`.
+    /// Set this when the trait's dispatch returns a library-specific type the bridge
+    /// must produce via [`Self::response_adapter`].
+    #[serde(default)]
+    pub dispatch_return_type: Option<String>,
+    /// Path to a library function that converts the bridge's
+    /// `Result<{wire_response}, Box<dyn Error + Send + Sync>>` outcome into the
+    /// [`Self::dispatch_return_type`]. When absent, the bridge returns the wire response
+    /// directly. The function is opaque to the generator — it simply emits a call to it.
+    #[serde(default)]
+    pub response_adapter: Option<String>,
 }
 
 fn default_true() -> bool {

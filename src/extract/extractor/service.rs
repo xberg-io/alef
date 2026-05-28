@@ -240,6 +240,10 @@ fn build_handler_contract(surface: &ApiSurface, cfg: &HandlerContractConfig) -> 
         optional_methods,
         wire_request_type: cfg.wire_request_type.clone(),
         wire_response_type: cfg.wire_response_type.clone(),
+        dispatch_extra_params: cfg.dispatch_extra_params.clone(),
+        wire_param_name: cfg.wire_param_name.clone(),
+        dispatch_return_type: cfg.dispatch_return_type.clone(),
+        response_adapter: cfg.response_adapter.clone(),
         doc: trait_def.doc.clone(),
     })
 }
@@ -477,6 +481,10 @@ pub trait IntoHandler {}
                 wire_request_type: Some("RequestData".to_string()),
                 wire_response_type: Some("ResponseData".to_string()),
                 optional_overrides: vec![],
+                dispatch_extra_params: vec![],
+                wire_param_name: None,
+                dispatch_return_type: None,
+                response_adapter: None,
             }],
             ..Default::default()
         }

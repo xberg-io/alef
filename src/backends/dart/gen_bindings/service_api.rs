@@ -530,6 +530,10 @@ mod tests {
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),
             wire_response_type: Some("Response".to_owned()),
+            dispatch_extra_params: vec![],
+            wire_param_name: None,
+            dispatch_return_type: None,
+            response_adapter: None,
             doc: "Handler contract.".to_owned(),
         };
 

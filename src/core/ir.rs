@@ -172,6 +172,18 @@ pub struct HandlerContractDef {
     /// Name of the wire response DTO the dispatch method returns (e.g. `"ResponseData"`).
     /// When `None`, the dispatch method return type is used verbatim.
     pub wire_response_type: Option<String>,
+    /// Verbatim parameter declarations inserted before the wire request parameter in the
+    /// generated dispatch signature and ignored in the body. Empty by default.
+    pub dispatch_extra_params: Vec<String>,
+    /// Name of the wire request parameter in the generated dispatch signature
+    /// (defaults to `"request"` when `None`).
+    pub wire_param_name: Option<String>,
+    /// Verbatim return type for the generated dispatch future's `Output`. When `None`,
+    /// the bridge synthesizes `Result<{wire_response}, Box<dyn Error + Send + Sync>>`.
+    pub dispatch_return_type: Option<String>,
+    /// Path to a library function converting the bridge outcome into
+    /// [`Self::dispatch_return_type`]. When `None`, the wire response is returned directly.
+    pub response_adapter: Option<String>,
     /// Documentation extracted from the trait.
     pub doc: String,
 }

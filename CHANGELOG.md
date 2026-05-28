@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Service handler contracts: generic dispatch-shape and response-adapter knobs.** `HandlerContractConfig` (and the corresponding `HandlerContractDef` IR) gained four optional fields so the generated async handler bridge can match a library's real dispatch signature and return type without the generator knowing anything library-specific: `dispatch_extra_params` (verbatim leading parameter declarations the bridge accepts and ignores — e.g. a foreign framework type the wire bridge does not consume), `wire_param_name` (name of the wire request parameter), `dispatch_return_type` (verbatim future `Output` type), and `response_adapter` (path to a library function converting the bridge's `Result<WireResponse, Box<dyn Error + Send + Sync>>` outcome into `dispatch_return_type`). When unset, behavior is unchanged (the bridge yields the wire response in a boxed-error `Result`). The pyo3 backend's `gen_handler_bridge` now drives its signature, future output, and body tail from these fields, replacing a hardcoded trait-name special case. (`src/core/config/service.rs`, `src/core/ir.rs`, `src/extract/extractor/service.rs`, `src/backends/pyo3/gen_bindings/service_api.rs`)
+
 ### Fixed
 
 - **alef dart frb_rewrite: remove leftover `[ALEF DEBUG]` eprintln instrumentation.** `make_struct_fields_with_defaults_optional` printed `[ALEF DEBUG]` lines to stderr on every Dart generation (struct detection, per-field rewrites, and a final MADE/NO CHANGES summary). The debug prints and the `changes_made` flag that only fed them are removed; generation output is now quiet. (`src/backends/dart/frb_rewrite.rs`)
