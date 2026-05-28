@@ -221,6 +221,7 @@ pub(super) fn render_test_file(
         build_thirdparty_imports(
             fixtures,
             e2e_config,
+            config,
             &module,
             &function_name,
             client_factory.as_deref(),
@@ -307,6 +308,7 @@ fn render_item_text_helper(out: &mut String) {
 fn build_thirdparty_imports(
     fixtures: &[&Fixture],
     e2e_config: &E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
     module: &str,
     function_name: &str,
     client_factory: Option<&str>,
@@ -354,6 +356,39 @@ fn build_thirdparty_imports(
     for ctor in &handle_constructors {
         if !import_names.contains(ctor) {
             import_names.push(ctor.clone());
+        }
+    }
+
+    // Trait-bridge tests emit a teardown like `unregister_ocr_backend("test-backend")`
+    // after the registration call. The unregister fn must also be imported from the
+    // public binding module, or the test fails at runtime with NameError.
+    for fixture in fixtures.iter() {
+        let cc = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        for arg in &cc.args {
+            if arg.arg_type != "test_backend" {
+                continue;
+            }
+            let Some(trait_name) = arg.trait_name.as_deref() else {
+                continue;
+            };
+            if let Some(bridge) = config
+                .trait_bridges
+                .iter()
+                .find(|tb| tb.trait_name == trait_name)
+            {
+                if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
+                    let unregister_str = unregister_fn.to_string();
+                    if !import_names.contains(&unregister_str) {
+                        import_names.push(unregister_str);
+                    }
+                }
+            }
         }
     }
 
