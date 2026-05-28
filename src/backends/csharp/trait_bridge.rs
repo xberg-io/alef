@@ -261,10 +261,11 @@ fn gen_single_trait_bridge(
                         PrimitiveType::U16 => "ushort",
                         PrimitiveType::U32 => "uint",
                         PrimitiveType::U64 => "ulong",
+                        PrimitiveType::Usize => "ulong", // usize maps to ulong
+                        PrimitiveType::Isize => "long",  // isize maps to long
                         PrimitiveType::F32 => "float",
                         PrimitiveType::F64 => "double",
                         PrimitiveType::Bool => "int", // bool marshalled as int
-                        _ => "int",
                     },
                     TypeRef::Unit => "int",
                     _ => "int",
@@ -506,10 +507,11 @@ fn gen_single_trait_bridge(
                     PrimitiveType::U16 => "ushort",
                     PrimitiveType::U32 => "uint",
                     PrimitiveType::U64 => "ulong",
+                    PrimitiveType::Usize => "ulong", // usize maps to ulong
+                    PrimitiveType::Isize => "long",  // isize maps to long
                     PrimitiveType::F32 => "float",
                     PrimitiveType::F64 => "double",
                     PrimitiveType::Bool => "int", // bool marshalled as int for C ABI
-                    _ => "int",                   // fallback
                 },
                 _ => "int",
             };
@@ -606,11 +608,14 @@ fn gen_single_trait_bridge(
                 "            var methodResult = _impl.{}({});\n",
                 method_pascal, param_call
             ));
-            // For bool returns, convert to int (0 or 1); other primitives cast directly
+            // Convert return value based on method return type
             if matches!(&method.return_type, TypeRef::Primitive(PrimitiveType::Bool)) {
+                // bool → int (0 or 1)
                 callbacks.push_str("            return methodResult ? 1 : 0;\n");
             } else {
-                callbacks.push_str("            return (int)methodResult;\n");
+                // Other primitives: cast to the delegate return type (no cast needed if already matching type)
+                // Just return as-is since the delegate return type already matches
+                callbacks.push_str("            return methodResult;\n");
             }
         } else {
             // Complex return: use out params

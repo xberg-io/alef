@@ -1,5 +1,5 @@
 pub struct {{ struct_name }} {
-    php_obj_zval: ext_php_rs::types::Zval,
+    php_obj: *mut ext_php_rs::types::ZendObject,
     cached_name: String,
 }
 
@@ -10,9 +10,28 @@ unsafe impl Sync for {{ struct_name }} {}
 
 impl Clone for {{ struct_name }} {
     fn clone(&self) -> Self {
+        // SAFETY: Increment refcount for the cloned reference.
+        // The object pointer is guaranteed valid within the request.
+        unsafe {
+            if !self.php_obj.is_null() {
+                (*self.php_obj).inc_count();
+            }
+        }
         Self {
-            php_obj_zval: self.php_obj_zval.clone(),
+            php_obj: self.php_obj,
             cached_name: self.cached_name.clone(),
+        }
+    }
+}
+
+impl Drop for {{ struct_name }} {
+    fn drop(&mut self) {
+        // SAFETY: Decrement refcount when the bridge is dropped.
+        // The object pointer is guaranteed valid until this point.
+        unsafe {
+            if !self.php_obj.is_null() {
+                (*self.php_obj).dec_count();
+            }
         }
     }
 }
@@ -25,13 +44,10 @@ impl std::fmt::Debug for {{ struct_name }} {
 
 impl {{ struct_name }} {
     pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {
-        // Create a Zval holding the object reference, which manages the refcount.
-        // This ensures the PHP object is not garbage-collected while we hold a reference.
-        let mut zval = ext_php_rs::types::Zval::new();
-        // SAFETY: We are assigning the object to a Zval, which will increment the refcount.
+        // SAFETY: Increment refcount to keep the object alive.
         // The object pointer is valid within the current request context.
         unsafe {
-            zval.object(php_obj);
+            php_obj.inc_count();
         }
 
         let cached_name = php_obj
@@ -40,6 +56,9 @@ impl {{ struct_name }} {
             .and_then(|v| v.string())
             .unwrap_or("unknown".into())
             .to_string();
-        Self { php_obj_zval: zval, cached_name }
+        Self {
+            php_obj: php_obj as *mut _,
+            cached_name,
+        }
     }
 }

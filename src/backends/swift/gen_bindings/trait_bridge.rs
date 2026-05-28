@@ -134,8 +134,12 @@ fn gen_single_trait_bridge_file(
             swift_return_type(&method.return_type, exclude_types)
         };
 
+        // Build async/throws keywords for the adapter method signature
+        let async_kw = if method.is_async { " async" } else { "" };
+        let throws_kw = if method.error_type.is_some() { " throws" } else { "" };
+
         out.push_str(&format!(
-            "    func {method_camel}Call({params_sig}) -> {return_type} {{\n"
+            "    func {method_camel}Call({params_sig}){async_kw}{throws_kw} -> {return_type} {{\n"
         ));
 
         // Generate method body: construct call arguments and handle return value.
@@ -144,16 +148,27 @@ fn gen_single_trait_bridge_file(
 
         if method.error_type.is_some() {
             // Error-returning method: wrap result in try-catch and return JSON envelope
+            let await_kw = if method.is_async { "await " } else { "" };
             out.push_str(&format!(
                 "        do {{\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20let result = try self.bridge.{method_camel}({call_args_str})\n"
+                 \x20\x20\x20\x20\x20\x20\x20\x20let result = {await_kw}try self.bridge.{method_camel}({call_args_str})\n"
             ));
-            out.push_str(&format!(
-                "            return marshal_ok_result({call_expr})\n\
-                 \x20\x20\x20\x20}} catch {{\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                 \x20\x20\x20\x20}}\n"
-            ));
+            // Special case: if return type is Void, don't try to marshal it
+            if matches!(method.return_type, TypeRef::Unit) {
+                out.push_str(
+                    "            return marshal_ok_result(Empty())\n\
+                     \x20\x20\x20\x20} catch {\n\
+                     \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                     \x20\x20\x20\x20}\n",
+                );
+            } else {
+                out.push_str(&format!(
+                    "            return marshal_ok_result({call_expr})\n\
+                     \x20\x20\x20\x20}} catch {{\n\
+                     \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                     \x20\x20\x20\x20}}\n"
+                ));
+            }
         } else if method.is_async {
             // Async method without error: return the result directly (already marshalled)
             out.push_str(&format!(
@@ -176,7 +191,8 @@ fn gen_single_trait_bridge_file(
     // MARK: Helper functions for marshalling
     out.push_str("// MARK: - Marshalling helpers\n\n");
     out.push_str(
-        "private func marshal_ok_result<T: Encodable>(_ value: T) -> String {\n\
+        "private struct Empty: Codable {}\n\n\
+         private func marshal_ok_result<T: Encodable>(_ value: T) -> String {\n\
          \x20\x20\x20\x20let encoder = JSONEncoder()\n\
          \x20\x20\x20\x20if let data = try? encoder.encode(value),\n\
          \x20\x20\x20\x20   let jsonString = String(data: data, encoding: .utf8) {\n\
@@ -296,11 +312,15 @@ fn build_adapter_call_expr(
 
     // Build the return expression — marshal the result back to the boundary type
     let return_expr = match &method.return_type {
+        TypeRef::Unit => {
+            // Unit/Void: no result to marshal, handled separately in method body
+            "result".to_string()
+        }
         TypeRef::Named(name) if exclude_types.contains(name) => {
             // Excluded type: encode to JSON string
-            "try JSONEncoder().encode(result)...".to_string() // Placeholder
+            "try JSONEncoder().encode(result)".to_string()
         }
-        TypeRef::String | TypeRef::Bytes | TypeRef::Primitive(_) | TypeRef::Unit => "result".to_string(),
+        TypeRef::String | TypeRef::Bytes | TypeRef::Primitive(_) => "result".to_string(),
         _ => "result".to_string(), // Other types pass through
     };
 

@@ -33,7 +33,7 @@ pub struct PhpBridgeGenerator {
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        "ext_php_rs::types::Zval"
+        "*mut ext_php_rs::types::ZendObject"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
