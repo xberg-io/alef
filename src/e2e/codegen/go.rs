@@ -3892,9 +3892,11 @@ pub fn emit_test_backend_with_context(
         // in ways that exclude them from the binding interface.
         // For return types: skip if directly excluded OR Optional<excluded>.
         // Don't skip Result<excluded> because binding generation converts those.
-        if should_skip_method_with_type(&method.return_type, excluded_types, method.error_type.is_some())
-            || method.params.iter().any(|p| should_skip_method_with_type(&p.ty, excluded_types, false))
-        {
+        // Skip methods whose return type is excluded in a way that excludes them
+        // from the binding interface (directly excluded or Optional<excluded>).
+        // Don't skip Result<excluded> because binding generation converts those.
+        // Parameters with excluded types are OK - binding generation converts those.
+        if should_skip_method_with_type(&method.return_type, excluded_types, method.error_type.is_some()) {
             continue;
         }
         let go_method = method_to_camel(&method.name);
@@ -4391,7 +4393,7 @@ mod trait_bridge_tests {
             "extract_bytes",
             vec![("content", TypeRef::Bytes)],
             TypeRef::Named("InternalDocument".to_string()), // In IR; becomes json.RawMessage in binding
-            true, // has_error_type = true
+            true,                                           // has_error_type = true
         );
 
         // Method 3: normal method with non-excluded types → should be EMITTED
