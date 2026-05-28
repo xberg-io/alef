@@ -158,8 +158,7 @@ fn apply_shebang_chmod(path: &std::path::Path, content: &str) -> anyhow::Result<
     use std::os::unix::fs::PermissionsExt;
     if content.starts_with("#!") {
         let perms = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(path, perms)
-            .with_context(|| format!("failed to chmod 755 {}", path.display()))?;
+        std::fs::set_permissions(path, perms).with_context(|| format!("failed to chmod 755 {}", path.display()))?;
     }
     Ok(())
 }
@@ -1196,5 +1195,63 @@ mod write_scaffold_normalize_tests {
         // edition key outside [package] must not be returned.
         let toml = "[workspace]\nedition = \"2021\"\n[package]\nname = \"x\"\n";
         assert_eq!(parse_package_edition(toml), None);
+    }
+
+    /// `write_scaffold_files_with_overwrite` must set the executable bit on files
+    /// whose content begins with a shebang line, matching the behaviour of
+    /// `write_files`. Previously the scaffold writer lacked the chmod call, so
+    /// generated shell scripts (e.g. `download_ffi.sh`, `run_tests.sh`) landed
+    /// as `-rw-r--r--` and consumers could not execute them.
+    #[cfg(unix)]
+    #[test]
+    fn test_scaffold_write_sets_executable_bit_for_shebang_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        let shebang_content = "#!/usr/bin/env bash\nset -euo pipefail\necho hello\n";
+        let file = GeneratedFile {
+            path: std::path::PathBuf::from("run_tests.sh"),
+            content: shebang_content.to_owned(),
+            generated_header: false,
+        };
+
+        write_scaffold_files_with_overwrite(&[file], base, true).expect("write ok");
+
+        let path = base.join("run_tests.sh");
+        let metadata = std::fs::metadata(&path).expect("metadata");
+        let mode = metadata.permissions().mode();
+        assert!(
+            mode & 0o100 != 0,
+            "shebang file must have owner-executable bit set, got mode {mode:#o}"
+        );
+    }
+
+    /// Non-shebang files must NOT receive the executable bit.
+    #[cfg(unix)]
+    #[test]
+    fn test_scaffold_write_does_not_set_executable_bit_for_non_shebang_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        let plain_content = "# not a shebang\nsome content\n";
+        let file = GeneratedFile {
+            path: std::path::PathBuf::from("plain.sh"),
+            content: plain_content.to_owned(),
+            generated_header: false,
+        };
+
+        write_scaffold_files_with_overwrite(&[file], base, true).expect("write ok");
+
+        let path = base.join("plain.sh");
+        let metadata = std::fs::metadata(&path).expect("metadata");
+        let mode = metadata.permissions().mode();
+        assert!(
+            mode & 0o111 == 0,
+            "non-shebang file must not have any executable bit set, got mode {mode:#o}"
+        );
     }
 }
