@@ -752,6 +752,30 @@ fn render_test_case(
     let test_name = sanitize_ident(&fixture.id);
     let test_label = fixture.id.replace('"', "\\\"");
 
+    // Helper function to extract module-level definitions from a setup_block that may
+    // contain a trait-bridge marker. Trait-bridge setup blocks are formatted as:
+    //   <module definitions ending with "end\n">
+    //   \n__TRAIT_BRIDGE_MODULE_DEFS_END__\n
+    //   <test-function-level setup>
+    // We split on the marker and emit module defs before the test, then use only the setup part.
+    fn extract_trait_bridge_parts(setup_block: &str) -> (String, String) {
+        if let Some(pos) = setup_block.find("__TRAIT_BRIDGE_MODULE_DEFS_END__") {
+            // Find the start and end of the marker line
+            let marker_start = setup_block[..pos].rfind('\n').unwrap_or(0);
+            let marker_end = if let Some(nl) = setup_block[pos + 32..].find('\n') {
+                pos + 32 + nl + 1
+            } else {
+                setup_block.len()
+            };
+            let module_defs = setup_block[..marker_start].trim_end().to_string();
+            let test_setup = setup_block[marker_end..].trim_start().to_string();
+            (module_defs, test_setup)
+        } else {
+            // No marker: entire block is test-level setup (legacy or non-trait-bridge code)
+            (String::new(), setup_block.to_string())
+        }
+    }
+
     // Non-HTTP non-mock_response fixtures (e.g. AsyncAPI, WebSocket, OpenRPC
     // protocol-only fixtures) cannot be tested via the configured `[e2e.call]`
     // function when the binding does not expose it. Emit a documented `@tag :skip`
@@ -966,6 +990,37 @@ fn render_test_case(
     // use the real API when the key is set, otherwise fall back to the mock server.
     let needs_env_fallback = has_mock && api_key_var_opt.is_some();
 
+    // Extract trait-bridge module definitions from setup_lines so they can be emitted
+    // at module level (before the describe block), not indented inside the test function.
+    // Trait-bridge setup blocks are formatted with a marker: module defs, then marker, then test setup.
+    let mut trait_bridge_module_defs = Vec::new();
+    let mut cleaned_setup_lines = Vec::new();
+    for line in setup_lines.iter() {
+        if line.contains("__TRAIT_BRIDGE_MODULE_DEFS_END__") {
+            // Split this line on the marker
+            let (module_part, test_part) = extract_trait_bridge_parts(line);
+            // Emit module defs at module level (no indentation)
+            for module_line in module_part.lines() {
+                if !module_line.is_empty() {
+                    trait_bridge_module_defs.push(module_line.to_string());
+                }
+            }
+            // Emit test-level part indented in the test function
+            for test_line in test_part.lines() {
+                if !test_line.is_empty() {
+                    cleaned_setup_lines.push(test_line.to_string());
+                }
+            }
+        } else {
+            cleaned_setup_lines.push(line.clone());
+        }
+    }
+
+    // Emit trait-bridge module definitions at module level (before describe block)
+    for module_def_line in &trait_bridge_module_defs {
+        let _ = writeln!(out, "{module_def_line}");
+    }
+
     let _ = writeln!(out, "  describe \"{test_name}\" do");
     let _ = writeln!(out, "    test \"{test_label}\" do");
 
@@ -982,7 +1037,7 @@ fn render_test_case(
     // and stop emission there, since the rest of the test body would be unreachable.
     if validation_creation_failure {
         let mut emitted_error_assertion = false;
-        for line in &setup_lines {
+        for line in &cleaned_setup_lines {
             if !emitted_error_assertion && line.starts_with("{:ok,") {
                 if let Some(rhs) = line.split_once('=').map(|x| x.1) {
                     let rhs = rhs.trim();
@@ -1018,7 +1073,7 @@ fn render_test_case(
     // non-error path below uses — without it the generated test fails to compile
     // with `undefined variable "client"`.
     if expects_error {
-        for line in &setup_lines {
+        for line in &cleaned_setup_lines {
             let _ = writeln!(out, "      {line}");
         }
         if let Some(factory) = client_factory {
@@ -1050,7 +1105,7 @@ fn render_test_case(
         return;
     }
 
-    for line in &setup_lines {
+    for line in &cleaned_setup_lines {
         let _ = writeln!(out, "      {line}");
     }
 
@@ -2611,16 +2666,17 @@ pub fn emit_test_backend(
     let qualified_module = format!("E2e.TestStubs.{module_name}");
     let genserver_module = format!("{}GenServer", qualified_module);
 
-    let mut setup = String::new();
-    let _ = writeln!(setup, "unless Code.ensure_loaded?({qualified_module}) do");
-    let _ = writeln!(setup, "defmodule {qualified_module} do");
+    // Emit module-level definitions (no leading spaces).
+    let mut module_defs = String::new();
+    let _ = writeln!(module_defs, "unless Code.ensure_loaded?({qualified_module}) do");
+    let _ = writeln!(module_defs, "defmodule {qualified_module} do");
 
     // If there is a Plugin super-trait, emit `name/0`.
     if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "  def name, do: \"{plugin_name}\"");
+        let _ = writeln!(module_defs, "  def name, do: \"{plugin_name}\"");
         // initialize/0 has a Rust default impl but Rustler calls it unconditionally on
         // every registered plugin object — the Elixir stub must define it.
-        let _ = writeln!(setup, "  def initialize, do: :ok");
+        let _ = writeln!(module_defs, "  def initialize, do: :ok");
     }
 
     // Emit required (non-default) methods.
@@ -2647,53 +2703,61 @@ pub fn emit_test_backend(
         };
 
         if params_str.is_empty() {
-            let _ = writeln!(setup, "  def {}, do: {return_expr}", method.name);
+            let _ = writeln!(module_defs, "  def {}, do: {return_expr}", method.name);
         } else {
-            let _ = writeln!(setup, "  def {}({params_str}), do: {return_expr}", method.name);
+            let _ = writeln!(module_defs, "  def {}({params_str}), do: {return_expr}", method.name);
         }
     }
 
-    let _ = writeln!(setup, "end");
-    let _ = writeln!(setup, "end");
+    let _ = writeln!(module_defs, "end");
+    let _ = writeln!(module_defs, "end");
 
     // Emit the GenServer wrapper that Rustler NIFs can call via PID message passing.
     // Messages arrive as {:trait_call, method_atom, args_json_string, reply_id}.
     // The GenServer calls the stub module method, serializes the result to JSON, and
     // passes it back to the NIF's complete_trait_call/2 which unblocks the waiting Rust thread.
-    let _ = writeln!(setup, "unless Code.ensure_loaded?({genserver_module}) do");
-    let _ = writeln!(setup, "defmodule {genserver_module} do");
-    let _ = writeln!(setup, "  use GenServer");
-    let _ = writeln!(setup);
-    let _ = writeln!(setup, "  def start_link(_opts) do");
-    let _ = writeln!(setup, "    GenServer.start_link(__MODULE__, nil)");
-    let _ = writeln!(setup, "  end");
-    let _ = writeln!(setup);
-    let _ = writeln!(setup, "  @impl true");
-    let _ = writeln!(setup, "  def init(_), do: {{:ok, nil}}");
-    let _ = writeln!(setup);
-    let _ = writeln!(setup, "  @impl true");
+    let _ = writeln!(module_defs, "unless Code.ensure_loaded?({genserver_module}) do");
+    let _ = writeln!(module_defs, "defmodule {genserver_module} do");
+    let _ = writeln!(module_defs, "  use GenServer");
+    let _ = writeln!(module_defs);
+    let _ = writeln!(module_defs, "  def start_link(_opts) do");
+    let _ = writeln!(module_defs, "    GenServer.start_link(__MODULE__, nil)");
+    let _ = writeln!(module_defs, "  end");
+    let _ = writeln!(module_defs);
+    let _ = writeln!(module_defs, "  @impl true");
+    let _ = writeln!(module_defs, "  def init(_), do: {{:ok, nil}}");
+    let _ = writeln!(module_defs);
+    let _ = writeln!(module_defs, "  @impl true");
     let _ = writeln!(
-        setup,
+        module_defs,
         "  def handle_info({{:trait_call, method_atom, args_json, reply_id}}, state) do"
     );
-    let _ = writeln!(setup, "    args = Jason.decode!(args_json)");
-    let _ = writeln!(setup, "    result = apply({qualified_module}, method_atom, args)");
-    let _ = writeln!(setup, "    result_json = Jason.encode!(result)");
+    let _ = writeln!(module_defs, "    args = Jason.decode!(args_json)");
+    let _ = writeln!(module_defs, "    result = apply({qualified_module}, method_atom, args)");
+    let _ = writeln!(module_defs, "    result_json = Jason.encode!(result)");
     let _ = writeln!(
-        setup,
+        module_defs,
         "    {effective_nif_module}.complete_trait_call(reply_id, result_json)"
     );
-    let _ = writeln!(setup, "    {{:noreply, state}}");
-    let _ = writeln!(setup, "  end");
-    let _ = writeln!(setup, "end");
-    let _ = writeln!(setup, "end");
+    let _ = writeln!(module_defs, "    {{:noreply, state}}");
+    let _ = writeln!(module_defs, "  end");
+    let _ = writeln!(module_defs, "end");
+    let _ = writeln!(module_defs, "end");
 
-    // Start the GenServer and capture its PID.
+    // Emit the test-function-level code: start the GenServer and capture its PID.
+    // This will be indented when rendered inside the test function.
     let pid_var = format!("{}_pid", pascal_id.to_lowercase());
-    let _ = writeln!(setup, "{{:ok, {pid_var}}} = {genserver_module}.start_link(nil)");
+    let mut test_setup = String::new();
+    let _ = writeln!(test_setup, "{{:ok, {pid_var}}} = {genserver_module}.start_link(nil)");
+
+    // Combine both parts with a separator so we can split them during rendering.
+    // Use `\n__TRAIT_BRIDGE_MODULE_DEFS_END__\n` as a marker.
+    let mut combined_setup = module_defs;
+    combined_setup.push_str("\n__TRAIT_BRIDGE_MODULE_DEFS_END__\n");
+    combined_setup.push_str(&test_setup);
 
     super::TestBackendEmission {
-        setup_block: setup,
+        setup_block: combined_setup,
         arg_expr: pid_var,
         type_imports: Vec::new(),
     }
