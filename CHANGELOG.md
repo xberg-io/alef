@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef kotlin e2e: handle nullable bare results in string assertions.** When a Kotlin function returns an optional type (T?) and an e2e fixture calls it without specifying a field path, the generated assertion operates on the bare result. If `result_is_option=true`, string operations like `.trim()` fail with a Kotlin compile error ("Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver"). The fix detects bare nullable results in `render_assertion` and applies `.orEmpty()` to convert them to non-null empty strings, allowing string operations to proceed safely. This preserves assertion semantics for both kotlin and kotlin_android targets. Generated tests now compile successfully when calling nullable-returning functions like `detectLanguageFromContent()`. (`src/e2e/codegen/kotlin.rs`)
+
 ## [0.20.1] - 2026-05-28
 
 ### Fixed
