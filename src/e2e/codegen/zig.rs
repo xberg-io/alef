@@ -28,9 +28,9 @@ fn supported_zig_platforms() -> Vec<(&'static str, &'static str)> {
     vec![
         ("linux-x86_64", "linux-x86_64"),
         ("linux-aarch64", "linux-aarch64"),
-        ("macos-amd64", "macos-amd64"),
+        ("macos-x86_64", "macos-x86_64"),
         ("macos-arm64", "macos-arm64"),
-        ("windows-x64", "windows-x64"),
+        ("windows-x86_64", "windows-x86_64"),
     ]
 }
 
@@ -598,8 +598,8 @@ pub fn build(b: *std.Build) void {{
     const pkg_name = if (builtin.target.os.tag == .linux) (
         if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_linux_x86_64" else "{pkg_name}_linux_aarch64")
     else if (builtin.target.os.tag == .macos) (
-        if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_macos_amd64" else "{pkg_name}_macos_arm64")
-    else if (builtin.target.os.tag == .windows) "{pkg_name}_windows_x64"
+        if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_macos_x86_64" else "{pkg_name}_macos_arm64")
+    else if (builtin.target.os.tag == .windows) "{pkg_name}_windows_x86_64"
     else @compileError("unsupported platform for this Zig package");
 
     const test_step = b.step("test", "Run tests");
@@ -649,12 +649,12 @@ pub fn build(b: *std.Build) void {
             content.push_str("\")\n");
             content.push_str("    else if (builtin.target.os.tag == .macos) (\n");
             content.push_str("        if (builtin.target.cpu.arch == .x86_64) \"");
-            content.push_str(&format!("{pkg_name}_macos_amd64"));
+            content.push_str(&format!("{pkg_name}_macos_x86_64"));
             content.push_str("\" else \"");
             content.push_str(&format!("{pkg_name}_macos_arm64"));
             content.push_str("\")\n");
             content.push_str("    else if (builtin.target.os.tag == .windows) \"");
-            content.push_str(&format!("{pkg_name}_windows_x64"));
+            content.push_str(&format!("{pkg_name}_windows_x86_64"));
             content.push_str("\"");
             content.push_str(" else @compileError(\"unsupported platform for this Zig package\");\n\n");
             let _ = writeln!(
