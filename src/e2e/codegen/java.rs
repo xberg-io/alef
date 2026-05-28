@@ -1749,7 +1749,13 @@ fn build_args_and_setup(
                     excluded_named.insert("ProcessingStage");
                     excluded_named.insert("SyncExtractor");
                     // Call java::emit_test_backend_with_context so stubs handle excluded types correctly.
-                    let emission = emit_test_backend_with_context(trait_bridge, &methods, fixture, &config.java_package(), &excluded_named);
+                    let emission = emit_test_backend_with_context(
+                        trait_bridge,
+                        &methods,
+                        fixture,
+                        &config.java_package(),
+                        &excluded_named,
+                    );
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
@@ -3125,13 +3131,7 @@ pub fn emit_test_backend(
     fixture: &crate::e2e::fixture::Fixture,
     binding_pkg: &str,
 ) -> super::TestBackendEmission {
-    emit_test_backend_with_context(
-        trait_bridge,
-        methods,
-        fixture,
-        binding_pkg,
-        &Default::default(),
-    )
+    emit_test_backend_with_context(trait_bridge, methods, fixture, binding_pkg, &Default::default())
 }
 
 /// Like `emit_test_backend` but with excluded_types context.
@@ -3185,7 +3185,14 @@ pub fn emit_test_backend_with_context(
                     "    public String {method_java}() {{ return \"{plugin_name}\"; }}"
                 );
             } else {
-                emit_java_stub_method_with_context(&mut setup, &method_java, method, &*defaults, binding_pkg, excluded_types);
+                emit_java_stub_method_with_context(
+                    &mut setup,
+                    &method_java,
+                    method,
+                    &*defaults,
+                    binding_pkg,
+                    excluded_types,
+                );
             }
         }
     }
@@ -3203,7 +3210,14 @@ pub fn emit_test_backend_with_context(
             continue;
         }
         let method_java = method.name.to_lower_camel_case();
-        emit_java_stub_method_with_context(&mut setup, &method_java, method, &*defaults, binding_pkg, excluded_types);
+        emit_java_stub_method_with_context(
+            &mut setup,
+            &method_java,
+            method,
+            &*defaults,
+            binding_pkg,
+            excluded_types,
+        );
     }
 
     let _ = writeln!(setup, "}}");
