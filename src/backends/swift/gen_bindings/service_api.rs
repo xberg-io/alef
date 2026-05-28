@@ -80,11 +80,17 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     // Opaque handle field
     out.push_str("    private var opaqueHandle: OpaquePointer?\n\n");
 
-    // Registry to keep handler closures alive (ARC)
-    out.push_str("    /// Registry of handler closures, keyed by registration index.\n");
-    out.push_str("    /// Keeps closures alive for the lifetime of the service.\n");
-    out.push_str("    private var handlerRegistry: [Int: (String) -> String] = [:]\n");
-    out.push_str("    private var handlerRegistryIndex: Int = 0\n\n");
+    // Retained handler boxes; the trampoline context is a pointer to one of these.
+    out.push_str("    /// Retained handler boxes. Each box is passed to the C layer as the\n");
+    out.push_str("    /// trampoline context pointer and released in `deinit` to avoid leaks.\n");
+    out.push_str("    private var handlerBoxes: [UnsafeMutableRawPointer] = []\n\n");
+
+    // Reference-type box so a closure can cross the C FFI boundary via an opaque pointer.
+    out.push_str("    /// Boxes a handler closure so it can travel through a C context pointer.\n");
+    out.push_str("    private final class HandlerBox {\n");
+    out.push_str("        let handler: (String) -> String\n");
+    out.push_str("        init(_ handler: @escaping (String) -> String) { self.handler = handler }\n");
+    out.push_str("    }\n\n");
 
     // Constructor
     out.push_str("    /// Create a new service instance.\n");
@@ -101,6 +107,11 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     out.push_str(&format!("            RustBridge.{service_snake}Free(handle)\n"));
     out.push_str("            opaqueHandle = nil\n");
     out.push_str("        }\n");
+    out.push_str("        // Release every retained handler box.\n");
+    out.push_str("        for boxPtr in handlerBoxes {\n");
+    out.push_str("            Unmanaged<HandlerBox>.fromOpaque(boxPtr).release()\n");
+    out.push_str("        }\n");
+    out.push_str("        handlerBoxes.removeAll()\n");
     out.push_str("    }\n\n");
 
     // Registration methods
@@ -152,44 +163,39 @@ fn gen_registration_method(
         "    public func {method_camel}(_ handler: @escaping (String) -> String{meta_sig}) {{\n"
     ));
 
-    // Store handler in registry with index
-    out.push_str("        let handlerIndex = handlerRegistryIndex\n");
-    out.push_str("        handlerRegistryIndex += 1\n");
-    out.push_str("        handlerRegistry[handlerIndex] = handler\n\n");
+    // Box the handler and retain it; the box pointer is the trampoline context.
+    out.push_str("        // Box the handler and retain it; the box pointer is passed to the\n");
+    out.push_str("        // C layer as the trampoline context and released in deinit.\n");
+    out.push_str("        let handlerBox = HandlerBox(handler)\n");
+    out.push_str("        let contextPtr = Unmanaged.passRetained(handlerBox).toOpaque()\n");
+    out.push_str("        handlerBoxes.append(contextPtr)\n\n");
 
-    // Emit C-compatible trampoline and call registration function
+    // Emit C-compatible trampoline that recovers the boxed handler and invokes it.
     out.push_str("        // Create a C-compatible callback wrapper\n");
     out.push_str("        let trampolineFunc: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? = { contextPtr, requestPtr in\n");
     out.push_str("            guard let contextPtr = contextPtr else { return nil }\n");
     out.push_str("            guard let requestPtr = requestPtr else { return nil }\n\n");
 
-    // Recover the handler from context (stored as an Int index)
-    out.push_str("            // Recover the service instance from context\n");
+    // Recover the boxed handler from the context pointer.
+    out.push_str("            // Recover the boxed handler closure from the context pointer\n");
     out.push_str(
-        "            let service = Unmanaged<AnyObject>.fromOpaque(contextPtr).takeUnretainedValue() as! MyService\n",
+        "            let handlerBox = Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()\n",
     );
-    out.push_str("            let handlerIndex = Int(bitPattern: contextPtr)\n\n");
+    out.push_str("            let requestJSON = String(cString: requestPtr)\n");
+    out.push_str("            let responseJSON = handlerBox.handler(requestJSON)\n\n");
 
-    // Call the handler
-    out.push_str("            if let handler = service.handlerRegistry[handlerIndex] {\n");
-    out.push_str("                let requestJSON = String(cString: requestPtr)\n");
-    out.push_str("                let responseJSON = handler(requestJSON)\n\n");
-
-    // Allocate and return response
-    out.push_str("                // Allocate response string on C heap (caller must free)\n");
-    out.push_str("                let responseBytes = responseJSON.utf8CString\n");
+    // Allocate and return response (caller frees).
+    out.push_str("            // Allocate response string on C heap (caller must free)\n");
+    out.push_str("            let responseBytes = responseJSON.utf8CString\n");
     out.push_str(
-        "                let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n",
+        "            let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n",
     );
-    out.push_str("                responsePtr.initialize(from: responseBytes, count: responseBytes.count)\n");
-    out.push_str("                return responsePtr\n");
-    out.push_str("            }\n");
-    out.push_str("            return nil\n");
+    out.push_str("            responsePtr.initialize(from: responseBytes, count: responseBytes.count)\n");
+    out.push_str("            return responsePtr\n");
     out.push_str("        }\n\n");
 
     // Call C registration function with metadata
     out.push_str("        guard let handle = opaqueHandle else { return }\n\n");
-    out.push_str("        let contextPtr = Unmanaged.passUnretained(self as AnyObject).toOpaque()\n");
     let method_camel_upper = format!(
         "{}{}",
         method_camel.chars().next().unwrap().to_uppercase(),
@@ -469,18 +475,35 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_service_swift_contains_handler_registry() {
+    fn test_gen_service_swift_boxes_handler() {
         let api = make_fixture_surface();
         let service = &api.services[0];
         let output = gen_service_swift(&api, service);
 
         assert!(
-            output.contains("private var handlerRegistry"),
-            "expected handler registry field:\n{output}"
+            output.contains("private final class HandlerBox"),
+            "expected HandlerBox reference type:\n{output}"
         );
         assert!(
-            output.contains("handlerRegistryIndex"),
-            "expected handler registry index field:\n{output}"
+            output.contains("private var handlerBoxes: [UnsafeMutableRawPointer]"),
+            "expected retained-box tracking array:\n{output}"
+        );
+        assert!(
+            output.contains("Unmanaged.passRetained(handlerBox).toOpaque()"),
+            "expected the handler box to be retained as the context pointer:\n{output}"
+        );
+        assert!(
+            output.contains("Unmanaged<HandlerBox>.fromOpaque(boxPtr).release()"),
+            "expected boxes to be released in deinit:\n{output}"
+        );
+        // The broken dual-meaning context model must be gone.
+        assert!(
+            !output.contains("handlerRegistry"),
+            "stale handlerRegistry field should be removed:\n{output}"
+        );
+        assert!(
+            !output.contains("Int(bitPattern: contextPtr)"),
+            "broken bitPattern-as-index lookup should be removed:\n{output}"
         );
     }
 
@@ -511,12 +534,12 @@ mod tests {
         let output = gen_service_swift(&api, service);
 
         assert!(
-            output.contains("Unmanaged"),
-            "expected Unmanaged for context recovery:\n{output}"
+            output.contains("Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()"),
+            "expected the boxed handler to be recovered from the context pointer:\n{output}"
         );
         assert!(
-            output.contains("handlerRegistry"),
-            "expected handler registry access in trampoline:\n{output}"
+            output.contains("handlerBox.handler(requestJSON)"),
+            "expected the recovered handler to be invoked with the request:\n{output}"
         );
     }
 

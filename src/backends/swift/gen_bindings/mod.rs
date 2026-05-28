@@ -502,11 +502,11 @@ impl Backend for SwiftBackend {
             });
         }
 
-        // Emit service API classes if services are configured
-        let service_files = service_api::generate(api, config)?;
-        files.extend(service_files);
-
         Ok(files)
+    }
+
+    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
