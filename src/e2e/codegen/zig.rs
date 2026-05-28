@@ -2881,14 +2881,10 @@ fn emit_test_backend_inner(
         }
         let param_list = params.join(", ");
 
-        let is_fallible = method.error_type.is_some();
-        let ret_sig = if is_fallible {
-            if matches!(method.return_type, TypeRef::Unit) {
-                "!void".to_string()
-            } else {
-                format!("!{ret_ty}")
-            }
-        } else if matches!(method.return_type, TypeRef::Unit) {
+        // Test stub methods DO NOT use error unions.
+        // Error handling happens at the C FFI boundary (in the vtable thunks),
+        // not in the test stub methods themselves.
+        let ret_sig = if matches!(method.return_type, TypeRef::Unit) {
             "void".to_string()
         } else {
             ret_ty.clone()

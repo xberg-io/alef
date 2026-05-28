@@ -1,5 +1,5 @@
 pub struct {{ struct_name }} {
-    php_obj: *mut ext_php_rs::types::ZendObject,
+    php_obj_zval: ext_php_rs::types::Zval,
     cached_name: String,
 }
 
@@ -11,7 +11,7 @@ unsafe impl Sync for {{ struct_name }} {}
 impl Clone for {{ struct_name }} {
     fn clone(&self) -> Self {
         Self {
-            php_obj: self.php_obj,
+            php_obj_zval: self.php_obj_zval.clone(),
             cached_name: self.cached_name.clone(),
         }
     }
@@ -25,12 +25,21 @@ impl std::fmt::Debug for {{ struct_name }} {
 
 impl {{ struct_name }} {
     pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {
+        // Create a Zval holding the object reference, which manages the refcount.
+        // This ensures the PHP object is not garbage-collected while we hold a reference.
+        let mut zval = ext_php_rs::types::Zval::new();
+        // SAFETY: We are assigning the object to a Zval, which will increment the refcount.
+        // The object pointer is valid within the current request context.
+        unsafe {
+            zval.object(php_obj);
+        }
+
         let cached_name = php_obj
             .try_call_method("name", vec![])
             .ok()
             .and_then(|v| v.string())
             .unwrap_or("unknown".into())
             .to_string();
-        Self { php_obj: php_obj as *mut _, cached_name }
+        Self { php_obj_zval: zval, cached_name }
     }
 }

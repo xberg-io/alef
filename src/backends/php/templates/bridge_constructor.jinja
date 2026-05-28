@@ -6,6 +6,15 @@ impl {{ wrapper }} {
         // Validation of required methods is done in the registration function below.
         // Skipping debug_assert in constructor to avoid type issues with get_property.
 
+        // Create a Zval holding the object reference, which manages the refcount.
+        // This ensures the PHP object is not garbage-collected while we hold a reference.
+        let mut zval = ext_php_rs::types::Zval::new();
+        // SAFETY: We are assigning the object to a Zval, which will increment the refcount.
+        // The object pointer is valid within the current request context.
+        unsafe {
+            zval.object(php_obj);
+        }
+
         // Extract and cache name
         let cached_name = php_obj
             .try_call_method("name", vec![])
@@ -15,14 +24,13 @@ impl {{ wrapper }} {
             .to_string();
 
         Self {
-            inner: php_obj as *mut _,
+            inner: zval,
             cached_name,
         }
     }
 }
 
 // SAFETY: PHP is single-threaded within a request context.
-// The raw pointer to ZendObject is only used within a single PHP request
-// and is never accessed concurrently from multiple threads.
+// Zval automatically manages reference counting for the contained object.
 unsafe impl Send for {{ wrapper }} {}
 unsafe impl Sync for {{ wrapper }} {}

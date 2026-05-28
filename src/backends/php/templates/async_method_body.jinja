@@ -1,4 +1,4 @@
-let inner_obj = self.inner;
+let inner_obj = self.inner.clone();
 let cached_name = self.cached_name.clone();
 {% for param_name in string_params %}
 let {{ param_name }} = {{ param_name }}.to_string();
@@ -6,8 +6,14 @@ let {{ param_name }} = {{ param_name }}.to_string();
 
 // SAFETY: PHP objects are single-threaded within a request.
 // The block_on executes within the async runtime.
+// inner_obj is a Zval clone that maintains the reference count.
 WORKER_RUNTIME.block_on(async {
-    match unsafe { (*inner_obj).try_call_method("{{ method_name }}", {{ args_expr }}) } {
+    let result = if let Some(obj) = inner_obj.object() {
+        unsafe { (*obj).try_call_method("{{ method_name }}", {{ args_expr }}) }
+    } else {
+        Err(ext_php_rs::error::Error::InvalidObject)
+    };
+    match result {
 {% if is_result_type %}
         Ok(val) => {
             let json_str = val.string().unwrap_or_default();

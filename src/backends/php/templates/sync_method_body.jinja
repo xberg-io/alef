@@ -1,5 +1,10 @@
 // SAFETY: PHP objects are single-threaded; method calls are safe within a request.
-let result = unsafe { (*self.inner).try_call_method("{{ method_name }}", {{ args_expr }}) };
+// self.inner is a Zval holding the object, which maintains the reference count.
+let result = if let Some(obj) = self.inner.object() {
+    unsafe { (*obj).try_call_method("{{ method_name }}", {{ args_expr }}) }
+} else {
+    Err(ext_php_rs::error::Error::InvalidObject)
+};
 {% if is_result_type %}
 match result {
 {% if is_unit_return %}
