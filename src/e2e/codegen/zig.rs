@@ -2788,6 +2788,21 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef, _excluded_types: &std::colle
     }
 }
 
+/// Emit FFI-appropriate default value for stub return type.
+/// Stub types are C FFI types, so we use Zig/C appropriate literals.
+fn zig_stub_default_value(stub_type: &str) -> String {
+    match stub_type {
+        "[*c]const u8" => "\"\"".to_string(),
+        "?[*c]const u8" => "null".to_string(),
+        "void" => "".to_string(),
+        "i32" | "i16" | "i8" => "0".to_string(),
+        "i64" => "0".to_string(),
+        "u8" | "u16" | "u32" | "u64" => "0".to_string(),
+        "f32" | "f64" => "0.0".to_string(),
+        _ => "undefined".to_string(),
+    }
+}
+
 /// Emit a Zig test backend stub with excluded type handling.
 ///
 /// Wraps `emit_test_backend_inner` with an excluded types set passed through
@@ -2832,7 +2847,7 @@ fn emit_test_backend_inner(
     use crate::codegen::defaults::language_defaults;
     use crate::core::ir::TypeRef;
 
-    let defaults = language_defaults("zig");
+    let _defaults = language_defaults("zig");
     let id_snake = crate::e2e::escape::sanitize_ident(&fixture.id.to_snake_case());
     let struct_name = format!("TestStub_{id_snake}");
     let var_name = format!("stub_{id_snake}");
@@ -2843,6 +2858,9 @@ fn emit_test_backend_inner(
 
     // No leading indent: caller splits by lines and adds 4 spaces per line (test body indent).
     let _ = writeln!(setup, "const {struct_name} = struct {{");
+
+    // Use standard defaults for super-trait methods that don't return test-specific values.
+    let _defaults = language_defaults("zig");
 
     // Plugin super-trait: `name()` returns a sentinel C-string.
     // Driven from IR — no method names are hardcoded.
@@ -2883,7 +2901,8 @@ fn emit_test_backend_inner(
         }
         let method_snake = method.name.to_snake_case();
         let ret_ty = zig_type_for_stub(&method.return_type, excluded_types);
-        let default_val = defaults.emit_default(&method.return_type);
+        let default_val = zig_stub_default_value(&ret_ty);
+        let _ = _defaults; // unused but imported for future use
 
         // Build Zig parameter list (self first using @This(), then method params).
         // Zig does not allow using a type name inside its own definition, so use @This().
