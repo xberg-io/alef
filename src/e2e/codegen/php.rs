@@ -2627,8 +2627,13 @@ pub fn emit_test_backend_with_ns(
         // Named types are not defined in the PHP binding scope.  The PHP bridge
         // deserialises the return value via json_decode, so return a JSON-safe
         // empty-object string instead of attempting a constructor call.
+        //
+        // For numeric types in test backends, use 1 instead of 0 to satisfy validation
+        // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
         let default_val = match &method.return_type {
             TypeRef::Named(_) => "'{}'".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "false".to_string(),
+            TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
             other => defaults.emit_default(other),
         };
         // Parameter list: positional only (PHP is duck-typed; we omit type hints for simplicity).

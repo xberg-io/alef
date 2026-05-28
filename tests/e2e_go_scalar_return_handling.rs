@@ -132,11 +132,12 @@ fn test_go_bool_return_not_treated_as_error() {
         .generate(&groups, &e2e_config, &config, &[], &[])
         .expect("code generation should succeed");
 
-    // Find the test file
+    // Find the file holding the test body. main_test.go / helpers_test.go also
+    // end in `_test.go` but carry no test function — match on the call site.
     let test_file = generated
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("_test.go"))
-        .expect("_test.go should be generated");
+        .find(|f| f.path.to_string_lossy().contains("_test.go") && f.content.contains("HasLanguage"))
+        .expect("a _test.go file exercising HasLanguage should be generated");
 
     let content = &test_file.content;
 
@@ -166,10 +167,11 @@ fn test_go_uint_return_not_treated_as_error() {
         .generate(&groups, &e2e_config, &config, &[], &[])
         .expect("code generation should succeed");
 
+    // Find the file holding the test body (see the bool test for the rationale).
     let test_file = generated
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("_test.go"))
-        .expect("_test.go should be generated");
+        .find(|f| f.path.to_string_lossy().contains("_test.go") && f.content.contains("LanguageCount"))
+        .expect("a _test.go file exercising LanguageCount should be generated");
 
     let content = &test_file.content;
 

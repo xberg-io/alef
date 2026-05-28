@@ -2430,7 +2430,7 @@ pub fn emit_test_backend(
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
-    use crate::core::ir::TypeRef;
+    use crate::core::ir::{PrimitiveType, TypeRef};
 
     let defaults = language_defaults("ruby");
     let safe_id = sanitize_ident(&fixture.id);
@@ -2463,8 +2463,13 @@ pub fn emit_test_backend(
         // Named types are not defined in the Ruby binding scope.  The Magnus bridge
         // tries String#to_s then falls back to .to_json, so return a JSON-safe empty
         // object string '{}'  that round-trips through serde_json.
+        //
+        // For numeric types in test backends, use 1 instead of 0 to satisfy validation
+        // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
         let default_val = match &method.return_type {
             TypeRef::Named(_) => "'{}'".to_string(),
+            TypeRef::Primitive(PrimitiveType::Bool) => "false".to_string(),
+            TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
             other => defaults.emit_default(other),
         };
         if param_str.is_empty() {

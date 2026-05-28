@@ -527,18 +527,18 @@ fn gen_single_trait_bridge(
         } else {
             callbacks.push_str(&render(
                 "callback_result_call.jinja",
-                minijinja::context! { method_pascal, param_call },
+                minijinja::context! { method_pascal, param_call, result_var => "methodResult" },
             ));
             let is_non_api_return =
                 matches!(&method.return_type, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
             let serialize_expr = if is_non_api_return {
                 // Non-API Named types: serialize as JSON string
-                "ToJsonString(result)".to_string()
+                "ToJsonString(methodResult)".to_string()
             } else if matches!(method.return_type, TypeRef::Named(_)) {
                 // API Named types: use ToFfiJson()
-                "result.ToFfiJson()".to_string()
+                "methodResult.ToFfiJson()".to_string()
             } else {
-                "ToJsonString(result)".to_string()
+                "ToJsonString(methodResult)".to_string()
             };
             callbacks.push_str(&render(
                 "callback_result_serialize.jinja",
