@@ -382,7 +382,7 @@ pub fn emit_test_backend(
         "typescript" | "wasm" => typescript::emit_test_backend(trait_bridge, methods, fixture),
         "node" => typescript::emit_test_backend(trait_bridge, methods, fixture), // node uses typescript codegen
         "go" => go::emit_test_backend(trait_bridge, methods, fixture),
-        "java" => java::emit_test_backend(trait_bridge, methods, fixture),
+        "java" => java::emit_test_backend(trait_bridge, methods, fixture, ""),
         "kotlin" => kotlin::emit_test_backend(trait_bridge, methods, fixture),
         "kotlin_android" => kotlin_android::emit_test_backend(trait_bridge, methods, fixture),
         "csharp" => csharp::emit_test_backend(trait_bridge, methods, fixture),

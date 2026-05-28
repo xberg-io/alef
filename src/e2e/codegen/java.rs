@@ -1716,12 +1716,24 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
-                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                    let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                         .iter()
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
-                    let emission = crate::e2e::codegen::emit_test_backend("java", trait_bridge, &methods, fixture);
+                    // Include super-trait methods so the stub can implement them.
+                    if let Some(super_trait) = &trait_bridge.super_trait {
+                        if let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait) {
+                            for method in &super_type.methods {
+                                if !methods.iter().any(|m| m.name == method.name) {
+                                    methods.push(method);
+                                }
+                            }
+                        }
+                    }
+                    // Call java::emit_test_backend directly (not the generic dispatch) so
+                    // we can pass the actual binding package for proper type qualification.
+                    let emission = emit_test_backend(trait_bridge, &methods, fixture, &config.java_package());
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
@@ -2809,28 +2821,30 @@ fn method_to_camel(snake: &str) -> String {
 ///
 /// Uses proper Java types from `JavaMapper` for params and return type.
 /// Async methods return `CompletableFuture<T>` completed with the default value.
+/// `binding_pkg` qualifies named types with the actual binding package (e.g. `dev.kreuzberg`).
 fn emit_java_stub_method(
     out: &mut String,
     method_java: &str,
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    binding_pkg: &str,
 ) {
     use std::fmt::Write as _;
 
-    let ret_java = java_stub_type_fqn(&method.return_type);
+    let ret_java = java_stub_type_fqn(&method.return_type, binding_pkg);
     let default_val = defaults.emit_default(&method.return_type);
 
     // Use java_stub_type_fqn for all parameter types to ensure proper FQN qualification
     let params: Vec<String> = method
         .params
         .iter()
-        .map(|p| format!("{} {}", java_stub_type_fqn(&p.ty), p.name.to_lower_camel_case()))
+        .map(|p| format!("{} {}", java_stub_type_fqn(&p.ty, binding_pkg), p.name.to_lower_camel_case()))
         .collect();
     let params_str = params.join(", ");
 
     let _ = writeln!(out, "    @Override");
     if method.is_async {
-        let ret_boxed = java_boxed_stub_type_fqn(&method.return_type);
+        let ret_boxed = java_boxed_stub_type_fqn(&method.return_type, binding_pkg);
         let _ = writeln!(
             out,
             "    public java.util.concurrent.CompletableFuture<{ret_boxed}> {method_java}({params_str}) {{"
@@ -2878,27 +2892,30 @@ fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 }
 
 /// Map a TypeRef to its Java stub type with fully-qualified names.
-/// For opaque named types (SampleCrate domain types), use `dev.sample_crate.{TypeName}`.
-/// For Collections, use FQN for List/Map with qualified inner types.
-fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
+///
+/// Named types are qualified with `binding_pkg` (e.g. `dev.kreuzberg`) which is the
+/// actual Java package of the binding, matching what the Panama FFM interface declares.
+/// Pass `""` to fall back to unqualified simple names (used by the generic dispatch path).
+fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> String {
     use crate::core::ir::TypeRef;
+    let pkg_prefix = if binding_pkg.is_empty() { String::new() } else { format!("{binding_pkg}.") };
     match ty {
         TypeRef::Named(name) => {
-            // Qualify all named types (ExtractionResult, ProcessingStage, etc.)
-            // with the sample_crate package to match the binding FFI interface.
-            format!("dev.sample_crate.{}", name)
+            // Qualify all named types with the binding package so the generated stub
+            // compiles against the actual interface in the binding jar/module.
+            format!("{pkg_prefix}{name}")
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) => format!("dev.sample_crate.{}", name),
-            other => java_stub_type_fqn(other),
+            TypeRef::Named(name) => format!("{pkg_prefix}{name}"),
+            other => java_stub_type_fqn(other, binding_pkg),
         },
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(name) => format!("java.util.List<dev.sample_crate.{}>", name),
-            other => format!("java.util.List<{}>", java_stub_type_fqn(other)),
+            TypeRef::Named(name) => format!("java.util.List<{pkg_prefix}{name}>"),
+            other => format!("java.util.List<{}>", java_stub_type_fqn(other, binding_pkg)),
         },
         TypeRef::Map(k, v) => {
-            let key_type = java_stub_type_fqn(k);
-            let val_type = java_stub_type_fqn(v);
+            let key_type = java_stub_type_fqn(k, binding_pkg);
+            let val_type = java_stub_type_fqn(v, binding_pkg);
             format!("java.util.Map<{}, {}>", key_type, val_type)
         }
         _ => java_type_fqn(ty),
@@ -2907,12 +2924,12 @@ fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 
 /// Boxed version of java_stub_type_fqn for use as a CompletableFuture generic parameter.
 /// Ensures all types are boxed (no primitives) and fully qualified.
-fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
+fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> String {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Unit => "Void".to_string(),
         _ => {
-            let t = java_stub_type_fqn(ty);
+            let t = java_stub_type_fqn(ty, binding_pkg);
             // Box primitives for use as generic type parameters.
             match t.as_str() {
                 "boolean" => "Boolean".to_string(),
@@ -2935,10 +2952,15 @@ fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 /// methods are overridden with `CompletableFuture.completedFuture(default)` for async
 /// signatures or the direct default value for sync. The `name()` method is emitted when
 /// a Plugin super-trait is configured.
+///
+/// `binding_pkg` is the Java package of the binding (e.g. `dev.kreuzberg`). It is used
+/// to fully-qualify named types in method signatures and the interface name. Pass `""`
+/// when calling from the generic dispatch path (types will be unqualified).
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
+    binding_pkg: &str,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use std::fmt::Write as _;
@@ -2947,7 +2969,11 @@ pub fn emit_test_backend(
     let class_name = format!("TestStub{pascal_id}");
     // Java interface follows the I{TraitName} convention from the Panama FFM bridge.
     // Use fully-qualified name to avoid "cannot find symbol" errors in test compilation.
-    let interface_name = format!("dev.sample_crate.I{}", trait_bridge.trait_name);
+    let interface_name = if binding_pkg.is_empty() {
+        format!("I{}", trait_bridge.trait_name)
+    } else {
+        format!("{binding_pkg}.I{}", trait_bridge.trait_name)
+    };
 
     let plugin_name = fixture
         .input
@@ -2976,7 +3002,7 @@ pub fn emit_test_backend(
                     "    public String {method_java}() {{ return \"{plugin_name}\"; }}"
                 );
             } else {
-                emit_java_stub_method(&mut setup, &method_java, method, &*defaults);
+                emit_java_stub_method(&mut setup, &method_java, method, &*defaults, binding_pkg);
             }
         }
     }
@@ -2995,7 +3021,7 @@ pub fn emit_test_backend(
             continue;
         }
         let method_java = method.name.to_lower_camel_case();
-        emit_java_stub_method(&mut setup, &method_java, method, &*defaults);
+        emit_java_stub_method(&mut setup, &method_java, method, &*defaults, binding_pkg);
     }
 
     let _ = writeln!(setup, "}}");
@@ -3073,7 +3099,8 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        // With empty binding_pkg (generic dispatch path): interface is unqualified.
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
 
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
@@ -3086,6 +3113,10 @@ mod test_backend_tests {
             "must not contain 'sample_crate::', got:\n{output}"
         );
         assert!(
+            !output.contains("dev.sample_crate"),
+            "must not contain hardcoded 'dev.sample_crate', got:\n{output}"
+        );
+        assert!(
             !output.contains("SampleCrateBridge"),
             "must not contain 'SampleCrateBridge', got:\n{output}"
         );
@@ -3094,8 +3125,8 @@ mod test_backend_tests {
             "class name must be derived from fixture id, got:\n{output}"
         );
         assert!(
-            output.contains("implements dev.sample_crate.ITestTrait"),
-            "class must implement fully-qualified interface, got:\n{output}"
+            output.contains("implements ITestTrait"),
+            "class must implement interface with binding_pkg prefix, got:\n{output}"
         );
         assert!(
             output.contains("processItem"),
@@ -3103,11 +3134,11 @@ mod test_backend_tests {
         );
     }
 
-    /// Test that stub method signatures use fully-qualified names for SampleCrate domain types.
+    /// Verify that when `binding_pkg` is provided (e.g. `dev.kreuzberg`), the interface
+    /// name and named types in method signatures are fully-qualified with that package.
     #[test]
-    fn java_stub_method_uses_fqn_for_sample_crate_types() {
+    fn java_stub_uses_binding_pkg_for_interface_and_type_qualification() {
         let bridge = make_trait_bridge("DocumentExtractor");
-        // Method returning a SampleCrate domain type
         let method = MethodDef {
             name: "extract_bytes".to_string(),
             params: vec![],
@@ -3130,13 +3161,66 @@ mod test_backend_tests {
         let methods = [&method];
         let fixture = make_fixture("extract_bytes_test");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "dev.kreuzberg");
         let output = &emission.setup_block;
 
-        // Should use FQN for ExtractionResult return
+        // Interface must be qualified with the binding package.
         assert!(
-            output.contains("public dev.sample_crate.ExtractionResult extractBytes"),
-            "return type must use FQN dev.sample_crate.ExtractionResult, got:\n{output}"
+            output.contains("implements dev.kreuzberg.IDocumentExtractor"),
+            "class must implement dev.kreuzberg.IDocumentExtractor, got:\n{output}"
+        );
+        // Named type must be qualified with the binding package.
+        assert!(
+            output.contains("dev.kreuzberg.ExtractionResult"),
+            "return type must use dev.kreuzberg.ExtractionResult, got:\n{output}"
+        );
+        // Must NOT contain old hardcoded dev.sample_crate.
+        assert!(
+            !output.contains("dev.sample_crate"),
+            "must not contain hardcoded dev.sample_crate, got:\n{output}"
+        );
+    }
+
+    /// Test that stub method signatures use fully-qualified names for domain types
+    /// when the actual binding package is unknown (empty string fallback).
+    #[test]
+    fn java_stub_method_uses_fqn_for_domain_types_no_pkg() {
+        let bridge = make_trait_bridge("DocumentExtractor");
+        // Method returning a domain type
+        let method = MethodDef {
+            name: "extract_bytes".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: Some("DocumentExtractor".to_string()),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let methods = [&method];
+        let fixture = make_fixture("extract_bytes_test");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let output = &emission.setup_block;
+
+        // With empty binding_pkg, named types are unqualified.
+        assert!(
+            output.contains("public ExtractionResult extractBytes"),
+            "return type must use ExtractionResult (unqualified, empty pkg), got:\n{output}"
+        );
+        // Must NOT contain hardcoded dev.sample_crate.
+        assert!(
+            !output.contains("dev.sample_crate"),
+            "must not contain hardcoded dev.sample_crate, got:\n{output}"
         );
     }
 }
