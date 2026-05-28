@@ -143,7 +143,7 @@ fn gen_single_trait_bridge_file(
         ));
 
         // Generate method body: construct call arguments and handle return value.
-        let (call_args, call_expr) = build_adapter_call_expr(method, exclude_types);
+        let call_args = build_adapter_call_args(method);
         let call_args_str = call_args.join(", ");
 
         if method.error_type.is_some() {
@@ -163,25 +163,32 @@ fn gen_single_trait_bridge_file(
                      \x20\x20\x20\x20}\n",
                 );
             } else {
+                // For error-returning methods, JSON-encode the result
+                let encoded_result = match &method.return_type {
+                    TypeRef::String => "result".to_string(),
+                    TypeRef::Unit => "Empty()".to_string(),
+                    TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => "result".to_string(),
+                    _ => "try JSONEncoder().encode(result)".to_string(),
+                };
                 out.push_str(&format!(
-                    "            return marshal_ok_result({call_expr})\n\
+                    "            return marshal_ok_result({encoded_result})\n\
                      \x20\x20\x20\x20}} catch {{\n\
                      \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
                      \x20\x20\x20\x20}}\n"
                 ));
             }
         } else if method.is_async {
-            // Async method without error: return the result directly (already marshalled)
+            // Async method without error: return the result directly, no encoding
             out.push_str(&format!(
                 "        let result = await self.bridge.{method_camel}({call_args_str})\n"
             ));
-            out.push_str(&format!("        return {call_expr}\n"));
+            out.push_str("        return result\n");
         } else {
-            // Sync method without error: return the result directly
+            // Sync method without error: return the result directly, no encoding
             out.push_str(&format!(
                 "        let result = self.bridge.{method_camel}({call_args_str})\n"
             ));
-            out.push_str(&format!("        return {call_expr}\n"));
+            out.push_str("        return result\n");
         }
 
         out.push_str("    }\n\n");
@@ -291,54 +298,18 @@ fn swift_return_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     swift_type_name(ty, exclude_types)
 }
 
-/// Build the call arguments and return expression for the adapter method.
+/// Build the call arguments for the adapter method with Swift argument labels.
 ///
-/// Returns (call_args: Vec<String>, return_expr: String) where:
-/// - call_args: formatted arguments to pass to the bridge method (with Swift argument labels)
-/// - return_expr: expression to marshal the result back across the boundary
-fn build_adapter_call_expr(
-    method: &crate::core::ir::MethodDef,
-    _exclude_types: &HashSet<String>,
-) -> (Vec<String>, String) {
-    // Build the call arguments with Swift argument labels (name: value format)
-    // Swift requires explicit labels for all method arguments
-    let call_args: Vec<String> = method
+/// Swift requires explicit labels for all method arguments.
+fn build_adapter_call_args(method: &crate::core::ir::MethodDef) -> Vec<String> {
+    method
         .params
         .iter()
         .map(|p| {
             let name = p.name.to_snake_case();
             format!("{}: {}", name, name)
         })
-        .collect();
-
-    // Build the return expression — marshal the result back to the boundary type
-    // For trait bridges with error types, all results are JSON-encoded for the C FFI boundary
-    let return_expr = match &method.return_type {
-        TypeRef::Unit => {
-            // Unit/Void: no result to marshal, handled separately in method body
-            "result".to_string()
-        }
-        TypeRef::String => {
-            // String is already JSON-marshalled in trait protocol signatures
-            "result".to_string()
-        }
-        TypeRef::Named(_) => {
-            // Named types (structs, enums) need JSON encoding at the FFI boundary
-            // This includes both excluded types and visible types like ExtractionResult
-            "try JSONEncoder().encode(result)".to_string()
-        }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Collections also need encoding
-            "try JSONEncoder().encode(result)".to_string()
-        }
-        TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => {
-            // Primitives pass through directly
-            "result".to_string()
-        }
-        _ => "try JSONEncoder().encode(result)".to_string(), // Default: encode everything else
-    };
-
-    (call_args, return_expr)
+        .collect()
 }
 
 #[cfg(test)]

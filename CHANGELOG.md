@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.3] - 2026-05-28
+
 ### Fixed
+
+- **alef shebang-chmod parity for scaffold writer.** `write_scaffold_files_with_overwrite()` did not apply the +x bit to shebang-starting files, while `write_files()` did. Affected every alef-generated `*.sh` under `e2e/` and `test_apps/` (`download_ffi.sh`, `run_tests.sh`, etc.), all landing as `-rw-r--r--`. Fix: shared `apply_shebang_chmod()` helper called from both writers, with `#[cfg(unix)]` guard so Windows builds stay clean. (`src/cli/pipeline/generate.rs`)
 
 - **alef go binding codegen: remove duplicate `//export` directives from binding.go.** The trait-bridge //export directives and implementations were generated in both `binding.go` and `trait_bridges.go`, causing duplicate symbol exports to the C linker. When Go code linked against the C FFI library, the linker would report "Undefined symbols for architecture arm64" for all 54 trait-bridge functions (e.g., `goDocumentExtractorCanHandle`, `goOcrBackendProcessImage`) because the same symbol was exported twice. The fix removes the `plugin_bridge_exports.jinja` template rendering from `binding.go` generation in `gen_go_file()`, leaving the canonical home of the trait-bridge exports in `trait_bridges.go` (which is generated separately when `has_plugin_bridges` is true). This ensures one source of truth for exported symbols and allows Go e2e tests to link cleanly. (`src/backends/go/gen_bindings/mod.rs`)
 

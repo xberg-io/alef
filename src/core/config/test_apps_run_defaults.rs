@@ -143,13 +143,15 @@ pub fn default_test_apps_run_config(
             // adds the package content hashes that `go test` actually checks.
             // `tidy` is idempotent once the sum is complete.
             //
-            // For cgo bindings: `go mod vendor` copies the module into a writable
-            // ./vendor/ directory, then `go generate ./vendor/<module-path>/...`
-            // populates the .lib/ directories with native artifacts. Finally,
-            // `go test -mod=vendor` uses the vendored copy to link cgo targets.
+            // For cgo bindings: `go generate <module-path>` runs on the
+            // live (non-vendored) module to invoke the download_ffi directive,
+            // which fetches FFI tarballs into .lib/ directories. Then `go test`
+            // (without -mod=vendor) links against the live module's FFI artifacts.
+            // Vendoring doesn't work because `go generate ./vendor/...` is a no-op
+            // in dependency modules, so .lib/ stays empty and the linker fails.
             let run_cmd = if let Some(mod_path) = go_module_path {
                 format!(
-                    "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go mod vendor && GOWORK=off go generate ./vendor/{mod_path}/... && GOWORK=off go test -mod=vendor ./..."
+                    "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go generate {mod_path} && GOWORK=off go test ./..."
                 )
             } else {
                 format!("cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./...")
@@ -452,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn go_with_module_path_runs_vendor_and_generate() {
+    fn go_with_module_path_runs_generate_on_live_module() {
         let c = default_test_apps_run_config(
             Language::Go,
             "test_apps",
@@ -462,16 +464,20 @@ mod tests {
         );
         let run = c.run.unwrap().commands().join(" ");
         assert!(
-            run.contains("GOWORK=off go mod vendor"),
-            "expected `go mod vendor` for cgo native libs, got: {run}"
+            !run.contains("GOWORK=off go mod vendor"),
+            "must not use vendor mode, got: {run}"
         );
         assert!(
-            run.contains("GOWORK=off go generate ./vendor/github.com/example/mylib/packages/go/..."),
-            "expected `go generate ./vendor/<module-path>/...` to populate .lib/, got: {run}"
+            run.contains("GOWORK=off go generate github.com/example/mylib/packages/go"),
+            "expected `go generate <module>` to populate .lib/ on live module, got: {run}"
         );
         assert!(
-            run.contains("GOWORK=off go test -mod=vendor"),
-            "expected `-mod=vendor` to link against vendored cgo libs, got: {run}"
+            !run.contains("GOWORK=off go test -mod=vendor"),
+            "must not use -mod=vendor, got: {run}"
+        );
+        assert!(
+            run.contains("GOWORK=off go test ./..."),
+            "expected plain `go test ./...` without -mod=vendor, got: {run}"
         );
         assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
     }
