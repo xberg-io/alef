@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.6] - 2026-05-28
+
 ### Fixed
+
+- **alef php visitor-bridge: emit `use ext_php_rs::rc::PhpRc;` import for visitor-style bridges (e.g. `HtmlVisitor`) so generated `inc_count()`/`dec_count()` calls compile.** v0.20.3 fixed the import for registration-style trait bridges via `PhpBridgeGenerator::bridge_imports()`, but the visitor-style path in `gen_trait_bridge_files()` returned `BridgeOutput { imports: vec![], code }` and never propagated the trait import. The generated `visitor_bridge_struct.jinja` template uses `inc_count()`/`dec_count()` in its `Clone`, `Drop`, and `new()` impls, so binding crates with a visitor-style bridge (h2m, etc.) failed to compile with `E0599: no method named 'inc_count' found for struct '_zend_object'`. Fix returns `vec!["ext_php_rs::rc::PhpRc".to_string()]` from the visitor-bridge code path. (`src/backends/php/trait_bridge.rs`)
 
 - **C# trait-bridge: exclude enums from visible type names so methods returning enums use JSON serialization.** The C# emitter was including enum types in `visible_type_names`, causing trait-bridge callbacks that return enums (e.g., `PostProcessor::processing_stage() -> ProcessingStage`) to emit `methodResult.ToFfiJson()` instead of `ToJsonString(methodResult)`. Enums do not have `.ToFfiJson()` extension methods, causing `NullReferenceException` at runtime. The fix removes `.chain(api.enums.iter())` from `visible_type_names` construction, forcing all enum returns to serialize via JSON strings at the FFI boundary, matching the behavior of Go and Java trait-bridge emitters. Added golden test covering enum return type serialization. (`src/backends/csharp/gen_bindings/mod.rs`, `src/backends/csharp/trait_bridge.rs`)
 
