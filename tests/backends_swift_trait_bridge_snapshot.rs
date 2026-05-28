@@ -110,7 +110,9 @@ fn test_trait_bridge_sync_method() {
     assert_eq!(filename, "SwiftDocumentExtractorBridge.swift");
     assert!(content.contains("protocol SwiftDocumentExtractorBridge"));
     assert!(content.contains("func extract"));
-    assert!(content.contains("public func registerDocumentExtractor"));
+    // Registration function is emitted by `emit_trait_bridge_forwarders` in the
+    // binding-level module file, not here — see commit 896eca93e.
+    assert!(!content.contains("public func registerDocumentExtractor"));
 }
 
 #[test]
