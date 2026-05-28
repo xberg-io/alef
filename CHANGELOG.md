@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Zig trait-bridge stub methods**: now use C FFI types (e.g., `[*c]const u8`, `i32`) instead of Zig high-level types (e.g., `[]const u8`, `bool`). This ensures stub signatures match the vtable thunks' expectations. All collections marshal as JSON strings. Numeric returns (bool, etc.) use appropriate C types (i32 for bool). Fixes 24 compile errors in `plugin_api_test.zig` where test stubs were emitting Zig-idiomatic types instead of C-compatible FFI types. (`src/e2e/codegen/zig.rs`)
+
 ## [0.20.6] - 2026-05-28
 
 ### Fixed
