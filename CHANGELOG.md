@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-05-28
+
 ### Fixed
 
 - **alef go e2e codegen: exclude SyncExtractor trait type in trait-bridge test-backend stubs.** The `DocumentExtractor` trait includes a method `as_sync_extractor() -> Option<&dyn SyncExtractor>` which returns a trait reference. `SyncExtractor` is marked with `alef(skip)` because it's not exposed in Go bindings. However, the trait-bridge method reference wasn't being substituted with `json.RawMessage` (the JSON serialization format for excluded types in Go), causing the generated stub to reference the undefined type `kreuzberg.SyncExtractor`, failing at compilation with `undefined: kreuzberg.SyncExtractor`. The fix adds `SyncExtractor` to the hardcoded `excluded_named` set alongside `InternalDocument`, ensuring it's substituted with `json.RawMessage` in both the method signature and stub zero-value generation. Fixes Go e2e test compilation after alef v0.20.1. (`src/e2e/codegen/go.rs`)
