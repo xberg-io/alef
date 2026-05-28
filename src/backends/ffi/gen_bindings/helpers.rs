@@ -444,7 +444,7 @@ fn toml_multiline_basic_string(value: &str) -> String {
 // build.rs generation
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> String {
+pub(super) fn gen_build_rs(header_name: &str, lib_name: &str, go_output_dir: Option<&str>) -> String {
     let go_copy_step = match go_output_dir {
         Some(go_dir) => {
             let go_dir = go_dir.trim_end_matches('/');
@@ -468,6 +468,7 @@ pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> St
         "build_rs.jinja",
         minijinja::context! {
             header_name => header_name,
+            lib_name => lib_name,
             go_copy_step => go_copy_step,
         },
     )

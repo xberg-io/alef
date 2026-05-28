@@ -508,9 +508,12 @@ fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &
   }}
 
   static List<String> _alefHostLibNames() {{
-    if (Platform.isMacOS) return const ['lib{stem}.dylib'];
-    if (Platform.isWindows) return const ['{stem}.dll'];
-    return const ['lib{stem}.so'];
+    // The Dart-binding Rust crate is `{{stem}}-dart` (per the cargo manifest
+    // template), which produces a cdylib named `lib{{stem}}_dart.{{ext}}` on Unix
+    // and `{{stem}}_dart.dll` on Windows.
+    if (Platform.isMacOS) return const ['lib{stem}_dart.dylib'];
+    if (Platform.isWindows) return const ['{stem}_dart.dll'];
+    return const ['lib{stem}_dart.so'];
   }}
 
   /// Initialize flutter_rust_bridge
