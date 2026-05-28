@@ -297,7 +297,6 @@ fn gen_trait_bridge(
                 name => &export_name,
             },
         ));
-        out.push('\n');
         let method_substituted = method_with_excluded_substituted(method, excluded_named_types);
         gen_trampoline(out, trait_name, &trait_pascal, &method_substituted);
     }
@@ -668,7 +667,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Name"),
         },
     ));
-    out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -703,7 +701,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Version"),
         },
     ));
-    out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -738,7 +735,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Initialize"),
         },
     ));
-    out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -776,7 +772,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}Shutdown"),
         },
     ));
-    out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_trampoline_header.jinja",
         minijinja::context! {
@@ -815,7 +810,6 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}FreeUserData"),
         },
     ));
-    out.push('\n');
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_free_user_data_func.jinja",
         minijinja::context! {
