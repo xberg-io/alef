@@ -95,6 +95,7 @@ pub struct BridgeFiles {
 /// `clear_fn` is the configured name of the host-crate clear-all function (e.g.
 /// `"clear_ocr_backends"`). When `Some`, a `public static void clearAll{Trait}()` helper is
 /// emitted. When `None`, the method is omitted.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridge_files(
     trait_def: &TypeDef,
     prefix: &str,
@@ -124,6 +125,7 @@ pub fn gen_trait_bridge_files(
             clear_fn,
             visible_type_names,
             excluded_types,
+            ffi_skip_methods,
         ),
     }
 }
@@ -290,6 +292,7 @@ fn gen_interface_file(
 
 /// Generate the bridge class compilation unit with upcall stubs, registry, and
 /// register/unregister/clear helpers all nested inside the public top-level class.
+#[allow(clippy::too_many_arguments)]
 fn gen_bridge_file(
     trait_def: &TypeDef,
     prefix: &str,
@@ -299,6 +302,7 @@ fn gen_bridge_file(
     clear_fn: Option<&str>,
     visible_type_names: &HashSet<&str>,
     excluded_types: &HashSet<String>,
+    ffi_skip_methods: &[String],
 ) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
     let trait_snake = trait_def.name.to_snake_case();
@@ -306,10 +310,16 @@ fn gen_bridge_file(
     let registry_field = format!("{}_BRIDGES", trait_snake.to_uppercase());
     let bridge_class = format!("{trait_pascal}Bridge");
 
+    // Methods listed in `ffi_skip_methods` cannot be expressed on the C ABI
+    // (e.g., trait-object references), so they are absent from the interface
+    // and the bridge must not emit upcall stubs or handlers for them.
+    let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
+
     // Determine which imports are needed based on method signatures
     let bridge_signatures: String = trait_def
         .methods
         .iter()
+        .filter(|m| !skipped.contains(m.name.as_str()))
         .map(|m| {
             let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params = m
@@ -401,7 +411,7 @@ fn gen_bridge_file(
     }
 
     // Build stub allocations for trait methods
-    for method in &trait_def.methods {
+    for method in trait_def.methods.iter().filter(|m| !skipped.contains(m.name.as_str())) {
         let handle_name = format!("handle{}", method.name.to_pascal_case());
         let stub_name = format!("stub{}", method.name.to_pascal_case());
 
@@ -453,6 +463,7 @@ fn gen_bridge_file(
     let methods: Vec<Value> = trait_def
         .methods
         .iter()
+        .filter(|m| !skipped.contains(m.name.as_str()))
         .map(|method| {
             let handle = format!("handle{}", method.name.to_pascal_case());
             let mut sig_params = vec!["MemorySegment userData".to_string()];

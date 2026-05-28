@@ -5,7 +5,11 @@
 //!
 //! `{lib}-v{version}-nif-{nif_version}-{target}.{ext}.tar.gz`
 //!
-//! where `{ext}` is `so` (Linux), `dylib` (macOS), or `dll` (Windows).
+//! where `{ext}` is `dll` (Windows) or `so` (everything else, including macOS).
+//! Darwin uses `so` — not `dylib` — to match `rustler_precompiled 0.9.0`'s
+//! `lib_name_with_ext/2` consumer-side URL construction, which hardcodes `so`
+//! for every non-Windows target and cannot be overridden. No newer
+//! `rustler_precompiled` version exists on Hex with `.dylib` support.
 //!
 //! Also provides `write_elixir_checksums()` to generate the
 //! `checksum-Elixir.{App}.exs` file that RustlerPrecompiled validates.
@@ -117,10 +121,15 @@ pub fn write_elixir_checksums(config: &ResolvedCrateConfig, output_dir: &Path) -
 }
 
 /// Return the native extension suffix for RustlerPrecompiled filenames.
+///
+/// Returns `dll` for Windows and `so` for every other OS (including macOS).
+/// `rustler_precompiled 0.9.0`'s `lib_name_with_ext/2` hardcodes `so` for
+/// every non-Windows target when constructing the consumer download URL and
+/// cannot be overridden. Publishing `.dylib.tar.gz` for darwin would 404
+/// every `mix deps.get` on macOS.
 fn nif_extension(target: &RustTarget) -> &'static str {
     match target.os {
         crate::publish::platform::Os::Windows => "dll",
-        crate::publish::platform::Os::MacOs => "dylib",
         _ => "so",
     }
 }
@@ -292,8 +301,10 @@ mod tests {
 
     #[test]
     fn nif_extension_macos() {
+        // Darwin must use `so` (not `dylib`) because rustler_precompiled 0.9.0
+        // hardcodes `so` for every non-Windows consumer download URL.
         let t = RustTarget::parse("x86_64-apple-darwin").unwrap();
-        assert_eq!(nif_extension(&t), "dylib");
+        assert_eq!(nif_extension(&t), "so");
     }
 
     #[test]

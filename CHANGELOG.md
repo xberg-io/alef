@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.5] - 2026-05-28
+
 ### Fixed
 
+- **alef elixir publish: revert darwin NIF extension from `.dylib` to `.so`.** v0.20.2 changed darwin to `.dylib` to "match real artifact filenames uploaded by publish workflows," but the consumer-side `rustler_precompiled 0.9.0` (the latest version on Hex; no `.dylib`-aware version exists) hardcodes `.so` for every non-Windows target in `lib_name_with_ext/2` and ignores all caller overrides. Publishing `.dylib.tar.gz` caused Hex publish failures across kreuzberg, kreuzcrawl, and liter-llm (checksum-file vs. uploaded-asset extension mismatch) and would have 404'd every downstream `mix deps.get` on darwin. Revert to `.so` to match consumer behavior. html-to-markdown and tree-sitter-language-pack's hand-maintained `publish.yaml` already normalized darwin uploads to `.so`; with this revert, alef-generated publish helpers align with that direction across all 5 polyglot sibling repos. (`src/publish/package/elixir.rs`)
+
 - **alef java trait-bridge interface: honour `ffi_skip_methods` so generated `I{Trait}` interfaces stay in sync with their bridges.** Methods listed in a trait-bridge's `ffi_skip_methods` (e.g., `as_sync_extractor` on `DocumentExtractor`, which returns `Option<&dyn SyncExtractor>` — a trait-object reference with no FFI representation) were correctly skipped in the upcall/vtable bridge but still emitted into the public `I{Trait}.java` interface. E2e test stubs that `implements I{Trait}` were then required to override a method the bridge cannot dispatch, producing `is not abstract and does not override abstract method` compile errors. The fix threads `ffi_skip_methods` into `gen_interface_file` and filters the rendered method list, keeping the interface aligned with the bridge surface and unblocking Java e2e test compilation. (`src/backends/java/gen_bindings/trait_bridge.rs`, `src/backends/java/gen_bindings/mod.rs`)
+
+### Chore
+
+- **alef clippy: silence `too_many_arguments` for two java trait-bridge functions.** `gen_trait_bridge_files` and `gen_bridge_file` carry 9 cohesive args that describe one bridge generation invocation; bundling them into a struct would obscure the call-site contract without improving the code. `#[allow(clippy::too_many_arguments)]` on these two functions keeps `cargo clippy -D warnings` clean. (`src/backends/java/gen_bindings/trait_bridge.rs`)
 
 ## [0.20.4] - 2026-05-28
 
