@@ -503,7 +503,10 @@ fn render_build_zig_zon(
             entries
         }
         crate::e2e::config::DependencyMode::Local => {
-            format!(".{{{{\n            .path = \"{pkg_path}\"\n        }}}}")
+            // Zig 0.16+ requires named dependencies. Use the package name as the key.
+            format!(
+                "        .{pkg_name} = .{{\n            .path = \"{pkg_path}\",\n        }},"
+            )
         }
     };
 
@@ -529,16 +532,7 @@ fn render_build_zig_zon(
     }
     let fingerprint: u64 = ((name_crc as u64) << 32) | (id as u64);
 
-    let dep_content = match dep_mode {
-        crate::e2e::config::DependencyMode::Registry => {
-            format!(
-                ".{{\n{dep_block}    }}"
-            )
-        }
-        crate::e2e::config::DependencyMode::Local => {
-            dep_block
-        }
-    };
+    let dep_content = format!(".{{\n{dep_block}\n    }}");
 
     format!(
         r#".{{
