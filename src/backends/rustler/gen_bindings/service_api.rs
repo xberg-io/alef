@@ -460,8 +460,8 @@ fn gen_run_nif(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build the function signature
-    let mut params = vec!["registrations: Term".to_owned()];
+    // Build the function signature with lifetime-annotated Term
+    let mut params = vec!["registrations: rustler::Term<'_>".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         params.push(format!("{}: {}", p.name, rust_ty));
@@ -492,25 +492,25 @@ fn gen_run_nif(
     ));
 
     out.push_str("    // Parse registrations from Elixir term\n");
-    out.push_str("    let registration_list: Vec<Term> = registrations\n");
-    out.push_str("        .decode::<Vec<Term>>()\n");
+    out.push_str("    let registration_list: Vec<rustler::Term<'_>> = registrations\n");
+    out.push_str("        .decode::<Vec<rustler::Term<'_>>>()\n");
     out.push_str("        .unwrap_or_else(|_| vec![]);\n\n");
 
     out.push_str("    // Build the service owner from its constructor\n");
     out.push_str(&format!("    let mut owner = {owner_path}::new();\n\n"));
 
     out.push_str("    // Register handlers from Elixir registrations\n");
-    out.push_str("    // Each registration entry is a tuple: {method_name, metadata, handler_closure}\n");
+    out.push_str("    // Each registration entry is a tuple: {method_name, metadata, handler_pid}\n");
     out.push_str("    for reg_entry in registration_list {\n");
-    out.push_str("        if let Ok((method_name, metadata, _handler_closure)): Result<(String, Term, Term), _> =\n");
-    out.push_str("            reg_entry.decode()\n");
+    out.push_str("        if let Ok((method_name, metadata, handler_pid)) = reg_entry.decode::<(String, rustler::Term<'_>, rustler::LocalPid)>()\n");
     out.push_str("        {\n");
 
     // Generate dispatch for each registration
     for (i, reg) in service.registrations.iter().enumerate() {
-        let _contract_name = &reg.callback_contract;
+        let contract_name = &reg.callback_contract;
         let reg_method = &reg.method;
         let metadata_param_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
+        let bridge_wrapper = format!("Elixir{contract_name}Bridge");
 
         if i == 0 {
             out.push_str("            ");
@@ -522,19 +522,44 @@ fn gen_run_nif(
 
         // Decode metadata if present
         if !metadata_param_names.is_empty() {
-            out.push_str(&format!(
-                "                if let Ok(({})): Result<({}), _> = metadata.decode() {{\n",
-                metadata_param_names.join(", "),
+            // The Elixir registration method always wraps metadata in a tuple `{...}`
+            // (see gen_registration_method), so a single param `path` arrives as the
+            // 1-element Elixir tuple `{path}`. A 1-element Elixir tuple decodes to a Rust
+            // 1-tuple `(T,)`, so emit a trailing comma when there is exactly one param.
+            let trailing = if metadata_param_names.len() == 1 { "," } else { "" };
+            let tuple_types = format!(
+                "{}{}",
                 (0..metadata_param_names.len())
                     .map(|_| "String")
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join(", "),
+                trailing
+            );
+            out.push_str(&format!(
+                "                if let Ok(({names}{trailing})) = metadata.decode::<({types})>()\n",
+                names = metadata_param_names.join(", "),
+                trailing = trailing,
+                types = tuple_types
             ));
-            out.push_str("                    // Note: Handler registration would happen here\n");
-            out.push_str("                    // owner.{}(..., handler_closure)\n");
+            out.push_str("                {\n");
+            out.push_str(&format!(
+                "                    let bridge = {bridge_wrapper}::new(handler_pid);\n"
+            ));
+            let args_list = metadata_param_names.iter()
+                .map(|name| format!("{}, ", name))
+                .collect::<String>();
+            out.push_str(&format!(
+                "                    let _ = owner.{reg_method}({}std::sync::Arc::new(bridge));\n",
+                args_list
+            ));
             out.push_str("                }\n");
         } else {
-            out.push_str("                // No metadata parameters for this registration\n");
+            out.push_str(&format!(
+                "                let bridge = {bridge_wrapper}::new(handler_pid);\n"
+            ));
+            out.push_str(&format!(
+                "                let _ = owner.{reg_method}(std::sync::Arc::new(bridge));\n"
+            ));
         }
     }
 
@@ -548,14 +573,32 @@ fn gen_run_nif(
     out.push_str("    // Call the entrypoint method\n");
     match ep.kind {
         EntrypointKind::Run => {
-            out.push_str("    let _ = owner;\n");
-            out.push_str("    // owner.run(...) would be called here for async entrypoint\n");
-            out.push_str("    Ok(atoms::ok())\n");
+            // For async run, we need to block on the future
+            let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+            out.push_str("    let rt = tokio::runtime::Runtime::new().map_err(|_e| {\n");
+            out.push_str("        NifError::Atom(\"runtime_error\")\n");
+            out.push_str("    })?;\n\n");
+            if ep.params.is_empty() {
+                out.push_str("    let result = rt.block_on(owner.run());\n");
+            } else {
+                out.push_str(&format!("    let result = rt.block_on(owner.run({}));\n", ep_params));
+            }
+            out.push_str("    match result {\n");
+            out.push_str("        Ok(_) => Ok(atoms::ok()),\n");
+            out.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
+            out.push_str("    }\n");
         }
         EntrypointKind::Finalize => {
-            out.push_str("    let _ = owner;\n");
-            out.push_str("    // owner.finalize(...) would be called here\n");
-            out.push_str("    Ok(atoms::ok())\n");
+            // For finalize, call synchronously
+            let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+            if ep.params.is_empty() {
+                out.push_str("    match owner.finalize() {\n");
+            } else {
+                out.push_str(&format!("    match owner.finalize({}) {{\n", ep_params));
+            }
+            out.push_str("        Ok(_) => Ok(atoms::ok()),\n");
+            out.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
+            out.push_str("    }\n");
         }
     }
 
@@ -1038,7 +1081,7 @@ mod tests {
 
         // Assert that registrations are parsed from Elixir term
         assert!(
-            output.contains("let registration_list: Vec<Term> = registrations"),
+            output.contains("let registration_list: Vec<rustler::Term<'_>> = registrations"),
             "expected registration list parsing in NIF:\n{output}"
         );
 
@@ -1067,15 +1110,9 @@ mod tests {
 
     /// No empty-JSON or stub responses in generated code.
     ///
-    /// Currently the `gen_run_nif` emitter for `EntrypointKind::{Run, Finalize}`
-    /// only emits a placeholder `Ok(atoms::ok())` with a "would be called here"
-    /// comment instead of actually invoking `owner.run(...)` / `owner.finalize(...)`.
-    /// The full owner-method dispatch (mirroring the pyo3 native-fn lookup pattern at
-    /// `src/backends/pyo3/gen_bindings/service_api.rs:448+`) is still TODO. The test
-    /// is kept as a permanent regression-target: when the rustler emitter is completed,
-    /// remove the `#[ignore]` and the test should pass.
+    /// Verifies that the Rust NIF actually invokes `owner.run(...)` or `owner.finalize(...)`
+    /// and does not emit stub placeholder responses.
     #[test]
-    #[ignore = "rustler entrypoint emitter still emits stub Ok(atoms::ok()); see gen_run_nif TODO"]
     fn no_stub_responses_in_generated_code() {
         let surface = make_fixture_surface();
         let config = make_test_config();
@@ -1095,10 +1132,39 @@ mod tests {
             "found commented-out complete_trait_call in Elixir:\n{elixir_output}"
         );
 
-        // Rust should not return early with Ok(atoms::ok())
+        // Rust should not contain stub comment markers
         assert!(
-            !rust_output.contains("Ok(atoms::ok())\n}\n\n/// Drive"),
-            "found premature stub return in Rust NIF:\n{rust_output}"
+            !rust_output.contains("would be called here"),
+            "found 'would be called here' stub comment in Rust NIF:\n{rust_output}"
+        );
+        assert!(
+            !rust_output.contains("would happen here"),
+            "found 'would happen here' stub comment in Rust NIF:\n{rust_output}"
+        );
+
+        // Rust should actually call owner.run(...) or owner.finalize(...)
+        assert!(
+            rust_output.contains("owner.run(") || rust_output.contains("owner.finalize("),
+            "Rust NIF should call owner.run(...) or owner.finalize(...), found neither:\n{rust_output}"
+        );
+
+        // Rust should register handlers before calling entrypoint
+        assert!(
+            rust_output.contains("ElixirRequestHandlerBridge"),
+            "Rust NIF should create handler bridge instances:\n{rust_output}"
+        );
+
+        // Regression: Rust should NOT contain illegal if-let type ascription pattern
+        // (`: Result<...> =` on if-let patterns is a syntax error in Rust)
+        assert!(
+            !rust_output.contains("): Result<"),
+            "found illegal if-let type ascription pattern '): Result<' in generated Rust:\n{rust_output}"
+        );
+
+        // Rust Term args must be lifetime-annotated (Term<'_> or Term<'a>)
+        assert!(
+            rust_output.contains("Term<'_>"),
+            "expected lifetime-annotated Term<'_> in generated Rust NIF signature:\n{rust_output}"
         );
     }
 

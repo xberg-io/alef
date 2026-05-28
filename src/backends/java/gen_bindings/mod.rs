@@ -14,6 +14,7 @@ mod marshal;
 mod native_lib;
 pub mod trait_bridge;
 mod types;
+mod service_api;
 
 use facade::gen_facade_class;
 use ffi_class::gen_main_class;
@@ -108,6 +109,7 @@ impl Backend for JavaBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -522,6 +524,10 @@ impl Backend for JavaBackend {
             content: line_wrap::wrap_long_java_lines(&facade_content),
             generated_header: true,
         }])
+    }
+
+    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
