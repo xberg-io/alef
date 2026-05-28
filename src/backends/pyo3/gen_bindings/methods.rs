@@ -42,6 +42,22 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         }
     }
 
+    // Service-API entrypoint functions are generated in `service.rs` as
+    // `{service_snake}_{entrypoint}` `#[pyfunction]`s — register each so the Python
+    // `service.py` wrapper can call them through the native module.
+    {
+        use heck::ToSnakeCase as _;
+        for service in &api.services {
+            let service_snake = service.name.to_snake_case();
+            for ep in &service.entrypoints {
+                lines.push(format!(
+                    "    m.add_function(wrap_pyfunction!(service::{service_snake}_{}, m)?)?;",
+                    ep.method
+                ));
+            }
+        }
+    }
+
     let mod_exclude_functions: ahash::AHashSet<String> = config
         .python
         .as_ref()

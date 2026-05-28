@@ -789,6 +789,12 @@ mod alef_json_str_opt {
             builder.add_item(&format!("pub mod {module};"));
         }
 
+        // Service-API glue lives in the generated `service.rs`; declare it so its
+        // `#[pyfunction]` entrypoints are compiled and can be registered in the module init.
+        if !api.services.is_empty() {
+            builder.add_item("pub mod service;");
+        }
+
         // Add adapter-generated standalone items (streaming iterators, callback bridges)
         for adapter in &config.adapters {
             match adapter.pattern {

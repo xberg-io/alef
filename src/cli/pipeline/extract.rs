@@ -117,6 +117,15 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // rewritten paths are used for the shortest-path preference heuristic).
     dedup_api_surface(&mut api);
 
+    // Normalize every field's `type_rust_path` to the canonical `rust_path` of the
+    // same-named type/enum. After dedup there is exactly one type per short name, so a
+    // field that references it must use the same crate-rooted path. Otherwise a field
+    // path like `crate::sub::Foo` (root `crate`) can disagree with the resolved type's
+    // path `crate_inner::Foo` (root `crate_inner`) — e.g. when a facade re-exports some
+    // types but not others — and `field_has_path_mismatch` would wrongly drop the
+    // owning type from conversion generation.
+    normalize_field_type_paths(&mut api);
+
     // Run the service extraction pass last so all dedup / sanitization is
     // complete before we classify methods and build service/handler-contract
     // IR nodes.  Warnings are non-fatal (e.g. generic registration method not
@@ -990,6 +999,51 @@ fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
         }
     }
     path.to_string()
+}
+
+/// Rewrite each field's `type_rust_path` to the canonical `rust_path` of the same-named
+/// type or enum in the (post-dedup) surface. Keeps field references and their resolved type
+/// definitions in agreement so downstream path-compatibility checks don't spuriously fail.
+fn normalize_field_type_paths(api: &mut ApiSurface) {
+    // Innermost `Named` short name of a field type, looking through Optional/Vec/Map(value).
+    fn named_name(ty: &TypeRef) -> Option<&str> {
+        match ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => named_name(inner),
+            TypeRef::Map(_, v) => named_name(v),
+            _ => None,
+        }
+    }
+
+    let mut canonical: AHashMap<String, String> = AHashMap::new();
+    for t in &api.types {
+        canonical.insert(t.name.clone(), t.rust_path.clone());
+    }
+    for e in &api.enums {
+        canonical.entry(e.name.clone()).or_insert_with(|| e.rust_path.clone());
+    }
+
+    let mut fix = |fields: &mut Vec<crate::core::ir::FieldDef>| {
+        for field in fields {
+            if field.type_rust_path.is_none() {
+                continue;
+            }
+            if let Some(name) = named_name(&field.ty) {
+                if let Some(path) = canonical.get(name) {
+                    field.type_rust_path = Some(path.clone());
+                }
+            }
+        }
+    };
+
+    for typ in &mut api.types {
+        fix(&mut typ.fields);
+    }
+    for en in &mut api.enums {
+        for variant in &mut en.variants {
+            fix(&mut variant.fields);
+        }
+    }
 }
 
 /// Apply path_mappings to rewrite all rust_path fields in the API surface.

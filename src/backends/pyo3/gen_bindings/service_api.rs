@@ -69,7 +69,9 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     out.push_str("from __future__ import annotations\n\n");
     out.push_str("from collections.abc import Callable\n");
     out.push_str("from typing import Any\n\n");
-    out.push_str(&format!("import {module_name}\n\n"));
+    // The native extension is a submodule of the package (e.g. `pkg._pkg`), so import it
+    // relatively — a bare `import _pkg` would not resolve at runtime.
+    out.push_str(&format!("from . import {module_name}\n\n"));
 
     for service in &api.services {
         gen_service_class(&mut out, service, api, module_name);
