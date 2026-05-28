@@ -880,6 +880,24 @@ pub fn sync_versions(
         }
     }
 
+    // Go: cmd/download_ffi/main.go — `moduleVersion` constant is interpolated
+    // by the Go backend at binding-generation time and therefore not covered by
+    // the regular `alef generate` / `alef all` flow when only `sync-versions` is
+    // run. Without this, consumers of a freshly released version will pull the
+    // prior release's FFI binary because `moduleVersion` still points at the old tag.
+    for entry in glob::glob("packages/go/cmd/download_ffi/main.go")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if let Ok(content) = std::fs::read_to_string(&entry) {
+            if let Some(new_content) = replace_version_pattern(&content, r#"moduleVersion\s*=\s*"[^"]*""#, &version) {
+                std::fs::write(&entry, &new_content).with_context(|| format!("failed to write {}", entry.display()))?;
+                updated.push(entry.to_string_lossy().to_string());
+            }
+        }
+    }
+
     // E2e manifests: the generated integration test trees under e2e/<lang>/ use
     // local-source references to the library packages but still embed a hardcoded
     // version string in language-native manifests (pom.xml, Gemfile.lock, go.mod,
@@ -1279,6 +1297,27 @@ pub fn sync_versions(
                 }
             }
         }
+
+        // Regenerate scaffold files so version fields embedded at scaffold-generation
+        // time (gemspec spec.version, pubspec.yaml version:, R DESCRIPTION Version:,
+        // binding-crate Cargo.toml [package] version, etc.) reflect the bumped
+        // workspace version atomically with the sync.
+        //
+        // This closes the gap where `alef all` was run against Cargo.toml@rc.N,
+        // then `sync-versions` bumped to rc.(N+1) and only updated test_apps —
+        // leaving scaffold output with the stale rc.N version baked in.
+        //
+        // Always runs when `no_regen=false`, regardless of whether an [e2e] block
+        // is configured, since scaffold emission does not depend on e2e config.
+        match regenerate_scaffold_after_sync(config, config_path) {
+            Ok(count) if count > 0 => {
+                info!("  Regenerated {count} scaffold file(s) with updated version pins");
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Could not regenerate scaffold after version sync: {e}");
+            }
+        }
     }
 
     // If no manifest actually changed, nothing else needs refreshing — the
@@ -1523,6 +1562,79 @@ fn regenerate_test_apps_after_sync(
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
     let path_set: std::collections::HashSet<std::path::PathBuf> =
         files.iter().map(|f| base_dir.join(&f.path)).collect();
+    super::generate::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
+
+    Ok(count)
+}
+
+/// Regenerate scaffold files (pyproject.toml, package.json, gemspec, pubspec.yaml,
+/// Cargo.toml in binding crates, etc.) after a version sync so that version fields
+/// embedded at scaffold-generation time reflect the updated workspace version.
+///
+/// The scaffold generator reads `api.version` from the IR, which in turn reflects
+/// the current `Cargo.toml` workspace version. Reloading the config from
+/// `config_path` after `sync_versions` has written the bumped version ensures the
+/// IR carries the fresh version string.
+///
+/// Scaffold files with `generated_header: true` are always overwritten (they are
+/// fully alef-managed, e.g. `.cargo/config.toml`). Scaffold files with
+/// `generated_header: false` (seeds — Cargo.toml templates, gemspec, pubspec.yaml)
+/// are also overwritten here so version strings stay in sync atomically with the
+/// workspace bump. This mirrors what `alef all --clean` would do.
+///
+/// Returns the number of scaffold files written (0 when all were already current).
+fn regenerate_scaffold_after_sync(
+    config: &ResolvedCrateConfig,
+    config_path: &std::path::Path,
+) -> anyhow::Result<usize> {
+    use crate::core::config::NewAlefConfig;
+
+    // Reload alef.toml so the in-memory config reflects the bumped version that
+    // `sync_versions` just wrote to Cargo.toml (version_from). The stale
+    // in-memory `api.version` would produce scaffold files with the old version
+    // string — identical to the rc.13 bug for test_apps but on the scaffold side.
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("failed to read {} for scaffold regen", config_path.display()))?;
+    let new_alef_cfg: NewAlefConfig = toml::from_str(&raw)
+        .with_context(|| format!("failed to parse {} for scaffold regen", config_path.display()))?;
+    let mut resolved_crates = new_alef_cfg
+        .resolve()
+        .with_context(|| format!("failed to resolve {} for scaffold regen", config_path.display()))?;
+
+    // Match by name; fall back to first crate (single-crate repos).
+    let fresh_config = resolved_crates
+        .iter()
+        .position(|c| c.name == config.name)
+        .or(Some(0))
+        .and_then(|idx| {
+            if idx < resolved_crates.len() {
+                Some(resolved_crates.swap_remove(idx))
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow::anyhow!("no crate found in reloaded config for scaffold regen"))?;
+
+    // Extract IR — scaffold generators use api.version (from Cargo.toml) and
+    // api.types/enums. Sources may be empty for pure-scaffold repos; extract
+    // tolerates that.
+    let api = extract(&fresh_config, config_path, false)?;
+    let languages = fresh_config.languages.clone();
+
+    let scaffold_files = super::scaffold(&api, &fresh_config, &languages)?;
+    if scaffold_files.is_empty() {
+        return Ok(0);
+    }
+
+    let base_dir = std::path::PathBuf::from(".");
+    // Always overwrite: scaffold seed files (gemspec, pubspec.yaml, Cargo.toml)
+    // must reflect the bumped version even when they already exist on disk.
+    let count = super::generate::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
+
+    let sources_hash = super::super::cache::sources_hash(&fresh_config.sources)?;
+    let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
+    let path_set: std::collections::HashSet<std::path::PathBuf> =
+        scaffold_files.iter().map(|f| base_dir.join(&f.path)).collect();
     super::generate::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
 
     Ok(count)
@@ -2057,6 +2169,7 @@ fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Optio
         p if p.contains("version:") && p.contains(":") => format!(r#"version: "{version}""#),
         p if p.contains("__version__") => format!(r#"__version__ = "{version}""#),
         p if p.contains("defaultFFIVersion") => format!(r#"defaultFFIVersion = "{version}""#),
+        p if p.contains("moduleVersion") => format!(r#"moduleVersion = "{version}""#),
         p if p.contains("Version:") => format!("Version: {version}"),
         p if p.contains("VERSION") => format!("VERSION = \"{version}\""),
         _ => return None,
@@ -4123,6 +4236,162 @@ packages:
         assert!(
             !pyproject.contains("mylib==0.0.0"),
             "stale registry pin mylib==0.0.0 must be gone from test_apps/python/pyproject.toml:\n{pyproject}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // moduleVersion (Go download_ffi) text replacement
+    // -----------------------------------------------------------------------
+
+    /// Regression test for the rc.13/rc.14 incident: `sync-versions` must rewrite
+    /// `moduleVersion = "..."` in `packages/go/cmd/download_ffi/main.go` so that
+    /// Go module consumers of a freshly released version pull the correct FFI binary.
+    ///
+    /// Without this fix, the developer's `alef all` (run before the version bump)
+    /// bakes the old version into main.go; the subsequent `sync-versions` bump
+    /// updated Cargo.toml and other manifests but left main.go stale, causing
+    /// Go consumers to pull the previous release's FFI binary.
+    #[test]
+    fn sync_versions_updates_go_module_version_in_download_ffi() {
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        // Workspace Cargo.toml at the target version (1.9.0-rc.14).
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.9.0-rc.14\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Simulate packages/go/cmd/download_ffi/main.go with the stale rc.13 version.
+        let download_ffi_dir = root.join("packages/go/cmd/download_ffi");
+        std::fs::create_dir_all(&download_ffi_dir).expect("mkdir download_ffi");
+        let stale_main_go = concat!(
+            "// Tool to download platform-specific FFI libraries from GitHub releases.\n",
+            "package main\n\nconst (\n",
+            "\tmoduleVersion = \"1.9.0-rc.13\"\n",
+            "\trepoURL       = \"https://github.com/example/mylib\"\n",
+            ")\n",
+        );
+        std::fs::write(download_ffi_dir.join("main.go"), stale_main_go).expect("write main.go");
+
+        let alef_toml = format!(
+            concat!(
+                "[workspace]\nlanguages = [\"go\"]\n\n",
+                "[[crates]]\nname = \"mylib\"\nsources = []\n",
+                "version_from = \"{cargo_toml}\"\n",
+            ),
+            cargo_toml = root.join("Cargo.toml").display().to_string().replace('\\', "/"),
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        // no_regen=true to skip scaffold/test_apps regen — testing text replacement only.
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let updated_main = std::fs::read_to_string(download_ffi_dir.join("main.go")).expect("read main.go");
+        assert!(
+            updated_main.contains("moduleVersion = \"1.9.0-rc.14\""),
+            "moduleVersion must be updated to 1.9.0-rc.14:\n{updated_main}"
+        );
+        assert!(
+            !updated_main.contains("1.9.0-rc.13"),
+            "stale rc.13 moduleVersion must be gone from main.go:\n{updated_main}"
+        );
+        // Surrounding code must be untouched.
+        assert!(
+            updated_main.contains("repoURL"),
+            "other constants must be preserved:\n{updated_main}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // sync_versions scaffold regen
+    // -----------------------------------------------------------------------
+
+    /// Regression test: after `sync-versions` bumps the workspace version, the
+    /// scaffold generator must be re-run so that scaffold files embedding the
+    /// version (R DESCRIPTION, Dart pubspec.yaml, Ruby gemspec, etc.) reflect
+    /// the new version atomically with the workspace bump.
+    ///
+    /// This test uses the R backend because `packages/r/DESCRIPTION` embeds
+    /// `Version: X.Y.Z` at scaffold time and is therefore the canonical
+    /// scaffold-side version surface not covered by the existing text-replacement
+    /// pass in `sync_versions`.
+    #[test]
+    fn sync_versions_regenerates_scaffold_version_fields() {
+        use crate::core::config::NewAlefConfig;
+
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        // Workspace Cargo.toml at the NEW version (1.2.3).
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.2.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Pre-populate packages/r/DESCRIPTION with the STALE version (0.0.0)
+        // so we can verify the scaffold regen overwrites it.
+        std::fs::create_dir_all(root.join("packages/r")).expect("mkdir packages/r");
+        let stale_description = concat!(
+            "Package: mylib\nTitle: My Library\nVersion: 0.0.0\nDescription: A library.\n",
+            "License: MIT\nEncoding: UTF-8\nRoxygenNote: 7.3.1\n",
+        );
+        std::fs::write(root.join("packages/r/DESCRIPTION"), stale_description).expect("write DESCRIPTION");
+
+        // alef.toml: R language enabled, no e2e block.
+        let alef_toml = format!(
+            concat!(
+                "[workspace]\n",
+                "languages = [\"r\"]\n\n",
+                "[[crates]]\n",
+                "name = \"mylib\"\n",
+                "sources = []\n",
+                "version_from = \"{cargo_toml}\"\n",
+            ),
+            cargo_toml = root.join("Cargo.toml").display().to_string().replace('\\', "/"),
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        // no_regen=false: scaffold regen must fire and update packages/r/DESCRIPTION.
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let description_path = root.join("packages/r/DESCRIPTION");
+        assert!(
+            description_path.exists(),
+            "packages/r/DESCRIPTION must exist after scaffold regen"
+        );
+        let description = std::fs::read_to_string(&description_path).expect("read DESCRIPTION");
+        assert!(
+            description.contains("Version: 1.2"),
+            "DESCRIPTION must contain the new version 1.2.x after scaffold regen:\n{description}"
+        );
+        assert!(
+            !description.contains("Version: 0.0.0"),
+            "stale Version: 0.0.0 must be gone from DESCRIPTION:\n{description}"
         );
     }
 }

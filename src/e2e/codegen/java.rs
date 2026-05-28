@@ -3148,12 +3148,7 @@ pub fn emit_test_backend_with_context(
         format!("{binding_pkg}.I{}", trait_bridge.trait_name)
     };
 
-    let plugin_name = fixture
-        .input
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&fixture.id)
-        .to_string();
+    let plugin_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
 
     let defaults = language_defaults("java");
 
@@ -3213,6 +3208,36 @@ pub fn emit_test_backend_with_context(
         type_imports: Vec::new(),
         teardown_block: String::new(),
     }
+}
+
+/// Extract a backend name string from the fixture input JSON.
+///
+/// Searches the top-level input object for the first string value at any depth
+/// under keys commonly used for names (`name`, or the first string field found).
+/// Falls back to the fixture id when no string is found.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    // Walk the top-level object, then one level deeper, looking for "name".
+    if let Some(obj) = input.as_object() {
+        // Direct "name" key.
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        // One level deeper in any nested object.
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        // First string value at the top level.
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
 }
 
 #[cfg(test)]
@@ -3359,6 +3384,45 @@ mod test_backend_tests {
         assert!(
             !output.contains("dev.sample_crate"),
             "must not contain hardcoded dev.sample_crate, got:\n{output}"
+        );
+    }
+
+    /// Test that plugin name is correctly extracted from nested input object.
+    #[test]
+    fn java_stub_plugin_name_extracted_from_input_name_field() {
+        let bridge = make_trait_bridge("DocumentExtractor");
+        let mut name_method = make_method("name", true);
+        name_method.trait_source = Some("Plugin".to_string());
+        let methods = [&name_method];
+        let fixture = Fixture {
+            id: "register_document_extractor_trait_bridge".to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({
+                "extractor": {
+                    "type": "test",
+                    "name": "test-extractor"
+                }
+            }),
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+            args: vec![],
+        };
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let output = &emission.setup_block;
+
+        // The name() method must return the value from input.extractor.name
+        assert!(
+            output.contains("public String name() { return \"test-extractor\"; }"),
+            "name() method must return extracted name 'test-extractor', got:\n{output}"
         );
     }
 
