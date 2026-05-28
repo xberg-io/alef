@@ -525,7 +525,10 @@ fn gen_run_nif(
             out.push_str(&format!(
                 "                if let Ok(({})): Result<({}), _> = metadata.decode() {{\n",
                 metadata_param_names.join(", "),
-                (0..metadata_param_names.len()).map(|_| "String").collect::<Vec<_>>().join(", ")
+                (0..metadata_param_names.len())
+                    .map(|_| "String")
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
             out.push_str("                    // Note: Handler registration would happen here\n");
             out.push_str("                    // owner.{}(..., handler_closure)\n");

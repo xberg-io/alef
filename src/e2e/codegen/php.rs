@@ -2615,7 +2615,11 @@ pub fn emit_test_backend_with_ns(
     }
 
     // Emit stubs for all required methods (skip those with default implementations).
-    for method in methods.iter().filter(|m| !m.has_default_impl) {
+    // When super_trait is set, name() is already hardcoded above, so exclude it from iteration.
+    for method in methods
+        .iter()
+        .filter(|m| !(m.has_default_impl || (trait_bridge.super_trait.is_some() && m.name == "name")))
+    {
         let php_name = method.name.to_lower_camel_case();
         // Named types are not defined in the PHP binding scope.  The PHP bridge
         // deserialises the return value via json_decode, so return a JSON-safe
@@ -2931,6 +2935,70 @@ mod trait_bridge_tests {
         assert!(
             emission.setup_block.contains("my-extractor"),
             "setup_block must use input-derived name"
+        );
+    }
+
+    /// Verify that name() is not duplicated when super_trait is set and name is in methods list.
+    /// This test prevents the PHP fatal "Cannot redeclare ...::name()" bug.
+    #[test]
+    fn test_backend_no_duplicate_name_with_super_trait() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_ocr_backend".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        // Direct method.
+        let process_image = make_method(
+            "process_image",
+            vec![("image", TypeRef::Bytes)],
+            TypeRef::Named("OcrResult".to_string()),
+            false,
+        );
+
+        // Super-trait methods: name() and priority().
+        let name_method = make_method("name", vec![], TypeRef::String, false);
+        let priority_method = make_method(
+            "priority",
+            vec![],
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+            false,
+        );
+
+        let mut fixture = make_fixture("test_no_duplicate_name");
+        fixture.input = serde_json::json!({
+            "ocr_backend": { "type": "test", "name": "test-ocr" }
+        });
+
+        let methods = vec![&process_image, &name_method, &priority_method];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // Count occurrences of "function name()" to ensure exactly one.
+        let name_count = emission.setup_block.matches("function name()").count();
+        assert_eq!(
+            name_count, 1,
+            "name() must appear exactly once in setup_block, found {} occurrences:\n{}",
+            name_count, emission.setup_block
+        );
+
+        // Verify all methods are present (name deduplicated, not missing).
+        assert!(
+            emission
+                .setup_block
+                .contains("public function name(): string { return 'test-ocr'; }"),
+            "name() must be hardcoded with backend name, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("public function priority()"),
+            "priority() must be present, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("public function processImage("),
+            "processImage() must be present, got:\n{}",
+            emission.setup_block
         );
     }
 }

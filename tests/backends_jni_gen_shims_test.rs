@@ -630,7 +630,10 @@ fn jni_symbols_agree_with_alef_core_jni_helpers() {
     // Instance method symbol.
     let method = bridge_method_name("DemoClient", "ping");
     let method_sym = jni_symbol(package, &bridge, &method);
-    assert_eq!(method_sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientPing");
+    assert_eq!(
+        method_sym,
+        "Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientPing"
+    );
 
     // Destructor symbol.
     let dtor = destructor_method_name("DemoClient");
@@ -1614,7 +1617,8 @@ fn trait_bridge_emits_jni_shim_symbols() {
         "missing nativeRegisterOcrBackend extern fn: {content}"
     );
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeUnregisterOcrBackend"),
+        content
+            .contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeUnregisterOcrBackend"),
         "missing nativeUnregisterOcrBackend extern fn: {content}"
     );
     assert!(

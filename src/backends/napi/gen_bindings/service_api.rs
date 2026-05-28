@@ -473,9 +473,7 @@ fn gen_run_napi_function(
                 for (idx, param) in reg.metadata_params.iter().enumerate() {
                     let param_name = &param.name;
                     let rust_ty = typeref_to_rust_type(&param.ty, core_import);
-                    out.push_str(&format!(
-                        "                let {param_name}: {rust_ty} = {{\n"
-                    ));
+                    out.push_str(&format!("                let {param_name}: {rust_ty} = {{\n"));
                     out.push_str(&format!(
                         "                    let val = _metadata.get({idx}).ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"missing metadata parameter at index {idx}\"))?;\n"
                     ));
