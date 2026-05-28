@@ -20,26 +20,28 @@ use crate::backends::java::template_env;
 use crate::backends::java::type_map::{java_ffi_type, java_type};
 
 /// Map a `TypeRef` to its Java representation, substituting `String` for any
-/// `Named` type that is not in the set of visible (i.e. generated) types.
+/// `Named` type that is not in the set of visible (i.e. generated) types,
+/// OR that is in the excluded types set.
 ///
 /// This prevents internal/excluded types like `InternalDocument` from leaking
 /// into public trait interface signatures and Panama upcall bridge methods.
 /// Excluded types are JSON-serialised over the FFI boundary as `String`.
-fn java_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+fn java_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>, excluded_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Named(name) => {
-            if visible_type_names.contains(name.as_str()) {
-                java_type(ty).into_owned()
-            } else {
+            // Substitute with String if: (1) not in visible set, OR (2) explicitly excluded
+            if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
                 "String".to_string()
+            } else {
+                java_type(ty).into_owned()
             }
         }
-        TypeRef::Optional(inner) => java_type_visible(inner, visible_type_names),
-        TypeRef::Vec(inner) => format!("List<{}>", java_type_visible_boxed(inner, visible_type_names)),
+        TypeRef::Optional(inner) => java_type_visible(inner, visible_type_names, excluded_types),
+        TypeRef::Vec(inner) => format!("List<{}>", java_type_visible_boxed(inner, visible_type_names, excluded_types)),
         TypeRef::Map(k, v) => format!(
             "Map<{}, {}>",
-            java_type_visible_boxed(k, visible_type_names),
-            java_type_visible_boxed(v, visible_type_names)
+            java_type_visible_boxed(k, visible_type_names, excluded_types),
+            java_type_visible_boxed(v, visible_type_names, excluded_types)
         ),
         _ => java_type(ty).into_owned(),
     }
@@ -47,21 +49,22 @@ fn java_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String
 
 /// Boxed variant of `java_type_visible` for use inside `List<...>` / `Map<...>`
 /// generics. Substitutes excluded Named types with `String` (already boxed).
-fn java_type_visible_boxed(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+fn java_type_visible_boxed(ty: &TypeRef, visible_type_names: &HashSet<&str>, excluded_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Named(name) => {
-            if visible_type_names.contains(name.as_str()) {
-                crate::backends::java::type_map::java_boxed_type(ty).into_owned()
-            } else {
+            // Substitute with String if: (1) not in visible set, OR (2) explicitly excluded
+            if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
                 "String".to_string()
+            } else {
+                crate::backends::java::type_map::java_boxed_type(ty).into_owned()
             }
         }
-        TypeRef::Optional(inner) => java_type_visible_boxed(inner, visible_type_names),
-        TypeRef::Vec(inner) => format!("List<{}>", java_type_visible_boxed(inner, visible_type_names)),
+        TypeRef::Optional(inner) => java_type_visible_boxed(inner, visible_type_names, excluded_types),
+        TypeRef::Vec(inner) => format!("List<{}>", java_type_visible_boxed(inner, visible_type_names, excluded_types)),
         TypeRef::Map(k, v) => format!(
             "Map<{}, {}>",
-            java_type_visible_boxed(k, visible_type_names),
-            java_type_visible_boxed(v, visible_type_names)
+            java_type_visible_boxed(k, visible_type_names, excluded_types),
+            java_type_visible_boxed(v, visible_type_names, excluded_types)
         ),
         _ => crate::backends::java::type_map::java_boxed_type(ty).into_owned(),
     }
@@ -90,9 +93,10 @@ pub fn gen_trait_bridge_files(
     unregister_fn: Option<&str>,
     clear_fn: Option<&str>,
     visible_type_names: &HashSet<&str>,
+    excluded_types: &HashSet<String>,
 ) -> BridgeFiles {
     BridgeFiles {
-        interface_content: gen_interface_file(trait_def, package, has_super_trait, visible_type_names),
+        interface_content: gen_interface_file(trait_def, package, has_super_trait, visible_type_names, excluded_types),
         bridge_content: gen_bridge_file(
             trait_def,
             prefix,
@@ -101,6 +105,7 @@ pub fn gen_trait_bridge_files(
             unregister_fn,
             clear_fn,
             visible_type_names,
+            excluded_types,
         ),
     }
 }
@@ -191,6 +196,7 @@ fn gen_interface_file(
     package: &str,
     has_super_trait: bool,
     visible_type_names: &HashSet<&str>,
+    excluded_types: &HashSet<String>,
 ) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
 
@@ -199,11 +205,11 @@ fn gen_interface_file(
         .methods
         .iter()
         .map(|m| {
-            let ret = java_type_visible(&m.return_type, visible_type_names);
+            let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params = m
                 .params
                 .iter()
-                .map(|p| java_type_visible(&p.ty, visible_type_names))
+                .map(|p| java_type_visible(&p.ty, visible_type_names, excluded_types))
                 .collect::<Vec<_>>()
                 .join(",");
             format!("{ret}({params})")
@@ -224,14 +230,14 @@ fn gen_interface_file(
         .methods
         .iter()
         .map(|m| {
-            let return_type_str = java_type_visible(&m.return_type, visible_type_names);
+            let return_type_str = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params_str = m
                 .params
                 .iter()
                 .map(|p| {
                     format!(
                         "{} {}",
-                        java_type_visible(&p.ty, visible_type_names),
+                        java_type_visible(&p.ty, visible_type_names, excluded_types),
                         java_param_name(&p.name)
                     )
                 })
@@ -265,6 +271,7 @@ fn gen_bridge_file(
     unregister_fn: Option<&str>,
     clear_fn: Option<&str>,
     visible_type_names: &HashSet<&str>,
+    excluded_types: &HashSet<String>,
 ) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
     let trait_snake = trait_def.name.to_snake_case();
@@ -277,11 +284,11 @@ fn gen_bridge_file(
         .methods
         .iter()
         .map(|m| {
-            let ret = java_type_visible(&m.return_type, visible_type_names);
+            let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params = m
                 .params
                 .iter()
-                .map(|p| java_type_visible(&p.ty, visible_type_names))
+                .map(|p| java_type_visible(&p.ty, visible_type_names, excluded_types))
                 .collect::<Vec<_>>()
                 .join(",");
             format!("{ret}({params})")
@@ -449,12 +456,12 @@ fn gen_bridge_file(
                 let local = java_param_name(&param.name);
                 if !matches!(param.ty, TypeRef::Primitive(_)) {
                     let segment = format!("{local}_in");
-                    // Named types not in visible_type_names (e.g. InternalDocument) are
-                    // JSON-bridged as opaque Strings — no companion Java class is generated
+                    // Named types not in visible_type_names (e.g. InternalDocument) OR in excluded_types
+                    // are JSON-bridged as opaque Strings — no companion Java class is generated
                     // for them, so unmarshal as a plain String rather than deserialising
                     // into a missing class.
                     if let TypeRef::Named(name) = &param.ty {
-                        if !visible_type_names.contains(name.as_str()) {
+                        if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
                             unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty, None));
                             continue;
                         }
@@ -477,7 +484,7 @@ fn gen_bridge_file(
             let java_args: Vec<String> = method.params.iter().map(|p| java_param_name(&p.name)).collect();
             let has_return = !matches!(method.return_type, TypeRef::Unit);
             let return_type_str = if has_return {
-                java_type_visible(&method.return_type, visible_type_names)
+                java_type_visible(&method.return_type, visible_type_names, excluded_types)
             } else {
                 String::new()
             };
@@ -681,7 +688,8 @@ mod tests {
     fn interface_emisample_package_and_lifecycle_when_super_trait() {
         let trait_def = make_trait("OcrBackend", vec![make_method("process", TypeRef::String, vec![])]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible, &excluded);
         assert!(files.interface_content.starts_with("package dev.sample_crate;"));
         assert!(files.interface_content.contains("public interface IOcrBackend"));
         assert!(files.interface_content.contains("String name();"));
@@ -693,7 +701,8 @@ mod tests {
     fn interface_omits_lifecycle_when_no_super_trait() {
         let trait_def = make_trait("Filter", vec![make_method("apply", TypeRef::String, vec![])]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible, &excluded);
         assert!(!files.interface_content.contains("String name();"));
         assert!(files.interface_content.contains("String apply()"));
     }
@@ -702,8 +711,9 @@ mod tests {
     fn bridge_class_has_register_helper_and_registry() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
+        let excluded = HashSet::new();
         // No unregister/clear configured: neither method should appear
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible, &excluded);
         let body = files.bridge_content.as_str();
         assert!(body.starts_with("package dev.sample_crate;"));
         assert!(body.contains("public final class OcrBackendBridge"));
@@ -719,6 +729,7 @@ mod tests {
     fn gen_unregistration_fn_emits_method_when_configured() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
+        let excluded = HashSet::new();
         let files = gen_trait_bridge_files(
             &trait_def,
             "krz",
@@ -727,6 +738,7 @@ mod tests {
             Some("unregister_ocr_backend"),
             None,
             &visible,
+            &excluded,
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void unregisterOcrBackend(String name)"));
@@ -739,7 +751,8 @@ mod tests {
     fn gen_unregistration_fn_omits_method_when_none() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible, &excluded);
         let body = files.bridge_content.as_str();
         assert!(!body.contains("public static void unregisterOcrBackend(String name)"));
     }
@@ -748,6 +761,7 @@ mod tests {
     fn gen_clear_fn_emits_method_when_configured() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
+        let excluded = HashSet::new();
         let files = gen_trait_bridge_files(
             &trait_def,
             "krz",
@@ -756,6 +770,7 @@ mod tests {
             None,
             Some("clear_ocr_backends"),
             &visible,
+            &excluded,
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void clearOcrBackends()"));
@@ -769,7 +784,8 @@ mod tests {
     fn gen_clear_fn_omits_method_when_none() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", true, None, None, &visible, &excluded);
         let body = files.bridge_content.as_str();
         assert!(!body.contains("public static void clearOcrBackends()"));
     }
@@ -778,6 +794,7 @@ mod tests {
     fn both_unregister_and_clear_emitted_when_both_configured() {
         let trait_def = make_trait("OcrBackend", vec![]);
         let visible = all_named_visible(&trait_def.methods);
+        let excluded = HashSet::new();
         let files = gen_trait_bridge_files(
             &trait_def,
             "krz",
@@ -786,6 +803,7 @@ mod tests {
             Some("unregister_ocr_backend"),
             Some("clear_ocr_backends"),
             &visible,
+            &excluded,
         );
         let body = files.bridge_content.as_str();
         assert!(body.contains("public static void unregisterOcrBackend(String name)"));
@@ -852,7 +870,8 @@ mod tests {
             )],
         );
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible, &excluded);
         let body = files.bridge_content.as_str();
         assert!(body.contains("toArray(ValueLayout.JAVA_BYTE)"));
         assert!(body.contains("OcrConfig"));
@@ -888,7 +907,8 @@ mod tests {
             )],
         );
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible, &excluded);
         let body = files.bridge_content.as_str();
 
         // The handler method signature must carry the length companion.
@@ -947,7 +967,8 @@ mod tests {
             )],
         );
         let visible = all_named_visible(&trait_def.methods);
-        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(&trait_def, "krz", "dev.sample_crate", false, None, None, &visible, &excluded);
         let body = files.bridge_content.as_str();
         // The handler signature should have `byte level`, not `MemorySegment level_in`
         assert!(body.contains(

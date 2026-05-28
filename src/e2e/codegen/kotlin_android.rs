@@ -332,7 +332,8 @@ fn render_build_gradle_kotlin_android(
     let tasks_block = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         r#"tasks.withType<Test> {
     useJUnitPlatform()
-}"#.to_string()
+}"#
+        .to_string()
     } else {
         r#"tasks.withType<Test> {
     useJUnitPlatform()
@@ -344,7 +345,8 @@ fn render_build_gradle_kotlin_android(
 
     // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
     workingDir = file("${rootDir}/../../test_documents")
-}"#.to_string()
+}"#
+        .to_string()
     };
 
     // Test dependencies are always needed for host-JVM tests (both Local and Registry modes).

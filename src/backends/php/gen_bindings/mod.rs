@@ -2105,7 +2105,10 @@ if test "$PHP_{}_ENABLED" = "yes"; then
   PHP_NEW_EXTENSION({}, [], $ext_shared)
 fi
 "#,
-        extension_name, extension_name, extension_name, extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
         extension_name.to_uppercase(),
         extension_name
     )

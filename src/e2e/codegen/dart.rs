@@ -298,8 +298,13 @@ fn render_test_file(
             if f.is_http_test() {
                 return vec![];
             }
-            let call_config =
-                e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+            let call_config = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
             f.resolved_args(call_config)
                 .iter()
                 .filter_map(|a| {
@@ -2986,8 +2991,10 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "  pluginName: '{escaped_plugin_name}',");
     let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
 
-    // Emit method callbacks - required methods with implementations
-    for (i, method) in methods.iter().enumerate() {
+    // Emit method callbacks - required methods only (skip methods with default implementations).
+    // Collect non-default methods first to get the count for commas.
+    let required_methods: Vec<_> = methods.iter().filter(|m| !m.has_default_impl).collect();
+    for (i, method) in required_methods.iter().enumerate() {
         let method_name = method.name.to_lower_camel_case();
         let param_names: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
         let params_str = param_names.join(", ");
@@ -2996,7 +3003,7 @@ pub fn emit_test_backend(
         } else {
             format!("{method_name}: ({params_str}) => {instance_name}.{method_name}({params_str})")
         };
-        let comma = if i < methods.len() - 1 { "," } else { "" };
+        let comma = if i < required_methods.len() - 1 { "," } else { "" };
         let _ = writeln!(setup, "  {binding}{comma}");
     }
     let _ = writeln!(setup, ");");
