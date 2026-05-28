@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.8] - 2026-05-28
+
+### Fixed
+
+- **alef ffi build.rs: emit `@rpath/lib<name>.dylib` install_name on macOS.** The generated `build.rs` for FFI crates now appends `cargo:rustc-link-arg-cdylib=-Wl,-install_name,@rpath/lib<ffi_name>.dylib` when building for macOS targets. Without this, the cdylib's install_name embeds the absolute CI build-output path (e.g. `/Users/runner/work/<repo>/<repo>/target/<triple>/release/deps/lib<name>.dylib`), which dyld then chases at runtime — even after the dylib is bundled into a language package's per-RID natives directory (Go's `packages/go/.lib/<rid>/`, Java's `src/main/resources/natives/<rid>/`, etc.). Consumers built against the bundled copy fail with `Library not loaded: <build-path>` even when the file is present at the consumer-resolvable path. With `@rpath`, dyld searches the consumer binary's rpaths, so the bundled location resolves cleanly. Threads `lib_name` through `gen_build_rs` and renders it in the jinja template. Liter-llm rc.42 reproduced this exact failure mode (cf. rc.42 Go test_app `dyld[40484]: Library not loaded: /Users/runner/...`); fix unblocks Go/Java/C#/Dart consumption of macOS dylibs. (`src/backends/ffi/templates/build_rs.jinja`, `src/backends/ffi/gen_bindings/helpers.rs`, `src/backends/ffi/gen_bindings/mod.rs`)
+
+- **alef dart: `_alefHostLibNames` now resolves to the dart cdylib's actual filename (`lib<stem>_dart.<ext>`).** The dart-binding Rust crate is `{stem}-dart` per the cargo manifest template (`cargo.rs:275`), which produces `lib<stem>_dart.dylib` (macOS), `lib<stem>_dart.so` (linux), and `<stem>_dart.dll` (windows). The previously emitted loader used `lib<stem>.<ext>` (dropping the `_dart` suffix), so `File(libPath).existsSync()` always missed the actual dylib and the loader fell through to FRB's default `<stem>.framework/<stem>` relative path, which dart's hardened runtime on macOS rejects with `dlopen: relative path not allowed in hardened program`. Liter-llm rc.42 reproduced this exact failure mode across every dart test_app. The frb_rewrite.rs path was already correct (extracts the stem from FRB's own `kDefaultExternalLibraryLoaderConfig.stem` which carries the full cdylib name); this fix aligns the cargo.rs scaffold path with the FRB convention. (`src/backends/dart/gen_rust_crate/cargo.rs`)
+
 ## [0.20.7] - 2026-05-28
 
 ### Added

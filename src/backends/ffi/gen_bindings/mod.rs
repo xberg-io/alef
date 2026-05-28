@@ -55,6 +55,7 @@ impl Backend for FfiBackend {
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.ffi_prefix();
         let header_name = config.ffi_header_name();
+        let lib_name = config.ffi_lib_name();
 
         let output_dir = config
             .output_for("ffi")
@@ -85,7 +86,7 @@ impl Backend for FfiBackend {
             },
             GeneratedFile {
                 path: parent_dir.join("build.rs"),
-                content: gen_build_rs(&header_name, go_output_dir.as_deref()),
+                content: gen_build_rs(&header_name, &format!("lib{lib_name}"), go_output_dir.as_deref()),
                 generated_header: false,
             },
         ];
