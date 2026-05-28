@@ -4001,7 +4001,7 @@ fn emit_go_stub_method_body(
 
 #[cfg(test)]
 mod trait_bridge_tests {
-    use super::emit_test_backend;
+    use super::{emit_test_backend, emit_test_backend_with_context};
     use crate::core::config::TraitBridgeConfig;
     use crate::core::ir::{MethodDef, ParamDef, TypeRef};
     use crate::e2e::fixture::Fixture;
@@ -4248,6 +4248,70 @@ mod trait_bridge_tests {
             !emission.setup_block.contains("json.RawMessage(nil)"),
             "setup_block must not use json.RawMessage for OcrBackendType, got:\n{}",
             emission.setup_block
+        );
+    }
+
+    /// Verify that binding-excluded types (e.g. InternalDocument) map to `json.RawMessage`
+    /// in stub method signatures, and that Named types are qualified with the import alias
+    /// when the stub is generated for an external test package (e.g. `package e2e_test`).
+    #[test]
+    fn test_go_stub_excluded_types_and_import_alias() {
+        // Method: extract_bytes(content []byte, mimeType string, config ExtractionConfig) (InternalDocument, error)
+        // With excluded_types={"InternalDocument"} and import_alias="kreuzberg":
+        //   - InternalDocument → json.RawMessage
+        //   - ExtractionConfig → kreuzberg.ExtractionConfig
+        let extract_method = make_method(
+            "extract_bytes",
+            vec![
+                ("content", TypeRef::Bytes),
+                ("mime_type", TypeRef::String),
+                ("config", TypeRef::Named("ExtractionConfig".to_string())),
+            ],
+            TypeRef::Named("InternalDocument".to_string()),
+            false,
+        );
+
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: None,
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let fixture = make_fixture("extractor_test");
+        let methods = vec![&extract_method];
+
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("InternalDocument");
+
+        let emission = emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg");
+
+        // InternalDocument return type must become json.RawMessage.
+        assert!(
+            emission.setup_block.contains("json.RawMessage"),
+            "excluded type InternalDocument must map to json.RawMessage, got:\n{}",
+            emission.setup_block
+        );
+
+        // Named type ExtractionConfig must be qualified with import alias.
+        assert!(
+            emission.setup_block.contains("kreuzberg.ExtractionConfig"),
+            "named type ExtractionConfig must be qualified as kreuzberg.ExtractionConfig, got:\n{}",
+            emission.setup_block
+        );
+
+        // InternalDocument must NOT appear unqualified in the stub.
+        assert!(
+            !emission.setup_block.contains("InternalDocument"),
+            "excluded type InternalDocument must not appear in stub, got:\n{}",
+            emission.setup_block
+        );
+
+        // encoding/json must be in type_imports since json.RawMessage is used.
+        assert!(
+            emission.type_imports.contains(&"encoding/json".to_string()),
+            "encoding/json must be in type_imports when json.RawMessage is used, got: {:?}",
+            emission.type_imports
         );
     }
 }
