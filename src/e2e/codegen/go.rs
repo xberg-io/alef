@@ -3930,11 +3930,8 @@ pub fn emit_test_backend_with_context(
 /// Go binding signatures. Named types check enum_names to determine if they're
 /// enums (zero-value `""`) or structs (zero-value `nil`). Primitives produce
 /// their standard zero values (0, false, ""), and Vec produces a nil slice.
-fn go_stub_default(ty: &crate::core::ir::TypeRef, enum_names: &std::collections::HashSet<&str>) -> String {
-    go_stub_default_with_context(ty, enum_names, &Default::default(), "")
-}
-
-/// Like `go_stub_default`, but uses the same excluded/import-alias substitution as
+///
+/// Use `go_stub_default_with_context` with the same excluded/import-alias substitution as
 /// `stub_go_type_with_context` so the emitted zero-value matches the rendered return
 /// type. Excluded types become `json.RawMessage(nil)`, struct types qualified via
 /// `import_alias` use `alias.Type{}` (Go's struct zero-value), enums stay as `""`,
@@ -4017,6 +4014,7 @@ fn stub_go_type_with_context(
 /// `excluded_types` — names of binding-excluded types substituted with `json.RawMessage`.
 /// `import_alias` — binding package import alias; qualifies Named types for external packages.
 /// `enum_names` — set of type names that are enums (map to string types, zero-value is `""`).
+#[allow(clippy::too_many_arguments)]
 fn emit_go_stub_method_body(
     out: &mut String,
     struct_name: &str,
@@ -4067,8 +4065,7 @@ fn emit_go_stub_method_body(
     } else if matches!(method.return_type, TypeRef::Unit) {
         String::new()
     } else {
-        let default_val =
-                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias);
+        let default_val = go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias);
         format!("return {default_val}")
     };
 
