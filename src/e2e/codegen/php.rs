@@ -2651,6 +2651,7 @@ pub fn emit_test_backend_with_ns(
         setup_block: setup,
         arg_expr: "$stub".to_string(),
         type_imports: Vec::new(),
+        teardown_block: String::new(),
     }
 }
 

@@ -2760,6 +2760,7 @@ pub fn emit_test_backend(
         setup_block: combined_setup,
         arg_expr: pid_var,
         type_imports: Vec::new(),
+        teardown_block: String::new(),
     }
 }
 

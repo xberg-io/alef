@@ -3827,6 +3827,7 @@ pub fn emit_test_backend(
         setup_block: setup,
         arg_expr: format!("{struct_name}{{}}"),
         type_imports,
+        teardown_block: String::new(),
     }
 }
 

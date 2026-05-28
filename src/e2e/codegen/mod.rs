@@ -322,7 +322,7 @@ pub(crate) fn resolve_urls_field<'a>(input: &'a serde_json::Value, field_path: &
 }
 
 /// Emission result for a test backend stub.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TestBackendEmission {
     /// Code emitted at the top of the test function: stub class/struct definition.
     pub setup_block: String,
@@ -334,6 +334,21 @@ pub struct TestBackendEmission {
     /// emit the appropriate `use module::Symbol;` statements.  Other language
     /// backends leave this empty — they manage imports internally.
     pub type_imports: Vec<String>,
+    /// Optional teardown statements emitted after the fixture call and its
+    /// assertions, used to undo registry mutations performed by trait-bridge
+    /// fixtures (e.g. `unregister_ocr_backend("test-backend")`).
+    ///
+    /// Test runners that share a process across tests (python pytest, ruby
+    /// rspec, dart `test`, etc.) leak registered test backends into later
+    /// tests; without a teardown the next OCR-using fixture fails because the
+    /// global registry contains only `test-backend` and the core's
+    /// `ensure_ocr_backends_initialized` self-heal only triggers when the
+    /// registry is empty. Emitting `unregister_<trait>(<name>)` here drains
+    /// the test backend so the next access re-seeds the defaults.
+    ///
+    /// Languages that run each test in its own process (Rust cargo
+    /// integration tests, Go) leave this empty.
+    pub teardown_block: String,
 }
 
 impl TestBackendEmission {
@@ -343,6 +358,7 @@ impl TestBackendEmission {
             setup_block: String::new(),
             arg_expr: format!("/* test_backend unimplemented for {} */", language),
             type_imports: Vec::new(),
+            teardown_block: String::new(),
         }
     }
 }

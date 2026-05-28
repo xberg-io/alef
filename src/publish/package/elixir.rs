@@ -5,7 +5,7 @@
 //!
 //! `{lib}-v{version}-nif-{nif_version}-{target}.{ext}.tar.gz`
 //!
-//! where `{ext}` is `so` (Linux/macOS) or `dll` (Windows).
+//! where `{ext}` is `so` (Linux), `dylib` (macOS), or `dll` (Windows).
 //!
 //! Also provides `write_elixir_checksums()` to generate the
 //! `checksum-Elixir.{App}.exs` file that RustlerPrecompiled validates.
@@ -120,6 +120,7 @@ pub fn write_elixir_checksums(config: &ResolvedCrateConfig, output_dir: &Path) -
 fn nif_extension(target: &RustTarget) -> &'static str {
     match target.os {
         crate::publish::platform::Os::Windows => "dll",
+        crate::publish::platform::Os::MacOs => "dylib",
         _ => "so",
     }
 }
@@ -287,6 +288,12 @@ mod tests {
     fn nif_extension_linux() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         assert_eq!(nif_extension(&t), "so");
+    }
+
+    #[test]
+    fn nif_extension_macos() {
+        let t = RustTarget::parse("x86_64-apple-darwin").unwrap();
+        assert_eq!(nif_extension(&t), "dylib");
     }
 
     #[test]

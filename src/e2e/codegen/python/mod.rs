@@ -201,10 +201,30 @@ pub fn emit_test_backend(
     // scope when the caller embeds it inside a `def test_*():` block.
     let indented_setup = indent_block(&setup, 4);
 
+    // Pytest runs every test in a single python process, so registering a
+    // test backend leaks into later tests in the suite. Emit
+    // `unregister_<trait>("<backend_name>")` after the call+assertions so the
+    // shared global registry is restored: the core's
+    // `ensure_<trait>_initialized` self-heal triggers on the next access
+    // (registry becomes empty after our unregister) and re-seeds defaults
+    // like `tesseract` that smoke tests rely on. Without this teardown,
+    // `test_register_ocr_backend_trait_bridge` leaves `test-backend` in the
+    // registry and any later OCR fixture (e.g. `test_ocr_image_png`) fails
+    // with `OCR backend 'tesseract' not registered`.
+    let teardown_block = trait_bridge
+        .unregister_fn
+        .as_deref()
+        .map(|unregister_fn| {
+            let escaped = escape_python(&backend_name);
+            format!("    {unregister_fn}(\"{escaped}\")\n")
+        })
+        .unwrap_or_default();
+
     super::TestBackendEmission {
         setup_block: indented_setup,
         arg_expr,
         type_imports: Vec::new(),
+        teardown_block,
     }
 }
 

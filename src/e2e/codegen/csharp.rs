@@ -3869,6 +3869,7 @@ pub fn emit_test_backend(
         setup_block: setup,
         arg_expr,
         type_imports: Vec::new(),
+        teardown_block: String::new(),
     }
 }
 

@@ -331,6 +331,10 @@ pub fn emit_test_backend(
         setup_block: setup,
         arg_expr,
         type_imports,
+        // Rust cargo integration tests run each `tests/*.rs` file in its own
+        // process, so the global registry resets between files and no
+        // teardown is required.
+        teardown_block: String::new(),
     }
 }
 
