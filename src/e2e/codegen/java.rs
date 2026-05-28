@@ -1744,21 +1744,15 @@ fn build_args_and_setup(
                                         return false;
                                     }
 
-                                    // Skip methods that return excluded types (they don't exist in Java interface)
-                                    if let crate::core::ir::TypeRef::Named(n) = &m.return_type {
-                                        if excluded_named.contains(n.as_str()) {
-                                            return false;
-                                        }
-                                    }
-
-                                    // Skip known methods not in Java trait-bridge interfaces
+                                    // Skip only known non-trait methods not in Java trait-bridge interfaces
                                     match m.name.as_str() {
-                                        "extract_bytes" | "extract_file" => return false,
                                         "description" | "author" => return false,
-                                        "backend_type" if trait_bridge.trait_name == "OcrBackend" => return false,
                                         _ => {}
                                     }
 
+                                    // As of the trait method extraction fix, methods returning excluded types
+                                    // are now kept in the interface with type substitution (e.g., ProcessingStage -> String).
+                                    // Methods like extract_bytes/extract_file and backend_type are now included.
                                     true
                                 })
                                 .collect()
