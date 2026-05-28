@@ -1300,7 +1300,7 @@ fn build_args_and_setup(
     let mut parts: Vec<String> = Vec::new();
     // Teardown lines emitted after the call+assertions. Populated by
     // trait-bridge args so RSpec's shared-process registry state is restored
-    // between tests (e.g. `Kreuzberg.unregister_ocr_backend('test-backend')`).
+    // between tests (e.g. `<Binding>.unregister_<trait>('test-backend')`).
     let mut teardown_lines: Vec<String> = Vec::new();
     // Track optional args that were skipped; if a later arg is emitted we must back-fill nil
     // to preserve positional correctness (e.g. extract_file(path, nil, config)).
@@ -1475,8 +1475,8 @@ fn build_args_and_setup(
 
                         // Emit `<module>.<unregister_fn>('<name>')` after the call so
                         // RSpec's single-process registry state is restored between
-                        // tests. Without this, the next OCR-using fixture fails
-                        // because the kreuzberg OCR registry contains only the test
+                        // tests. Without this, the next trait-using fixture fails
+                        // because the downstream registry contains only the test
                         // stub and the core's `ensure_*_initialized` self-heal only
                         // triggers when the registry is empty.
                         if let Some(unregister_fn) = trait_bridge.unregister_fn.as_deref() {
