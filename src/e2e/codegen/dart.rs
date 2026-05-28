@@ -2938,11 +2938,9 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "  String get name => '{escaped_name}';");
     }
 
-    // Required methods — use concrete Dart types from the type mapper.
+    // Emit all methods (both required and optional with defaults) so the factory wrapper
+    // can invoke them all. Optional methods return default values.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         let method_name = method.name.to_lower_camel_case();
 
         // Build typed parameter list using DartMapper for concrete type names.
@@ -2991,10 +2989,9 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "  pluginName: '{escaped_plugin_name}',");
     let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
 
-    // Emit method callbacks - required methods only (skip methods with default implementations).
-    // Collect non-default methods first to get the count for commas.
-    let required_methods: Vec<_> = methods.iter().filter(|m| !m.has_default_impl).collect();
-    for (i, method) in required_methods.iter().enumerate() {
+    // Emit method callbacks for all methods (required and optional). The factory wrapper
+    // requires callbacks for all trait methods to satisfy the Rust bridge signature.
+    for (i, method) in methods.iter().enumerate() {
         let method_name = method.name.to_lower_camel_case();
         let param_names: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
         let params_str = param_names.join(", ");
@@ -3003,7 +3000,7 @@ pub fn emit_test_backend(
         } else {
             format!("{method_name}: ({params_str}) => {instance_name}.{method_name}({params_str})")
         };
-        let comma = if i < required_methods.len() - 1 { "," } else { "" };
+        let comma = if i < methods.len() - 1 { "," } else { "" };
         let _ = writeln!(setup, "  {binding}{comma}");
     }
     let _ = writeln!(setup, ");");
