@@ -1719,6 +1719,17 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    // Collect excluded type names before filtering methods.
+                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
+                        .iter()
+                        .filter(|t| t.binding_excluded)
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    excluded_named.insert("InternalDocument");
+                    excluded_named.insert("OcrBackendType");
+                    excluded_named.insert("ProcessingStage");
+                    excluded_named.insert("SyncExtractor");
+
                     // Filter to only methods that appear in the Java trait-bridge interface.
                     // Async methods (extract_bytes, extract_file) are handled by the FFI bridge internally.
                     let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
@@ -1733,16 +1744,16 @@ fn build_args_and_setup(
                                         return false;
                                     }
 
-                                    // Skip async extraction methods that return InternalDocument
+                                    // Skip methods that return excluded types (they don't exist in Java interface)
                                     if let crate::core::ir::TypeRef::Named(n) = &m.return_type {
-                                        if n == "InternalDocument" {
+                                        if excluded_named.contains(n.as_str()) {
                                             return false;
                                         }
                                     }
 
                                     // Skip known methods not in Java trait-bridge interfaces
                                     match m.name.as_str() {
-                                        "extract_bytes" | "extract_file" | "process_document" => return false,
+                                        "extract_bytes" | "extract_file" => return false,
                                         "description" | "author" => return false,
                                         "backend_type" if trait_bridge.trait_name == "OcrBackend" => return false,
                                         _ => {}
@@ -1766,6 +1777,7 @@ fn build_args_and_setup(
                             }
                         }
                     }
+
                     // Collect binding-excluded type names from IR and hardcoded overrides.
                     // These types are never emitted as Java classes; the trait-bridge interface
                     // serializes them to JSON strings, so stubs must use String and default to "".
@@ -1782,6 +1794,15 @@ fn build_args_and_setup(
                     excluded_named.insert("OcrBackendType");
                     excluded_named.insert("ProcessingStage");
                     excluded_named.insert("SyncExtractor");
+
+                    // Remove any methods that return excluded types — they don't appear in the Java interface.
+                    methods.retain(|m| {
+                        match &m.return_type {
+                            crate::core::ir::TypeRef::Named(n) => !excluded_named.contains(n.as_str()),
+                            _ => true,
+                        }
+                    });
+
                     // Call java::emit_test_backend_with_context so stubs handle excluded types correctly.
                     let emission = emit_test_backend_with_context(
                         trait_bridge,
