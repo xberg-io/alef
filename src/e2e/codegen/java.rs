@@ -3019,18 +3019,11 @@ fn emit_java_stub_method_with_context(
     let params_str = params.join(", ");
 
     let _ = writeln!(out, "    @Override");
-    if method.is_async {
-        let ret_boxed = java_boxed_stub_type_with_context(&method.return_type, binding_pkg, excluded_types);
-        let _ = writeln!(
-            out,
-            "    public java.util.concurrent.CompletableFuture<{ret_boxed}> {method_java}({params_str}) {{"
-        );
-        let _ = writeln!(
-            out,
-            "        return java.util.concurrent.CompletableFuture.completedFuture({default_val});"
-        );
-        let _ = writeln!(out, "    }}");
-    } else if ret_java == "void" {
+    // E2e test stubs must match the trait bridge interface signatures exactly.
+    // The interface declares sync methods (not wrapped in CompletableFuture),
+    // even if the Rust trait method is async. The trait bridge handles async
+    // internally; test stubs just implement the interface signature.
+    if ret_java == "void" {
         let _ = writeln!(out, "    public void {method_java}({params_str}) {{}}");
     } else {
         let _ = writeln!(out, "    public {ret_java} {method_java}({params_str}) {{");
@@ -3096,12 +3089,13 @@ pub fn emit_test_backend_with_context(
 
     // Super-trait methods — driven from IR, no names hardcoded.
     // The `name` method returns the fixture's plugin name; all others use defaults.
+    // Method names must match the interface exactly (snake_case).
     if let Some(super_trait) = trait_bridge.super_trait.as_deref() {
         for method in methods
             .iter()
             .filter(|m| m.trait_source.as_deref() == Some(super_trait))
         {
-            let method_java = method.name.to_lower_camel_case();
+            let method_java = &method.name;  // Keep snake_case to match interface
             if method.name == "name" {
                 let _ = writeln!(setup, "    @Override");
                 let _ = writeln!(
@@ -3111,7 +3105,7 @@ pub fn emit_test_backend_with_context(
             } else {
                 emit_java_stub_method_with_context(
                     &mut setup,
-                    &method_java,
+                    method_java,
                     method,
                     &*defaults,
                     binding_pkg,
@@ -3124,6 +3118,7 @@ pub fn emit_test_backend_with_context(
     // All non-super-trait methods (including those with default impls).
     // Java interfaces require all abstract methods to be implemented, even if
     // Rust traits provide default implementations.
+    // Method names must match the interface exactly (snake_case).
     for method in methods {
         // Skip super-trait methods already emitted above.
         if trait_bridge
@@ -3133,10 +3128,10 @@ pub fn emit_test_backend_with_context(
         {
             continue;
         }
-        let method_java = method.name.to_lower_camel_case();
+        let method_java = &method.name;  // Keep snake_case to match interface
         emit_java_stub_method_with_context(
             &mut setup,
-            &method_java,
+            method_java,
             method,
             &*defaults,
             binding_pkg,
@@ -3249,8 +3244,8 @@ mod test_backend_tests {
             "class must implement interface with binding_pkg prefix, got:\n{output}"
         );
         assert!(
-            output.contains("processItem"),
-            "required method must be emitted in camelCase, got:\n{output}"
+            output.contains("process_item"),
+            "required method must be emitted in snake_case to match interface, got:\n{output}"
         );
     }
 
@@ -3333,9 +3328,10 @@ mod test_backend_tests {
         let output = &emission.setup_block;
 
         // With empty binding_pkg, named types are unqualified.
+        // Method names must use snake_case to match the interface.
         assert!(
-            output.contains("public ExtractionResult extractBytes"),
-            "return type must use ExtractionResult (unqualified, empty pkg), got:\n{output}"
+            output.contains("public ExtractionResult extract_bytes"),
+            "return type must use ExtractionResult (unqualified, empty pkg) with snake_case method name, got:\n{output}"
         );
         // Must NOT contain hardcoded dev.sample_crate.
         assert!(
