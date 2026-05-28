@@ -345,6 +345,46 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
+    // Build req/resp paths: if wire type includes "::", strip it; otherwise prefix with core_import
+    let req_path = if req_type.contains("::") {
+        req_type.split("::").last().unwrap_or(req_type).to_string()
+    } else if req_type == "Value" || req_type == "serde_json::Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type.contains("::") {
+        resp_type.split("::").last().unwrap_or(resp_type).to_string()
+    } else if resp_type == "Value" || resp_type == "serde_json::Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
+    // Extra dispatch parameters the bridge ignores (leading verbatim params)
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
+
+    // The future's `Output` is the contract dispatch's real return type when the library
+    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
+    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
+    // fallible computation produces the wire `Result` and the adapter converts it into the
+    // dispatch return type.
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
     out.push_str(&format!(
         "/// Generated ext-php-rs bridge for the `{trait_name}` contract.\n\
          ///\n\
@@ -373,47 +413,54 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl
+    // Trait impl. Returns a boxed future directly (canonical object-safe
+    // async-trait shape) instead of via the async_trait macro, matching a
+    // contract whose dispatch method is hand-written as
+    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::{req_type},\n    \
-             ) -> Result<{core_import}::{resp_type}, Box<dyn std::error::Error + Send + Sync>> {{\n        \
-                 // Serialize the request to JSON for PHP roundtrip\n        \
-                 let req_json = serde_json::to_string(&request)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 // Invoke the PHP callable synchronously (blocking)\n        \
-                 let raw_result = std::panic::catch_unwind(AssertUnwindSafe(|| {{\n            \
-                     PHP_HANDLER_REGISTRY.with(|registry| -> Result<String, String> {{\n                \
-                         let registry = registry.borrow();\n                \
-                         let Some(callable) = registry.get(self.handler_index) else {{\n                    \
-                             return Err(format!(\"Handler not found at index {{}}\", self.handler_index));\n                \
-                         }};\n\n                \
-                         // Deserialize JSON request into PHP object\n                \
-                         let req_obj = serde_json::from_str::<serde_json::Value>(&req_json)\n                    \
-                             .map_err(|e| e.to_string())?;\n                \
-                         let req_zval = serde_json::json!(req_obj).into();\n\n                \
-                         // Invoke the callable\n                \
-                         let resp_zval = callable.try_call(vec![&req_zval])\n                    \
-                             .map_err(|e| format!(\"PHP callable invocation failed: {{:?}}\", e))?;\n\n                \
-                         // Serialize response back to JSON\n                \
-                         Ok(serde_json::to_string(&resp_zval).unwrap_or_else(|_| \"{{}}\".to_string()))\n            \
-                     }})\n        \
-                 }})))\n            \
-                 .map_err(|_| Box::new(std::io::Error::new(\n                \
-                     std::io::ErrorKind::Other,\n                \
-                     \"PHP handler panicked\",\n            \
-                 )) as Box<dyn std::error::Error + Send + Sync>)?\n            \
-                 .map_err(|e| Box::new(std::io::Error::new(\n                \
-                     std::io::ErrorKind::Other,\n                \
-                     e,\n            \
-                 )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 // Deserialize the JSON result back into the wire response DTO.\n        \
-                 let response: {core_import}::{resp_type} = serde_json::from_str(&raw_result)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n        \
-                 Ok(response)\n    \
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
+                 Box::pin(async move {{\n            \
+                     // Invoke the PHP callable synchronously (blocking)\n            \
+                     let outcome: {wire_output} = (async {{\n                \
+                         // Serialize the request to JSON for PHP roundtrip\n                \
+                         let req_json = serde_json::to_string(&{wire_name})\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                         let raw_result = std::panic::catch_unwind(AssertUnwindSafe(|| {{\n                    \
+                             PHP_HANDLER_REGISTRY.with(|registry| -> Result<String, String> {{\n                        \
+                                 let registry = registry.borrow();\n                        \
+                                 let Some(callable) = registry.get(self.handler_index) else {{\n                            \
+                                     return Err(format!(\"Handler not found at index {{}}\", self.handler_index));\n                            \
+                                 }};\n\n                        \
+                                 // Deserialize JSON request into PHP object\n                        \
+                                 let req_obj = serde_json::from_str::<serde_json::Value>(&req_json)\n                            \
+                                     .map_err(|e| e.to_string())?;\n                        \
+                                 let req_zval = serde_json::json!(req_obj).into();\n\n                        \
+                                 // Invoke the callable\n                        \
+                                 let resp_zval = callable.try_call(vec![&req_zval])\n                            \
+                                     .map_err(|e| format!(\"PHP callable invocation failed: {{:?}}\", e))?;\n\n                        \
+                                 // Serialize response back to JSON\n                        \
+                                 Ok(serde_json::to_string(&resp_zval).unwrap_or_else(|_| \"{{}}\".to_string()))\n                    \
+                             }})\n                \
+                         }}))\n                    \
+                         .map_err(|_| Box::new(std::io::Error::new(\n                        \
+                             std::io::ErrorKind::Other,\n                        \
+                             \"PHP handler panicked\",\n                \
+                         )) as {box_err})?\n                    \
+                         .map_err(|e| Box::new(std::io::Error::new(\n                        \
+                             std::io::ErrorKind::Other,\n                        \
+                             e,\n                \
+                         )) as {box_err})?;\n\n                    \
+                         // Deserialize the JSON result back into the wire response DTO.\n                    \
+                         let response: {resp_path} = serde_json::from_str(&raw_result)\n                        \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n                    \
+                         Ok(response)\n            \
+                     }}).await;\n\n            \
+                     {tail}\n        \
+                 }})\n    \
              }}\n\
          }}\n\n"
     ));
@@ -967,8 +1014,8 @@ mod tests {
             "expected trait impl:\n{output}"
         );
         assert!(
-            output.contains("async fn handle("),
-            "expected async dispatch method:\n{output}"
+            output.contains("fn handle(") && output.contains("Pin<Box<dyn std::future::Future<Output"),
+            "expected boxed-future dispatch method:\n{output}"
         );
     }
 

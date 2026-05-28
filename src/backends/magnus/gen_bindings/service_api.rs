@@ -314,9 +314,32 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Rb{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types
+    // Determine wire types — use plain serde_json::Value, not re-exported from core
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
+
+    // Special handling: if the wire type includes the core import prefix, strip it
+    let req_type = if req_type.contains("::") {
+        req_type.split("::").last().unwrap_or(req_type)
+    } else {
+        req_type
+    };
+    let resp_type = if resp_type.contains("::") {
+        resp_type.split("::").last().unwrap_or(resp_type)
+    } else {
+        resp_type
+    };
+
+    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
+    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
+    // types cannot be reconstructed from the sanitized surface, so the library supplies them
+    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
     out.push_str(&format!(
         "/// Generated Magnus bridge for the `{trait_name}` contract.\n\
@@ -344,51 +367,86 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl
+    // Trait impl — build the request and response paths using core_import
+    let req_path = if req_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
+    // The future's `Output` is the contract dispatch's real return type when the library
+    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
+    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
+    // fallible computation produces the wire `Result` and the adapter converts it into the
+    // dispatch return type — keeping the generator ignorant of the library's response model.
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
+    // Returns a boxed future directly (canonical object-safe async-trait shape)
+    // rather than via the async_trait macro, matching a contract whose dispatch
+    // method is hand-written as `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::{req_type},\n    \
-             ) -> Result<{core_import}::{resp_type}, Box<dyn std::error::Error + Send + Sync>> {{\n        \
-                 // Serialize the request to JSON\n        \
-                 let req_json = serde_json::to_string(&request)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 // Call the Ruby proc with the GVL.\n        \
-                 // Ruby procs are synchronous, so we block_on in a spawn_blocking.\n        \
-                 let resp_json = tokio::task::spawn_blocking({{\n            \
-                     let proc_handle = self.proc_handle.clone();\n            \
-                     let req_json = req_json.clone();\n            \
-                     move || {{\n                \
-                         Ruby::with_gvl(|ruby| {{\n                    \
-                             let proc_value = proc_handle.get_inner_with(&ruby);\n\n                    \
-                             // Parse request JSON into a Ruby Hash\n                    \
-                             let json_mod = ruby.eval::<_, Value>(\"JSON\").map_err(|e| {{\n                        \
-                                 Box::new(e) as Box<dyn std::error::Error + Send + Sync>\n                    \
-                             }})?;\n                    \
-                             let req_hash = json_mod\n                        \
-                                 .funcall::<_, _, Value>(\"parse\", (&req_json,))\n                        \
-                                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n                    \
-                             // Call the proc with the request hash\n                    \
-                             let result = proc_value\n                        \
-                                 .funcall::<_, _, Value>(\"call\", (req_hash,))\n                        \
-                                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n                    \
-                             // Serialize result back to JSON\n                    \
-                             let resp_json_str = json_mod\n                        \
-                                 .funcall::<_, _, String>(\"generate\", (result,))\n                        \
-                                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n                    \
-                             Ok::<String, Box<dyn std::error::Error + Send + Sync>>(resp_json_str)\n                \
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
+                 Box::pin(async move {{\n            \
+                     // Call the Ruby proc with the GVL.\n            \
+                     // Ruby procs are synchronous, so we block_on in a spawn_blocking.\n            \
+                     let outcome: {wire_output} = async move {{\n                \
+                         // Serialize the request to JSON\n                \
+                         let req_json = serde_json::to_string(&{wire_name})\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                         let resp_json = tokio::task::spawn_blocking({{\n                    \
+                             let proc_handle = self.proc_handle.clone();\n                    \
+                             let req_json = req_json.clone();\n                    \
+                             move || {{\n                        \
+                                 Ruby::with_gvl(|ruby| {{\n                            \
+                                     let proc_value = proc_handle.get_inner_with(&ruby);\n\n                            \
+                                     // Parse request JSON into a Ruby Hash\n                            \
+                                     let json_mod = ruby.eval::<_, Value>(\"JSON\").map_err(|e| {{\n                                \
+                                         Box::new(e) as {box_err}\n                            \
+                                     }})?;\n                            \
+                                     let req_hash = json_mod\n                                \
+                                         .funcall::<_, _, Value>(\"parse\", (&req_json,))\n                                \
+                                         .map_err(|e| Box::new(e) as {box_err})?;\n\n                            \
+                                     // Call the proc with the request hash\n                            \
+                                     let result = proc_value\n                                \
+                                         .funcall::<_, _, Value>(\"call\", (req_hash,))\n                                \
+                                         .map_err(|e| Box::new(e) as {box_err})?;\n\n                            \
+                                     // Serialize result back to JSON\n                            \
+                                     let resp_json_str = json_mod\n                                \
+                                         .funcall::<_, _, String>(\"generate\", (result,))\n                                \
+                                         .map_err(|e| Box::new(e) as {box_err})?;\n\n                            \
+                                     Ok::<String, {box_err}>(resp_json_str)\n                        \
+                                 }})\n                \
+                             }}\n            \
                          }})\n            \
+                         .await\n            \
+                         .map_err(|e| Box::new(e) as {box_err})??\n            \
+                         .map_err(|e| Box::new(e) as {box_err})?;\n\n            \
+                         // Deserialize the JSON result back into the wire response DTO.\n            \
+                         let response: {resp_path} = serde_json::from_str(&resp_json)\n                \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n            \
+                         Ok(response)\n        \
                      }}\n        \
-                 }})\n        \
-                 .await\n        \
-                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)??\n        \
-                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 // Deserialize the JSON result back into the wire response DTO.\n        \
-                 let response: {core_import}::{resp_type} = serde_json::from_str(&resp_json)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n        \
-                 Ok(response)\n    \
+                     .await;\n\n        \
+                     {tail}\n        \
+                 }})\n    \
              }}\n\
          }}\n\n"
     ));
@@ -918,8 +976,8 @@ mod tests {
             "expected trait impl:\n{output}"
         );
         assert!(
-            output.contains("async fn handle("),
-            "expected async dispatch method:\n{output}"
+            output.contains("fn handle(") && output.contains("Pin<Box<dyn std::future::Future<Output"),
+            "expected boxed-future dispatch method:\n{output}"
         );
     }
 

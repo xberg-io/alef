@@ -347,7 +347,9 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     // File-level allow attributes
     out.push_str("#![allow(clippy::too_many_arguments)]\n\n");
     out.push_str("use extendr_api::prelude::*;\n");
-    out.push_str("use std::sync::Arc;\n\n");
+    out.push_str("use std::sync::Arc;\n");
+    out.push_str("use std::future::Future;\n");
+    out.push_str("use std::pin::Pin;\n\n");
 
     // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -380,6 +382,8 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 ///
 /// The bridge wraps an R closure and implements the handler contract synchronously.
 /// Since R is single-threaded, all calls are blocking and happen on the current thread.
+/// The trait method still returns a pinned boxed future (the library's async requirement),
+/// but the R call itself is synchronous within that future.
 fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_import: &str) {
     let trait_name = &contract.trait_name;
     let bridge_name = format!("Extendr{}Bridge", trait_name.to_upper_camel_case());
@@ -389,14 +393,36 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
+    // Build full paths for request/response types; handle plain serde_json::Value specially
+    let req_path = if req_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
+    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
+    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
+    // types cannot be reconstructed from the sanitized surface, so the library supplies them
+    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
+
     out.push_str(&format!(
         "/// Generated extendr bridge for the `{trait_name}` contract.\n\
          ///\n\
          /// Wraps an R closure so it can be used as `Arc<dyn {trait_name}>` from Rust.\n\
          /// Because R is single-threaded, this bridge runs calls synchronously,\n\
-         /// blocking the current thread. Async dispatch is not possible in R;\n\
-         /// instead, the Tokio runtime (if active) is blocked, or a new local\n\
-         /// runtime is created per call.\n\
+         /// blocking the current thread within an async wrapper. The Tokio runtime\n\
+         /// (if active) is blocked; otherwise a local runtime is created per call.\n\
          pub struct {bridge_name} {{\n    \
              closure: Robj,\n\
          }}\n\n"
@@ -418,36 +444,55 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl: synchronous dispatch
+    // The future's `Output` is the contract dispatch's real return type when the library
+    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
+    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
+    // fallible computation produces the wire `Result` and the adapter converts it into the
+    // dispatch return type — keeping the generator ignorant of the library's response model.
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
+    // Trait impl: returns a pinned boxed future directly without async_trait
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::{req_type},\n    \
-             ) -> Result<{core_import}::{resp_type}, Box<dyn std::error::Error + Send + Sync>> {{\n        \
-                 // Serialize the request to JSON\n        \
-                 let req_json = serde_json::to_string(&request)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 // Call the R closure synchronously (R is single-threaded).\n        \
-                 // If a Tokio runtime is active, block on it; otherwise create a local runtime.\n        \
-                 let raw_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {{\n            \
-                     // We are already in an async context; spawn a blocking task.\n            \
-                     handle\n                \
-                         .block_on(async {{\n                    \
-                             // Wrap the R call in spawn_blocking to free the executor.\n                    \
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> Pin<Box<dyn Future<Output = {output_type}> + Send + '_>> {{\n        \
+                 // Create a clone of the closure for the async block (owned move).\n        \
+                 let closure = self.closure.clone();\n\n        \
+                 Box::pin(async move {{\n            \
+                     let outcome: {wire_output} = async move {{\n                \
+                         // Serialize the request to JSON\n                \
+                         let req_json = serde_json::to_string(&{wire_name})\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                         // Call the R closure synchronously (R is single-threaded).\n                \
+                         // If a Tokio runtime is active, block on it; otherwise create a local runtime.\n                \
+                         let raw_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {{\n                    \
+                             // We are already in an async context; use block_in_place to free the executor.\n                    \
                              tokio::task::block_in_place(|| {{\n                        \
-                                 self.call_r_closure_blocking(&req_json)\n                    \
+                                 Self::call_r_closure_blocking_static(&closure, &req_json)\n                    \
                              }})\n                \
-                         }})\n        \
-                 }} else {{\n            \
-                     // No runtime: create a local one.\n            \
-                     self.call_r_closure_blocking(&req_json)\n        \
-                 }}?;\n\n        \
-                 // Deserialize the JSON result back into the wire response DTO.\n        \
-                 let response: {core_import}::{resp_type} = serde_json::from_str(&raw_result)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n        \
-                 Ok(response)\n    \
+                         }} else {{\n                    \
+                             // No runtime: call directly.\n                    \
+                             Self::call_r_closure_blocking_static(&closure, &req_json)\n                \
+                         }}?;\n\n                \
+                         // Deserialize the JSON result back into the wire response DTO.\n                \
+                         let response: {resp_path} = serde_json::from_str(&raw_result)\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
+                         Ok(response)\n            \
+                     }}\n            \
+                     .await;\n\n            \
+                     {tail}\n        \
+                 }})\n    \
              }}\n\
          }}\n\n"
     ));
@@ -455,17 +500,17 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // Helper method for the actual R closure invocation
     out.push_str(&format!(
         "impl {bridge_name} {{\n    \
-             /// Call the R closure and return JSON-serialized result.\n    \
-             fn call_r_closure_blocking(&self, req_json: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {{\n        \
+             /// Call the R closure and return JSON-serialized result (static so it can be called from the async block).\n    \
+             fn call_r_closure_blocking_static(closure: &Robj, req_json: &str) -> Result<String, {box_err}> {{\n        \
                  // Parse JSON string into R object via extendr\n        \
                  let req_obj = extendr_api::call!(Robj::from(req_json))?\n            \
                      .ok_or(\"failed to parse request JSON\")?;\n\n        \
                  // Call the closure: closure(request_obj)\n        \
-                 let result = self.closure.call((req_obj,))\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
+                 let result = closure.call((req_obj,))\n            \
+                     .map_err(|e| Box::new(e) as {box_err})?;\n\n        \
                  // Serialize result to JSON\n        \
                  let result_json = serde_json::to_string(&result)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
+                     .map_err(|e| Box::new(e) as {box_err})?;\n\n        \
                  Ok(result_json)\n    \
              }}\n\
          }}\n\n"

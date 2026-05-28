@@ -375,22 +375,69 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl: call the ThreadsafeFunction and await the Promise
+    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
+    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
+    // types cannot be reconstructed from the sanitized surface, so the library supplies them
+    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
+
+    // Compute request/response path types (mirror pyo3's req_path/resp_path construction)
+    let req_path = if req_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
+    // The future's `Output` is the contract dispatch's real return type when the library
+    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
+    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
+    // fallible computation produces the wire `Result` and the adapter converts it into the
+    // dispatch return type — keeping the generator ignorant of the library's response model.
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
+    // Trait impl: call the ThreadsafeFunction and await the Promise. The
+    // method returns a boxed future directly (matching the canonical
+    // object-safe async-trait shape the contract declares) rather than via
+    // the async_trait macro, so it satisfies traits whose dispatch method is
+    // hand-written as `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::{req_type},\n    \
-             ) -> Result<{core_import}::{resp_type}, Box<dyn std::error::Error + Send + Sync>> {{\n        \
-                 // Call the ThreadsafeFunction and await the Promise\n        \
-                 let response = self.handler_fn\n            \
-                     .call_async::<{core_import}::{resp_type}>(request)\n            \
-                     .await\n            \
-                     .map_err(|e| {{\n                \
-                         Box::new(e) as Box<dyn std::error::Error + Send + Sync>\n            \
-                     }})?;\n        \
-                 Ok(response)\n    \
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
+                 Box::pin(async move {{\n            \
+                     // Call the ThreadsafeFunction and await the Promise\n            \
+                     let outcome: {wire_output} = async move {{\n                \
+                         self.handler_fn\n                    \
+                             .call_async::<{resp_path}>({wire_name})\n                    \
+                             .await\n                    \
+                             .map_err(|e| {{\n                        \
+                                 Box::new(e) as {box_err}\n                    \
+                             }})\n            \
+                     }}\n            \
+                     .await;\n\n            \
+                     {tail}\n        \
+                 }})\n    \
              }}\n\
          }}\n\n"
     ));

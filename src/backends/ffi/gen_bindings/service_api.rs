@@ -355,54 +355,112 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl
+    // Determine wire types — use plain serde_json::Value as fallback
+    let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
+    let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
+
+    // Strip leading core import prefix if present
+    let req_type = if req_type.contains("::") {
+        req_type.split("::").last().unwrap_or(req_type)
+    } else {
+        req_type
+    };
+    let resp_type = if resp_type.contains("::") {
+        resp_type.split("::").last().unwrap_or(resp_type)
+    } else {
+        resp_type
+    };
+
+    // Leading dispatch parameters (extra params the bridge ignores)
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
+
+    // Build full request and response paths
+    let req_path = if req_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type == "Value" {
+        "serde_json::Value".to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
+    // Build the future's Output type
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
+    // Trait impl. Returns a boxed future directly (canonical object-safe
+    // async-trait shape) instead of via the async_trait macro, matching a
+    // contract whose dispatch method is hand-written as
+    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::RequestData,\n    \
-             ) -> Result<{core_import}::Response, Box<dyn std::error::Error + Send + Sync>> {{\n"
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
+                 Box::pin(async move {{\n"
     ));
 
-    // Serialize request to JSON and call the C callback
-    out.push_str(
-        "        \
-             // Serialize request to JSON\n        \
-             let req_json = serde_json::to_string(&request)\n            \
-                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n        \
-             let req_c_str = CString::new(req_json)\n            \
-                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-             // Call the C callback in a blocking context to avoid blocking the async executor\n        \
-             let resp_ptr = tokio::task::spawn_blocking({\n            \
-                 let callback = self.callback;\n            \
-                 let context = self.context;\n            \
-                 let req_ptr = req_c_str.as_ptr();\n            \
-                 move || (callback)(context, req_ptr)\n        \
-             })\n        \
-             .await\n        \
-             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-             if resp_ptr.is_null() {{\n            \
-                 return Err(\"C callback returned null response\".into());\n        \
-             }}\n\n        \
-             // SAFETY: resp_ptr was returned by the C callback and must be a null-terminated string.\n        \
-             let resp_c_str = unsafe {{\n            \
-                 CStr::from_ptr(resp_ptr)\n        \
-             }};\n        \
-             let resp_json = resp_c_str.to_string_lossy();\n\n        \
-             // Deserialize response from JSON\n        \
-             let response: {core_import}::Response = serde_json::from_str(&resp_json)\n            \
-                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-             // Free the C-allocated response string.\n        \
-             // SAFETY: resp_ptr is null-checked above, and we assume the C side\n        \
-             // allocated it via libc::malloc or equivalent.\n        \
-             unsafe {{\n            \
-                 libc::free(resp_ptr as *mut c_void);\n        \
-             }}\n\n        \
-             Ok(response)\n    \
+    // Serialize request to JSON and call the C callback (all fallible work
+    // lives inside the wire-result block so the only outer expression is the
+    // response adapter tail).
+    out.push_str(&format!(
+        "            \
+             let outcome: {wire_output} = async move {{\n                \
+                 // Serialize request to JSON\n                \
+                 let req_json = serde_json::to_string(&{wire_name})\n                    \
+                     .map_err(|e| Box::new(e) as {box_err})?;\n                \
+                 let req_c_str = CString::new(req_json)\n                    \
+                     .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                 // Call the C callback in a blocking context to avoid blocking the async executor\n                \
+                 let resp_ptr = tokio::task::spawn_blocking({{\n                    \
+                     let callback = self.callback;\n                    \
+                     let context = self.context;\n                    \
+                     let req_ptr = req_c_str.as_ptr();\n                    \
+                     move || (callback)(context, req_ptr)\n                \
+                 }})\n                \
+                 .await\n                \
+                 .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                 if resp_ptr.is_null() {{\n                    \
+                     return Err(\"C callback returned null response\".into());\n                \
+                 }}\n\n                \
+                 // SAFETY: resp_ptr was returned by the C callback and must be a null-terminated string.\n                \
+                 let resp_c_str = unsafe {{\n                    \
+                     CStr::from_ptr(resp_ptr)\n                \
+                 }};\n                \
+                 let resp_json = resp_c_str.to_string_lossy();\n\n                \
+                 // Deserialize response from JSON\n                \
+                 let response: {resp_path} = serde_json::from_str(&resp_json)\n                    \
+                     .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                 // Free the C-allocated response string.\n                \
+                 // SAFETY: resp_ptr is null-checked above, and we assume the C side\n                \
+                 // allocated it via libc::malloc or equivalent.\n                \
+                 unsafe {{\n                    \
+                     libc::free(resp_ptr as *mut c_void);\n                \
+                 }}\n\n                \
+                 Ok(response)\n            \
+             }}\n            \
+             .await;\n\n            \
+             {tail}\n        \
+             }})\n    \
              }}\n\
-         }}\n\n",
-    );
+         }}\n\n"
+    ));
 }
 
 /// Emit registration and entrypoint functions for one service.
@@ -729,7 +787,7 @@ mod tests {
         assert!(rs.contains("test_service_new"));
         assert!(rs.contains("test_service_free"));
         assert!(rs.contains("FfiRequestHandlerBridge"));
-        assert!(rs.contains("async_trait::async_trait"));
+        assert!(rs.contains("Pin<Box<dyn std::future::Future"));
     }
 
     #[test]

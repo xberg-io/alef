@@ -239,69 +239,128 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
 
-    // Trait impl with async dispatch
+    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
+    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
+    // types cannot be reconstructed from the sanitized surface, so the library supplies them
+    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
+    let extra_param: String = contract
+        .dispatch_extra_params
+        .iter()
+        .map(|p| format!(", {p}"))
+        .collect();
+    let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
+
+    // Build module paths for types. If the wire type includes the core import prefix, strip it
+    // and add it back; otherwise use plain serde_json::Value if name is "Value".
+    let req_path = if req_type == "Value" {
+        "serde_json::Value".to_string()
+    } else if req_type.contains("::") {
+        req_type.split("::").last().unwrap_or(req_type).to_string()
+    } else {
+        format!("{core_import}::{req_type}")
+    };
+    let resp_path = if resp_type == "Value" {
+        "serde_json::Value".to_string()
+    } else if resp_type.contains("::") {
+        resp_type.split("::").last().unwrap_or(resp_type).to_string()
+    } else {
+        format!("{core_import}::{resp_type}")
+    };
+
+    // The future's `Output` is the contract dispatch's real return type when the library
+    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
+    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
+    // fallible computation produces the wire `Result` and the adapter converts it into the
+    // dispatch return type — keeping the generator ignorant of the library's response model.
+    let box_err = "Box<dyn std::error::Error + Send + Sync>";
+    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    let output_type = contract
+        .dispatch_return_type
+        .clone()
+        .unwrap_or_else(|| wire_output.clone());
+    let tail = match &contract.response_adapter {
+        Some(adapter) => format!("{adapter}(outcome)"),
+        None => "outcome".to_string(),
+    };
+
+    // Trait impl. Returns a boxed future directly (canonical object-safe
+    // async-trait shape) instead of via the async_trait macro, matching a
+    // contract whose dispatch method is hand-written as
+    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&format!(
-        "#[async_trait::async_trait]\n\
-         impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             async fn {dispatch_name}(\n        \
-                 &self,\n        \
-                 request: {core_import}::{req_type},\n    \
-             ) -> Result<{core_import}::{resp_type}, Box<dyn std::error::Error + Send + Sync>> {{\n"
+        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
+             fn {dispatch_name}(\n        \
+                 &self{extra_param},\n        \
+                 {wire_name}: {req_path},\n    \
+             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
+                 Box::pin(async move {{\n"
     ));
 
-    // Serialize request to JSON
-    out.push_str("        let req_json = serde_json::to_string(&request)\n");
-    out.push_str("            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
+    // Wrap the JNI call in a fallible computation that produces wire_output.
+    // All fallible work (including request serialization) lives inside this
+    // block so the only outer expression is the response-adapter tail.
+    out.push_str(&format!("        let outcome: {wire_output} = async move {{\n"));
 
-    // Attach thread to JVM and call handler
-    out.push_str("        let result_json = {\n");
-    out.push_str("            let env = self.jvm.attach_current_thread()\n");
-    out.push_str("                .map_err(|e| Box::new(std::io::Error::new(\n");
-    out.push_str("                    std::io::ErrorKind::Other,\n");
-    out.push_str("                    format!(\"failed to attach JVM thread: {}\", e)\n");
-    out.push_str("                )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
+    // Serialize request to JSON
+    out.push_str("            let req_json = serde_json::to_string(&");
+    out.push_str(wire_name);
+    out.push_str(")\n");
+    out.push_str("                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
+    out.push_str("            let result_json = {\n");
+    out.push_str("                let env = self.jvm.attach_current_thread()\n");
+    out.push_str("                    .map_err(|e| Box::new(std::io::Error::new(\n");
+    out.push_str("                        std::io::ErrorKind::Other,\n");
+    out.push_str("                        format!(\"failed to attach JVM thread: {}\", e)\n");
+    out.push_str("                    )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
 
     // Create JNI string for request
-    out.push_str("            let req_jni = env.new_string(&req_json)\n");
-    out.push_str("                .map_err(|e| Box::new(std::io::Error::new(\n");
-    out.push_str("                    std::io::ErrorKind::Other,\n");
-    out.push_str("                    format!(\"failed to create JNI string: {}\", e)\n");
-    out.push_str("                )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
+    out.push_str("                let req_jni = env.new_string(&req_json)\n");
+    out.push_str("                    .map_err(|e| Box::new(std::io::Error::new(\n");
+    out.push_str("                        std::io::ErrorKind::Other,\n");
+    out.push_str("                        format!(\"failed to create JNI string: {}\", e)\n");
+    out.push_str("                    )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
 
     // Call Java handler method
     // Convention: Java method is named `handle` and takes a String, returns a String
-    out.push_str("            let result: jni::sys::jstring = unsafe {\n");
-    out.push_str("                // SAFETY: method_id was validated when bridge was created.\n");
-    out.push_str("                // self.global_ref is valid for the JVM's lifetime.\n");
-    out.push_str("                env.call_method_unchecked(\n");
-    out.push_str("                    self.global_ref.as_obj(),\n");
-    out.push_str("                    self.method_id,\n");
-    out.push_str("                    jni::sys::JNI_ABORT,\n");
-    out.push_str("                    &[jni::objects::JValue::from(&req_jni)],\n");
-    out.push_str("                )?\n");
-    out.push_str("                    .l()?\n");
-    out.push_str("                    .as_raw()\n");
-    out.push_str("            };\n\n");
+    out.push_str("                let result: jni::sys::jstring = unsafe {\n");
+    out.push_str("                    // SAFETY: method_id was validated when bridge was created.\n");
+    out.push_str("                    // self.global_ref is valid for the JVM's lifetime.\n");
+    out.push_str("                    env.call_method_unchecked(\n");
+    out.push_str("                        self.global_ref.as_obj(),\n");
+    out.push_str("                        self.method_id,\n");
+    out.push_str("                        jni::sys::JNI_ABORT,\n");
+    out.push_str("                        &[jni::objects::JValue::from(&req_jni)],\n");
+    out.push_str("                    )?\n");
+    out.push_str("                        .l()?\n");
+    out.push_str("                        .as_raw()\n");
+    out.push_str("                };\n\n");
 
     // Convert result back to String
-    out.push_str("            let result_obj = unsafe {\n");
-    out.push_str("                // SAFETY: result is a valid jstring from the JNI call.\n");
-    out.push_str("                jni::objects::JString::from_raw(result)\n");
-    out.push_str("            };\n");
-    out.push_str("            env.get_string(&result_obj)?\n");
-    out.push_str("                .into_string()\n");
-    out.push_str("                .map_err(|e| Box::new(std::io::Error::new(\n");
-    out.push_str("                    std::io::ErrorKind::InvalidData,\n");
-    out.push_str("                    format!(\"response is not valid UTF-8: {}\", e)\n");
-    out.push_str("                )) as Box<dyn std::error::Error + Send + Sync>)?\n");
-    out.push_str("        };\n\n");
+    out.push_str("                let result_obj = unsafe {\n");
+    out.push_str("                    // SAFETY: result is a valid jstring from the JNI call.\n");
+    out.push_str("                    jni::objects::JString::from_raw(result)\n");
+    out.push_str("                };\n");
+    out.push_str("                env.get_string(&result_obj)?\n");
+    out.push_str("                    .into_string()\n");
+    out.push_str("                    .map_err(|e| Box::new(std::io::Error::new(\n");
+    out.push_str("                        std::io::ErrorKind::InvalidData,\n");
+    out.push_str("                        format!(\"response is not valid UTF-8: {}\", e)\n");
+    out.push_str("                    )) as Box<dyn std::error::Error + Send + Sync>)?\n");
+    out.push_str("            };\n\n");
 
     // Deserialize response JSON
-    out.push_str("        let response: ");
-    out.push_str(&format!("{core_import}::{resp_type}"));
+    out.push_str("            let response: ");
+    out.push_str(&resp_path);
     out.push_str(" = serde_json::from_str(&result_json)\n");
-    out.push_str("            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n");
-    out.push_str("        Ok(response)\n");
+    out.push_str("                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n");
+    out.push_str("            Ok(response)\n");
+    out.push_str("        }.await;\n\n");
+
+    // Final tail: either call response_adapter or return outcome directly
+    out.push_str("        ");
+    out.push_str(&tail);
+    out.push('\n');
+    out.push_str("        })\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
 }
@@ -734,8 +793,8 @@ mod tests {
             "expected trait impl:\n{output}"
         );
         assert!(
-            output.contains("async fn handle("),
-            "expected async dispatch method:\n{output}"
+            output.contains("fn handle(") && output.contains("Pin<Box<dyn std::future::Future<Output"),
+            "expected boxed-future dispatch method:\n{output}"
         );
     }
 
