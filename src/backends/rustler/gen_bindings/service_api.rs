@@ -499,7 +499,7 @@ fn gen_run_nif(
     out: &mut String,
     service: &ServiceDef,
     ep: &crate::core::ir::EntrypointDef,
-    _api: &ApiSurface,
+    api: &ApiSurface,
     core_import: &str,
 ) {
     let service_snake = service.name.to_snake_case();
@@ -574,21 +574,52 @@ fn gen_run_nif(
             // 1-element Elixir tuple `{path}`. A 1-element Elixir tuple decodes to a Rust
             // 1-tuple `(T,)`, so emit a trailing comma when there is exactly one param.
             let trailing = if metadata_param_names.len() == 1 { "," } else { "" };
-            let tuple_types = format!(
-                "{}{}",
-                (0..metadata_param_names.len())
-                    .map(|_| "String")
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                trailing
-            );
+            let tuple_types = reg
+                .metadata_params
+                .iter()
+                .map(|p| {
+                    // Opaque types are passed as ResourceArc<T>, not the core type.
+                    if let TypeRef::Named(n) = &p.ty {
+                        if api
+                            .types
+                            .iter()
+                            .any(|t| &t.name == n && !t.is_trait && t.is_opaque)
+                        {
+                            return format!("rustler::ResourceArc<{}>", n);
+                        }
+                    }
+                    typeref_to_rust_type(&p.ty, core_import)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let tuple_types_with_trailing = format!("{}{}", tuple_types, trailing);
             out.push_str(&format!(
                 "                if let Ok(({names}{trailing})) = metadata.decode::<({types})>()\n",
                 names = metadata_param_names.join(", "),
                 trailing = trailing,
-                types = tuple_types
+                types = tuple_types_with_trailing
             ));
             out.push_str("                {\n");
+            // Decode and bind opaque metadata params to locals for later use
+            for meta_param in reg.metadata_params.iter() {
+                let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
+                    api.types
+                        .iter()
+                        .any(|t| &t.name == n && !t.is_trait && t.is_opaque)
+                } else {
+                    false
+                };
+                if is_opaque {
+                    if let TypeRef::Named(n) = &meta_param.ty {
+                        out.push_str(&format!(
+                            "                    let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
+                            pname = meta_param.name,
+                            core_import = core_import,
+                            name = n,
+                        ));
+                    }
+                }
+            }
             out.push_str(&format!(
                 "                    let bridge = {bridge_wrapper}::new(handler_pid);\n"
             ));

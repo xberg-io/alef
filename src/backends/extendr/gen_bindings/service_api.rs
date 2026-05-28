@@ -935,8 +935,8 @@ mod tests {
             "expected trait impl:\n{output}"
         );
         assert!(
-            output.contains("async fn handle("),
-            "expected async dispatch method:\n{output}"
+            output.contains("fn handle(") && output.contains("Pin<Box<dyn") && output.contains("Future<Output"),
+            "expected boxed-future dispatch method:\n{output}"
         );
     }
 

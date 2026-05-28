@@ -168,6 +168,20 @@ pub(super) fn gen_rustler_method_call_args(
                 }
             }
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+            // Json params: String (from NIF) is converted to serde_json::Value in the preamble.
+            // The caller builds a `{name}_json` local via JSON deserialization preamble.
+            TypeRef::Json => {
+                if p.optional {
+                    // Option<serde_json::Value> for optional params
+                    format!("{}_json", p.name)
+                } else if p.is_ref {
+                    // &serde_json::Value for references
+                    format!("&{}_json", p.name)
+                } else {
+                    // serde_json::Value for owned params
+                    format!("{}_json", p.name)
+                }
+            }
             TypeRef::Vec(_) => {
                 if p.is_ref {
                     // `&Vec<T>` derefs to `&[T]`, which matches sample_core core for `&[String]`.
@@ -950,7 +964,8 @@ pub(super) fn gen_nif_method(
 }
 
 /// Build the deserialization preamble for `Option<String>` JSON params that
-/// correspond to default-typed core types. Returns an empty string when no
+/// correspond to default-typed core types, and for `TypeRef::Json` params that
+/// need String → serde_json::Value conversion. Returns an empty string when no
 /// param needs JSON deserialization.
 fn build_default_deser_preamble(
     params: &[ParamDef],
@@ -970,6 +985,23 @@ fn build_default_deser_preamble(
                     render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
                 };
                 lines.push(line);
+            }
+        } else if matches!(&p.ty, TypeRef::Json) {
+            // Json params are passed as String (or Option<String>) from the NIF and need conversion
+            // to serde_json::Value. Use unwrap_or_default() to handle parse errors gracefully
+            // (invalid JSON → empty object).
+            if p.optional {
+                // Optional JSON: Option<String> → Option<serde_json::Value>
+                lines.push(format!(
+                    "let {name}_json: Option<serde_json::Value> = {name}.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());",
+                    name = p.name
+                ));
+            } else {
+                // Required JSON: String → serde_json::Value
+                lines.push(format!(
+                    "let {name}_json: serde_json::Value = serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or_default();",
+                    name = p.name
+                ));
             }
         }
     }

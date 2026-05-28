@@ -59,9 +59,15 @@ impl Backend for RustlerBackend {
         let mut exclude_functions: AHashSet<String> = elixir_config
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
-        let exclude_types: AHashSet<&str> = elixir_config
+        // Service-owner types and handler-contract traits are marked binding_excluded
+        // by the service extraction pass: they are emitted by the service-API codegen,
+        // not the generic struct/trait/opaque codegen, so skip them in the generic loops too.
+        let binding_excluded_names: Vec<String> =
+            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let mut exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
             .unwrap_or_default();
+        exclude_types.extend(binding_excluded_names.iter().map(String::as_str));
         let cpu_bound_functions: AHashSet<String> = elixir_config
             .map(|c| c.cpu_bound_functions.iter().cloned().collect())
             .unwrap_or_default();
@@ -294,6 +300,13 @@ impl Backend for RustlerBackend {
             let bridge_param = crate::backends::rustler::trait_bridge::find_bridge_param(func, &active_bridges);
             let bridge_field =
                 crate::codegen::generators::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);
+            // Skip sanitized functions when there's no trait bridge that can replace the
+            // sanitized parameter — such functions have non-bindable types (e.g. Result<T, Box<dyn Error>>)
+            // and cannot be auto-delegated. Functions whose only "sanitized" param is a configured
+            // trait_bridge param are emitted via gen_bridge_function.
+            if func.sanitized && bridge_param.is_none() && bridge_field.is_none() {
+                continue;
+            }
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::backends::rustler::trait_bridge::gen_bridge_function(
                     func,
@@ -601,9 +614,14 @@ impl Backend for RustlerBackend {
         let exclude_functions: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
             .unwrap_or_default();
-        let exclude_types: AHashSet<&str> = elixir_config
+        // Skip binding-excluded types (service owners / handler-contract traits) — they are
+        // emitted/exported by the service-API codegen, not the generic public-API listing.
+        let binding_excluded_names: Vec<String> =
+            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let mut exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
             .unwrap_or_default();
+        exclude_types.extend(binding_excluded_names.iter().map(String::as_str));
 
         let opaque_types: AHashSet<String> = api
             .types

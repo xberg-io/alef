@@ -5,6 +5,43 @@ use ahash::{AHashMap, AHashSet};
 use heck::{ToPascalCase, ToSnakeCase};
 use minijinja::context;
 
+/// Returns true if a method should be skipped from C FFI wrapper generation.
+///
+/// Methods are skipped if they:
+/// 1. Have generic type parameters (detected by parameters with Named types not in the path_map)
+/// 2. Return a reference to the receiver type (builder-style methods returning `&mut Self` or `&Self`)
+///
+/// Such methods are handled through the service-API registration path instead of as
+/// standalone C function wrappers.
+pub(super) fn should_skip_method_wrapper(
+    method: &MethodDef,
+    typ: &TypeDef,
+    path_map: &AHashMap<String, String>,
+) -> bool {
+    // Skip if any parameter is a Named type not in the path_map (likely a generic type parameter)
+    for param in &method.params {
+        if let TypeRef::Named(name) = &param.ty {
+            if !path_map.contains_key(name.as_str()) {
+                return true;
+            }
+        }
+    }
+
+    // Skip if the method returns a reference to the receiver type (builder-style methods).
+    // These methods return `&mut Self` or `&Self`, which cannot be represented as owned
+    // C handles. They're meant to be accessed through service API instead.
+    if method.returns_ref {
+        // Check if the return type (a reference) points back to the receiver type
+        if let TypeRef::Named(name) = &method.return_type {
+            if name == &typ.name {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Render a Doxygen `///` block for an FFI extern function whose rustdoc comes
 /// from the source `# Arguments` / `# Returns` / `# Errors` sections. Always
 /// appends the universal FFI `\note SAFETY:` clause that the alef FFI template

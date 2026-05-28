@@ -456,10 +456,10 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 ///
 /// The function:
 /// 1. Accepts the registrations array (each entry is `[method_name, metadata_array, proc]`).
-/// 2. Constructs the native service owner via its constructor.
-/// 3. Iterates registrations, wraps each proc in the appropriate bridge,
-///    and calls the owner's registration method.
-/// 4. Calls the owner's entrypoint (blocking if `Run`, spawning async if needed).
+/// 2. Constructs the native service owner via its constructor as a mutable owned value.
+/// 3. Iterates registrations (within GVL), wraps each proc in the appropriate bridge,
+///    and calls the owner's registration method with the handler trait object.
+/// 4. Releases GVL and calls the owner's entrypoint (blocking if sync, driving async via block_on).
 fn gen_run_function(
     out: &mut String,
     service: &ServiceDef,
@@ -484,16 +484,18 @@ fn gen_run_function(
         "/// Drive `{owner_path}::{ep_method}` from Ruby.\n\
          ///\n\
          /// Each entry in `registrations` is a `[method_name, metadata_array, proc]` triple\n\
-         /// produced by the Ruby service class.\n\
+         /// produced by the Ruby service class. Constructs an owned service instance,\n\
+         /// registers all handlers (acquiring GVL for each Ruby proc call), then invokes\n\
+         /// the entrypoint.\n\
          #[magnus::function]\n\
          pub fn {fn_name}({param_sig}) -> magnus::error::Result<()> {{\n"
     ));
 
-    // Build the owner instance via its constructor
+    // Build the owner instance as a mutable owned value (no Arc<Mutex<…>> wrapping)
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
 
-    // Iterate registrations and dispatch
+    // Iterate registrations and dispatch (within GVL context)
     out.push_str("    Ruby::with_gvl(|ruby| {\n");
     out.push_str("        let regs_value = registrations.get_inner_with(&ruby);\n");
     out.push_str("        let regs_array = RArray::try_convert(regs_value)\n");
@@ -521,6 +523,7 @@ fn gen_run_function(
             out.push_str(&format!(
                 "                    let bridge = {bridge_name}::new(Opaque::new(proc_value));\n"
             ));
+            // Create handler trait object — no generic parameter needed
             out.push_str(&format!(
                 "                    let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
             ));
@@ -581,7 +584,7 @@ fn gen_run_function(
     out.push_str("        Ok::<(), magnus::Error>(())\n");
     out.push_str("    }).map_err(|e| e)?;\n\n");
 
-    // Call the entrypoint (must be done synchronously in this context)
+    // Call the entrypoint on the owned, registered owner
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&ep_call);
 
@@ -599,13 +602,17 @@ fn build_ctor_call(service: &ServiceDef, owner_path: &str, _core_import: &str) -
 }
 
 /// Build the entrypoint invocation for a service method.
+///
+/// For async entrypoints that consume `self` (e.g., `run(self)`), `block_on` moves
+/// the owned `owner` into the async function. For sync entrypoints, call directly.
 fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _core_import: &str) -> String {
     let ep_method = &ep.method;
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
 
     if ep.is_async {
-        // For async, use tokio::runtime::Handle::current().block_on()
+        // For async, use tokio::runtime::Handle::current().block_on() to drive the future.
+        // The owned `owner` is moved into the async function if the method takes `self`.
         format!(
             "    tokio::runtime::Handle::current()\n        \
              .block_on(owner.{ep_method}({args_str}))\n        \

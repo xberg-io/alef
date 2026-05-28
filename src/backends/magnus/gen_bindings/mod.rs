@@ -75,11 +75,17 @@ impl Backend for MagnusBackend {
             .as_ref()
             .map(|c| c.exclude_functions.iter().map(|s| s.as_str()).collect())
             .unwrap_or_default();
-        let exclude_types: std::collections::HashSet<&str> = config
+        // Service-owner types and handler-contract traits are marked binding_excluded
+        // by the service extraction pass: they are emitted by the service-API codegen,
+        // not the generic struct/trait codegen, so skip them in the generic loop too.
+        let binding_excluded_names: Vec<String> =
+            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let mut exclude_types: std::collections::HashSet<&str> = config
             .ruby
             .as_ref()
             .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
             .unwrap_or_default();
+        exclude_types.extend(binding_excluded_names.iter().map(|s| s.as_str()));
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         // Match the inner-attribute set every other backend uses so that bookkeeping
@@ -631,11 +637,16 @@ impl Backend for MagnusBackend {
         content.push('\n');
 
         // Build explicit re-export lists: filter out excluded types and Update/Builder types.
-        let exclude_types: std::collections::HashSet<&str> = config
+        // Also skip binding-excluded types (service owners / handler-contract traits) — they
+        // are exported by the service-API codegen, not the generic struct re-export list.
+        let binding_excluded_names: Vec<String> =
+            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let mut exclude_types: std::collections::HashSet<&str> = config
             .ruby
             .as_ref()
             .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
             .unwrap_or_default();
+        exclude_types.extend(binding_excluded_names.iter().map(|s| s.as_str()));
 
         let exclude_functions: std::collections::HashSet<&str> = config
             .ruby
