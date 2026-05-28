@@ -3931,12 +3931,34 @@ pub fn emit_test_backend_with_context(
 /// enums (zero-value `""`) or structs (zero-value `nil`). Primitives produce
 /// their standard zero values (0, false, ""), and Vec produces a nil slice.
 fn go_stub_default(ty: &crate::core::ir::TypeRef, enum_names: &std::collections::HashSet<&str>) -> String {
+    go_stub_default_with_context(ty, enum_names, &Default::default(), "")
+}
+
+/// Like `go_stub_default`, but uses the same excluded/import-alias substitution as
+/// `stub_go_type_with_context` so the emitted zero-value matches the rendered return
+/// type. Excluded types become `json.RawMessage(nil)`, struct types qualified via
+/// `import_alias` use `alias.Type{}` (Go's struct zero-value), enums stay as `""`,
+/// and primitives/maps/slices/optionals fall back to `go_zero_value`.
+fn go_stub_default_with_context(
+    ty: &crate::core::ir::TypeRef,
+    enum_names: &std::collections::HashSet<&str>,
+    excluded_types: &std::collections::HashSet<&str>,
+    import_alias: &str,
+) -> String {
     use crate::backends::go::type_map::go_zero_value;
     use crate::core::ir::TypeRef;
 
-    // Check if this is an enum type — enums map to string in Go, so zero-value is ""
     match ty {
+        TypeRef::Named(name) if excluded_types.contains(name.as_str()) => "nil".to_string(),
         TypeRef::Named(name) if enum_names.contains(name.as_str()) => "\"\"".to_string(),
+        TypeRef::Named(name) if !import_alias.is_empty() => {
+            let go_name = crate::codegen::naming::go_type_name(name);
+            format!("{import_alias}.{go_name}{{}}")
+        }
+        TypeRef::Named(name) => {
+            let go_name = crate::codegen::naming::go_type_name(name);
+            format!("{go_name}{{}}")
+        }
         _ => go_zero_value(ty),
     }
 }
@@ -4037,14 +4059,16 @@ fn emit_go_stub_method_body(
         match &method.return_type {
             TypeRef::Unit => "return nil".to_string(),
             _ => {
-                let default_val = go_stub_default(&method.return_type, enum_names);
+                let default_val =
+                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias);
                 format!("return {default_val}, nil")
             }
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         String::new()
     } else {
-        let default_val = go_stub_default(&method.return_type, enum_names);
+        let default_val =
+                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias);
         format!("return {default_val}")
     };
 
