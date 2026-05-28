@@ -220,6 +220,14 @@ pub struct NodeConfig {
     /// Types to exclude from Node binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// napi-rs platforms to drop from generated `package.json.napi.targets`,
+    /// `optionalDependencies`, runtime dispatch table, and per-platform stub
+    /// directories. Values are napi-rs platform strings (e.g.
+    /// `"linux-x64-musl"`, `"linux-arm64-musl"`). Useful when downstream
+    /// publish pipelines do not produce binaries for a platform yet the alef
+    /// defaults would otherwise emit dangling stub packages.
+    #[serde(default)]
+    pub exclude_platforms: Vec<String>,
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
     pub extra_dependencies: HashMap<String, toml::Value>,

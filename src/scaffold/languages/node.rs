@@ -30,6 +30,49 @@ const NAPI_PLATFORMS: &[&str] = &[
     "win32-arm64-msvc",
 ];
 
+/// Runtime dispatch metadata for the platform loader (`index.js`).
+/// One row per [`NAPI_PLATFORMS`] entry, in lockstep order with
+/// [`NAPI_TARGETS`]. Tuple is `(platform_key, process.platform, process.arch,
+/// libc_abi)`. `libc_abi` is `None` for darwin/windows where libc detection
+/// is unused.
+const NAPI_DISPATCH_ROWS: &[(&str, &str, &str, Option<&str>)] = &[
+    ("linux-x64-gnu", "linux", "x64", Some("gnu")),
+    ("linux-arm64-gnu", "linux", "arm64", Some("gnu")),
+    ("linux-x64-musl", "linux", "x64", Some("musl")),
+    ("linux-arm64-musl", "linux", "arm64", Some("musl")),
+    ("darwin-x64", "darwin", "x64", None),
+    ("darwin-arm64", "darwin", "arm64", None),
+    ("win32-x64-msvc", "win32", "x64", None),
+    ("win32-arm64-msvc", "win32", "arm64", None),
+];
+
+fn excluded_node_platforms(config: &ResolvedCrateConfig) -> Vec<String> {
+    config
+        .node
+        .as_ref()
+        .map(|c| c.exclude_platforms.clone())
+        .unwrap_or_default()
+}
+
+fn napi_platforms_filtered(excluded: &[String]) -> Vec<(&'static str, &'static str)> {
+    NAPI_PLATFORMS
+        .iter()
+        .zip(NAPI_TARGETS.iter())
+        .filter(|(p, _)| !excluded.iter().any(|e| e == *p))
+        .map(|(p, t)| (*p, *t))
+        .collect()
+}
+
+fn napi_dispatch_rows_filtered(
+    excluded: &[String],
+) -> Vec<(&'static str, &'static str, &'static str, Option<&'static str>)> {
+    NAPI_DISPATCH_ROWS
+        .iter()
+        .filter(|(p, ..)| !excluded.iter().any(|e| e == *p))
+        .copied()
+        .collect()
+}
+
 /// Check if a TypeRef or any of its nested types is Json
 fn type_ref_contains_json(ty: &TypeRef) -> bool {
     match ty {
@@ -200,7 +243,22 @@ napi-build = "{napi_build}"
     }])
 }
 
-fn generate_napi_platform_dispatch_index(binary_name: &str, package_name: &str) -> String {
+fn generate_napi_platform_dispatch_index(binary_name: &str, package_name: &str, excluded: &[String]) -> String {
+    let rows = napi_dispatch_rows_filtered(excluded);
+    let targets_lines = rows
+        .iter()
+        .map(|(platform_key, plat, arch, abi)| {
+            let abi_token = match abi {
+                Some(a) => format!("\"{a}\""),
+                None => "null".to_string(),
+            };
+            format!(
+                "    [\"{plat}\", \"{arch}\", {abi_token}, \"./{binary_name}.{platform_key}.node\", \"{package_name}-{platform_key}\"],"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     format!(
         r#""use strict";
 
@@ -252,14 +310,7 @@ const tryLoadBinding = () => {{
   // Optional-dep packages are named after `napi.packageName` (npm subpackage names),
   // which inherits any scope prefix from the parent package.
   const targets = [
-    ["linux", "x64", "gnu", "./{bin}.linux-x64-gnu.node", "{pkg}-linux-x64-gnu"],
-    ["linux", "x64", "musl", "./{bin}.linux-x64-musl.node", "{pkg}-linux-x64-musl"],
-    ["linux", "arm64", "gnu", "./{bin}.linux-arm64-gnu.node", "{pkg}-linux-arm64-gnu"],
-    ["linux", "arm64", "musl", "./{bin}.linux-arm64-musl.node", "{pkg}-linux-arm64-musl"],
-    ["darwin", "x64", null, "./{bin}.darwin-x64.node", "{pkg}-darwin-x64"],
-    ["darwin", "arm64", null, "./{bin}.darwin-arm64.node", "{pkg}-darwin-arm64"],
-    ["win32", "x64", null, "./{bin}.win32-x64-msvc.node", "{pkg}-win32-x64-msvc"],
-    ["win32", "arm64", null, "./{bin}.win32-arm64-msvc.node", "{pkg}-win32-arm64-msvc"],
+{targets_lines}
   ];
 
   for (const [plat, a, abi, localPath, optionalDep] of targets) {{
@@ -305,8 +356,6 @@ if (!nativeBinding) {{
 
 module.exports = nativeBinding;
 "#,
-        bin = binary_name,
-        pkg = package_name,
     )
 }
 
@@ -384,9 +433,11 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             repository_url.trim_end_matches('/').trim_end_matches(".git")
         )
     };
-    let optional_dependencies = NAPI_PLATFORMS
+    let excluded = excluded_node_platforms(config);
+    let active_platforms = napi_platforms_filtered(&excluded);
+    let optional_dependencies = active_platforms
         .iter()
-        .map(|platform| {
+        .map(|(platform, _)| {
             format!(
                 "    \"{}\": \"{}\"",
                 napi_platform_package_name(&package_name, platform),
@@ -395,9 +446,9 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         })
         .collect::<Vec<_>>()
         .join(",\n");
-    let targets = NAPI_TARGETS
+    let targets = active_platforms
         .iter()
-        .map(|target| format!("      \"{target}\""))
+        .map(|(_, target)| format!("      \"{target}\""))
         .collect::<Vec<_>>()
         .join(",\n");
 
@@ -453,7 +504,8 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
     );
 
-    let crate_index_js = generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir), &package_name);
+    let crate_index_js =
+        generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir), &package_name, &excluded);
     let binary_name = format!("{crate_dir}-node");
 
     // The npm publish target lives at `crates/{crate_dir}-node/` and is built by
@@ -472,7 +524,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             generated_header: false,
         },
     ];
-    files.extend(NAPI_PLATFORMS.iter().map(|platform| GeneratedFile {
+    files.extend(active_platforms.iter().map(|(platform, _)| GeneratedFile {
         path: PathBuf::from(format!("crates/{crate_dir}-node/npm/{platform}/package.json")),
         content: generate_napi_platform_package_json(
             &package_name,

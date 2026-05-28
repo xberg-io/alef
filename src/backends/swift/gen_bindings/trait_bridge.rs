@@ -86,9 +86,10 @@ fn gen_single_trait_bridge_file(
         }
 
         let method_camel = method.name.to_lower_camel_case();
-        // Protocol methods use native types (not marshalled), including excluded types as native structs
+        // Protocol method parameters use native types (excluded types as native structs, not marshalled)
         let params_sig = swift_method_params_native(&method.params, exclude_types);
-        let return_type = swift_return_type_native(&method.return_type, exclude_types);
+        // Protocol method return types marshal excluded types as JSON strings (like Java does)
+        let return_type = swift_return_type(&method.return_type, exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         let async_kw = if method.is_async { " async" } else { "" };
 
@@ -151,7 +152,7 @@ fn gen_single_trait_bridge_file(
             let try_await = if method.is_async { "try await " } else { "try " };
             out.push_str(&format!(
                 "        do {{\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20let result = {try_await}self.bridge.{method_camel}({call_args_str})\n"
+                 \x20\x20\x20\x20let result = {try_await}self.bridge.{method_camel}({call_args_str})\n"
             ));
             // Special case: if return type is Void, don't try to marshal it
             if matches!(method.return_type, TypeRef::Unit) {
@@ -167,25 +168,25 @@ fn gen_single_trait_bridge_file(
                     TypeRef::String => {
                         out.push_str(
                             "            return marshal_ok_result(result)\n\
-                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20} catch {\n\
                              \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}}\n",
+                             \x20\x20\x20\x20}\n",
                         );
                     }
                     TypeRef::Unit => {
                         out.push_str(
                             "            return marshal_ok_result(Empty())\n\
-                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20} catch {\n\
                              \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}}\n",
+                             \x20\x20\x20\x20}\n",
                         );
                     }
                     TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => {
                         out.push_str(
                             "            return marshal_ok_result(result)\n\
-                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20} catch {\n\
                              \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}}\n",
+                             \x20\x20\x20\x20}\n",
                         );
                     }
                     TypeRef::Named(name) if exclude_types.contains(name) => {
@@ -205,9 +206,9 @@ fn gen_single_trait_bridge_file(
                     _ => {
                         out.push_str(
                             "            return marshal_ok_result(try JSONEncoder().encode(result))\n\
-                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20} catch {\n\
                              \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}}\n",
+                             \x20\x20\x20\x20}\n",
                         );
                     }
                 }
@@ -391,11 +392,6 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
         TypeRef::Json => "String".to_string(), // JSON is marshalled as String
         TypeRef::Duration => "TimeInterval".to_string(), // Duration -> TimeInterval in Swift
     }
-}
-
-/// Emit Swift return type from TypeRef for protocol methods (native types).
-fn swift_return_type_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
-    swift_type_name_native(ty, exclude_types)
 }
 
 /// Emit Swift return type from TypeRef for adapter methods (marshalled types).
@@ -620,10 +616,10 @@ mod tests {
         assert_eq!(files.len(), 1);
         let content = &files[0].1;
 
-        // Protocol method must accept native type InternalDocument
+        // Protocol method must return String (JSON) for excluded type InternalDocument
         assert!(
-            content.contains("func extractBytes(content: Data) throws -> InternalDocument"),
-            "protocol method must use native type InternalDocument, got:\n{content}"
+            content.contains("func extractBytes(content: Data) throws -> String"),
+            "protocol method must marshal excluded type to String, got:\n{content}"
         );
 
         // Adapter method must return String (JSON marshalling)
