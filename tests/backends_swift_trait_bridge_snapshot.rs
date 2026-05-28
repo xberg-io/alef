@@ -232,3 +232,39 @@ fn test_trait_bridge_primitive_params() {
     assert!(content.contains("count: Int32"));
     assert!(content.contains("enabled: Bool"));
 }
+
+#[test]
+fn test_trait_bridge_excluded_type_return() {
+    let trait_def = make_trait_def(
+        "OcrBackend",
+        vec![make_method(
+            "process",
+            vec![make_param("image_bytes", TypeRef::Bytes)],
+            TypeRef::Named("ExtractionResult".to_string()),
+            true,
+        )],
+    );
+
+    let bridge_cfg = make_bridge_cfg("OcrBackend");
+    let mut exclude_types = std::collections::HashSet::new();
+    exclude_types.insert("ExtractionResult".to_string());
+
+    let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+    let files = gen_trait_bridge_files(&bridges, &exclude_types);
+
+    assert_eq!(files.len(), 1);
+    let (_filename, content) = &files[0];
+
+    // Protocol should accept excluded type as native struct, not as String
+    assert!(content.contains("func process(image_bytes: Data) async throws -> ExtractionResult"));
+
+    // Adapter method should return String (JSON envelope)
+    assert!(content.contains("func processCall(image_bytes: Data) async throws -> String"));
+
+    // The marshal_encode_excluded helper should be present
+    assert!(content.contains("marshal_encode_excluded"));
+    assert!(content.contains("func marshal_encode_excluded<T: Encodable>"));
+
+    // Verify that the body uses the new helper to encode excluded types
+    assert!(content.contains("try marshal_encode_excluded(result)"));
+}

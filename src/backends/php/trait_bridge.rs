@@ -291,7 +291,15 @@ pub fn gen_trait_bridge(
 
         // Note: PHP interface file generation is handled separately by the PHP backend
         // in generate_bindings() to emit it as a standalone PHP file, not inline Rust code.
-        BridgeOutput { imports: vec![], code }
+        //
+        // The visitor-bridge struct uses `inc_count()`/`dec_count()` from the `PhpRc`
+        // trait in its Clone/Drop/new impls (see `visitor_bridge_struct.jinja` and
+        // `bridge_constructor.jinja`) — the trait must be in scope at the binding-crate
+        // root or those calls fail with E0599 "no method named inc_count for _zend_object".
+        BridgeOutput {
+            imports: vec!["ext_php_rs::rc::PhpRc".to_string()],
+            code,
+        }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = PhpBridgeGenerator {

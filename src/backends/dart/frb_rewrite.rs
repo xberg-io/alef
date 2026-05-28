@@ -686,8 +686,7 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
         if should_process {
             // Find which struct this is
             let struct_name = optional_fields.keys().find(|&&name| {
-                trimmed.starts_with(&format!("const {}({{", name))
-                    || trimmed.starts_with(&format!("const {}(", name))
+                trimmed.starts_with(&format!("const {}({{", name)) || trimmed.starts_with(&format!("const {}(", name))
             });
 
             if let Some(&struct_name) = struct_name {

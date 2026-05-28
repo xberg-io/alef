@@ -402,7 +402,11 @@ impl Backend for CsharpBackend {
                     .iter()
                     .filter(|t| !t.is_trait)
                     .map(|t| t.name.as_str())
-                    .chain(api.enums.iter().map(|e| e.name.as_str()))
+                    // Exclude enums from visible types for trait bridges: they don't have
+                    // .ToFfiJson() extension methods and must be serialized as JSON strings
+                    // instead. Including them incorrectly would generate code trying to call
+                    // methodResult.ToFfiJson() on an enum, which doesn't exist.
+                    // .chain(api.enums.iter().map(|e| e.name.as_str()))
                     .collect();
                 let (filename, content) = crate::backends::csharp::trait_bridge::gen_trait_bridges_file(
                     &namespace,

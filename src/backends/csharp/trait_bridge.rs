@@ -1086,4 +1086,39 @@ mod tests {
         assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
     }
+
+    /// Regression: enum return types should be serialized as JSON strings, not call .ToFfiJson().
+    /// Enums are excluded from visible_type_names, so trait methods returning them should
+    /// emit `ToJsonString(methodResult)` instead of `methodResult.ToFfiJson()`.
+    #[test]
+    fn test_trait_method_enum_return_uses_json_serialization() {
+        let mut trait_def = make_trait_def("PostProcessor");
+        trait_def.methods.push(crate::core::ir::MethodDef {
+            name: "processing_stage".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("ProcessingStage".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        let bridge_cfg = make_bridge_cfg("PostProcessor", Some("Plugin"));
+        let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];
+        // ProcessingStage is NOT in visible_types (simulating enum exclusion)
+        let visible_types: HashSet<&str> = vec!["PostProcessor"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
+
+        // The callback should use ToJsonString instead of .ToFfiJson()
+        assert!(content.contains("ToJsonString(methodResult)"));
+        assert!(!content.contains("methodResult.ToFfiJson()"));
+    }
 }
