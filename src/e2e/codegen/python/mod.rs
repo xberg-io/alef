@@ -620,4 +620,55 @@ result_var = "result"
             emission.setup_block
         );
     }
+
+    #[test]
+    fn emit_test_backend_python_populates_teardown_when_unregister_fn_is_set() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_test_backend".to_string()),
+            unregister_fn: Some("unregister_test_backend".to_string()),
+            ..Default::default()
+        };
+
+        let m = test_method("do_work", TypeRef::String, false, false);
+        let methods = [&m];
+        let fixture = make_fixture("teardown_fixture", serde_json::json!({ "name": "my-backend" }));
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(
+            emission.teardown_block.contains("unregister_test_backend(\"my-backend\")"),
+            "teardown_block should call the unregister fn with the backend name, got: {:?}",
+            emission.teardown_block
+        );
+    }
+
+    #[test]
+    fn emit_test_backend_python_omits_teardown_when_unregister_fn_is_unset() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        // No `unregister_fn` configured (e.g. per-call bridge with no global registry).
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        };
+
+        let m = test_method("do_work", TypeRef::String, false, false);
+        let methods = [&m];
+        let fixture = make_fixture("no_teardown_fixture", serde_json::json!({ "name": "x" }));
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(
+            emission.teardown_block.is_empty(),
+            "teardown_block should be empty when no unregister_fn is configured, got: {:?}",
+            emission.teardown_block
+        );
+    }
 }

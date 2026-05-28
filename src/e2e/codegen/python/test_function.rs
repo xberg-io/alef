@@ -127,7 +127,7 @@ pub(super) fn render_test_function(
     };
     let async_kw = if is_async { "async " } else { "" };
 
-    let (arg_bindings, kwarg_exprs) = build_args_and_setup(
+    let (arg_bindings, kwarg_exprs, teardown_block) = build_args_and_setup(
         fixture,
         call_config,
         effective_options_type,
@@ -275,6 +275,16 @@ pub(super) fn render_test_function(
         result_is_simple,
         is_streaming,
     );
+
+    // Append trait-bridge teardown after assertions. This restores shared
+    // global state (e.g. the kreuzberg plugin registries) between pytest
+    // tests in the same process. See `emit_test_backend` for the rationale.
+    if !teardown_block.is_empty() {
+        if !result_assertions.ends_with('\n') {
+            result_assertions.push('\n');
+        }
+        result_assertions.push_str(&teardown_block);
+    }
 
     let ctx = minijinja::context! {
         skip_decorator => skip_decorator,
@@ -587,6 +597,11 @@ fn emit_streaming_virtual_assertion(
 }
 
 /// Build arg binding lines and kwarg expressions for a fixture call.
+///
+/// Returns `(arg_bindings, kwarg_exprs, teardown_block)`. The teardown block
+/// contains statements emitted after the fixture call and its assertions —
+/// trait-bridge fixtures populate it with `unregister_<trait>("<name>")` so
+/// pytest's shared-process registry state is restored between tests.
 #[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     fixture: &Fixture,
@@ -598,9 +613,10 @@ fn build_args_and_setup(
     handle_dict_types: &HashSet<String>,
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, String) {
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
+    let mut teardown = String::new();
 
     for arg in fixture.resolved_args(call_config) {
         let var_name = &arg.name;
@@ -630,6 +646,7 @@ fn build_args_and_setup(
                     let emission = super::emit_test_backend(trait_bridge, &methods, fixture);
                     arg_bindings.push(emission.setup_block);
                     kwarg_exprs.push(emission.arg_expr);
+                    teardown.push_str(&emission.teardown_block);
                     continue;
                 }
             }
@@ -745,7 +762,7 @@ fn build_args_and_setup(
         kwarg_exprs.push(var_name.to_string());
     }
 
-    (arg_bindings, kwarg_exprs)
+    (arg_bindings, kwarg_exprs, teardown)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1071,7 +1088,7 @@ mod tests {
         let call_config = crate::e2e::config::CallConfig::default();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
-        let (bindings, exprs) = build_args_and_setup(
+        let (bindings, exprs, _teardown) = build_args_and_setup(
             &fixture,
             &call_config,
             None,
