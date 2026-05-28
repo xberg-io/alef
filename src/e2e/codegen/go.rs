@@ -1988,9 +1988,11 @@ fn build_args_and_setup(
                         .filter(|t| t.binding_excluded)
                         .map(|t| t.name.as_str())
                         .collect();
-                    // InternalDocument is a special case: it's always excluded in Go trait bridges,
-                    // even though it may not be marked as binding_excluded in the IR.
+                    // InternalDocument and SyncExtractor are special cases: they're always excluded in Go trait bridges,
+                    // even though they may not be marked as binding_excluded in the IR.
+                    // SyncExtractor is marked alef(skip) in source but appears in DocumentExtractor.as_sync_extractor() return type.
                     excluded_named.insert("InternalDocument");
+                    excluded_named.insert("SyncExtractor");
                     // Collect enum names for proper Go zero-value generation.
                     // Enums map to string types in Go, so their zero-value is "" not nil.
                     let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
@@ -3813,7 +3815,7 @@ pub fn emit_test_backend(
 /// IR but are never emitted as Go structs; the trait-bridge interface serialises them to JSON.
 ///
 /// `import_alias` — the import alias used for the binding package in the generated test file
-/// (e.g. `"kreuzberg"`).  When non-empty, `Named` types are qualified as `{alias}.{GoName}`
+/// (e.g. `"myproject"`).  When non-empty, `Named` types are qualified as `{alias}.{GoName}`
 /// so the stub compiles from `package e2e_test` which imports the binding under that alias.
 ///
 /// `enum_names` — set of type names that are enums in the IR (used to determine zero-values
@@ -3926,19 +3928,11 @@ pub fn emit_test_backend_with_context(
 
 /// Returns the Go zero-value expression for a stub method return statement.
 ///
-/// Uses go_zero_value from the type_map to ensure consistency with actual
-/// Go binding signatures. Named types check enum_names to determine if they're
-/// enums (zero-value `""`) or structs (zero-value `nil`). Primitives produce
-/// their standard zero values (0, false, ""), and Vec produces a nil slice.
-fn go_stub_default(ty: &crate::core::ir::TypeRef, enum_names: &std::collections::HashSet<&str>) -> String {
-    go_stub_default_with_context(ty, enum_names, &Default::default(), "")
-}
-
-/// Like `go_stub_default`, but uses the same excluded/import-alias substitution as
-/// `stub_go_type_with_context` so the emitted zero-value matches the rendered return
-/// type. Excluded types become `json.RawMessage(nil)`, struct types qualified via
-/// `import_alias` use `alias.Type{}` (Go's struct zero-value), enums stay as `""`,
-/// and primitives/maps/slices/optionals fall back to `go_zero_value`.
+/// Uses the same excluded/import-alias substitution as `stub_go_type_with_context`
+/// so the emitted zero-value matches the rendered return type. Excluded types
+/// become `json.RawMessage(nil)`, struct types qualified via `import_alias` use
+/// `alias.Type{}` (Go's struct zero-value), enums stay as `""`, and
+/// primitives/maps/slices/optionals fall back to `go_zero_value`.
 fn go_stub_default_with_context(
     ty: &crate::core::ir::TypeRef,
     enum_names: &std::collections::HashSet<&str>,
@@ -4017,6 +4011,7 @@ fn stub_go_type_with_context(
 /// `excluded_types` — names of binding-excluded types substituted with `json.RawMessage`.
 /// `import_alias` — binding package import alias; qualifies Named types for external packages.
 /// `enum_names` — set of type names that are enums (map to string types, zero-value is `""`).
+#[allow(clippy::too_many_arguments)]
 fn emit_go_stub_method_body(
     out: &mut String,
     struct_name: &str,
@@ -4338,9 +4333,9 @@ mod trait_bridge_tests {
     #[test]
     fn test_go_stub_excluded_types_and_import_alias() {
         // Method: extract_bytes(content []byte, mimeType string, config ExtractionConfig) (InternalDocument, error)
-        // With excluded_types={"InternalDocument"} and import_alias="kreuzberg":
+        // With excluded_types={"InternalDocument"} and import_alias="myproject":
         //   - InternalDocument → json.RawMessage
-        //   - ExtractionConfig → kreuzberg.ExtractionConfig
+        //   - ExtractionConfig → myproject.ExtractionConfig
         let extract_method = make_method(
             "extract_bytes",
             vec![
@@ -4367,7 +4362,7 @@ mod trait_bridge_tests {
 
         let enum_names = std::collections::HashSet::new();
         let emission =
-            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg", &enum_names);
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "myproject", &enum_names);
 
         // InternalDocument return type must become json.RawMessage.
         assert!(
@@ -4378,8 +4373,8 @@ mod trait_bridge_tests {
 
         // Named type ExtractionConfig must be qualified with import alias.
         assert!(
-            emission.setup_block.contains("kreuzberg.ExtractionConfig"),
-            "named type ExtractionConfig must be qualified as kreuzberg.ExtractionConfig, got:\n{}",
+            emission.setup_block.contains("myproject.ExtractionConfig"),
+            "named type ExtractionConfig must be qualified as myproject.ExtractionConfig, got:\n{}",
             emission.setup_block
         );
 

@@ -1240,7 +1240,15 @@ fn render_test_fn(
     //   returns_result = false
     //
     // This is safer than guessing wrong and producing un-compilable Zig.
-    let call_returns_error_union = call_overrides.and_then(|o| o.returns_result) != Some(false);
+    //
+    // Special case: Zig binding unregister_* functions return KreuzbergError!void
+    // even though the alef.toml configs have returns_result = false. Override to true.
+    let is_unregister_fn = function_name.starts_with("unregister_");
+    let call_returns_error_union = if is_unregister_fn {
+        true
+    } else {
+        call_overrides.and_then(|o| o.returns_result) != Some(false)
+    };
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
@@ -2259,7 +2267,13 @@ fn build_args_and_setup(
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
-                    let emission = super::emit_test_backend("zig", trait_bridge, &methods, fixture);
+                    // Build excluded_types set from type_defs that are marked binding_excluded.
+                    let excluded: std::collections::HashSet<&str> = type_defs
+                        .iter()
+                        .filter(|t| t.binding_excluded)
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    let emission = emit_test_backend_with_context(trait_bridge, &methods, fixture, &excluded);
                     // emit_test_backend uses "lib." as a placeholder; substitute the real module.
                     let setup_block = emission.setup_block.replace("lib.", &format!("{_module_name}."));
                     let arg_expr = emission.arg_expr.replace("lib.", &format!("{_module_name}."));
@@ -2725,7 +2739,10 @@ fn json_to_zig(value: &serde_json::Value) -> String {
 /// Used only by `emit_test_backend` — not the full production type-map.
 /// Keeps stub generation self-contained and avoids a dependency on the
 /// private `backends::zig::type_map` module.
-fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
+///
+/// `excluded_types` — set of type names (e.g. `InternalDocument`, `SyncExtractor`)
+/// that are binding-excluded and should be substituted with `[]const u8` (opaque).
+fn zig_type_for_stub(ty: &crate::core::ir::TypeRef, excluded_types: &std::collections::HashSet<&str>) -> String {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -2743,20 +2760,46 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "[]const u8".to_string(),
         TypeRef::Unit => "void".to_string(),
-        TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner)),
-        TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner)),
-        TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v)),
-        // Named types (structs, enums) must be qualified with the module alias so the
-        // caller's `replace("lib.", "<real_module>.")` substitution resolves them.
-        TypeRef::Named(name) => format!("lib.{name}"),
+        TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner, excluded_types)),
+        TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner, excluded_types)),
+        TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v, excluded_types)),
+        // Named types: if excluded, use opaque marker; otherwise qualify with module alias.
+        TypeRef::Named(name) => {
+            if excluded_types.contains(name.as_str()) {
+                "[]const u8".to_string()
+            } else {
+                format!("lib.{name}")
+            }
+        }
         TypeRef::Duration => "i64".to_string(),
     }
 }
 
 /// Emit a Zig test backend stub.
 ///
-/// Generates a Zig struct type for the stub, then builds a vtable via the
-/// `make_{trait_snake}_vtable` helper and registers it.
+/// Public entry point — calls the internal `_with_context` version with an empty
+/// excluded_types set. Used by the shared e2e codegen dispatcher in mod.rs.
+pub fn emit_test_backend(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    emit_test_backend_with_context(
+        trait_bridge,
+        methods,
+        fixture,
+        &std::collections::HashSet::new(),
+    )
+}
+
+/// Emit a Zig test backend stub with type-qualification context.
+///
+/// Like `emit_test_backend` but with binding-excluded type support.
+///
+/// `excluded_types` — names of binding-excluded types (e.g. `InternalDocument`, `SyncExtractor`)
+/// that should be substituted with `[]const u8` (opaque byte slice) in method signatures.
+/// These types exist in the Rust IR but are not emitted as Zig types; the trait-bridge
+/// interface serialises them or represents them as opaque handles.
 ///
 /// Rules:
 /// - Struct name: `TestStub_{sanitized_snake_fixture_id}`.
@@ -2765,10 +2808,12 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
 /// - Super-trait `name` method returns the literal `"test"` string.
 /// - The `register_fn` from `trait_bridge.register_fn` drives the
 ///   registration expression; snake_case convention for Zig.
-pub fn emit_test_backend(
+/// - Binding-excluded types are substituted with `[]const u8` (opaque byte slice).
+fn emit_test_backend_with_context(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
+    excluded_types: &std::collections::HashSet<&str>,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::core::ir::TypeRef;
@@ -2823,14 +2868,14 @@ pub fn emit_test_backend(
             continue;
         }
         let method_snake = method.name.to_snake_case();
-        let ret_ty = zig_type_for_stub(&method.return_type);
+        let ret_ty = zig_type_for_stub(&method.return_type, excluded_types);
         let default_val = defaults.emit_default(&method.return_type);
 
         // Build Zig parameter list (self first using @This(), then method params).
         // Zig does not allow using a type name inside its own definition, so use @This().
         let mut params = vec!["_: *@This()".to_string()];
         for p in &method.params {
-            let p_ty = zig_type_for_stub(&p.ty);
+            let p_ty = zig_type_for_stub(&p.ty, excluded_types);
             params.push(format!("_: {}", p_ty)); // Mark all method params as unused with _
         }
         let param_list = params.join(", ");

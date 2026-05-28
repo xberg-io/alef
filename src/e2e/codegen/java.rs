@@ -2824,7 +2824,7 @@ fn method_to_camel(snake: &str) -> String {
 ///
 /// Uses proper Java types from `JavaMapper` for params and return type.
 /// Async methods return `CompletableFuture<T>` completed with the default value.
-/// `binding_pkg` qualifies named types with the actual binding package (e.g. `dev.kreuzberg`).
+/// `binding_pkg` qualifies named types with the actual binding package (e.g. `dev.example`).
 fn emit_java_stub_method(
     out: &mut String,
     method_java: &str,
@@ -2902,7 +2902,7 @@ fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 
 /// Map a TypeRef to its Java stub type with fully-qualified names.
 ///
-/// Named types are qualified with `binding_pkg` (e.g. `dev.kreuzberg`) which is the
+/// Named types are qualified with `binding_pkg` (e.g. `dev.example`) which is the
 /// actual Java package of the binding, matching what the Panama FFM interface declares.
 /// Pass `""` to fall back to unqualified simple names (used by the generic dispatch path).
 fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> String {
@@ -2966,7 +2966,7 @@ fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) ->
 /// signatures or the direct default value for sync. The `name()` method is emitted when
 /// a Plugin super-trait is configured.
 ///
-/// `binding_pkg` is the Java package of the binding (e.g. `dev.kreuzberg`). It is used
+/// `binding_pkg` is the Java package of the binding (e.g. `dev.example`). It is used
 /// to fully-qualify named types in method signatures and the interface name. Pass `""`
 /// when calling from the generic dispatch path (types will be unqualified).
 pub fn emit_test_backend(
@@ -3020,11 +3020,10 @@ pub fn emit_test_backend(
         }
     }
 
-    // Required methods (non-default, non-super-trait).
+    // All non-super-trait methods (including those with default impls).
+    // Java interfaces require all abstract methods to be implemented, even if
+    // Rust traits provide default implementations.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         // Skip super-trait methods already emitted above.
         if trait_bridge
             .super_trait
@@ -3147,7 +3146,7 @@ mod test_backend_tests {
         );
     }
 
-    /// Verify that when `binding_pkg` is provided (e.g. `dev.kreuzberg`), the interface
+    /// Verify that when `binding_pkg` is provided (e.g. `dev.example`), the interface
     /// name and named types in method signatures are fully-qualified with that package.
     #[test]
     fn java_stub_uses_binding_pkg_for_interface_and_type_qualification() {
@@ -3174,18 +3173,18 @@ mod test_backend_tests {
         let methods = [&method];
         let fixture = make_fixture("extract_bytes_test");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "dev.kreuzberg");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "dev.example");
         let output = &emission.setup_block;
 
         // Interface must be qualified with the binding package.
         assert!(
-            output.contains("implements dev.kreuzberg.IDocumentExtractor"),
-            "class must implement dev.kreuzberg.IDocumentExtractor, got:\n{output}"
+            output.contains("implements dev.example.IDocumentExtractor"),
+            "class must implement dev.example.IDocumentExtractor, got:\n{output}"
         );
         // Named type must be qualified with the binding package.
         assert!(
-            output.contains("dev.kreuzberg.ExtractionResult"),
-            "return type must use dev.kreuzberg.ExtractionResult, got:\n{output}"
+            output.contains("dev.example.ExtractionResult"),
+            "return type must use dev.example.ExtractionResult, got:\n{output}"
         );
         // Must NOT contain old hardcoded dev.sample_crate.
         assert!(

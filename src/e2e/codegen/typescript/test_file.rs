@@ -1226,7 +1226,6 @@ fn class_name_from_type_ref(ty: &TypeRef) -> Option<String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn ts_builder_expression_inner(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,

@@ -370,7 +370,8 @@ fn build_thirdparty_imports(
             &fixture.tags,
             &fixture.input,
         );
-        for arg in &cc.args {
+        // Use fixture.resolved_args() to check fixture-level args (which override call_config.args)
+        for arg in fixture.resolved_args(cc) {
             if arg.arg_type != "test_backend" {
                 continue;
             }

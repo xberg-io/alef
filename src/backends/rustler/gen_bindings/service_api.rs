@@ -384,8 +384,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          /// as `Arc<dyn {trait_name}>` from Rust async code.\n\
          /// Uses message-passing to avoid blocking the BEAM scheduler.\n\
          pub struct {bridge_name} {{\n    \
-             pid: LocalPid,\n    \
-             reply_map: Arc<TokioMutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<String>>>>,\n\
+             pid: LocalPid,\n\
          }}\n\n"
     ));
 
@@ -393,19 +392,14 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         "impl {bridge_name} {{\n    \
              /// Create a bridge from an Elixir GenServer pid.\n    \
              pub fn new(pid: LocalPid) -> Self {{\n        \
-                 Self {{\n            \
-                     pid,\n            \
-                     reply_map: Arc::new(TokioMutex::new(std::collections::HashMap::new())),\n        \
-                 }}\n    \
+                 Self {{ pid }}\n    \
              }}\n\
          }}\n\n"
     ));
 
     // SAFETY: LocalPid is thread-safe in Rustler (it's an atom reference).
-    // The Arc<Mutex<HashMap>> is also Send+Sync.
     out.push_str(&format!(
         "// SAFETY: LocalPid is Send+Sync as guaranteed by Rustler.\n\
-         // Arc<TokioMutex<HashMap>> is Send+Sync.\n\
          unsafe impl Send for {bridge_name} {{}}\n\
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
@@ -422,19 +416,29 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                      .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
                  let reply_id = crate::nif_support::next_request_id();\n        \
                  let (tx, rx) = tokio::sync::oneshot::channel();\n\n        \
+                 // Register the oneshot sender in the reply map before sending the message\n        \
                  {{\n            \
-                     let mut map = self.reply_map.lock().await;\n            \
+                     let mut map = TRAIT_REPLY_CHANNELS.lock().unwrap();\n            \
                      map.insert(reply_id, tx);\n        \
                  }}\n\n        \
-                 // Send trait_call message to Elixir GenServer\n        \
-                 // Note: This requires a NIF that sends the message\n        \
-                 // crate::nif_support::send_trait_call(self.pid, \"{dispatch_name}\", &request_json, reply_id)?;\n\n        \
-                 // Await response\n        \
-                 let response_json = rx.await\n            \
-                     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
-                 let response: {core_import}::{resp_type} = serde_json::from_str(&response_json)\n            \
-                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n        \
-                 Ok(response)\n    \
+                 // Call the Elixir NIF to send the message synchronously from this async context\n        \
+                 let pid = self.pid;\n        \
+                 let method_str = \"{dispatch_name}\".to_string();\n        \
+                 let json_str = request_json.clone();\n        \
+                 tokio::task::spawn_blocking(move || {{\n            \
+                     crate::nif_support::send_trait_call_message(pid, &method_str, &json_str, reply_id);\n        \
+                 }}).await.ok();\n\n        \
+                 // Await response via the oneshot channel\n        \
+                 let response_result = rx.await\n            \
+                     .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, \"reply channel closed\")) as Box<dyn std::error::Error + Send + Sync>)?;\n\n        \
+                 match response_result {{\n            \
+                     Ok(response_json) => {{\n            \
+                         let response: {core_import}::{resp_type} = serde_json::from_str(&response_json)\n                    \
+                             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n            \
+                         Ok(response)\n            \
+                     }}\n            \
+                     Err(err_msg) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, err_msg)) as Box<dyn std::error::Error + Send + Sync>),\n        \
+                 }}\n    \
              }}\n\
          }}\n\n"
     ));
@@ -476,8 +480,8 @@ fn gen_run_nif(
          ///\n\
          /// # Arguments\n\
          ///\n\
-         /// - `registrations` — Elixir list of `{{method_name, metadata, handler}}` tuples\n\
-         ///   where `handler` is an Elixir function/closure that accepts request JSON and returns response JSON.\n"
+         /// - `registrations` — Elixir list of `{{method_name, metadata, handler_pid}}` tuples\n\
+         ///   where `handler_pid` is an Elixir PID to a GenServer that dispatches trait calls.\n"
     ));
     for p in &ep.params {
         out.push_str(&format!("/// - `{}` — entrypoint parameter\n", p.name));
