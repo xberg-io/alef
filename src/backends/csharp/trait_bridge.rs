@@ -625,9 +625,12 @@ fn gen_single_trait_bridge(
             ));
             let is_non_api_return =
                 matches!(&method.return_type, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
+            // When a non-API Named type (enum) is substituted to string in the interface,
+            // methodResult is already JSON-encoded. Use it directly without additional serialization.
             let serialize_expr = if is_non_api_return {
-                // Non-API Named types: serialize as JSON string
-                "ToJsonString(methodResult)".to_string()
+                // Non-API Named types get substituted to string by the interface, so methodResult
+                // is already JSON-encoded. Return it directly.
+                "methodResult".to_string()
             } else if matches!(method.return_type, TypeRef::Named(_)) {
                 // API Named types: use ToFfiJson()
                 "methodResult.ToFfiJson()".to_string()
@@ -1087,9 +1090,9 @@ mod tests {
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
     }
 
-    /// Regression: enum return types should be serialized as JSON strings, not call .ToFfiJson().
-    /// Enums are excluded from visible_type_names, so trait methods returning them should
-    /// emit `ToJsonString(methodResult)` instead of `methodResult.ToFfiJson()`.
+    /// Regression: enum return types are substituted to string in the interface, so the callback
+    /// receives an already-JSON-encoded value. The callback should use the methodResult directly
+    /// without additional serialization (not ToJsonString, not ToFfiJson).
     #[test]
     fn test_trait_method_enum_return_uses_json_serialization() {
         let mut trait_def = make_trait_def("PostProcessor");
@@ -1117,8 +1120,11 @@ mod tests {
         let visible_types: HashSet<&str> = vec!["PostProcessor"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        // The callback should use ToJsonString instead of .ToFfiJson()
-        assert!(content.contains("ToJsonString(methodResult)"));
+        // The callback receives methodResult as already-JSON (string) from the interface method.
+        // It should pass methodResult directly to Marshal.StringToCoTaskMemUTF8 without
+        // ToJsonString or ToFfiJson serialization.
+        assert!(content.contains("Marshal.StringToCoTaskMemUTF8(methodResult)"));
+        assert!(!content.contains("ToJsonString(methodResult)"));
         assert!(!content.contains("methodResult.ToFfiJson()"));
     }
 }

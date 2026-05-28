@@ -3656,8 +3656,11 @@ fn csharp_type_for_stub_visible(ty: &crate::core::ir::TypeRef) -> String {
 /// Types like InternalDocument and SyncExtractor are internal and should not
 /// appear in test stubs or public interfaces.
 fn is_visible_csharp_type(type_name: &str) -> bool {
-    // Whitelist of types that are actually exported by the C# binding
-    // Includes public enums returned by trait methods (OcrBackendType, ProcessingStage, etc.)
+    // Whitelist of types that are actually exported by the C# binding.
+    // Note: Enums (OcrBackendType, ProcessingStage, etc.) are excluded because
+    // trait-bridge methods returning enums serialize them as JSON strings, not as
+    // enum instances. The stub emitter will map enum return types to string with
+    // default value "".
     matches!(
         type_name,
         "ExtractionResult"
@@ -3684,8 +3687,6 @@ fn is_visible_csharp_type(type_name: &str) -> bool {
             | "ChunkMetadata"
             | "PluginException"
             | "SampleCrateError"
-            | "OcrBackendType"
-            | "ProcessingStage"
             | "OcrConfig"
     )
 }

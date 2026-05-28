@@ -666,6 +666,9 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
     .cloned()
     .collect();
 
+    // Derive the set of struct names for quick lookup during detection
+    let struct_names: Vec<&str> = optional_fields.keys().cloned().collect();
+
     let lines: Vec<&str> = source.lines().collect();
     let mut result = String::with_capacity(source.len());
     let mut i = 0;
@@ -674,68 +677,55 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
         let line = lines[i];
         let trimmed = line.trim();
 
-        // Check if this is a const constructor for a known type with optional fields.
-        // Match patterns like:
-        // - `const EmbeddingConfig({` (brace on same line)
-        // - `const EmbeddingConfig(` (brace on next line, which FRB uses)
-        let should_process = optional_fields.iter().any(|(struct_name, _)| {
-            trimmed.starts_with(&format!("const {}({{", struct_name))
-                || trimmed.starts_with(&format!("const {}(", struct_name))
-        });
+        // Check if this line starts a const constructor for a known type with optional fields.
+        // Match patterns like `const EmbeddingConfig({` or `const EmbeddingConfig(`
+        let struct_name_opt = struct_names.iter().find(|&&name| {
+            trimmed.starts_with(&format!("const {}({{", name))
+                || trimmed.starts_with(&format!("const {}(", name))
+        }).cloned();
 
-        if should_process {
-            // Find which struct this is
-            let struct_name = optional_fields.keys().find(|&&name| {
-                trimmed.starts_with(&format!("const {}({{", name)) || trimmed.starts_with(&format!("const {}(", name))
-            });
+        if let Some(struct_name) = struct_name_opt {
+            let fields_to_make_optional = optional_fields[struct_name].clone();
 
-            if let Some(&struct_name) = struct_name {
-                let fields_to_make_optional = optional_fields[struct_name].clone();
+            // Emit the constructor opening line
+            result.push_str(line);
+            result.push('\n');
+            i += 1;
 
-                // Emit the constructor opening line
-                result.push_str(line);
-                result.push('\n');
-                i += 1;
+            // Process parameter lines within the constructor
+            while i < lines.len() {
+                let param_line = lines[i];
+                let param_trimmed = param_line.trim_start();
 
-                // Process parameter lines within the constructor
-                while i < lines.len() {
-                    let param_line = lines[i];
-                    let param_trimmed = param_line.trim_start();
+                // Check if this line closes the constructor
+                if param_trimmed.starts_with("});") {
+                    result.push_str(param_line);
+                    result.push('\n');
+                    i += 1;
+                    break;
+                }
 
-                    // Check if this line closes the constructor
-                    if param_trimmed.starts_with("});") {
-                        result.push_str(param_line);
+                // Check if this is a parameter that should be made optional
+                let mut modified = false;
+                for &field_name in &fields_to_make_optional {
+                    if param_trimmed.contains(&format!("required this.{}", field_name)) {
+                        // Replace "required this.field" with "this.field"
+                        let modified_line = param_line.replace(
+                            &format!("required this.{}", field_name),
+                            &format!("this.{}", field_name),
+                        );
+                        result.push_str(&modified_line);
                         result.push('\n');
-                        i += 1;
+                        modified = true;
                         break;
                     }
-
-                    // Check if this is a parameter that should be made optional
-                    let mut modified = false;
-                    for &field_name in &fields_to_make_optional {
-                        if param_trimmed.contains(&format!("required this.{}", field_name)) {
-                            // Replace "required this.field" with "this.field"
-                            let modified_line = param_line.replace(
-                                &format!("required this.{}", field_name),
-                                &format!("this.{}", field_name),
-                            );
-                            result.push_str(&modified_line);
-                            result.push('\n');
-                            modified = true;
-                            break;
-                        }
-                    }
-
-                    if !modified {
-                        // Not a field we're making optional, keep as-is
-                        result.push_str(param_line);
-                        result.push('\n');
-                    }
-                    i += 1;
                 }
-            } else {
-                result.push_str(line);
-                result.push('\n');
+
+                if !modified {
+                    // Not a field we're making optional, keep as-is
+                    result.push_str(param_line);
+                    result.push('\n');
+                }
                 i += 1;
             }
         } else {

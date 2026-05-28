@@ -715,6 +715,100 @@ fn test_scaffold_node_package_json_centralizes_platform_metadata() {
 }
 
 #[test]
+fn test_scaffold_node_exclude_platforms_drops_musl() {
+    let config = test_config_from_toml(
+        r#"
+[crates.node]
+exclude_platforms = ["linux-x64-musl", "linux-arm64-musl"]
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Node]).unwrap();
+
+    let parent = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/package.json"))
+        .expect("parent package.json must be emitted");
+    let parsed: serde_json::Value = serde_json::from_str(&parent.content).expect("valid parent package.json");
+
+    let optional_deps = parsed["optionalDependencies"]
+        .as_object()
+        .expect("optionalDependencies must be an object");
+    assert!(
+        !optional_deps.contains_key("my-lib-linux-x64-musl"),
+        "linux-x64-musl must be excluded from optionalDependencies"
+    );
+    assert!(
+        !optional_deps.contains_key("my-lib-linux-arm64-musl"),
+        "linux-arm64-musl must be excluded from optionalDependencies"
+    );
+    assert!(
+        optional_deps.contains_key("my-lib-linux-x64-gnu"),
+        "linux-x64-gnu must still be present"
+    );
+    assert!(
+        optional_deps.contains_key("my-lib-darwin-arm64"),
+        "darwin-arm64 must still be present"
+    );
+
+    let targets = parsed["napi"]["targets"]
+        .as_array()
+        .expect("napi.targets must be an array");
+    assert!(
+        !targets.iter().any(|t| t == "x86_64-unknown-linux-musl"),
+        "x86_64-unknown-linux-musl must be excluded from napi.targets"
+    );
+    assert!(
+        !targets.iter().any(|t| t == "aarch64-unknown-linux-musl"),
+        "aarch64-unknown-linux-musl must be excluded from napi.targets"
+    );
+    assert!(
+        targets.iter().any(|t| t == "x86_64-unknown-linux-gnu"),
+        "x86_64-unknown-linux-gnu must still be present"
+    );
+    assert!(
+        targets.iter().any(|t| t == "aarch64-pc-windows-msvc"),
+        "aarch64-pc-windows-msvc must still be present"
+    );
+
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path == Path::new("crates/my-lib-node/npm/linux-x64-musl/package.json")),
+        "linux-x64-musl per-platform stub must not be emitted"
+    );
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path == Path::new("crates/my-lib-node/npm/linux-arm64-musl/package.json")),
+        "linux-arm64-musl per-platform stub must not be emitted"
+    );
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path == Path::new("crates/my-lib-node/npm/linux-x64-gnu/package.json")),
+        "linux-x64-gnu per-platform stub must still be emitted"
+    );
+
+    let index_js = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/index.js"))
+        .expect("index.js must be emitted");
+    assert!(
+        !index_js.content.contains("linux-x64-musl"),
+        "index.js dispatch table must not reference linux-x64-musl"
+    );
+    assert!(
+        !index_js.content.contains("linux-arm64-musl"),
+        "index.js dispatch table must not reference linux-arm64-musl"
+    );
+    assert!(
+        index_js.content.contains("linux-x64-gnu"),
+        "index.js dispatch table must still reference linux-x64-gnu"
+    );
+}
+
+#[test]
 fn test_scaffold_ffi_with_core_import() {
     let config = test_config();
     let api = test_api();
