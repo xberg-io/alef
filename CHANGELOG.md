@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **core/jni: `jni_package` now falls back to a derived `com.example.{cleaned_name}` when no kotlin package is configured and no scaffold repository URL is set.** Previously `config.kotlin_package()` was called as the final fallback — that helper requires a repository URL, panicking when one wasn't configured. The new chain prefers `[crates.kotlin_android] package`, then `[crates.kotlin] package`, then `try_kotlin_package()` (returns `Result`, no panic), and finally derives a syntactically-valid Java package by stripping `-`/`_` from the crate name and prefixing `com.example.`. Generated JNI symbols are now always valid Java identifiers regardless of scaffold completeness. (`src/core/jni.rs`)
+
+- **e2e/codegen/php: emit PHP test-backend method names in camelCase to match ext-php-rs convention.** `emit_test_backend_with_ns` previously used the raw Rust method name (e.g. `extract_bytes`) as the PHP method name in generated stubs. ext-php-rs auto-converts snake_case Rust function names to camelCase PHP method names when exposing them, so the generated PHP stub class declaring `public function extract_bytes(...)` doesn't actually implement the interface method that PHP sees as `extractBytes()`. Updated emission to apply `to_lower_camel_case()` and updated two snapshot tests to the corrected expectation. (`src/e2e/codegen/php.rs`)
+
 ### Added
 
 - **scaffold/dart: include `native_assets_cli` in FFI-style pubspec dependencies (Dart 3.0+).** The native-assets build hook resolves the FFI shared library at consumer build time, removing the need for downstream consumers to manually wire `Process.run('cargo build')` or copy dylibs into asset folders. Pin tracked via the new `pub_dev::NATIVE_ASSETS_CLI = "^0.13.0"` constant in `template_versions.rs` (renovate-managed). (`src/core/template_versions.rs`, `src/scaffold/languages/dart.rs`)

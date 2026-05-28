@@ -11,9 +11,11 @@ use crate::core::config::ResolvedCrateConfig;
 
 /// Resolve the Kotlin package used for JNI symbols.
 ///
-/// Mirrors `jni_kotlin_package` from the regular bindings:
-/// prefers `[crates.kotlin_android] package`, then `[crates.kotlin] package`,
-/// finally falls back to `config.kotlin_package()`.
+/// Prefers `[crates.kotlin_android] package`, then `[crates.kotlin] package`,
+/// then derives a reverse-DNS package from the scaffold repository URL,
+/// and finally falls back to `com.example.{clean_name}` derived from the crate
+/// name (hyphens and underscores removed, lowercased) so generated JNI symbols
+/// are always valid Java identifiers even when no package is configured.
 ///
 /// # Examples
 /// ```ignore
@@ -26,7 +28,13 @@ pub fn jni_package(config: &ResolvedCrateConfig) -> String {
         .as_ref()
         .and_then(|a| a.package.clone())
         .or_else(|| config.kotlin.as_ref().and_then(|k| k.package.clone()))
-        .unwrap_or_else(|| config.kotlin_package())
+        .or_else(|| config.try_kotlin_package().ok())
+        .unwrap_or_else(|| {
+            // Derive a valid Java package from the crate name so generated JNI symbols
+            // are always syntactically valid even when no repository or package is set.
+            let clean = config.name.replace('-', "").replace('_', "").to_lowercase();
+            format!("com.example.{clean}")
+        })
 }
 
 /// `<PascalCrateName>Bridge` — Kotlin `object` containing all `external fun`s.
