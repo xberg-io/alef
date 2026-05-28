@@ -1743,8 +1743,10 @@ fn build_args_and_setup(
                         .map(|t| t.name.as_str())
                         .collect();
                     // Hardcoded overrides for types always excluded in trait bridges.
+                    // NOTE: ExtractionResult is generated as a Java class and IS used in trait-bridge
+                    // interfaces (e.g., OcrBackend.process_image returns ExtractionResult), so it
+                    // should NOT be in the exclusion list.
                     excluded_named.insert("InternalDocument");
-                    excluded_named.insert("ExtractionResult");
                     excluded_named.insert("OcrBackendType");
                     excluded_named.insert("ProcessingStage");
                     excluded_named.insert("SyncExtractor");
