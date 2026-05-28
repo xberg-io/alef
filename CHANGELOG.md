@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift trait-bridge: protocol accepts native excluded types, adapter marshals to JSON strings.** The protocol signature now declares excluded-type parameters and returns using their native Swift struct types (e.g., `func processImage(...) -> ExtractionResult`), while the internal adapter method marshals the excluded type to a JSON string at the FFI boundary (`func processImageCall(...) -> String`). This allows user implementations to work with idiomatic Swift types without needing to manually encode them. Previously, the trait-bridge emitter tried to call `JSONEncoder().encode(result)` on the excluded type struct (not Encodable), causing compile errors: `instance method 'encode' requires that 'ExtractionResult' conform to 'Encodable'`. The fix separates native-type functions (protocol) from marshalled-type functions (adapter), adds `marshal_encode_excluded<T: Encodable>` helper for encoding excluded types, and detects when the return type is excluded to use the helper. All six bridge files (OcrBackend, EmbeddingBackend, DocumentExtractor, PostProcessor, Validator, Renderer) now compile. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
 - **Zig trait-bridge stub methods**: now use C FFI types (e.g., `[*c]const u8`, `i32`) instead of Zig high-level types (e.g., `[]const u8`, `bool`). This ensures stub signatures match the vtable thunks' expectations. All collections marshal as JSON strings. Numeric returns (bool, etc.) use appropriate C types (i32 for bool). Fixes 24 compile errors in `plugin_api_test.zig` where test stubs were emitting Zig-idiomatic types instead of C-compatible FFI types. (`src/e2e/codegen/zig.rs`)
 
 ## [0.20.6] - 2026-05-28
