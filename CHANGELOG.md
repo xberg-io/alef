@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef r e2e codegen: emit `initialize` and `shutdown` no-op functions in trait-bridge test-backend stubs.** The R extendr trait bridge calls `initialize` and `shutdown` on every registered plugin (mirroring the python/ruby bridges), but `emit_test_backend` for R only emitted `name = "test"` under `super_trait`, so registering an R `list` stub failed with `Plugin 'test' missing method 'initialize'` / `'shutdown'` at runtime. Generated e2e suites for R (e.g. kreuzberg `tests/test_plugin_api.R`, `tests/test_renderer_management.R`) couldn't pass any trait-bridge fixture. The fix emits `initialize = function() invisible(NULL)` and `shutdown = function() invisible(NULL)` alongside `name = "test"` when `super_trait` is set, and re-flows the trailing-comma logic to keep the R `list(...)` syntactically valid as entries are added or removed. Extended `test_emit_test_backend_is_generic_no_domain_names` to assert both methods appear when `super_trait` is `Some`. (`src/e2e/codegen/r.rs`)
+
 ## [0.20.1] - 2026-05-28
 
 ### Fixed

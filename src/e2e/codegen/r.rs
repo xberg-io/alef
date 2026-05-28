@@ -1453,15 +1453,34 @@ pub fn emit_test_backend(
 
     let _ = writeln!(setup, "  {var_name} <- list(");
 
-    // Plugin super-trait: `name` is a plain string in the R list.
-    if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "    name = \"test\",");
-    }
-
     // Collect required methods (those without default implementations).
     let required: Vec<_> = methods.iter().filter(|m| !m.has_default_impl).collect();
 
-    for (i, method) in required.iter().enumerate() {
+    // Plugin super-trait: emit `name`, `initialize`, and `shutdown` entries.
+    // The R extendr trait bridge unconditionally calls `initialize` and
+    // `shutdown` on every registered plugin (mirroring the python/ruby
+    // bridges), so the R `list` stub must define them or registration
+    // fails with `Plugin '<name>' missing method 'initialize'`.
+    let super_trait_entries: &[&str] = if trait_bridge.super_trait.is_some() {
+        &[
+            "    name = \"test\"",
+            "    initialize = function() invisible(NULL)",
+            "    shutdown = function() invisible(NULL)",
+        ]
+    } else {
+        &[]
+    };
+
+    let total_entries = super_trait_entries.len() + required.len();
+    let mut emitted = 0usize;
+
+    for entry in super_trait_entries {
+        emitted += 1;
+        let trailing = if emitted < total_entries { "," } else { "" };
+        let _ = writeln!(setup, "{entry}{trailing}");
+    }
+
+    for method in required.iter() {
         let method_name = &method.name;
         let default_val = defaults.emit_default(&method.return_type);
 
@@ -1469,7 +1488,8 @@ pub fn emit_test_backend(
         let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
         let param_list = params.join(", ");
 
-        let trailing = if i + 1 < required.len() { "," } else { "" };
+        emitted += 1;
+        let trailing = if emitted < total_entries { "," } else { "" };
         let _ = writeln!(
             setup,
             "    {method_name} = function({param_list}) {default_val}{trailing}"
@@ -1574,6 +1594,19 @@ mod tests {
         assert!(
             emission.setup_block.contains("name = \"test\""),
             "setup_block should contain name = \"test\" for super-trait, got:\n{}",
+            emission.setup_block
+        );
+        // The R extendr trait bridge unconditionally calls `initialize` and
+        // `shutdown` on every registered plugin, so the stub must emit them
+        // alongside `name` when `super_trait` is set.
+        assert!(
+            emission.setup_block.contains("initialize = function()"),
+            "setup_block should contain initialize = function() for super-trait, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("shutdown = function()"),
+            "setup_block should contain shutdown = function() for super-trait, got:\n{}",
             emission.setup_block
         );
 
