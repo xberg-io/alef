@@ -3197,7 +3197,15 @@ pub fn emit_test_backend_with_context(
             continue;
         }
         let method_java = &method.name; // Keep snake_case to match interface
-        emit_java_stub_method_with_context(&mut setup, method_java, method, &*defaults, binding_pkg, excluded_types);
+        if method.name == "name" {
+            let _ = writeln!(setup, "    @Override");
+            let _ = writeln!(
+                setup,
+                "    public String {method_java}() {{ return \"{plugin_name}\"; }}"
+            );
+        } else {
+            emit_java_stub_method_with_context(&mut setup, method_java, method, &*defaults, binding_pkg, excluded_types);
+        }
     }
 
     let _ = writeln!(setup, "}}");

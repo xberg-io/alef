@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Java e2e stubs**: trait-bridge fixtures now propagate fixture `input.<arg_field>.{name,version,description,author}` into the generated stub instead of emitting empty strings. The Java e2e code generator now uses the same `extract_backend_name_from_input()` logic as Rust and Python, searching the fixture input JSON at direct and nested-object depth for the first `name` field found, falling back to the fixture id when none exists. This fixes "Plugin name cannot be empty" validation failures in `register_*` trait-bridge e2e tests (PluginApiTest). (`src/e2e/codegen/java.rs`)
+- **Java e2e stubs**: trait-bridge fixtures now propagate fixture `input.<arg_field>.{name,version,description,author}` into the generated stub instead of emitting empty strings. The Java e2e code generator now uses the same `extract_backend_name_from_input()` logic as Rust and Python, searching the fixture input JSON at direct and nested-object depth for the first `name` field found, falling back to the fixture id when none exists. The fixture name is now emitted for `name()` regardless of whether the method is declared on a super-trait or directly on the trait — previously only super-trait `name` was handled, causing `Plugin name cannot be empty` validation failures when the trait declared `name` directly (DocumentExtractor, OcrBackend, etc.). (`src/e2e/codegen/java.rs`)
 
 - **PHP**: trait-bridge register function no longer pre-validates required methods via zero-arg `try_call_method`; relies on Rust-side trait-object validation. Fixes `ArgumentCountError` in `register_*` trait-bridge e2e tests. (`src/backends/php/templates/bridge_registration_fn.jinja`)
 
