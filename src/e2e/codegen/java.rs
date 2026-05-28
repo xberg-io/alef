@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 use super::E2eCodegen;
 use super::client;
+use super::java_mvnw::{MAVEN_WRAPPER_PROPERTIES, MVNW_UNIX, MVNW_WINDOWS};
 
 /// Check if a type name is a numeric type hint (f32, float, etc.) vs. a complex type name.
 fn is_numeric_type_hint(ty: &str) -> bool {
@@ -89,6 +90,27 @@ impl E2eCodegen for JavaCodegen {
                 e2e_config.dep_mode,
                 &e2e_config.test_documents_relative_from(0),
             ),
+            generated_header: false,
+        });
+
+        // Maven wrapper: ./mvnw + mvnw.cmd + .mvn/wrapper/maven-wrapper.properties.
+        // The wrapper scripts bootstrap-download maven-wrapper.jar from the URL in
+        // maven-wrapper.properties on first invocation, so alef does not need to
+        // emit the binary jar. The shebang on mvnw triggers 0755 chmod in the
+        // file writer.
+        files.push(GeneratedFile {
+            path: output_base.join("mvnw"),
+            content: MVNW_UNIX.to_string(),
+            generated_header: false,
+        });
+        files.push(GeneratedFile {
+            path: output_base.join("mvnw.cmd"),
+            content: MVNW_WINDOWS.to_string(),
+            generated_header: false,
+        });
+        files.push(GeneratedFile {
+            path: output_base.join(".mvn").join("wrapper").join("maven-wrapper.properties"),
+            content: MAVEN_WRAPPER_PROPERTIES.to_string(),
             generated_header: false,
         });
 
@@ -2982,6 +3004,7 @@ pub fn emit_test_backend(
         setup_block: setup,
         arg_expr: format!("new {class_name}()"),
         type_imports: Vec::new(),
+        teardown_block: String::new(),
     }
 }
 

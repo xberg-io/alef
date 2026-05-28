@@ -1971,7 +1971,21 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = crate::e2e::codegen::emit_test_backend("go", trait_bridge, &methods, fixture);
+                    // Collect binding-excluded type names (e.g. InternalDocument) from IR.
+                    // These types are never emitted as Go structs; the trait-bridge interface
+                    // serialises them to JSON, so stubs must use json.RawMessage.
+                    let excluded_named: std::collections::HashSet<&str> = type_defs
+                        .iter()
+                        .filter(|t| t.binding_excluded)
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    let emission = emit_test_backend_with_context(
+                        trait_bridge,
+                        &methods,
+                        fixture,
+                        &excluded_named,
+                        import_alias,
+                    );
                     // Go does not allow method declarations inside function bodies.
                     // The setup_block (struct type + method receivers) must be emitted
                     // at the package level, outside any test function.
@@ -3757,10 +3771,33 @@ fn uses_json_type(ty: &crate::core::ir::TypeRef) -> bool {
 /// Because Go does not allow method declarations inside function bodies, the `setup_block`
 /// contains package-level type and method declarations. The `arg_expr` is the struct
 /// literal `testStub_<id>{}` that callers pass to `Register<Trait>`.
+///
+/// Call [`emit_test_backend_with_context`] from e2e test-file renderers that have the
+/// `excluded_types` set (binding-excluded types → `json.RawMessage`) and `import_alias`
+/// (qualifies named types for an external test package).
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    emit_test_backend_with_context(trait_bridge, methods, fixture, &std::collections::HashSet::new(), "")
+}
+
+/// Like [`emit_test_backend`] but with type-qualification context.
+///
+/// `excluded_types` — names of binding-excluded types (e.g. `InternalDocument`) that should
+/// be substituted with `json.RawMessage` in method signatures.  These types exist in the Rust
+/// IR but are never emitted as Go structs; the trait-bridge interface serialises them to JSON.
+///
+/// `import_alias` — the import alias used for the binding package in the generated test file
+/// (e.g. `"kreuzberg"`).  When non-empty, `Named` types are qualified as `{alias}.{GoName}`
+/// so the stub compiles from `package e2e_test` which imports the binding under that alias.
+pub fn emit_test_backend_with_context(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+    excluded_types: &std::collections::HashSet<&str>,
+    import_alias: &str,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::e2e::escape::sanitize_ident;
@@ -3791,7 +3828,7 @@ pub fn emit_test_backend(
                     "func ({struct_name}) {go_method}() string {{ return \"{safe_id}\" }}"
                 );
             } else {
-                emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults);
+                emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults, excluded_types, import_alias);
             }
         }
         if !super_methods.is_empty() {
@@ -3810,13 +3847,20 @@ pub fn emit_test_backend(
             continue;
         }
         let go_method = method_to_camel(&method.name);
-        emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults);
+        emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults, excluded_types, import_alias);
     }
 
     // Determine if encoding/json is needed by checking if any method uses json.RawMessage.
-    let needs_json = methods
-        .iter()
-        .any(|m| uses_json_type(&m.return_type) || m.params.iter().any(|p| uses_json_type(&p.ty)));
+    // This includes both TypeRef::Json variants and excluded Named types (substituted to json.RawMessage).
+    let uses_json_with_context = |ty: &crate::core::ir::TypeRef| -> bool {
+        uses_json_type(ty) || {
+            use crate::core::ir::TypeRef;
+            matches!(ty, TypeRef::Named(n) if excluded_types.contains(n.as_str()))
+        }
+    };
+    let needs_json = methods.iter().any(|m| {
+        uses_json_with_context(&m.return_type) || m.params.iter().any(|p| uses_json_with_context(&p.ty))
+    });
 
     let mut type_imports = Vec::new();
     if needs_json {
@@ -3841,14 +3885,49 @@ fn go_stub_default(ty: &crate::core::ir::TypeRef) -> String {
     go_zero_value(ty)
 }
 
-/// Maps a type reference to its Go representation in stub method signatures.
+/// Maps a type reference to its Go representation in stub method signatures, with context.
 ///
-/// For most types, delegates to `go_type` which produces the canonical Go binding type.
-/// This ensures stubs match the actual trait-bridge interface signatures exactly,
-/// including Named types like OcrBackendType.
-fn stub_go_type(ty: &crate::core::ir::TypeRef) -> String {
+/// When `excluded_types` is non-empty, any `TypeRef::Named` whose name appears in the set
+/// is substituted with `json.RawMessage` (matching the actual trait-bridge interface which
+/// serialises excluded/internal types to JSON). When `import_alias` is non-empty, remaining
+/// `TypeRef::Named` types are qualified as `{import_alias}.{GoName}` so the stub compiles
+/// from an external test package (e.g. `package e2e_test`) that imports the binding package
+/// under an alias.
+fn stub_go_type_with_context(
+    ty: &crate::core::ir::TypeRef,
+    excluded_types: &std::collections::HashSet<&str>,
+    import_alias: &str,
+) -> String {
     use crate::backends::go::type_map::go_type;
-    go_type(ty).into_owned()
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
+            "json.RawMessage".to_string()
+        }
+        TypeRef::Named(name) if !import_alias.is_empty() => {
+            let go_name = crate::codegen::naming::go_type_name(name);
+            format!("{import_alias}.{go_name}")
+        }
+        TypeRef::Optional(inner) => {
+            let inner_str = stub_go_type_with_context(inner, excluded_types, import_alias);
+            // Excluded types become json.RawMessage which is a slice — don't add pointer
+            if inner_str == "json.RawMessage" {
+                inner_str
+            } else {
+                format!("*{inner_str}")
+            }
+        }
+        TypeRef::Vec(inner) => {
+            let inner_str = stub_go_type_with_context(inner, excluded_types, import_alias);
+            format!("[]{inner_str}")
+        }
+        TypeRef::Map(k, v) => {
+            let k_str = stub_go_type_with_context(k, excluded_types, import_alias);
+            let v_str = stub_go_type_with_context(v, excluded_types, import_alias);
+            format!("map[{k_str}]{v_str}")
+        }
+        _ => go_type(ty).into_owned(),
+    }
 }
 
 /// Emit a single Go stub method receiver function into `out`.
@@ -3856,12 +3935,17 @@ fn stub_go_type(ty: &crate::core::ir::TypeRef) -> String {
 /// Used by both the main method loop and the super-trait method section of
 /// `emit_test_backend` so both paths share the same formatting logic.
 /// `go_method` is the already-PascalCased method name (caller's responsibility).
+///
+/// `excluded_types` — names of binding-excluded types substituted with `json.RawMessage`.
+/// `import_alias` — binding package import alias; qualifies Named types for external packages.
 fn emit_go_stub_method_body(
     out: &mut String,
     struct_name: &str,
     go_method: &str,
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    excluded_types: &std::collections::HashSet<&str>,
+    import_alias: &str,
 ) {
     use crate::core::ir::TypeRef;
 
@@ -3872,13 +3956,13 @@ fn emit_go_stub_method_body(
         .iter()
         .map(|p| {
             let go_param = go_param_name(&p.name);
-            let type_str = stub_go_type(&p.ty);
+            let type_str = stub_go_type_with_context(&p.ty, excluded_types, import_alias);
             format!("{go_param} {type_str}")
         })
         .collect();
     let param_str = params.join(", ");
 
-    let ret_ty = stub_go_type(&method.return_type);
+    let ret_ty = stub_go_type_with_context(&method.return_type, excluded_types, import_alias);
 
     // Build return type.
     let return_type_str = if method.error_type.is_some() {

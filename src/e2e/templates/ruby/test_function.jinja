@@ -16,6 +16,7 @@
    - call_receiver: module or class name for the call
    - is_clear_op: bool - whether this is a clear operation
    - post_clear_list_call: expression to call the corresponding list function (empty if not a clear op)
+   - teardown_lines: list of teardown statements emitted after assertions (e.g. trait-bridge unregister calls)
 #}
   it '{{ test_name }}: {{ description }}' do
 {% if client_factory %}
@@ -64,4 +65,7 @@
     expect({{ result_var }}).not_to be_nil
 {% endif %}
 {% endif %}
+{% for line in teardown_lines %}
+    {{ line }}
+{% endfor %}
   end

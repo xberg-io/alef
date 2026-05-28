@@ -1,1 +1,2 @@
-            var managed_{{ param_name }} = MarshalBytesFromIntPtr({{ param_name }});
+            var managed_{{ param_name }} = new byte[(int){{ len_name }}];
+            Marshal.Copy({{ param_name }}, managed_{{ param_name }}, 0, (int){{ len_name }});

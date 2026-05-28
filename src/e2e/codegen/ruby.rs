@@ -847,7 +847,7 @@ fn render_chat_stream_example(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let fixture_id = fixture.id.clone();
 
-    let (mut setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, args_str, teardown_lines) = build_args_and_setup(
         &fixture.input,
         args,
         call_receiver,
@@ -953,6 +953,12 @@ fn render_chat_stream_example(
         .any(|a| a.field.as_deref() == Some("stream_complete"))
     {
         out.push_str("    expect(stream_complete).to be(true)\n");
+    }
+
+    // Trait-bridge teardown (e.g. unregister test backend) so RSpec's
+    // shared-process registry state is restored between tests.
+    for line in &teardown_lines {
+        out.push_str(&format!("    {line}\n"));
     }
 
     out.push_str("  end\n");
@@ -1093,7 +1099,7 @@ fn render_example(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let fixture_id = fixture.id.clone();
 
-    let (mut setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, args_str, teardown_lines) = build_args_and_setup(
         &fixture.input,
         args,
         call_receiver,
@@ -1192,6 +1198,7 @@ fn render_example(
             is_only_not_error => is_only_not_error,
             is_clear_op => is_clear_op,
             post_clear_list_call => post_clear_list_call,
+            teardown_lines => teardown_lines,
         },
     )
 }
@@ -1280,17 +1287,21 @@ fn build_args_and_setup(
     adapter_request_type: Option<&str>,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
-) -> (Vec<String>, String) {
+) -> (Vec<String>, String, Vec<String>) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args config: don't pass the input as a function argument.
         // The input data is for setup/mocking purposes only. Functions with no
         // parameters must be called with no arguments — not with `{}` or `nil`.
-        return (Vec::new(), String::new());
+        return (Vec::new(), String::new(), Vec::new());
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
+    // Teardown lines emitted after the call+assertions. Populated by
+    // trait-bridge args so RSpec's shared-process registry state is restored
+    // between tests (e.g. `Kreuzberg.unregister_ocr_backend('test-backend')`).
+    let mut teardown_lines: Vec<String> = Vec::new();
     // Track optional args that were skipped; if a later arg is emitted we must back-fill nil
     // to preserve positional correctness (e.g. extract_file(path, nil, config)).
     let mut skipped_optional_count: usize = 0;
@@ -1461,6 +1472,19 @@ fn build_args_and_setup(
                     if trait_bridge.register_fn.is_some() {
                         let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
                         parts.push(ruby_string_literal(&backend_name));
+
+                        // Emit `<module>.<unregister_fn>('<name>')` after the call so
+                        // RSpec's single-process registry state is restored between
+                        // tests. Without this, the next OCR-using fixture fails
+                        // because the kreuzberg OCR registry contains only the test
+                        // stub and the core's `ensure_*_initialized` self-heal only
+                        // triggers when the registry is empty.
+                        if let Some(unregister_fn) = trait_bridge.unregister_fn.as_deref() {
+                            teardown_lines.push(format!(
+                                "{call_receiver}.{unregister_fn}({})",
+                                ruby_string_literal(&backend_name)
+                            ));
+                        }
                     }
                     continue;
                 }
@@ -1562,7 +1586,7 @@ fn build_args_and_setup(
         }
     }
 
-    (setup_lines, parts.join(", "))
+    (setup_lines, parts.join(", "), teardown_lines)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -64,14 +64,6 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
     private static string ToJsonString<T>(T value) {
         return JsonSerializer.Serialize(value);
     }
-{% if has_bytes_param %}
-
-    private static byte[] MarshalBytesFromIntPtr(IntPtr ptr) {
-        if (ptr == IntPtr.Zero) return Array.Empty<byte>();
-        var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ptr) ?? "[]";
-        return JsonSerializer.Deserialize<byte[]>(json) ?? Array.Empty<byte>();
-    }
-{% endif %}
 
 {{ callbacks }}
 
