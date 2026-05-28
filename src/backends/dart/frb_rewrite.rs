@@ -225,12 +225,13 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
     )
 }
 
-/// Ensure `dart:io` and `dart:isolate` are imported (the loader helper uses
-/// `File` and `Isolate`). Inserts the imports after the first existing `import`
+/// Ensure `dart:io`, `dart:isolate`, and `dart:core` are imported (the loader helper uses
+/// `File`, `Isolate`, and `Uri`). Inserts the imports after the first existing `import`
 /// line if missing. Idempotent.
 fn ensure_loader_imports(source: &str) -> String {
     let mut result = source.to_string();
     let needed = [
+        ("import 'dart:core';", "import 'dart:core';\n"),
         ("import 'dart:io';", "import 'dart:io';\n"),
         ("import 'dart:isolate';", "import 'dart:isolate';\n"),
     ];
