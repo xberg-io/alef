@@ -169,7 +169,6 @@ pub fn gen_trait_bridges_file(
     out.push('\n');
 
     out.push_str("import (\n");
-    out.push_str("\t\"encoding/base64\"\n");
     out.push_str("\t\"encoding/json\"\n");
     out.push_str("\t\"fmt\"\n");
     out.push_str("\t\"runtime/cgo\"\n");
