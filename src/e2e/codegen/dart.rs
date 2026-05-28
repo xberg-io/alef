@@ -2902,7 +2902,8 @@ pub fn emit_test_backend(
 
     // Plugin super-trait `name` getter — no @override on local class members.
     if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "  String get name => '{plugin_name}';");
+        let escaped_name = escape_dart(&plugin_name);
+        let _ = writeln!(setup, "  String get name => '{escaped_name}';");
     }
 
     // Required methods — use concrete Dart types from the type mapper.
@@ -2954,7 +2955,8 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "final {instance_name} = {class_name}();");
     // The factory wrapper is sync (not awaited); trait factory callbacks return T directly.
     let _ = writeln!(setup, "final {wrapped_var} = {create_fn}(");
-    let _ = writeln!(setup, "  pluginName: '{plugin_name}',");
+    let escaped_plugin_name = escape_dart(&plugin_name);
+    let _ = writeln!(setup, "  pluginName: '{escaped_plugin_name}',");
     let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
 
     // Emit method callbacks - required methods with implementations
