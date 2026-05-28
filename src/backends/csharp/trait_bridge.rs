@@ -480,15 +480,14 @@ fn gen_single_trait_bridge(
         // for emitting the `, ` separator between userData and params_decl (and
         // between params_decl and the out params). This avoids double-commas
         // when params_decl is non-empty.
-        let params_decl = unmanaged_param_sig.clone();
-        let params_decl_no_trailing = params_decl.clone();
+        let params_decl = unmanaged_param_sig;
 
         if method.return_type == TypeRef::Unit {
             // void return: no out params
-            let params_with_userdata = if params_decl_no_trailing.is_empty() {
+            let params_with_userdata = if params_decl.is_empty() {
                 "IntPtr userData".to_string()
             } else {
-                format!("IntPtr userData, {}", params_decl_no_trailing)
+                format!("IntPtr userData, {}", params_decl)
             };
             callbacks.push_str(&format!(
                 "    private int {}FnCallback({}) {{\n",
@@ -515,10 +514,10 @@ fn gen_single_trait_bridge(
                 },
                 _ => "int",
             };
-            let params_with_userdata = if params_decl_no_trailing.is_empty() {
+            let params_with_userdata = if params_decl.is_empty() {
                 "IntPtr userData".to_string()
             } else {
-                format!("IntPtr userData, {}", params_decl_no_trailing)
+                format!("IntPtr userData, {}", params_decl)
             };
             callbacks.push_str(&format!(
                 "    private {} {}FnCallback({}) {{\n",
