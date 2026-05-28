@@ -362,6 +362,7 @@ fn build_thirdparty_imports(
     // Trait-bridge tests emit a teardown like `unregister_ocr_backend("test-backend")`
     // after the registration call. The unregister fn must also be imported from the
     // public binding module, or the test fails at runtime with NameError.
+    // Use fixture.resolved_args(cc) to respect fixture-level args that override call-level args.
     for fixture in fixtures.iter() {
         let cc = e2e_config.resolve_call_for_fixture(
             fixture.call.as_deref(),
@@ -370,7 +371,7 @@ fn build_thirdparty_imports(
             &fixture.tags,
             &fixture.input,
         );
-        for arg in &cc.args {
+        for arg in fixture.resolved_args(cc) {
             if arg.arg_type != "test_backend" {
                 continue;
             }
