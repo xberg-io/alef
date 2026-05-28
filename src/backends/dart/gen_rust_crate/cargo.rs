@@ -417,10 +417,11 @@ fn patch_published_loader() {{
 
     let mut patched = source.replacen(FRB_INIT_PROLOGUE, FRB_INIT_REPLACEMENT, 1);
 
-    // Ensure the helper's `File`/`Isolate` dependencies are imported.
+    // Ensure the helper's `File`/`Isolate`/`Abi` dependencies are imported.
     for (probe, line) in [
         ("import 'dart:io';", "import 'dart:io';\n"),
         ("import 'dart:isolate';", "import 'dart:isolate';\n"),
+        ("import 'dart:ffi';", "import 'dart:ffi';\n"),
     ] {{
         if patched.contains(probe) {{
             continue;
@@ -455,27 +456,33 @@ fn patch_published_loader() {{
 /// method followed by the original `init` signature with a resolution line that
 /// prefers the package-relative library.
 ///
-/// Kept in sync with the FRB 2.x `RustLib.init` signature. The candidate library
-/// filenames cover the three desktop platforms shipped via pub
-/// (`lib<stem>.dylib`, `lib<stem>.so`, `<stem>.dll`).
+/// Kept in sync with the FRB 2.x `RustLib.init` signature. Published pub.dev
+/// packages stage natives under `lib/src/native/<rid>/` (e.g. `macos-arm64`,
+/// `linux-x64`). For local FRB-dev builds the dylib is emitted into
+/// `lib/src/{module}_bridge_generated/` and is searched as a fallback.
 fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &str) -> String {
     format!(
         r#"  /// Resolve the prebuilt native library from this package's own installed
   /// location so the load works from any working directory and under hardened
   /// runtimes. Returns `null` to defer to flutter_rust_bridge's default loader.
+  ///
+  /// Published pub.dev packages stage natives under `lib/src/native/<rid>/`
+  /// (e.g. `macos-arm64`, `linux-x64`). For local FRB-dev builds the dylib is
+  /// emitted into `lib/src/{module_name}_bridge_generated/`; that
+  /// path is searched as a fallback.
   static Future<ExternalLibrary?> _alefResolveExternalLibrary() async {{
     try {{
       final packageRoot =
           await Isolate.resolvePackageUri(Uri.parse('package:{package_name}/{package_name}.dart'));
-      if (packageRoot != null) {{
-        final libDir = packageRoot.resolve('src/{module_name}_bridge_generated/');
-        const candidates = <String>[
-          'lib{stem}.dylib',
-          'lib{stem}.so',
-          '{stem}.dll',
-        ];
-        for (final candidate in candidates) {{
-          final libPath = libDir.resolve(candidate).toFilePath();
+      if (packageRoot == null) return null;
+      final libNames = _alefHostLibNames();
+      final searchDirs = <Uri>[
+        if (_alefHostRid() != null) packageRoot.resolve('src/native/${{_alefHostRid()}}/'),
+        packageRoot.resolve('src/{module_name}_bridge_generated/'),
+      ];
+      for (final dir in searchDirs) {{
+        for (final name in libNames) {{
+          final libPath = dir.resolve(name).toFilePath();
           if (File(libPath).existsSync()) {{
             return ExternalLibrary.open(libPath);
           }}
@@ -485,6 +492,25 @@ fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &
       // Fall through to the default loader on any resolution failure.
     }}
     return null;
+  }}
+
+  /// Map the host platform to the pub.dev native staging RID. Returns `null`
+  /// for unrecognized host triples so the FRB-dev fallback path runs instead.
+  static String? _alefHostRid() {{
+    final abi = Abi.current();
+    if (abi == Abi.macosArm64) return 'macos-arm64';
+    if (abi == Abi.macosX64) return 'macos-x64';
+    if (abi == Abi.linuxArm64) return 'linux-arm64';
+    if (abi == Abi.linuxX64) return 'linux-x64';
+    if (abi == Abi.windowsArm64) return 'windows-arm64';
+    if (abi == Abi.windowsX64) return 'windows-x64';
+    return null;
+  }}
+
+  static List<String> _alefHostLibNames() {{
+    if (Platform.isMacOS) return const ['lib{stem}.dylib'];
+    if (Platform.isWindows) return const ['{stem}.dll'];
+    return const ['lib{stem}.so'];
   }}
 
   /// Initialize flutter_rust_bridge
