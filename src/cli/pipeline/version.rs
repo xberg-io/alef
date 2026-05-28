@@ -392,10 +392,21 @@ pub fn set_version(config: &ResolvedCrateConfig, version: &str) -> anyhow::Resul
 }
 
 /// Sync version from Cargo.toml to all package manifest files.
+///
+/// When `no_regen` is `false` (the default for direct CLI invocations), this
+/// function automatically regenerates `test_apps/` scaffold files after updating
+/// `[crates.e2e.registry.packages.*].version` in `alef.toml`, so the version
+/// pins in generated files (pyproject.toml, mix.exs, build.zig.zon, Package.swift,
+/// etc.) always match the workspace version atomically.
+///
+/// Pass `no_regen = true` to opt out of the automatic regeneration — useful when
+/// this function is called from within another codegen pass that owns `test_apps/`
+/// itself (e.g. `alef generate`).
 pub fn sync_versions(
     config: &ResolvedCrateConfig,
     config_path: &std::path::Path,
     bump: Option<&str>,
+    no_regen: bool,
 ) -> anyhow::Result<()> {
     // If bump is requested, read current version, bump it, and write it back to Cargo.toml.
     if let Some(component) = bump {
@@ -1245,6 +1256,31 @@ pub fn sync_versions(
         }
     }
 
+    // Regenerate test_apps/ scaffold files so version pins in generated files
+    // (pyproject.toml, mix.exs, build.zig.zon, Package.swift, etc.) are
+    // atomically in sync with the updated registry package versions in alef.toml.
+    //
+    // This is the fix for the rc.13 incident: sync-versions updated alef.toml
+    // registry entries but left stale version strings in previously-generated
+    // test_apps/ files, causing 4 of 15 test_apps to fail with version mismatches.
+    //
+    // Skipped when:
+    //   (a) --no-regen was passed by the caller, OR
+    //   (b) no [e2e] block is configured (nothing to regenerate)
+    if !no_regen {
+        if let Some(e2e_config) = config.e2e.as_ref() {
+            match regenerate_test_apps_after_sync(config, e2e_config, config_path) {
+                Ok(count) if count > 0 => {
+                    info!("  Regenerated {count} test_apps file(s) with updated version pins");
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("Could not regenerate test_apps after version sync: {e}");
+                }
+            }
+        }
+    }
+
     // If no manifest actually changed, nothing else needs refreshing — the
     // generated README/docs/binding hashes still match. This is the warm-path
     // fast exit: hundreds of files were already on disk with the right
@@ -1413,6 +1449,50 @@ pub(crate) fn sync_registry_package_versions(
     }
 
     Ok(changed)
+}
+
+/// Regenerate registry-mode test_apps scaffold files after a version sync so
+/// that version pins in generated files (e.g. pyproject.toml, mix.exs,
+/// build.zig.zon, Package.swift) reflect the updated workspace version.
+///
+/// Mirrors the `TestApps::Generate` dispatch in `main.rs` but runs inside the
+/// `sync_versions` pipeline so the update is atomic with the alef.toml mutation
+/// performed by `sync_registry_package_versions`.
+///
+/// Returns the number of files written (0 when everything was already current).
+fn regenerate_test_apps_after_sync(
+    config: &ResolvedCrateConfig,
+    e2e_config: &crate::core::config::e2e::E2eConfig,
+    config_path: &std::path::Path,
+) -> anyhow::Result<usize> {
+    use crate::core::config::e2e::DependencyMode;
+
+    // Build a registry-mode clone of the e2e config so `generate_e2e` uses
+    // published-package coordinates rather than local path dependencies.
+    let mut registry_config = e2e_config.clone();
+    registry_config.dep_mode = DependencyMode::Registry;
+    let e2e_ref = &registry_config;
+
+    // Extract IR (empty for repos with no sources configured — the scaffold
+    // files like pyproject.toml do not require IR content).
+    let api = extract(config, config_path, false)?;
+
+    // Generate test_apps/ scaffold files for all configured e2e languages.
+    let files = crate::e2e::generate_e2e(config, e2e_ref, None, &api.types, &api.enums)?;
+    if files.is_empty() {
+        return Ok(0);
+    }
+
+    let base_dir = std::path::PathBuf::from(".");
+    let count = super::generate::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+
+    let sources_hash = super::super::cache::sources_hash(&config.sources)?;
+    let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
+    let path_set: std::collections::HashSet<std::path::PathBuf> =
+        files.iter().map(|f| base_dir.join(&f.path)).collect();
+    super::generate::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
+
+    Ok(count)
 }
 
 /// Internal helper to regenerate READMEs after a version sync.

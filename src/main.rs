@@ -97,6 +97,12 @@ enum Commands {
         output: String,
     },
     /// Sync version from Cargo.toml to all package manifests.
+    ///
+    /// After updating manifest versions and alef.toml registry package pins,
+    /// automatically regenerates test_apps/ scaffold files so generated files
+    /// (pyproject.toml, mix.exs, build.zig.zon, Package.swift, etc.) reflect
+    /// the new version atomically. Use --no-regen to opt out of this behaviour
+    /// and keep the legacy two-step workflow (sync-versions + alef:generate).
     SyncVersions {
         /// Bump version before syncing (major, minor, patch).
         #[arg(long)]
@@ -104,6 +110,10 @@ enum Commands {
         /// Set version explicitly (e.g., "0.1.0-rc.1").
         #[arg(long)]
         set: Option<String>,
+        /// Skip automatic test_apps/ regeneration after syncing registry package
+        /// versions. Use when you want to run alef:generate separately.
+        #[arg(long)]
+        no_regen: bool,
     },
     /// Run format commands on generated output.
     Fmt {
@@ -998,7 +1008,7 @@ fn main() -> Result<()> {
             println!("Generated {grand_total} API doc files");
             Ok(())
         }
-        Commands::SyncVersions { bump, set } => {
+        Commands::SyncVersions { bump, set, no_regen } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
@@ -1016,7 +1026,7 @@ fn main() -> Result<()> {
                 } else {
                     eprintln!("Syncing versions from Cargo.toml");
                 }
-                pipeline::sync_versions(resolved_cfg, config_path, bump.as_deref())?;
+                pipeline::sync_versions(resolved_cfg, config_path, bump.as_deref(), no_regen)?;
             }
             println!("Version sync complete");
             Ok(())

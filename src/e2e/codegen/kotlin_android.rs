@@ -304,18 +304,14 @@ fn render_build_gradle_kotlin_android(
 
     // In registry mode: depend on the published Maven artifact and declare
     // mavenCentral()/google() repos explicitly so the test_app is standalone.
-    // No host-JVM tests are emitted (the AAR lacks JNI libraries for host machines).
     // In local mode: wire workspace sources directly via sourceSets so no
     // publish step is needed during development.
-    let (source_sets_block, artifact_dep, tasks_block) = if dep_mode == crate::e2e::config::DependencyMode::Registry {
+    let (source_sets_block, artifact_dep) = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         let artifact = format!(
             r#"    // Published Android AAR from Maven Central (verifies artifact resolution)
     implementation("{maven_coordinate}")"#
         );
-        // In registry mode no host-JVM tests run (see generate() for rationale).
-        // A simple compile check verifies the AAR resolves correctly.
-        let tasks = String::new();
-        (String::new(), artifact, tasks)
+        (String::new(), artifact)
     } else {
         let src_sets = r#"
     sourceSets {
@@ -327,9 +323,18 @@ fn render_build_gradle_kotlin_android(
         }
     }
 "#;
-        // In local mode wire JNA so the native library can be loaded from
-        // the workspace target directory.
-        let tasks = r#"tasks.withType<Test> {
+        (src_sets.to_string(), String::new())
+    };
+
+    // JUnit 5 test discovery requires useJUnitPlatform() in both local and
+    // registry modes. In local mode, also wire JNA for native library loading
+    // from the workspace target directory.
+    let tasks_block = if dep_mode == crate::e2e::config::DependencyMode::Registry {
+        r#"tasks.withType<Test> {
+    useJUnitPlatform()
+}"#.to_string()
+    } else {
+        r#"tasks.withType<Test> {
     useJUnitPlatform()
 
     // Resolve the native library location (e.g., ../../target/release)
@@ -339,8 +344,7 @@ fn render_build_gradle_kotlin_android(
 
     // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
     workingDir = file("${rootDir}/../../test_documents")
-}"#;
-        (src_sets.to_string(), String::new(), tasks.to_string())
+}"#.to_string()
     };
 
     // Test dependencies are always needed for host-JVM tests (both Local and Registry modes).

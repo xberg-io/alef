@@ -848,6 +848,25 @@ impl Backend for PhpBackend {
             generated_header: false,
         }];
 
+        // Generate config.m4 for PIE (PHP Installer for Extensions) builds.
+        // When PIE falls back from pre-packaged binaries to source compilation,
+        // phpize expects config.m4 to describe the build process.
+        let extension_name = config.php_extension_name();
+        let config_m4 = generate_config_m4(&extension_name);
+        // The config.m4 file must be at the repository root (one level above the Cargo.toml)
+        // output_dir is like "crates/ts-pack-core-php/src", so we pop three times to get to root.
+        let mut config_m4_path = PathBuf::from(&output_dir);
+        config_m4_path.pop(); // remove "src"
+        config_m4_path.pop(); // remove crate directory
+        config_m4_path.pop(); // remove "crates"
+        config_m4_path.push("config.m4");
+
+        generated_files.push(GeneratedFile {
+            path: config_m4_path,
+            content: config_m4,
+            generated_header: false,
+        });
+
         // Emit PHP interface files for all trait bridges (visitor-style and registration-style)
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
@@ -2062,4 +2081,32 @@ fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
     out.push_str(&format!("{indent} * @var {var_type}\n"));
     out.push_str(&format!("{indent} */\n"));
     out
+}
+
+/// Generate config.m4 for PIE (PHP Installer for Extensions) to enable building Rust-based PHP extensions.
+///
+/// PHPize expects config.m4 to describe the build configuration. For Rust extensions built
+/// with ext-php-rs, we generate a minimal config.m4 that informs phpize of the extension name
+/// and directs the build to use cargo. This allows PIE to fall back from pre-packaged binaries
+/// to source compilation without errors.
+fn generate_config_m4(extension_name: &str) -> String {
+    format!(
+        r#"dnl Configuration for Rust-based PHP extension via ext-php-rs.
+dnl Allows phpize to recognize this extension during source compilation (PIE fallback).
+
+PHP_ARG_ENABLE([{}],
+  [whether to enable the {} extension],
+  [AS_HELP_STRING([--enable-{}],
+    [Enable {} extension support])],
+  [yes])
+
+if test "$PHP_{}_ENABLED" = "yes"; then
+  dnl Recognize the extension directory for phpize/make
+  PHP_NEW_EXTENSION({}, [], $ext_shared)
+fi
+"#,
+        extension_name, extension_name, extension_name, extension_name,
+        extension_name.to_uppercase(),
+        extension_name
+    )
 }
