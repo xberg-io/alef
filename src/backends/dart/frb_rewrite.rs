@@ -674,16 +674,21 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
         let line = lines[i];
         let trimmed = line.trim();
 
-        // Check if this is a const constructor for a known type with optional fields
-        let should_process = optional_fields
-            .iter()
-            .any(|(struct_name, _)| trimmed.starts_with(&format!("const {}({{", struct_name)));
+        // Check if this is a const constructor for a known type with optional fields.
+        // Match patterns like:
+        // - `const EmbeddingConfig({` (brace on same line)
+        // - `const EmbeddingConfig(` (brace on next line, which FRB uses)
+        let should_process = optional_fields.iter().any(|(struct_name, _)| {
+            trimmed.starts_with(&format!("const {}({{", struct_name))
+                || trimmed.starts_with(&format!("const {}(", struct_name))
+        });
 
         if should_process {
             // Find which struct this is
-            let struct_name = optional_fields
-                .keys()
-                .find(|&&name| trimmed.starts_with(&format!("const {}({{", name)));
+            let struct_name = optional_fields.keys().find(|&&name| {
+                trimmed.starts_with(&format!("const {}({{", name))
+                    || trimmed.starts_with(&format!("const {}(", name))
+            });
 
             if let Some(&struct_name) = struct_name {
                 let fields_to_make_optional = optional_fields[struct_name].clone();
@@ -1234,6 +1239,44 @@ Future<ExtractionResult> extractBytes(
         assert!(
             out.contains("this.cacheDir,"),
             "cacheDir field should remain, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn make_embedding_config_fields_optional_with_frb_formatting() {
+        // FRB generates the opening brace on the next line
+        let input = r#"class EmbeddingConfig {
+  final EmbeddingModelType model;
+  final bool normalize;
+  final PlatformInt64 batchSize;
+  final bool showDownloadProgress;
+
+  const EmbeddingConfig({
+    required this.model,
+    required this.normalize,
+    required this.batchSize,
+    required this.showDownloadProgress,
+  });
+}
+"#;
+        let out = make_struct_fields_with_defaults_optional(input);
+
+        // Fields should be made optional
+        assert!(
+            out.contains("this.model,") && !out.contains("required this.model"),
+            "model field should be made optional, got:\n{out}"
+        );
+        assert!(
+            out.contains("this.normalize,") && !out.contains("required this.normalize"),
+            "normalize field should be made optional, got:\n{out}"
+        );
+        assert!(
+            out.contains("this.batchSize,") && !out.contains("required this.batchSize"),
+            "batchSize field should be made optional, got:\n{out}"
+        );
+        assert!(
+            out.contains("this.showDownloadProgress,") && !out.contains("required this.showDownloadProgress"),
+            "showDownloadProgress field should be made optional, got:\n{out}"
         );
     }
 
