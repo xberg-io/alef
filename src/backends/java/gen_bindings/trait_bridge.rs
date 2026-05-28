@@ -472,7 +472,8 @@ fn gen_bridge_file(
                     // into a missing class.
                     if let TypeRef::Named(name) = &param.ty {
                         if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
-                            unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty, None));
+                            // Unmarshal as String (TypeRef::String), not as the excluded Named type
+                            unmarshal_params.push(format_unmarshal_param(&local, &segment, &TypeRef::String, None));
                             continue;
                         }
                     }
