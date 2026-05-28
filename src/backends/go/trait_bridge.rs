@@ -808,6 +808,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     out.push('\n');
 
     // FreeUserData trampoline — called by Rust Drop to delete the cgo.Handle
+    // Wrapped in defer/recover to handle stale or double-freed handles gracefully
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
         minijinja::context! {
@@ -822,7 +823,16 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
         },
     ));
     out.push('\n');
-    out.push_str("\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()\n");
+    out.push_str("\tdefer func() {\n");
+    out.push_str("\t\tif r := recover(); r != nil {\n");
+    out.push_str("\t\t\t// Handle already deleted or invalid; silently ignore.\n");
+    out.push_str("\t\t\t// This can occur if the C side double-frees or if the handle\n");
+    out.push_str("\t\t\t// was already deleted by another cleanup path.\n");
+    out.push_str("\t\t}\n");
+    out.push_str("\t}()\n");
+    out.push_str("\tif userData != nil {\n");
+    out.push_str("\t\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()\n");
+    out.push_str("\t}\n");
     out.push_str("}\n");
     out.push('\n');
 }

@@ -486,7 +486,7 @@ fn gen_single_trait_bridge(
             // void return: no out params
             callbacks.push_str(&format!(
                 "    private int {}FnCallback({}) {{\n",
-                method.name.to_lower_camel_case(),
+                to_csharp_name(&method.name),
                 params_decl_no_trailing
             ));
         } else if is_primitive_return {
@@ -511,7 +511,7 @@ fn gen_single_trait_bridge(
             callbacks.push_str(&format!(
                 "    private {} {}FnCallback({}) {{\n",
                 return_c_type,
-                method.name.to_lower_camel_case(),
+                to_csharp_name(&method.name),
                 params_decl_no_trailing
             ));
         } else {
@@ -591,11 +591,17 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            return 0;\n");
         } else if is_primitive_return {
             // Primitive return: call method and return directly
+            // Use methodResult to avoid variable shadowing with parameters
             callbacks.push_str(&format!(
-                "            var result = _impl.{}({});\n",
+                "            var methodResult = _impl.{}({});\n",
                 method_pascal, param_call
             ));
-            callbacks.push_str("            return (int)result;\n");
+            // For bool returns, convert to int (0 or 1); other primitives cast directly
+            if matches!(&method.return_type, TypeRef::Primitive(PrimitiveType::Bool)) {
+                callbacks.push_str("            return methodResult ? 1 : 0;\n");
+            } else {
+                callbacks.push_str("            return (int)methodResult;\n");
+            }
         } else {
             // Complex return: use out params
             callbacks.push_str(&render(
