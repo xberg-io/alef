@@ -68,7 +68,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     for typ in api
         .types
         .iter()
-        .filter(|typ| !typ.is_trait && !mod_exclude_types.contains(&typ.name))
+        .filter(|typ| !typ.is_trait && !typ.binding_excluded && !mod_exclude_types.contains(&typ.name))
     {
         // Error types are handled by gen_pyo3_error_registration below.
         if error_type_names.contains(typ.name.as_str()) {
