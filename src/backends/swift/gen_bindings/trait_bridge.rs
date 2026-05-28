@@ -86,10 +86,9 @@ fn gen_single_trait_bridge_file(
         }
 
         let method_camel = method.name.to_lower_camel_case();
-        // Build params, marshalling excluded types as JSON (String)
-        let params_sig = swift_method_params(&method.params, exclude_types);
-        // Build return type, marshalling excluded types as JSON (String)
-        let return_type = swift_return_type(&method.return_type, exclude_types);
+        // Protocol methods use native types (not marshalled), including excluded types as native structs
+        let params_sig = swift_method_params_native(&method.params, exclude_types);
+        let return_type = swift_return_type_native(&method.return_type, exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         let async_kw = if method.is_async { " async" } else { "" };
 
@@ -164,18 +163,54 @@ fn gen_single_trait_bridge_file(
                 );
             } else {
                 // For error-returning methods, JSON-encode the result
-                let encoded_result = match &method.return_type {
-                    TypeRef::String => "result".to_string(),
-                    TypeRef::Unit => "Empty()".to_string(),
-                    TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => "result".to_string(),
-                    _ => "try JSONEncoder().encode(result)".to_string(),
-                };
-                out.push_str(&format!(
-                    "            return marshal_ok_result({encoded_result})\n\
-                     \x20\x20\x20\x20}} catch {{\n\
-                     \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                     \x20\x20\x20\x20}}\n"
-                ));
+                match &method.return_type {
+                    TypeRef::String => {
+                        out.push_str(
+                            "            return marshal_ok_result(result)\n\
+                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                             \x20\x20\x20\x20}}\n",
+                        );
+                    }
+                    TypeRef::Unit => {
+                        out.push_str(
+                            "            return marshal_ok_result(Empty())\n\
+                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                             \x20\x20\x20\x20}}\n",
+                        );
+                    }
+                    TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => {
+                        out.push_str(
+                            "            return marshal_ok_result(result)\n\
+                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                             \x20\x20\x20\x20}}\n",
+                        );
+                    }
+                    TypeRef::Named(name) if exclude_types.contains(name) => {
+                        // Excluded type: result is the native Swift struct (not Encodable).
+                        // Encode directly and wrap in JSON string manually.
+                        out.push_str(
+                            "            let encodedData = try marshal_encode_excluded(result)\n\
+                             \x20\x20\x20\x20if let jsonString = String(data: encodedData, encoding: .utf8) {\n\
+                             \x20\x20\x20\x20\x20\x20\x20\x20return \"{\\\"ok\\\": \\(jsonString)}\"\n\
+                             \x20\x20\x20\x20}\n\
+                             \x20\x20\x20\x20return \"{\\\"ok\\\": null}\"\n\
+                             \x20\x20\x20\x20} catch {\n\
+                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                             \x20\x20\x20\x20}\n",
+                        );
+                    }
+                    _ => {
+                        out.push_str(
+                            "            return marshal_ok_result(try JSONEncoder().encode(result))\n\
+                             \x20\x20\x20\x20}} catch {{\n\
+                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                             \x20\x20\x20\x20}}\n",
+                        );
+                    }
+                }
             }
         } else if method.is_async {
             // Async method without error: return the result directly, no encoding
@@ -208,6 +243,10 @@ fn gen_single_trait_bridge_file(
          \x20\x20\x20\x20}\n\
          \x20\x20\x20\x20return \"{\\\"ok\\\": null}\"\n\
          }\n\n\
+         private func marshal_encode_excluded<T: Encodable>(_ value: T) throws -> Data {\n\
+         \x20\x20\x20\x20let encoder = JSONEncoder()\n\
+         \x20\x20\x20\x20return try encoder.encode(value)\n\
+         }\n\n\
          private func marshal_error_result(_ error: any Error) -> String {\n\
          \x20\x20\x20\x20let errorString = String(describing: error)\n\
          \x20\x20\x20\x20let encoder = JSONEncoder()\n\
@@ -231,7 +270,26 @@ fn gen_single_trait_bridge_file(
 
 /// Emit Swift method parameter signature from MethodDef params.
 ///
-/// Excluded types (not in the visible binding surface) are marshalled as JSON strings.
+/// Protocol methods use native types (excluded types as native structs, not marshalled).
+fn swift_method_params_native(params: &[crate::core::ir::ParamDef], exclude_types: &HashSet<String>) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+
+    params
+        .iter()
+        .map(|p| {
+            let name = p.name.to_snake_case();
+            let ty = swift_type_name_native(&p.ty, exclude_types);
+            format!("{}: {}", name, ty)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Emit Swift method parameter signature from MethodDef params.
+///
+/// Adapter methods marshal excluded types as JSON strings for the C boundary.
 fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &HashSet<String>) -> String {
     if params.is_empty() {
         return String::new();
@@ -250,7 +308,48 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
 
 /// Get the Swift type name for a TypeRef.
 ///
-/// Excluded/internal types (not in the visible binding surface) are marshalled as JSON strings.
+/// Protocol methods use native types (excluded types as native structs).
+fn swift_type_name_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
+    match ty {
+        TypeRef::Primitive(p) => match p {
+            crate::core::ir::PrimitiveType::Bool => "Bool".to_string(),
+            crate::core::ir::PrimitiveType::I8 => "Int8".to_string(),
+            crate::core::ir::PrimitiveType::I16 => "Int16".to_string(),
+            crate::core::ir::PrimitiveType::I32 => "Int32".to_string(),
+            crate::core::ir::PrimitiveType::I64 => "Int64".to_string(),
+            crate::core::ir::PrimitiveType::U8 => "UInt8".to_string(),
+            crate::core::ir::PrimitiveType::U16 => "UInt16".to_string(),
+            crate::core::ir::PrimitiveType::U32 => "UInt32".to_string(),
+            crate::core::ir::PrimitiveType::U64 => "UInt64".to_string(),
+            crate::core::ir::PrimitiveType::Usize => "Int".to_string(),
+            crate::core::ir::PrimitiveType::Isize => "Int".to_string(),
+            crate::core::ir::PrimitiveType::F32 => "Float".to_string(),
+            crate::core::ir::PrimitiveType::F64 => "Double".to_string(),
+        },
+        TypeRef::String => "String".to_string(),
+        TypeRef::Bytes => "Data".to_string(),
+        TypeRef::Path => "URL".to_string(),
+        TypeRef::Char => "Character".to_string(),
+        TypeRef::Named(name) => {
+            // Protocol uses native type name (excluded or not)
+            name.clone()
+        }
+        TypeRef::Vec(inner) => format!("[{}]", swift_type_name_native(inner, exclude_types)),
+        TypeRef::Map(k, v) => format!(
+            "[{}: {}]",
+            swift_type_name_native(k, exclude_types),
+            swift_type_name_native(v, exclude_types)
+        ),
+        TypeRef::Optional(inner) => format!("{}?", swift_type_name_native(inner, exclude_types)),
+        TypeRef::Unit => "Void".to_string(),
+        TypeRef::Json => "String".to_string(),
+        TypeRef::Duration => "TimeInterval".to_string(),
+    }
+}
+
+/// Get the Swift type name for a TypeRef.
+///
+/// Adapter methods marshal excluded/internal types (not in the visible binding surface) as JSON strings.
 fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -293,7 +392,12 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     }
 }
 
-/// Emit Swift return type from TypeRef.
+/// Emit Swift return type from TypeRef for protocol methods (native types).
+fn swift_return_type_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
+    swift_type_name_native(ty, exclude_types)
+}
+
+/// Emit Swift return type from TypeRef for adapter methods (marshalled types).
 fn swift_return_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     swift_type_name(ty, exclude_types)
 }
@@ -464,8 +568,7 @@ mod tests {
     }
 
     /// Verify that when an excluded type (e.g. InternalDocument) appears in a trait method
-    /// signature, the generated protocol and adapter use `String` (JSON marshalling) rather
-    /// than the non-existent Swift type `InternalDocument`.
+    /// signature, the protocol accepts the native type but the adapter marshals it as JSON String.
     #[test]
     fn test_excluded_type_in_method_becomes_string() {
         use crate::core::ir::{MethodDef, ParamDef, ReceiverKind};
@@ -516,14 +619,22 @@ mod tests {
         assert_eq!(files.len(), 1);
         let content = &files[0].1;
 
-        // Return type must be String, not InternalDocument.
+        // Protocol method must accept native type InternalDocument
         assert!(
-            content.contains("-> String"),
-            "excluded return type InternalDocument must map to String in protocol, got:\n{content}"
+            content.contains("func extract_bytes(content: Data) throws -> InternalDocument"),
+            "protocol method must use native type InternalDocument, got:\n{content}"
         );
+
+        // Adapter method must return String (JSON marshalling)
         assert!(
-            !content.contains("InternalDocument"),
-            "excluded type InternalDocument must not appear in the generated Swift code, got:\n{content}"
+            content.contains("func extract_bytesCall(content: Data) throws -> String"),
+            "adapter method must marshal to String, got:\n{content}"
+        );
+
+        // Marshalling helper must be present
+        assert!(
+            content.contains("marshal_encode_excluded"),
+            "marshal_encode_excluded helper must be present, got:\n{content}"
         );
     }
 }

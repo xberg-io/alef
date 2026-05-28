@@ -2751,7 +2751,7 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef, _excluded_types: &std::colle
     use crate::core::ir::{PrimitiveType, TypeRef};
     match ty {
         TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::Bool => "i32".to_string(),
             PrimitiveType::U8 => "u8".to_string(),
             PrimitiveType::U16 => "u16".to_string(),
             PrimitiveType::U32 => "u32".to_string(),
@@ -2765,9 +2765,22 @@ fn zig_type_for_stub(ty: &crate::core::ir::TypeRef, _excluded_types: &std::colle
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "[*c]const u8".to_string(),
         TypeRef::Unit => "void".to_string(),
-        TypeRef::Optional(inner) => format!("?{}", zig_type_for_stub(inner, _excluded_types)),
-        TypeRef::Vec(inner) => format!("[]const {}", zig_type_for_stub(inner, _excluded_types)),
-        TypeRef::Map(_, v) => format!("std.StringHashMap({})", zig_type_for_stub(v, _excluded_types)),
+        TypeRef::Optional(inner) => {
+            // In C FFI, optional values are passed as nullable pointers.
+            // For Optional[String] returning from methods, use ?[*c]const u8.
+            match inner.as_ref() {
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => {
+                    "?[*c]const u8".to_string()
+                }
+                _ => format!("?{}", zig_type_for_stub(inner, _excluded_types)),
+            }
+        }
+        TypeRef::Vec(_inner) => {
+            // All collections in trait bridge stubs are marshalled as JSON: [*c]const u8.
+            // This includes Vec[String], Vec[Vec[f32]], Vec[Struct], etc.
+            "[*c]const u8".to_string()
+        }
+        TypeRef::Map(_, _v) => "[*c]const u8".to_string(),
         // All Named types (structs, enums) map to opaque C FFI pointers.
         // The vtable thunks pass these as [*c]const u8 to user method stubs.
         TypeRef::Named(_) => "[*c]const u8".to_string(),
