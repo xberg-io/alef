@@ -14,6 +14,15 @@ impl {{ wrapper }} {
             .unwrap_or("unknown".into())
             .to_string();
 
+        // SAFETY: Increment PHP reference count to keep the object alive.
+        // The ZendObject is passed to us as &mut, but we need to store a pointer
+        // that may outlive this function call (when registered in global registry).
+        // Incrementing the refcount ensures the object won't be garbage-collected
+        // while we hold a reference to it.
+        unsafe {
+            php_obj.add_ref();
+        }
+
         Self {
             inner: php_obj as *mut _,
             cached_name,
@@ -26,3 +35,14 @@ impl {{ wrapper }} {
 // and is never accessed concurrently from multiple threads.
 unsafe impl Send for {{ wrapper }} {}
 unsafe impl Sync for {{ wrapper }} {}
+
+impl Drop for {{ wrapper }} {
+    fn drop(&mut self) {
+        // SAFETY: Decrement the refcount we incremented in new().
+        // This allows PHP to garbage-collect the object when the bridge is dropped.
+        unsafe {
+            let obj_ref = &mut *self.inner;
+            obj_ref.del_ref();
+        }
+    }
+}
