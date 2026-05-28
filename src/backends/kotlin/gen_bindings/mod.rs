@@ -7,6 +7,7 @@ mod helpers;
 pub mod jni_emitter;
 pub mod literal_normalizer;
 mod object_wrapper;
+pub mod service_api;
 mod shared;
 pub mod trait_bridge;
 mod traits;
@@ -647,7 +648,7 @@ impl Backend for KotlinBackend {
             supports_result: true,
             supports_callbacks: false,
             supports_streaming: true,
-            supports_service_api: false,
+            supports_service_api: true,
         }
     }
 
@@ -692,6 +693,14 @@ impl Backend for KotlinBackend {
             build_dep: BuildDependency::Ffi,
             post_build: vec![],
         })
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 }
 

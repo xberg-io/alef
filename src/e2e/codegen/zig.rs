@@ -13,13 +13,26 @@ use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 use anyhow::Result;
 use heck::{ToShoutySnakeCase, ToSnakeCase};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
 use super::client;
 use super::streaming_assertions::{StreamingFieldResolver, is_streaming_virtual_field};
+
+/// Supported platforms for Zig package distribution.
+/// Uses Go ecosystem convention (e.g. `linux-x86_64`, `macos-arm64`).
+/// This list must match the platform matrix in tslp's GitHub Actions release workflow.
+fn supported_zig_platforms() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("linux-x86_64", "linux-x86_64"),
+        ("linux-aarch64", "linux-aarch64"),
+        ("macos-amd64", "macos-amd64"),
+        ("macos-arm64", "macos-arm64"),
+        ("windows-x64", "windows-x64"),
+    ]
+}
 
 /// Zig e2e code generator.
 pub struct ZigE2eCodegen;
@@ -85,16 +98,22 @@ impl E2eCodegen for ZigE2eCodegen {
             .unwrap_or_else(|| config.github_repo());
         let github_repo = github_repo_owned.trim_end_matches('/');
 
-        // Resolve the content multihash for registry mode:
-        //   1. explicit hash in alef.toml → use verbatim
-        //   2. cached in ~/.cache/alef/zig-hashes.json → use from cache
-        //   3. shell out to `zig fetch <URL>` → parse + cache + use
-        //   4. zig fetch fails (offline / asset not yet published) → fall back to "TODO"
-        let pkg_hash = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
-            let url = format!("{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz");
-            resolve_zig_hash(explicit_hash.as_deref(), &url)
+        // Resolve content multihashes for registry mode, one per platform.
+        // For registry mode, we emit per-platform dependency entries in build.zig.zon
+        // and let build.zig select via @import("builtin").
+        // For local mode, we emit a single path-based dependency.
+        let platform_hashes = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            let mut hashes = BTreeMap::new();
+            for (platform, _) in supported_zig_platforms() {
+                let url = format!(
+                    "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}-{platform}.tar.gz"
+                );
+                let hash = resolve_zig_hash(explicit_hash.as_deref(), &url);
+                hashes.insert(platform.to_string(), (url, hash));
+            }
+            hashes
         } else {
-            explicit_hash
+            BTreeMap::new()
         };
 
         // Generate build.zig.zon (Zig package manifest).
@@ -105,7 +124,7 @@ impl E2eCodegen for ZigE2eCodegen {
                 &pkg_path,
                 e2e_config.dep_mode,
                 &pkg_version,
-                pkg_hash.as_deref(),
+                &platform_hashes,
                 crate_name,
                 github_repo,
             ),
@@ -448,40 +467,43 @@ fn render_build_zig_zon(
     pkg_path: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     version: &str,
-    hash: Option<&str>,
+    platform_hashes: &BTreeMap<String, (String, Option<String>)>,
     crate_name: &str,
     github_repo: &str,
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Zig has no official package registry; registry mode downloads a
-            // source tarball from the GitHub Release for the published version.
-            let url = format!("{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
-            match hash {
-                Some(h) => {
-                    format!(
-                        r#".{{
-            .url = "{url}",
-            .hash = "{h}",
-        }}"#
-                    )
-                }
-                None => {
-                    // No hash pinned yet. Emit a placeholder URL and a comment
-                    // telling the developer how to obtain and commit the hash.
-                    format!(
-                        r#".{{
-            .url = "{url}",
-            // alef: hash not pinned — run `zig fetch --save {url}` once to populate,
-            //       then set `hash` under [crates.e2e.registry.packages.zig] in alef.toml.
-            .hash = "TODO",
-        }}"#
-                    )
-                }
+            // Emit one dependency entry per supported platform.
+            // Each entry has its own .url (platform-suffixed) and .hash.
+            // The build.zig script selects the correct one at build time via @import("builtin").
+            let mut entries = String::new();
+            for (platform, _) in supported_zig_platforms() {
+                let (url, hash_opt) = &platform_hashes
+                    .get(&platform.to_string())
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // Fallback in case platform is missing from the map (shouldn't happen).
+                        let fallback_url = format!(
+                            "{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}-{platform}.tar.gz"
+                        );
+                        (fallback_url, None)
+                    });
+
+                let platform_clean = platform.replace('-', "_");
+                let hash_str = match hash_opt {
+                    Some(h) => format!("\"{h}\""),
+                    None => "\"TODO\"".to_string(),
+                };
+
+                let _ = writeln!(
+                    entries,
+                    "        .{pkg_name}_{platform_clean} = .{{\n            .url = \"{url}\",\n            .hash = {hash_str},\n        }},"
+                );
             }
+            entries
         }
         crate::e2e::config::DependencyMode::Local => {
-            format!(r#".{{ .path = "{pkg_path}" }}"#)
+            format!(".{{{{\n            .path = \"{pkg_path}\"\n        }}}}")
         }
     };
 
@@ -506,15 +528,25 @@ fn render_build_zig_zon(
         id = 0x1;
     }
     let fingerprint: u64 = ((name_crc as u64) << 32) | (id as u64);
+
+    let dep_content = match dep_mode {
+        crate::e2e::config::DependencyMode::Registry => {
+            format!(
+                ".{{\n{dep_block}    }}"
+            )
+        }
+        crate::e2e::config::DependencyMode::Local => {
+            dep_block
+        }
+    };
+
     format!(
         r#".{{
     .name = .e2e_zig,
     .version = "0.1.0",
     .fingerprint = 0x{fingerprint:016x},
     .minimum_zig_version = "{min_zig}",
-    .dependencies = .{{
-        .{pkg_name} = {dep_block},
-    }},
+    .dependencies = {dep_content},
     .paths = .{{
         "build.zig",
         "build.zig.zon",
@@ -552,7 +584,31 @@ fn render_build_zig(
         needs_mock_server,
     } = flags;
     if test_filenames.is_empty() {
-        return r#"const std = @import("std");
+        return match dep_mode {
+            crate::e2e::config::DependencyMode::Registry => {
+                format!(
+                    r#"const std = @import("std");
+const builtin = @import("builtin");
+
+pub fn build(b: *std.Build) void {{
+    const target = b.standardTargetOptions(.{{}});
+    const optimize = b.standardOptimizeOption(.{{}});
+
+    // Select the platform-specific dependency based on build host.
+    const pkg_name = if (builtin.target.os.tag == .linux) (
+        if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_linux_x86_64" else "{pkg_name}_linux_aarch64")
+    else if (builtin.target.os.tag == .macos) (
+        if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_macos_amd64" else "{pkg_name}_macos_arm64")
+    else if (builtin.target.os.tag == .windows) "{pkg_name}_windows_x64"
+    else @compileError("unsupported platform for this Zig package");
+
+    const test_step = b.step("test", "Run tests");
+}}
+"#
+                )
+            }
+            crate::e2e::config::DependencyMode::Local => {
+                r#"const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -561,7 +617,9 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
 }
 "#
-        .to_string();
+                    .to_string()
+            }
+        };
     }
 
     // The Zig build script wires up three names that all derive from the
@@ -573,21 +631,35 @@ pub fn build(b: *std.Build) void {
     //                          files use to import the binding module.
     // Callers pass these in resolved form so this function never embeds a
     // downstream crate's name.
-    let mut content = String::from("const std = @import(\"std\");\n\npub fn build(b: *std.Build) void {\n");
+    let mut content = String::from("const std = @import(\"std\");\nconst builtin = @import(\"builtin\");\n\npub fn build(b: *std.Build) void {\n");
     content.push_str("    const target = b.standardTargetOptions(.{});\n");
     content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
     match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
             // Registry mode: consume the published Zig package declared in
-            // build.zig.zon. Its build.zig exports the `module_name` module with
-            // the bundled FFI library (lib/) and C header (include/) already wired,
-            // so importing it links the prebuilt native library shipped in the
-            // release tarball — no in-tree `ffi_path`/source paths are needed.
-            let _ = writeln!(content);
+            // build.zig.zon. Per-platform dependencies are listed in build.zig.zon;
+            // select the correct one based on the build host's OS and CPU architecture.
+            content.push_str("\n    // Select the platform-specific dependency based on build host.\n");
+            content.push_str("    const pkg_name = if (builtin.target.os.tag == .linux) (\n");
+            content.push_str("        if (builtin.target.cpu.arch == .x86_64) \"");
+            content.push_str(&format!("{pkg_name}_linux_x86_64"));
+            content.push_str("\" else \"");
+            content.push_str(&format!("{pkg_name}_linux_aarch64"));
+            content.push_str("\")\n");
+            content.push_str("    else if (builtin.target.os.tag == .macos) (\n");
+            content.push_str("        if (builtin.target.cpu.arch == .x86_64) \"");
+            content.push_str(&format!("{pkg_name}_macos_amd64"));
+            content.push_str("\" else \"");
+            content.push_str(&format!("{pkg_name}_macos_arm64"));
+            content.push_str("\")\n");
+            content.push_str("    else if (builtin.target.os.tag == .windows) \"");
+            content.push_str(&format!("{pkg_name}_windows_x64"));
+            content.push_str("\"");
+            content.push_str(" else @compileError(\"unsupported platform for this Zig package\");\n\n");
             let _ = writeln!(
                 content,
-                "    const {module_name}_module = b.dependency(\"{pkg_name}\", .{{"
+                "    const {module_name}_module = b.dependency(pkg_name, .{{"
             );
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
@@ -2946,7 +3018,7 @@ mod zig_hash_tests {
     #[test]
     fn explicit_hash_override_is_used_verbatim() {
         let url =
-            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0.tar.gz";
+            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0-linux-x86_64.tar.gz";
         let pinned = "1220abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
         let result = resolve_zig_hash(Some(pinned), url);
         assert_eq!(
@@ -2956,16 +3028,23 @@ mod zig_hash_tests {
         );
     }
 
-    /// When the explicit hash is used it must be emitted in build.zig.zon.
+    /// When the explicit hash is used it must be emitted in build.zig.zon for all platforms.
     #[test]
     fn build_zig_zon_emits_explicit_hash() {
         let hash = "12208badf00d";
+        let mut platform_hashes = std::collections::BTreeMap::new();
+        for (platform, _) in super::supported_zig_platforms() {
+            let url = format!(
+                "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0-{platform}.tar.gz"
+            );
+            platform_hashes.insert(platform.to_string(), (url, Some(hash.to_string())));
+        }
         let content = render_build_zig_zon(
             "sample_llm",
             "../../packages/zig",
             DependencyMode::Registry,
             "1.4.0-rc.32",
-            Some(hash),
+            &platform_hashes,
             "sample-llm",
             "https://github.com/sample_crate-dev/sample-llm",
         );
@@ -2977,18 +3056,33 @@ mod zig_hash_tests {
             !content.contains(".hash = \"TODO\""),
             "build.zig.zon must not emit TODO when hash is provided, got:\n{content}"
         );
+        // Verify all platforms are present with their suffixes.
+        for (platform, _) in super::supported_zig_platforms() {
+            let platform_clean = platform.replace('-', "_");
+            assert!(
+                content.contains(&format!("sample_llm_{platform_clean}")),
+                "build.zig.zon must include platform-specific dependency for {platform}, got:\n{content}"
+            );
+        }
     }
 
     /// When no hash is available (None) the fallback `.hash = "TODO"` must be
-    /// emitted along with the comment directing the user to regenerate.
+    /// emitted for all platforms.
     #[test]
     fn build_zig_zon_falls_back_to_todo_when_no_hash() {
+        let mut platform_hashes = std::collections::BTreeMap::new();
+        for (platform, _) in super::supported_zig_platforms() {
+            let url = format!(
+                "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32-{platform}.tar.gz"
+            );
+            platform_hashes.insert(platform.to_string(), (url, None));
+        }
         let content = render_build_zig_zon(
             "sample_llm",
             "../../packages/zig",
             DependencyMode::Registry,
             "1.4.0-rc.32",
-            None,
+            &platform_hashes,
             "sample-llm",
             "https://github.com/sample_crate-dev/sample-llm",
         );
@@ -3002,21 +3096,34 @@ mod zig_hash_tests {
     /// include the repo segment (`<org>/<repo>/releases/...`).  Previously the
     /// codegen defaulted `github_repo` to `https://github.com/<org>` (no
     /// repo), producing `https://github.com/<org>/releases/...` which 404s.
+    /// Also verify that platform-suffixed URLs are emitted correctly.
     #[test]
-    fn build_zig_zon_emits_full_release_url_with_repo_segment() {
+    fn build_zig_zon_emits_full_release_url_with_repo_segment_and_platform_suffix() {
+        let mut platform_hashes = std::collections::BTreeMap::new();
+        for (platform, _) in super::supported_zig_platforms() {
+            let url = format!(
+                "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1-{platform}.tar.gz"
+            );
+            platform_hashes.insert(platform.to_string(), (url, None));
+        }
         let content = render_build_zig_zon(
             "sample_markdown",
             "../../packages/zig",
             DependencyMode::Registry,
             "3.5.1",
-            None,
+            &platform_hashes,
             "sample-markdown-rs",
             "https://github.com/sample_crate-dev/sample-markdown",
         );
-        let expected_url = "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
-        assert!(
-            content.contains(expected_url),
-            "build.zig.zon must emit the full release URL with repo segment; got:\n{content}"
-        );
+        // Verify all platform-suffixed URLs are present.
+        for (platform, _) in super::supported_zig_platforms() {
+            let expected_url = format!(
+                "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1-{platform}.tar.gz"
+            );
+            assert!(
+                content.contains(&expected_url),
+                "build.zig.zon must emit platform-suffixed URL for {platform}; got:\n{content}"
+            );
+        }
     }
 }
