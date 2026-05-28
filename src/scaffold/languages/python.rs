@@ -243,10 +243,9 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let dependencies_toml = match config.python.as_ref().map(|p| &p.pip_dependencies) {
         Some(deps) if !deps.is_empty() => {
             let entries: Vec<String> = deps.iter().map(|d| format!("\"{}\"", d)).collect();
-            format!(
-                "dependencies = {}\n",
-                format_toml_array_with_prefix(&entries, "dependencies = ".len())
-            )
+            // Force multi-line to match pyproject-fmt's output (dependencies always wraps)
+            let inner = entries.iter().map(|e| format!("  {e},")).collect::<Vec<_>>().join("\n");
+            format!("dependencies = [\n{inner}\n]\n")
         }
         _ => String::new(),
     };
@@ -289,7 +288,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
 ]
-{urls_line}{homepage}{dependencies}
+{dependencies}{urls_line}{homepage}
 [dependency-groups]
 dev = {dev_group}
 

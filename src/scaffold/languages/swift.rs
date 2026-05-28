@@ -91,8 +91,12 @@ let package = Package(
         .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
       ]
     ),
-    .target(name: "{module}", dependencies: ["RustBridge"], path: "Sources/{module}"),
-    .testTarget(name: "{module}Tests", dependencies: ["{module}"], path: "Tests/{module}Tests"),
+    .target(
+      name: "{module}", dependencies: ["RustBridge"],
+      path: "Sources/{module}"),
+    .testTarget(
+      name: "{module}Tests", dependencies: ["{module}"],
+      path: "Tests/{module}Tests"),
   ]
 )
 "#,
