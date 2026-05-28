@@ -417,13 +417,9 @@ fn gen_visitor_method_php(
         },
     ));
 
-    // SAFETY: Extract the PHP object from the Zval, which maintains the reference count.
-    out.push_str("        // SAFETY: php_obj_zval holds a valid reference to the ZendObject; extracting it is safe within this call frame.\n");
-    out.push_str("        let php_obj_ref = if let Some(obj) = self.php_obj_zval.object() {\n");
-    out.push_str("            unsafe { &mut *obj }\n");
-    out.push_str("        } else {\n");
-    out.push_str("            return Default::default();\n");
-    out.push_str("        };\n");
+    // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
+    out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
+    out.push_str("        let php_obj_ref = unsafe { &mut *self.php_obj };\n");
 
     // Build args array
     let has_args = !method.params.is_empty();
