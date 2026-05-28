@@ -2620,7 +2620,8 @@ pub fn emit_test_backend_with_ns(
         .iter()
         .filter(|m| !(m.has_default_impl || (trait_bridge.super_trait.is_some() && m.name == "name")))
     {
-        let php_name = method.name.clone();
+        // PHP convention uses camelCase method names (ext-php-rs auto-converts snake_case).
+        let php_name = method.name.to_lower_camel_case();
         // Named types are not defined in the PHP binding scope.  The PHP bridge
         // deserialises the return value via json_decode, so return a JSON-safe
         // empty-object string instead of attempting a constructor call.
@@ -2877,7 +2878,7 @@ mod trait_bridge_tests {
         let expected_setup = concat!(
             "$stub = new class implements DocumentExtractor {\n",
             "    public function name(): string { return 'test-extractor'; }\n",
-            "    public function extract_bytes($content, $mime_type, $config): mixed { return '{}'; }\n",
+            "    public function extractBytes($content, $mime_type, $config): mixed { return '{}'; }\n",
             "};\n",
         );
         assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
@@ -2930,8 +2931,8 @@ mod trait_bridge_tests {
             "setup_block must include priority() from super-trait (Plugin)"
         );
         assert!(
-            emission.setup_block.contains("public function extract_bytes("),
-            "setup_block must include extract_bytes() from direct trait (DocumentExtractor)"
+            emission.setup_block.contains("public function extractBytes("),
+            "setup_block must include extractBytes() from direct trait (DocumentExtractor)"
         );
         assert!(
             emission.setup_block.contains("my-extractor"),
