@@ -201,7 +201,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     let (opaque, non_opaque): (Vec<_>, Vec<_>) = api
         .types
         .iter()
-        .filter(|typ| !typ.is_trait)
+        .filter(|typ| !typ.is_trait && !typ.binding_excluded)
         .partition(|typ| typ.is_opaque);
 
     let mut body_lines: Vec<String> = Vec::new();

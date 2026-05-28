@@ -820,11 +820,15 @@ mod alef_json_str_opt {
             .as_ref()
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
-        let py_exclude_types: ahash::AHashSet<String> = config
+        let mut py_exclude_types: ahash::AHashSet<String> = config
             .python
             .as_ref()
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
+        // Service owner types and handler-contract traits are marked binding_excluded
+        // by the service extraction pass: they are emitted by generate_service_api,
+        // not the generic struct/trait codegen, so skip them in the generic loop too.
+        py_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
         // Types listed in capsule_types bypass #[pyclass] generation entirely — they are
         // passed through as raw PyCapsule handles or Python-side-constructed objects.
         let capsule_types = config
