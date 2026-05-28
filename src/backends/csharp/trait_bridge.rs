@@ -484,10 +484,15 @@ fn gen_single_trait_bridge(
 
         if method.return_type == TypeRef::Unit {
             // void return: no out params
+            let params_with_userdata = if params_decl_no_trailing.is_empty() {
+                "IntPtr userData".to_string()
+            } else {
+                format!("IntPtr userData, {}", params_decl_no_trailing)
+            };
             callbacks.push_str(&format!(
                 "    private int {}FnCallback({}) {{\n",
                 to_csharp_name(&method.name),
-                params_decl_no_trailing
+                params_with_userdata
             ));
         } else if is_primitive_return {
             // Primitive return: return directly (no out params)
@@ -508,11 +513,16 @@ fn gen_single_trait_bridge(
                 },
                 _ => "int",
             };
+            let params_with_userdata = if params_decl_no_trailing.is_empty() {
+                "IntPtr userData".to_string()
+            } else {
+                format!("IntPtr userData, {}", params_decl_no_trailing)
+            };
             callbacks.push_str(&format!(
                 "    private {} {}FnCallback({}) {{\n",
                 return_c_type,
                 to_csharp_name(&method.name),
-                params_decl_no_trailing
+                params_with_userdata
             ));
         } else {
             // Complex return: use out params
