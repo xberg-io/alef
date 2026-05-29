@@ -83,6 +83,9 @@ impl Backend for ZigBackend {
         if let Some(ffi) = &config.ffi {
             exclude_functions.extend(ffi.exclude_functions.iter().cloned());
         }
+        // Extend exclude_types with service-bound types flagged binding_excluded
+        // (service owners and handler-contract types are emitted via service_api path)
+        exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
 
         let type_is_visible = |name: &str| !exclude_types.contains(name);
         let method_is_visible = |method: &crate::core::ir::MethodDef| {

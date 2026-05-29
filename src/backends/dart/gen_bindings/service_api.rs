@@ -21,6 +21,19 @@ use std::path::PathBuf;
 
 // ──────────────────────────────────────────────────── Dart service generator ──
 
+/// Whether an entrypoint's return type can be represented over the C ABI as a function return.
+///
+/// Unit/primitive/string/bytes map to a status code or scalar; a `Named` type is representable only
+/// when this surface wraps it (so it can cross as a `ffi.Pointer<ffi.Void>` opaque). Anything else
+/// (e.g. a foreign framework type a `finalize` converts into) is not representable.
+fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
+        _ => false,
+    }
+}
+
 /// Generate the idiomatic Dart service class (`service.dart`).
 ///
 /// Produces a Dart module containing one class per service. Each class:
@@ -120,7 +133,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, p
 
     // Entrypoint methods
     for ep in &service.entrypoints {
-        gen_entrypoint_method(out, service, ep, prefix);
+        gen_entrypoint_method(out, service, ep, prefix, api);
         out.push('\n');
     }
 
@@ -131,7 +144,7 @@ fn gen_registration_method(
     out: &mut String,
     service: &ServiceDef,
     reg: &RegistrationDef,
-    _api: &ApiSurface,
+    api: &ApiSurface,
     prefix: &str,
 ) {
     let service_snake = service.name.to_snake_case();
@@ -173,9 +186,9 @@ fn gen_registration_method(
            ffi.Pointer<ffi.Void>",
     );
 
-    // Add metadata parameter types
+    // Add metadata parameter types to C FFI signature
     for meta_param in &reg.metadata_params {
-        let c_type = typeref_to_c_ffi_type(&meta_param.ty);
+        let c_type = typeref_metadata_to_c_ffi_type(&meta_param.ty, api);
         out.push_str(&format!(",\n        {c_type}"));
     }
 
@@ -188,7 +201,7 @@ fn gen_registration_method(
     );
 
     for meta_param in &reg.metadata_params {
-        let dart_type = typeref_to_rust_ffi_type(&meta_param.ty);
+        let dart_type = typeref_metadata_to_rust_ffi_type(&meta_param.ty, api);
         out.push_str(&format!(",\n        {dart_type}"));
     }
 
@@ -214,7 +227,13 @@ fn gen_registration_method(
     out.push_str("  }\n");
 }
 
-fn gen_entrypoint_method(out: &mut String, service: &ServiceDef, ep: &crate::core::ir::EntrypointDef, prefix: &str) {
+fn gen_entrypoint_method(out: &mut String, service: &ServiceDef, ep: &crate::core::ir::EntrypointDef, prefix: &str, api: &ApiSurface) {
+    // A `finalize` that converts the owner into a type this backend cannot represent over the C
+    // ABI (e.g. a foreign framework router) has no Dart-callable form — skip it.
+    if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+        return;
+    }
+
     let service_snake = service.name.to_snake_case();
     let ep_name_snake = ep.method.to_snake_case();
     let prefix_lower = prefix.to_lowercase();
@@ -381,6 +400,30 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
         TypeRef::Unit => "void".to_owned(),
         TypeRef::Named(n) => n.clone(),
         _ => "Object?".to_owned(),
+    }
+}
+
+/// Map a metadata parameter's `TypeRef` to a C FFI type annotation.
+/// For surface-wrapped `Named` types, use `ffi.Pointer<ffi.Void>` (opaque handle).
+/// For all other types, delegate to the standard type conversion.
+fn typeref_metadata_to_c_ffi_type(ty: &TypeRef, api: &ApiSurface) -> String {
+    match ty {
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+            "ffi.Pointer<ffi.Void>".to_owned()
+        }
+        _ => typeref_to_c_ffi_type(ty),
+    }
+}
+
+/// Map a metadata parameter's `TypeRef` to a Rust FFI type annotation.
+/// For surface-wrapped `Named` types, use the opaque type name (passed as `ffi.Pointer<ffi.Void>`).
+/// For all other types, delegate to the standard type conversion.
+fn typeref_metadata_to_rust_ffi_type(ty: &TypeRef, api: &ApiSurface) -> String {
+    match ty {
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+            "Object?".to_owned()
+        }
+        _ => typeref_to_rust_ffi_type(ty),
     }
 }
 

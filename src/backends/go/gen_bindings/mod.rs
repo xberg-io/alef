@@ -146,6 +146,8 @@ impl Backend for GoBackend {
         if let Some(go_config) = &config.go {
             exclude_types.extend(go_config.exclude_types.iter().cloned());
         }
+        // Extend exclude_types with types marked as binding_excluded in the IR.
+        exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
 
         // Collect value-only types (all fields are primitives). These don't have _to_json
         // functions emitted by the FFI backend, so Go codegen must construct them from

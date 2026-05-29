@@ -123,7 +123,7 @@ pub fn emit_kdoc_pub(out: &mut String, doc: &str, indent: &str) {
     helpers::emit_cleaned_kdoc(out, doc, indent);
 }
 
-fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
+fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface) -> std::collections::HashSet<String> {
     let mut exclude_types: std::collections::HashSet<String> = config
         .ffi
         .as_ref()
@@ -140,6 +140,10 @@ fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig) -> std::collecti
     if let Some(java) = &config.java {
         exclude_types.extend(java.exclude_types.iter().cloned());
     }
+    // Exclude service-owner and handler-contract types flagged `binding_excluded` by the
+    // service extraction pass. Those are emitted through the service-API path; also wrapping
+    // them as plain opaque client classes here would create symbol collisions.
+    exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types
 }
 
@@ -242,7 +246,7 @@ pub fn emit_jvm_client_class_with_package(
     //   * AND it has at least one non-sanitized, non-static instance method.
     // Non-opaque value types (e.g. sample_core `ExtractionConfig` with a
     // `default()` static) keep flowing through the Java typealias as before.
-    let exclude_types = effective_kotlin_exclude_types(config);
+    let exclude_types = effective_kotlin_exclude_types(config, api);
     let is_client_type = |t: &&TypeDef| {
         t.is_opaque
             && !t.is_trait
@@ -723,7 +727,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     };
 
     let exclude_functions = effective_kotlin_exclude_functions(config);
-    let mut exclude_types = effective_kotlin_exclude_types(config);
+    let mut exclude_types = effective_kotlin_exclude_types(config, api);
 
     // Types qualifying for a hand-written Kotlin wrapper class (see
     // `emit_jvm_client_class`) are opaque handles with at least one

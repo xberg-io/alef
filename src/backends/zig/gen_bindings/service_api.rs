@@ -14,7 +14,7 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::ToSnakeCase;
 use std::path::PathBuf;
 
@@ -23,6 +23,17 @@ use std::path::PathBuf;
 /// Find the `HandlerContractDef` by trait name in the surface.
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
+}
+
+/// Whether an entrypoint's return type can be represented over the C ABI as a function return.
+/// Unit/primitive/string/bytes map to a status code or scalar; a `Named` type is representable only
+/// when this surface wraps it (so it can cross as a `*{TypeName}` opaque). Anything else is not representable.
+fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
+        _ => false,
+    }
 }
 
 /// Map a `TypeRef` to a Zig type string.
@@ -92,7 +103,7 @@ fn gen_service_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
 }
 
 /// Emit C extern declarations for one service's FFI contract.
-fn gen_service_externs(out: &mut String, service: &ServiceDef, _api: &ApiSurface, prefix_lower: &str) {
+fn gen_service_externs(out: &mut String, service: &ServiceDef, api: &ApiSurface, prefix_lower: &str) {
     let service_snake = service.name.to_snake_case();
     let opaque_name = format!("{}Opaque", service.name);
 
@@ -121,9 +132,12 @@ fn gen_service_externs(out: &mut String, service: &ServiceDef, _api: &ApiSurface
             prefix_lower, service_snake, reg_method_snake, opaque_name
         ));
 
-        // Metadata parameters
+        // Metadata parameters: opaque Named types cross as *anyopaque
         for meta_param in &reg.metadata_params {
-            let zig_type = typeref_to_zig_type(&meta_param.ty);
+            let zig_type = match &meta_param.ty {
+                TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => "*anyopaque".to_owned(),
+                ty => typeref_to_zig_type(ty),
+            };
             out.push_str(&format!(",\n    {} {}", zig_type, meta_param.name));
         }
         out.push_str("\n) c_int = undefined;\n\n");
@@ -131,8 +145,16 @@ fn gen_service_externs(out: &mut String, service: &ServiceDef, _api: &ApiSurface
 
     // Entrypoint functions
     for ep in &service.entrypoints {
+        // Skip finalize entrypoints whose return type is not representable over the C ABI
+        if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+            continue;
+        }
+
         let ep_name_snake = ep.method.to_snake_case();
-        let return_type = typeref_to_zig_type(&ep.return_type);
+        let return_type = match &ep.return_type {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
+            ty => typeref_to_zig_type(ty),
+        };
 
         out.push_str(&format!(
             "extern \"C\" fn {0}_{1}_ep_{2}(\n    \
@@ -140,9 +162,12 @@ fn gen_service_externs(out: &mut String, service: &ServiceDef, _api: &ApiSurface
             prefix_lower, service_snake, ep_name_snake, opaque_name
         ));
 
-        // Parameters
+        // Parameters: opaque Named types cross as *anyopaque
         for ep_param in &ep.params {
-            let zig_type = typeref_to_zig_type(&ep_param.ty);
+            let zig_type = match &ep_param.ty {
+                TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => "*anyopaque".to_owned(),
+                ty => typeref_to_zig_type(ty),
+            };
             out.push_str(&format!(",\n    {} {}", zig_type, ep_param.name));
         }
 
@@ -227,7 +252,10 @@ fn gen_registration_method(
 
     // Metadata parameters (name-first Zig style)
     for meta_param in &reg.metadata_params {
-        let zig_type = typeref_to_zig_type(&meta_param.ty);
+        let zig_type = match &meta_param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
+            ty => typeref_to_zig_type(ty),
+        };
         out.push_str(&format!(",\n        {}: {}", meta_param.name, zig_type));
     }
 
@@ -244,9 +272,16 @@ fn gen_registration_method(
         prefix_lower, service_snake, reg_method_snake
     ));
 
-    // Metadata arguments
+    // Metadata arguments: extract _handle from opaque Named params
     for meta_param in &reg.metadata_params {
-        out.push_str(&format!(",\n            {}", meta_param.name));
+        match &meta_param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+                out.push_str(&format!(",\n            {0}._handle", meta_param.name));
+            }
+            _ => {
+                out.push_str(&format!(",\n            {}", meta_param.name));
+            }
+        }
     }
 
     out.push_str("\n        );\n");
@@ -258,14 +293,22 @@ fn gen_entrypoint_method(
     out: &mut String,
     service: &ServiceDef,
     ep: &crate::core::ir::EntrypointDef,
-    _api: &ApiSurface,
+    api: &ApiSurface,
     prefix_lower: &str,
 ) {
+    // Skip finalize entrypoints whose return type is not representable over the C ABI
+    if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+        return;
+    }
+
     let service_snake = service.name.to_snake_case();
     let ep_name_snake = ep.method.to_snake_case();
     let ep_method = &ep.method;
     let service_name = &service.name;
-    let return_type = typeref_to_zig_type(&ep.return_type);
+    let return_type = match &ep.return_type {
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
+        ty => typeref_to_zig_type(ty),
+    };
 
     out.push_str(&format!(
         "    /// Run the service entrypoint '{0}'.\n    \
@@ -273,9 +316,12 @@ fn gen_entrypoint_method(
         ep_method, ep_name_snake, service_name
     ));
 
-    // Entrypoint parameters
+    // Entrypoint parameters: opaque Named types are accepted as *TypeName pointers
     for ep_param in &ep.params {
-        let zig_type = typeref_to_zig_type(&ep_param.ty);
+        let zig_type = match &ep_param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
+            ty => typeref_to_zig_type(ty),
+        };
         out.push_str(&format!(", {}: {}", ep_param.name, zig_type));
     }
 
@@ -294,9 +340,16 @@ fn gen_entrypoint_method(
         prefix_lower, service_snake, ep_name_snake
     ));
 
-    // Entrypoint arguments
+    // Entrypoint arguments: extract _handle from opaque Named params
     for ep_param in &ep.params {
-        out.push_str(&format!(",\n            {}", ep_param.name));
+        match &ep_param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+                out.push_str(&format!(",\n            {0}._handle", ep_param.name));
+            }
+            _ => {
+                out.push_str(&format!(",\n            {}", ep_param.name));
+            }
+        }
     }
 
     out.push_str("\n        );\n");

@@ -62,6 +62,19 @@ fn typeref_to_go_type(ty: &TypeRef) -> String {
     }
 }
 
+/// Whether an entrypoint's return type can be represented in Go.
+///
+/// Unit/primitives/strings map to zero values or are implicit; a `Named` type is representable only
+/// when this surface wraps it (so it can cross as an opaque pointer wrapper). Anything else
+/// is not representable and the entrypoint should be skipped.
+fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
+        _ => false,
+    }
+}
+
 // ──────────────────────────────────────────────────────────────── Go output ──
 
 /// Generate the Go service module (`service.go`).
@@ -99,7 +112,7 @@ fn gen_service_go(api: &ApiSurface, _config: &ResolvedCrateConfig, pkg_name: &st
     // Generate Go service structs and methods
     out.push_str("// ──────────────────────────────────────────── Go Service API ──\n\n");
     for service in &api.services {
-        gen_service_struct(&mut out, service, api, ffi_prefix);
+        gen_service_struct(&mut out, service, api, ffi_prefix, api);
     }
 
     out
@@ -255,7 +268,7 @@ fn gen_handler_registry(out: &mut String) {
 }
 
 /// Generate a Go service struct with constructor, registration, and entrypoint methods.
-fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, ffi_prefix: &str) {
+fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, ffi_prefix: &str, api_surface: &ApiSurface) {
     let service_name = &service.name;
     let service_snake = service_name.to_snake_case();
     let service_lower = ffi_prefix.to_lowercase();
@@ -310,7 +323,7 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
 
     // Entrypoint methods
     for ep in &service.entrypoints {
-        gen_entrypoint_method(out, service, ep, api, ffi_prefix);
+        gen_entrypoint_method(out, service, ep, api_surface, ffi_prefix);
     }
 }
 
@@ -319,7 +332,7 @@ fn gen_registration_method(
     out: &mut String,
     service: &ServiceDef,
     reg: &RegistrationDef,
-    _api: &ApiSurface,
+    api: &ApiSurface,
     ffi_prefix: &str,
 ) {
     let service_name = &service.name;
@@ -382,9 +395,26 @@ fn gen_registration_method(
         service_lower, service_snake, reg_method_snake, service_name
     ));
 
-    // Add metadata params as arguments
+    // Add metadata params as arguments, marshaling opaque types correctly
+    let upper_prefix = ffi_prefix.to_uppercase();
     for meta_param in &reg.metadata_params {
-        out.push_str(&format!(",\n\t\tC.CString({})", meta_param.name));
+        match &meta_param.ty {
+            TypeRef::String => {
+                out.push_str(&format!(",\n\t\tC.CString({})", meta_param.name));
+            }
+            TypeRef::Named(type_name) if api.types.iter().any(|t| t.name == *type_name) => {
+                // Opaque type: pass (*C.{PREFIX}{TypeName})(unsafe.Pointer({param}.ptr))
+                out.push_str(&format!(
+                    ",\n\t\t(*C.{}{})( unsafe.Pointer({}.ptr))",
+                    upper_prefix, type_name, meta_param.name
+                ));
+            }
+            _ => {
+                // Primitive or other type: pass directly (cast via C type)
+                let c_type = typeref_to_c_type(&meta_param.ty);
+                out.push_str(&format!(",\n\t\t{c_type}({})", meta_param.name));
+            }
+        }
     }
     out.push_str("\n\t)\n\n");
 
@@ -409,9 +439,14 @@ fn gen_entrypoint_method(
     out: &mut String,
     service: &ServiceDef,
     ep: &crate::core::ir::EntrypointDef,
-    _api: &ApiSurface,
+    api: &ApiSurface,
     ffi_prefix: &str,
 ) {
+    // Skip finalize entrypoints with non-representable return types (e.g., foreign framework routers).
+    use crate::core::ir::EntrypointKind;
+    if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+        return;
+    }
     let service_name = &service.name;
     let service_snake = service_name.to_snake_case();
     let service_lower = ffi_prefix.to_lowercase();
