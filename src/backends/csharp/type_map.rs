@@ -46,7 +46,9 @@ impl TypeMapper for CsharpMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("object")
+        // Raw JSON crosses the FFI as a JSON string (pinvoke param/return are `string`, and nothing
+        // serializes a Json value), so the public surface is a raw JSON `string`, not `object`.
+        Cow::Borrowed("string")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -125,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_json() {
-        assert_eq!(CsharpMapper.map_type(&TypeRef::Json), "object");
+        assert_eq!(CsharpMapper.map_type(&TypeRef::Json), "string");
     }
 
     #[test]

@@ -92,6 +92,7 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
     out.push_str(&format!("namespace {namespace} {{\n\n"));
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
+    out.push_str("using System.Linq;\n");
     out.push_str("using System.Runtime.InteropServices;\n\n");
 
     // Service class
@@ -103,7 +104,12 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
 
     // Private opaque handle field
     out.push_str("    private IntPtr _handle;\n");
-    out.push_str("    private static readonly Dictionary<IntPtr, GCHandle> _registeredCallbacks = new();\n\n");
+    out.push_str("    private static readonly Dictionary<IntPtr, GCHandle> _registeredCallbacks = new();\n");
+    // A single static delegate instance bridges the native callback. Held in a static field so the
+    // marshalled function pointer outlives every registration (a transient delegate would be collected).
+    out.push_str(
+        "    private static readonly NativeMethods.HandlerCallback _handlerCallback = HandlerTrampoline;\n\n",
+    );
 
     // Constructor
     {
@@ -184,8 +190,9 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         }
         out.push_str(", Delegate handler) {\n");
 
-        // Create GCHandle to hold the handler delegate, pin it to prevent GC movement
-        out.push_str("        var handle = GCHandle.Alloc(handler, GCHandleType.Pinned);\n");
+        // Hold the user handler alive (Normal, not Pinned — delegates are non-blittable and cannot
+        // be pinned) and pass its GCHandle as the opaque context the trampoline recovers.
+        out.push_str("        var handle = GCHandle.Alloc(handler, GCHandleType.Normal);\n");
         out.push_str("        IntPtr ctx = GCHandle.ToIntPtr(handle);\n\n");
 
         // Call native registration function
@@ -196,7 +203,7 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
             reg_method.to_snake_case()
         ));
         out.push_str("            _handle,\n");
-        out.push_str("            UnmanagedCallersOnlyHandler,\n");
+        out.push_str("            _handlerCallback,\n");
         out.push_str("            ctx");
 
         // Add metadata arguments
@@ -238,7 +245,12 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
             continue;
         }
 
-        let return_type = if ep.is_async { "void" } else { "int" };
+        // Mirror the C ABI: an entrypoint returns an opaque handle (IntPtr) when its return type is
+        // an opaque this surface wraps, otherwise an i32 status code. The async-ness of the Rust
+        // method does not change the C return shape.
+        let returns_opaque =
+            matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque));
+        let return_type = if returns_opaque { "IntPtr" } else { "int" };
         out.push_str(&format!("    public {} {}(", return_type, ep_method));
 
         for (i, param) in ep.params.iter().enumerate() {
@@ -252,9 +264,9 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
 
         out.push_str(") {\n");
 
-        // Call native entrypoint
+        // Call native entrypoint and return its status / handle.
         out.push_str(&format!(
-            "        NativeMethods.{}_{}_ep_{}(\n",
+            "        return NativeMethods.{}_{}_ep_{}(\n",
             prefix.to_lowercase(),
             service_snake,
             ep_method.to_snake_case()
@@ -299,10 +311,7 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
     out.push_str("    /// <summary>\n");
     out.push_str("    /// Unmanaged callback trampoline that recovers the GC handle and invokes the handler.\n");
     out.push_str("    /// </summary>\n");
-    out.push_str(
-        "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]\n",
-    );
-    out.push_str("    public static IntPtr UnmanagedCallersOnlyHandler(IntPtr ctx, IntPtr requestJson) {\n");
+    out.push_str("    public static IntPtr HandlerTrampoline(IntPtr ctx, IntPtr requestJson) {\n");
     out.push_str("        try {\n");
     out.push_str("            // Recover the GCHandle and invoke the delegate\n");
     out.push_str("            var handle = GCHandle.FromIntPtr(ctx);\n");
@@ -311,8 +320,9 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
     out.push_str("                string requestStr = Marshal.PtrToStringUTF8(requestJson) ?? \"{}\";\n");
     out.push_str("                // Invoke the handler and get the response\n");
     out.push_str("                string responseStr = handler(requestStr);\n");
-    out.push_str("                // Allocate response string in native memory\n");
-    out.push_str("                return Marshal.StringToHGlobalUTF8(responseStr);\n");
+    out.push_str("                // Allocate response string in native memory (malloc-backed on Unix; the\n");
+    out.push_str("                // native side takes ownership and frees it).\n");
+    out.push_str("                return Marshal.StringToCoTaskMemUTF8(responseStr);\n");
     out.push_str("            }\n");
     out.push_str("        } catch {\n");
     out.push_str("            // Return null on error\n");
@@ -437,28 +447,12 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
             }
 
             let ep_method_snake = ep.method.to_snake_case();
-            let return_type = match &ep.return_type {
-                TypeRef::Primitive(p) => {
-                    use crate::core::ir::PrimitiveType;
-                    match p {
-                        PrimitiveType::Bool => "int",
-                        PrimitiveType::U8 => "byte",
-                        PrimitiveType::U16 => "ushort",
-                        PrimitiveType::U32 => "uint",
-                        PrimitiveType::U64 => "ulong",
-                        PrimitiveType::I8 => "sbyte",
-                        PrimitiveType::I16 => "short",
-                        PrimitiveType::I32 => "int",
-                        PrimitiveType::I64 => "long",
-                        PrimitiveType::F32 => "float",
-                        PrimitiveType::F64 => "double",
-                        PrimitiveType::Usize => "nuint",
-                        PrimitiveType::Isize => "nint",
-                    }
-                }
-                TypeRef::Unit => "void",
-                _ => "IntPtr",
-            };
+            // Mirror the C ABI exactly: the ffi entrypoint glue returns `*mut T` for a finalize
+            // whose return this surface wraps (IntPtr), otherwise an `i32` status code — never the
+            // Rust method's nominal return type (e.g. Unit/String are still i32 status over C).
+            let returns_opaque =
+                matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque));
+            let return_type = if returns_opaque { "IntPtr" } else { "int" };
 
             out.push_str(&format!(
                 "    [DllImport(\"{}_ffi\", CallingConvention = CallingConvention.Cdecl)]\n",
@@ -692,8 +686,8 @@ mod tests {
         let cs = gen_service_cs(&api, service, "MyNamespace", "test");
 
         assert!(cs.contains("public int add_handler("));
-        assert!(cs.contains("GCHandle.Alloc(handler, GCHandleType.Pinned)"));
-        assert!(cs.contains("UnmanagedCallersOnlyHandler"));
+        assert!(cs.contains("GCHandle.Alloc(handler, GCHandleType.Normal)"));
+        assert!(cs.contains("_handlerCallback"));
         assert!(cs.contains("_registeredCallbacks[ctx] = handle"));
     }
 
@@ -703,7 +697,7 @@ mod tests {
         let service = &api.services[0];
         let cs = gen_service_cs(&api, service, "MyNamespace", "test");
 
-        assert!(cs.contains("public void run("));
+        assert!(cs.contains("public int run("));
         assert!(cs.contains("NativeMethods.test_test_service_ep_run"));
     }
 
@@ -713,8 +707,8 @@ mod tests {
         let service = &api.services[0];
         let cs = gen_service_cs(&api, service, "MyNamespace", "test");
 
-        assert!(cs.contains("[UnmanagedCallersOnly"));
-        assert!(cs.contains("UnmanagedCallersOnlyHandler"));
+        assert!(cs.contains("public static IntPtr HandlerTrampoline"));
+        assert!(cs.contains("_handlerCallback = HandlerTrampoline"));
         assert!(cs.contains("GCHandle.FromIntPtr(ctx)"));
         assert!(cs.contains("Marshal.PtrToStringUTF8"));
     }
@@ -755,7 +749,7 @@ mod tests {
 
         // Verify the marshalled response is properly allocated in native memory
         assert!(
-            cs.contains("Marshal.StringToHGlobalUTF8(responseStr)"),
+            cs.contains("Marshal.StringToCoTaskMemUTF8(responseStr)"),
             "trampoline must marshal the response back to native memory"
         );
     }
