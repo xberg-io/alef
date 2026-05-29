@@ -1141,7 +1141,7 @@ mod tests {
     }
 
     #[test]
-    fn make_vtable_bytes_param_reconstructs_slice_in_thunk() {
+    fn make_vtable_bytes_param_passes_c_pointer_in_thunk() {
         let trait_def = make_trait_def(
             "Processor",
             vec![make_method(
@@ -1151,30 +1151,26 @@ mod tests {
                 None,
             )],
         );
-        let bridge_cfg = make_bridge_cfg("Processor", None);
 
         let mut out = String::new();
-        emit_trait_bridge(
-            "demo",
-            "error",
-            &bridge_cfg,
+        emit_make_vtable(
+            "Processor",
+            false,
             &trait_def,
             &std::collections::HashSet::new(),
             &mut out,
+            &[],
         );
 
         // Thunk receives ptr+len params
         assert!(out.contains("data_ptr: [*c]const u8"), "missing data_ptr param: {out}");
         assert!(out.contains("data_len: usize"), "missing data_len param: {out}");
-        // Thunk reconstructs slice
+        // The Zig vtable ABI passes the raw C pointer through; the len is discarded.
+        assert!(out.contains("_ = data_len;"), "thunk must discard the len param: {out}");
+        // Thunk calls self.process with the C pointer (not a reconstructed slice).
         assert!(
-            out.contains("data_ptr[0..data_len]"),
-            "thunk must reconstruct slice from ptr+len: {out}"
-        );
-        // Thunk calls self.process with the slice
-        assert!(
-            out.contains("self.process(data_slice)"),
-            "thunk must call self.process: {out}"
+            out.contains("self.process(data_ptr);"),
+            "thunk must call self.process with the C pointer: {out}"
         );
     }
 

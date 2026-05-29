@@ -1212,9 +1212,9 @@ mod tests {
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         // The callback receives methodResult as already-JSON (string) from the interface method.
-        // It should pass methodResult directly to Marshal.StringToCoTaskMemUTF8 without
+        // It should marshal methodResult directly (via the shared result-serialize block) without
         // ToJsonString or ToFfiJson serialization.
-        assert!(content.contains("Marshal.StringToCoTaskMemUTF8(methodResult)"));
+        assert!(content.contains("string __result_str = (methodResult) ?? string.Empty;"));
         assert!(!content.contains("ToJsonString(methodResult)"));
         assert!(!content.contains("methodResult.ToFfiJson()"));
     }

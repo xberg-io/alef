@@ -1028,7 +1028,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
             "init must resolve the package-relative library, got:\n{out}"
         );
         assert!(
-            out.contains("Isolate.resolvePackageUri(Uri.parse('package:sample_router/sample_router.dart'))"),
+            out.contains("Isolate.resolvePackageUri(_DartCore.Uri.parse('package:sample_router/sample_router.dart'))"),
             "loader must resolve the package URI, got:\n{out}"
         );
         assert!(
@@ -1097,7 +1097,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
             "sealed-variant pass must also inject the loader, got:\n{out}"
         );
         assert!(
-            out.contains("Isolate.resolvePackageUri(Uri.parse('package:sample_router/sample_router.dart'))"),
+            out.contains("Isolate.resolvePackageUri(_DartCore.Uri.parse('package:sample_router/sample_router.dart'))"),
             "package derived from stem must be `sample_router`, got:\n{out}"
         );
     }

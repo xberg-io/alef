@@ -954,12 +954,12 @@ mod tests {
     #[test]
     fn test_c_return_convention_string_infallible() {
         let (out_params, ret) = FfiBridgeGenerator::c_return_convention(&TypeRef::String, false);
-        // Infallible string: return type is i32 (pointer to out_result pattern)
-        assert_eq!(out_params.len(), 1);
+        // Infallible string is a complex return: it always carries out_result AND out_error
+        // (the latter for stack alignment / C# FFI compatibility), and returns i32.
+        assert_eq!(out_params.len(), 2);
         assert!(out_params[0].contains("out_result"));
-        // No error out-param
-        assert!(!out_params.iter().any(|p| p.contains("out_error")));
-        let _ = ret;
+        assert!(out_params.iter().any(|p| p.contains("out_error")));
+        assert_eq!(ret, "i32");
     }
 
     // ---------------------------------------------------------------------------

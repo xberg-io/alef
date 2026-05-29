@@ -1669,10 +1669,11 @@ mod tests {
             "arg_expr should be the variable name (r_backend_*), got:\n{}",
             emission.arg_expr
         );
-        // The super-trait name entry must be present.
+        // The super-trait name entry must be present and derived from the fixture id
+        // (not a hardcoded backend name).
         assert!(
-            emission.setup_block.contains("name = \"test\""),
-            "setup_block should contain name = \"test\" for super-trait, got:\n{}",
+            emission.setup_block.contains("name = \"my_fixture\""),
+            "setup_block should contain fixture-derived name = \"my_fixture\" for super-trait, got:\n{}",
             emission.setup_block
         );
         // The R extendr trait bridge unconditionally calls `initialize` and

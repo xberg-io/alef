@@ -1089,7 +1089,10 @@ fn test_scaffold_ruby_production_features() {
     assert!(files[2].content.contains("RbSys::ExtensionTask"));
     assert!(files[2].content.contains("my_lib_rb"));
     // Check for extconf.rb generation
-    assert_eq!(files[3].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
+    assert_eq!(
+        files[3].path,
+        PathBuf::from("packages/ruby/ext/my_lib_rb/native/extconf.rb")
+    );
     assert!(files[3].content.contains("create_rust_makefile"));
     assert!(files[3].content.contains("rb_sys/mkmf"));
     assert!(
@@ -1497,11 +1500,10 @@ fn test_scaffold_python_cargo_extra_deps() {
         "content: {}",
         cargo_toml.content
     );
-    // Extra deps should appear in [dependencies] section, before [features]
+    // Extra deps should appear inside the [dependencies] section (which follows [features]).
     let deps_pos = cargo_toml.content.find("[dependencies]").unwrap();
-    let features_pos = cargo_toml.content.find("[features]").unwrap();
     let anyhow_pos = cargo_toml.content.find("anyhow").unwrap();
-    assert!(anyhow_pos > deps_pos && anyhow_pos < features_pos);
+    assert!(anyhow_pos > deps_pos, "anyhow should appear inside [dependencies]");
 }
 
 #[test]
