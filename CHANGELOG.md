@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.14] - 2026-05-29
+
+### Fixed
+
+- **alef ruby scaffold: point gemspec `spec.extensions` to `ext/{name}/native/extconf.rb`.** After v0.20.13 moved extconf.rb to the `native/` subdir, the gemspec's `spec.extensions` array was still listing `ext/{name}/extconf.rb`. RubyGems uses this list to locate the build entrypoint; with the stale path, install-from-source failed to find extconf.rb. (`src/scaffold/languages/ruby.rs`)
+
+- **alef ruby scaffold: filter out directories from gemspec `spec.files` glob.** The `Dir.glob("**/*")` expression in the generated gemspec included directory entries, which rake-compiler's copy task then tried to `copy_file` (file-only) → `Errno::EISDIR: Is a directory - read`. Added `.select { |f| File.file?(f) }` so only regular files are listed. (`src/scaffold/languages/ruby.rs`)
+
+- **alef ruby scaffold: emit `ext.lib_dir = "lib"` (relative) instead of absolute path in ExtensionTask.** The previous template used `File.expand_path("lib", GEM_ROOT)`, but rake-compiler combines `lib_dir` with its own staging paths and absolute values caused mis-rooted copies. Switched to a relative `"lib"`, which rake-compiler resolves against the gem root. (`src/scaffold/languages/ruby.rs`)
+
 ## [0.20.13] - 2026-05-29
 
 ### Fixed
