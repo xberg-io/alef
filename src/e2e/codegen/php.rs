@@ -702,6 +702,7 @@ fn render_test_file(
 
     // Render all test methods
     let mut fixtures_body = String::new();
+    let mut trait_bridge_imports: Vec<String> = Vec::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         if fixture.is_http_test() {
             render_http_test_method(&mut fixtures_body, fixture, fixture.http.as_ref().unwrap());
@@ -722,12 +723,15 @@ fn render_test_file(
                 adapters,
                 &php_lang_rename_all,
                 config,
+                &mut trait_bridge_imports,
             );
         }
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
         }
     }
+    // Merge trait-bridge imports into imports_use
+    imports_use.extend(trait_bridge_imports);
 
     crate::e2e::template_env::render(
         "php/test_file.jinja",
@@ -1055,6 +1059,7 @@ fn render_test_method(
     adapters: &[crate::core::config::extras::AdapterConfig],
     php_lang_rename_all: &str,
     config: &ResolvedCrateConfig,
+    trait_bridge_imports: &mut Vec<String>,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let mut call_config = e2e_config.resolve_call_for_fixture(
@@ -1153,6 +1158,7 @@ fn render_test_method(
         type_defs,
         php_lang_rename_all,
         config,
+        trait_bridge_imports,
     );
 
     // Check for skip_languages early
@@ -1458,6 +1464,7 @@ fn build_args_and_setup(
     type_defs: &[crate::core::ir::TypeDef],
     php_lang_rename_all: &str,
     config: &ResolvedCrateConfig,
+    _trait_bridge_imports: &mut Vec<String>,
 ) -> (Vec<String>, String, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1477,7 +1484,6 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
     let mut teardown_block = String::new();
-    let mut trait_bridge_imports: Vec<String> = Vec::new();
 
     // True when any arg after `from_idx` has a fixture value (or has no fixture
     // value but is required — i.e. would emit *something*). Used to decide
@@ -1657,6 +1663,8 @@ fn build_args_and_setup(
                     }
                     parts.push(emission.arg_expr);
                     teardown_block.push_str(&emission.teardown_block);
+                    // Collect any function imports needed for trait-bridge teardown
+                    _trait_bridge_imports.extend(emission.type_imports);
                     continue;
                 }
             }
@@ -2670,19 +2678,32 @@ pub fn emit_test_backend_with_ns(
     let _ = writeln!(setup, "}};");
 
     // PHP test runner (PHPUnit) runs each test in the same process, so registering a
-    // test backend leaks into later tests. Emit `unregister_<trait>("backend_name")`
+    // test backend leaks into later tests. Emit `Kreuzberg::unregister<Trait>("backend_name")`
     // after the call+assertions to drain the test backend from the global registry.
-    // Add the unregister function to type_imports so it's pulled in at the top via
-    // `use function Kreuzberg\unregister_<trait>;` — this allows bare function calls
-    // in the test file (which is in Kreuzberg\E2e namespace).
+    // Use static method calls instead of standalone functions (which don't exist as PHP functions,
+    // only as methods on the Kreuzberg class).
     let (teardown_block, type_imports) = trait_bridge
         .unregister_fn
         .as_deref()
         .map(|unregister_fn| {
             let escaped = escape_php(&backend_name);
-            let teardown = format!("        {unregister_fn}(\"{escaped}\");\n");
-            let import = format!("use function Kreuzberg\\{unregister_fn};");
-            (teardown, vec![import])
+            // Convert snake_case to camelCase: unregister_document_extractor -> unregisterDocumentExtractor
+            let parts: Vec<&str> = unregister_fn.split('_').collect();
+            let mut method_name = String::new();
+            for (i, part) in parts.iter().enumerate() {
+                if i == 0 {
+                    // "unregister" stays lowercase
+                    method_name.push_str(part);
+                } else {
+                    // Capitalize each subsequent word
+                    if let Some(first) = part.chars().next() {
+                        method_name.push_str(&first.to_uppercase().to_string());
+                        method_name.push_str(&part[1..]);
+                    }
+                }
+            }
+            let teardown = format!("        Kreuzberg::{method_name}(\"{escaped}\");\n");
+            (teardown, vec![])
         })
         .unwrap_or_else(|| (String::new(), Vec::new()));
 
