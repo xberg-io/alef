@@ -301,7 +301,7 @@ Dir.chdir(EXT_NATIVE_DIR) do
   file "Cargo.toml"
 
   RbSys::ExtensionTask.new("{cargo_pkg_name}", GEMSPEC) do |ext|
-    ext.lib_dir = File.expand_path("lib", GEM_ROOT)
+    ext.lib_dir = "lib"
     ext.cross_compile = true
     ext.cross_platform = %w[
       x86_64-linux
