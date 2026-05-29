@@ -140,6 +140,12 @@ fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface
     if let Some(java) = &config.java {
         exclude_types.extend(java.exclude_types.iter().cloned());
     }
+    // Honor the crate-level `[crates.exclude].types` too. Those types are not generated as Java
+    // facade classes, so a Kotlin coroutine-wrapper referencing `dev.<pkg>.<Type>` would dangle —
+    // e.g. `RequestContext`, a Rust-side handler wrapper pulled into the surface only because the
+    // service owner lives in the same module. Mirroring it keeps Kotlin in lockstep with the other
+    // backends without per-binding TOML duplication.
+    exclude_types.extend(config.exclude.types.iter().cloned());
     // Exclude service-owner and handler-contract types flagged `binding_excluded` by the
     // service extraction pass. Those are emitted through the service-API path; also wrapping
     // them as plain opaque client classes here would create symbol collisions.
