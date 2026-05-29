@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.11] - 2026-05-29
+
 ### Fixed
 
 - **alef ruby scaffold: point `RbSys::ExtensionTask` at `ext/<name>/native` where Cargo.toml actually lives.** The Rakefile template set `ext.ext_dir = "ext/<name>"`, but the crate's `Cargo.toml` is one level deeper at `ext/<name>/native/Cargo.toml`. `RbSys::ExtensionTask.init()` invokes `Cargo::Metadata` lookup against `<ext_dir>/Cargo.toml` at task-construction time (before extconf.rb's `config.ext_dir = "native"` takes effect), so the lookup failed with `RbSys::PackageNotFoundError: Could not find Cargo package metadata for "<name>-rb"`. Fix sets `ext.ext_dir = "ext/<name>/native"` so both ExtensionTask init and the rb_sys/mkmf compile step resolve to the same manifest, and drops the now-redundant `config.ext_dir = "native"` from extconf.rb. Resolves liter-llm rc.46 publish failure across linux-aarch64, linux-x86_64, and macos-arm64 Ruby gem builds. (`src/scaffold/languages/ruby.rs`)
