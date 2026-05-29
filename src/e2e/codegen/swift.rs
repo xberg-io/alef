@@ -118,6 +118,15 @@ impl E2eCodegen for SwiftE2eCodegen {
             generated_header: false,
         });
 
+        // For registry mode, emit a pre-test script that computes the artifact checksum.
+        if matches!(e2e_config.dep_mode, crate::e2e::config::DependencyMode::Registry) {
+            files.push(GeneratedFile {
+                path: output_base.join("download_swift_artifact.sh"),
+                content: render_download_swift_artifact_script(module_name, &registry_url, &pkg_version),
+                generated_header: false,
+            });
+        }
+
         // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
         let tests_base = output_base.clone();
 
@@ -358,18 +367,20 @@ fn render_package_swift(
     let min_macos = toolchain::SWIFT_MIN_MACOS;
 
     // For local deps SwiftPM identity = last path component (e.g. "../../packages/swift" → "swift").
-    // For registry deps identity is inferred from the URL.
+    // For registry deps we use .binaryTarget(url:, checksum:) to avoid SwiftPM tag-URL pinning
+    // which fails when tags carry placeholder substitution. The pre-test script
+    // `download_swift_artifact.sh` computes the actual checksum at test time.
     // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
     let (dep_block, product_dep) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            let dep = format!(r#"        .package(url: "{registry_url}", from: "{pkg_version}")"#);
-            let pkg_id = registry_url
-                .trim_end_matches('/')
-                .trim_end_matches(".git")
-                .split('/')
-                .next_back()
-                .unwrap_or(module_name);
-            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
+            // Binary target URL: https://github.com/<owner>/<repo>/releases/download/v<version>/<Module>-rs.artifactbundle.zip
+            let github_repo_url = registry_url.trim_end_matches(".git");
+            let artifact_url =
+                format!("{github_repo_url}/releases/download/v{pkg_version}/{module_name}-rs.artifactbundle.zip");
+            let dep = format!(
+                r#"        .binaryTarget(name: "{module_name}", url: "{artifact_url}", checksum: "__ALEF_SWIFT_CHECKSUM__")"#
+            );
+            let prod = format!(r#".binaryTarget(name: "{module_name}")"#);
             (dep, prod)
         }
         crate::e2e::config::DependencyMode::Local => {
@@ -413,6 +424,46 @@ let package = Package(
         ),
     ]
 )
+"#
+    )
+}
+
+/// Render a pre-test shell script that computes the Swift artifact checksum at runtime.
+/// Registry-mode e2e tests use .binaryTarget(url:, checksum:) with a placeholder
+/// checksum (__ALEF_SWIFT_CHECKSUM__). This script downloads the artifact bundle,
+/// computes its SHA256 checksum, and substitutes it into Package.swift before running tests.
+fn render_download_swift_artifact_script(module_name: &str, registry_url: &str, pkg_version: &str) -> String {
+    let github_repo_url = registry_url.trim_end_matches(".git");
+    let artifact_url =
+        format!("{github_repo_url}/releases/download/v{pkg_version}/{module_name}-rs.artifactbundle.zip");
+    format!(
+        r#"#!/bin/bash
+set -euo pipefail
+
+# Download the Swift artifact bundle and compute its checksum.
+# SwiftPM requires a stable SHA256 checksum for binary targets.
+
+ARTIFACT_URL="{artifact_url}"
+ARTIFACT_FILE="{module_name}-rs.artifactbundle.zip"
+PACKAGE_SWIFT="Package.swift"
+
+# Download the artifact if not already cached
+if [ ! -f "$ARTIFACT_FILE" ]; then
+    echo "Downloading Swift artifact from $ARTIFACT_URL"
+    curl -fsSL -o "$ARTIFACT_FILE" "$ARTIFACT_URL"
+else
+    echo "Using cached artifact: $ARTIFACT_FILE"
+fi
+
+# Compute SHA256 checksum
+CHECKSUM=$(swift package compute-checksum "$ARTIFACT_FILE")
+echo "Computed checksum: $CHECKSUM"
+
+# Substitute the placeholder checksum in Package.swift
+sed -i.bak "s/__ALEF_SWIFT_CHECKSUM__/$CHECKSUM/g" "$PACKAGE_SWIFT"
+rm -f "${{PACKAGE_SWIFT}}.bak"
+
+echo "Updated $PACKAGE_SWIFT with checksum"
 "#
     )
 }

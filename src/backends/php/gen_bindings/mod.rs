@@ -852,7 +852,7 @@ impl Backend for PhpBackend {
         // When PIE falls back from pre-packaged binaries to source compilation,
         // phpize expects config.m4 to describe the build process.
         let extension_name = config.php_extension_name();
-        let config_m4 = generate_config_m4(&extension_name);
+        let config_m4 = generate_config_m4(&extension_name, &config.name);
         // The config.m4 file must be at the repository root (one level above the Cargo.toml)
         // output_dir is like "crates/ts-pack-core-php/src", so we pop three times to get to root.
         let mut config_m4_path = PathBuf::from(&output_dir);
@@ -2089,7 +2089,12 @@ fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
 /// with ext-php-rs, we generate a minimal config.m4 that informs phpize of the extension name
 /// and directs the build to use cargo. This allows PIE to fall back from pre-packaged binaries
 /// to source compilation without errors.
-fn generate_config_m4(extension_name: &str) -> String {
+fn generate_config_m4(extension_name: &str, package_name: &str) -> String {
+    // Convert extension_name (with underscores) back to cargo crate name (with hyphens)
+    // e.g., "liter_llm" → "liter-llm" for directory lookup
+    let cargo_crate_name = package_name;
+    let lib_name = extension_name.replace('_', "-");
+
     format!(
         r#"dnl Configuration for Rust-based PHP extension via ext-php-rs.
 dnl Allows phpize to recognize this extension during source compilation (PIE fallback).
@@ -2136,15 +2141,13 @@ fi
         extension_name,
         extension_name.to_uppercase(),
         extension_name,
+        cargo_crate_name,
+        cargo_crate_name,
+        cargo_crate_name,
         extension_name,
-        extension_name,
-        extension_name,
-        extension_name,
-        extension_name,
-        extension_name,
-        extension_name,
-        extension_name,
-        extension_name,
+        lib_name,
+        lib_name,
+        cargo_crate_name,
         extension_name
     )
 }
