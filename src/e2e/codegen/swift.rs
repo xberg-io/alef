@@ -449,10 +449,10 @@ PACKAGE_SWIFT="Package.swift"
 
 # Download the artifact if not already cached
 if [ ! -f "$ARTIFACT_FILE" ]; then
-    echo "Downloading Swift artifact from $ARTIFACT_URL"
-    curl -fsSL -o "$ARTIFACT_FILE" "$ARTIFACT_URL"
+  echo "Downloading Swift artifact from $ARTIFACT_URL"
+  curl -fsSL -o "$ARTIFACT_FILE" "$ARTIFACT_URL"
 else
-    echo "Using cached artifact: $ARTIFACT_FILE"
+  echo "Using cached artifact: $ARTIFACT_FILE"
 fi
 
 # Compute SHA256 checksum

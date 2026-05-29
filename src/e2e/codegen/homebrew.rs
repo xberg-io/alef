@@ -151,8 +151,14 @@ fn render_run_tests(tap: &str, cli_formula: &str, ffi_formula: &str, version: &s
     let _ = writeln!(out);
 
     // Helper.
-    let _ = writeln!(out, "pass() {{ echo \"PASS: $1\"; PASS=$((PASS + 1)); }}");
-    let _ = writeln!(out, "fail() {{ echo \"FAIL: $1 — $2\" >&2; FAIL=$((FAIL + 1)); }}");
+    let _ = writeln!(out, "pass() {{");
+    let _ = writeln!(out, "  echo \"PASS: $1\"");
+    let _ = writeln!(out, "  PASS=$((PASS + 1))");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out, "fail() {{");
+    let _ = writeln!(out, "  echo \"FAIL: $1 — $2\" >&2");
+    let _ = writeln!(out, "  FAIL=$((FAIL + 1))");
+    let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
     // Step 1: brew bundle.
