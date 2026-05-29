@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef csharp: trait-bridge callbacks return error code instead of throwing when bridge is unregistered.** When Rust dispatches callbacks on bridges that were unregistered (FreeUserData removes registry entry, but callbacks may still be pending), the C# callback now returns error code 1 with an error message instead of throwing InvalidOperationException. This prevents cascade crashes through the registry lookup and makes the system more resilient to race conditions between unregistration and pending callbacks. (`src/backends/csharp/trait_bridge.rs`)
+
 - **alef csharp/zig: re-apply `cargo fmt` to long-line `push_str(&format!(...))` calls and zig codegen `format!` URL strings that drifted past rustfmt's width limit.** Resolves CI `cargo fmt --check` failures on v0.20.10. (`src/backends/csharp/trait_bridge.rs`, `src/e2e/codegen/zig.rs`)
 
 ## [0.20.10] - 2026-05-29

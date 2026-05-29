@@ -729,7 +729,7 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            outResult = IntPtr.Zero;\n");
         }
         if !is_options_field && !is_primitive_return {
-            callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
+            callbacks.push_str("            try { outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name); } catch { outError = IntPtr.Zero; }\n");
         }
         if !is_primitive_return {
             callbacks.push_str("            return 1;\n");
