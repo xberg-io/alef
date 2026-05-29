@@ -1,9 +1,10 @@
         // Cache {{ method_name }}() result for the lifetime of the bridge (required: returns &[&str]).
         let {{ field_name }}: &'static [&'static str] = if let Some(fp) = vtable.{{ method_name }} {
             let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();
+            let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();
             // SAFETY: fp is a valid non-null function pointer; user_data validity is the caller's
             // responsibility (documented in the vtable API contract).
-            let _rc = unsafe { fp(user_data, &mut _out_result) };
+            let _rc = unsafe { fp(user_data, &mut _out_result, &mut _out_error) };
             if _out_result.is_null() {
                 &[]
             } else {
