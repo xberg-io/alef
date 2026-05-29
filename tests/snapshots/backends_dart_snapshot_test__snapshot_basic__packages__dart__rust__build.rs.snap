@@ -98,9 +98,12 @@ const FRB_INIT_REPLACEMENT: &str = r#"  /// Resolve the prebuilt native library 
   }
 
   static List<String> _alefHostLibNames() {
-    if (Platform.isMacOS) return const ['libdemo.dylib'];
-    if (Platform.isWindows) return const ['demo.dll'];
-    return const ['libdemo.so'];
+    // The Dart-binding Rust crate is `{stem}-dart` (per the cargo manifest
+    // template), which produces a cdylib named `lib{stem}_dart.{ext}` on Unix
+    // and `{stem}_dart.dll` on Windows.
+    if (Platform.isMacOS) return const ['libdemo_dart.dylib'];
+    if (Platform.isWindows) return const ['demo_dart.dll'];
+    return const ['libdemo_dart.so'];
   }
 
   /// Initialize flutter_rust_bridge

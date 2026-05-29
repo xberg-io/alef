@@ -200,6 +200,20 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
     all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
         let full_path = base_dir.join(&file.path);
         let normalized = normalize_content(&file.path, &file.content);
+        // Skip the write when on-disk bytes already match (modulo the
+        // post-write `alef:hash:` line injected by `finalize_hashes`).
+        // `std::fs::write` is unconditional truncate+write; updating mtime
+        // on identical content trips pre-commit/prek's modification check
+        // and breaks every alef-driven hook for downstream repos.
+        if let Ok(existing) = std::fs::read_to_string(&full_path) {
+            let existing_body = crate::core::hash::strip_hash_line(&existing);
+            let normalized_body = crate::core::hash::strip_hash_line(&normalized);
+            if existing_body == normalized_body {
+                apply_shebang_chmod(&full_path, &normalized)?;
+                debug!("  unchanged: {}", full_path.display());
+                return Ok(());
+            }
+        }
         std::fs::write(&full_path, &normalized)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         apply_shebang_chmod(&full_path, &normalized)?;
