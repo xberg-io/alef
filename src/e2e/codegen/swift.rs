@@ -371,29 +371,27 @@ fn render_package_swift(
     // which fails when tags carry placeholder substitution. The pre-test script
     // `download_swift_artifact.sh` computes the actual checksum at test time.
     // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
-    let (dep_block, product_dep) = match dep_mode {
+    let (binary_target_block, test_target_dep) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
             // Binary target URL: https://github.com/<owner>/<repo>/releases/download/v<version>/<Module>-rs.artifactbundle.zip
             let github_repo_url = registry_url.trim_end_matches(".git");
             let artifact_url =
                 format!("{github_repo_url}/releases/download/v{pkg_version}/{module_name}-rs.artifactbundle.zip");
-            let dep = format!(
+            let target = format!(
                 r#"        .binaryTarget(name: "{module_name}", url: "{artifact_url}", checksum: "__ALEF_SWIFT_CHECKSUM__")"#
             );
-            let prod = format!(r#".binaryTarget(name: "{module_name}")"#);
-            (dep, prod)
+            let dep = format!(r#".target(name: "{module_name}")"#);
+            (Some(target), dep)
         }
         crate::e2e::config::DependencyMode::Local => {
             // SwiftPM 6.0 deprecated the `name:` parameter on `.package(path:)`:
             // package identity is derived from the path's last component, ignoring
-            // any explicit `name:`. The `.product(package:)` reference must therefore
-            // match that identity (the path basename), not the dep's declared
-            // `Package(name:)`. The product `name:` still matches the library
-            // declared in the dep's manifest (e.g. `.library(name: "SampleCrate")`).
+            // any explicit `name:`. For local mode, the dependency is still the external package,
+            // but we reference it via .product(name:package:) in the test target dependencies.
+            // We do NOT emit a binary target block for local deps.
             let pkg_id = pkg_path.trim_end_matches('/').rsplit('/').next().unwrap_or(module_name);
-            let dep = format!(r#"        .package(path: "{pkg_path}")"#);
             let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
-            (dep, prod)
+            (None, prod)
         }
     };
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
@@ -404,6 +402,25 @@ fn render_package_swift(
     // The consumer's minimum iOS must be >= the dep's minimum iOS or SwiftPM hides
     // the product as platform-incompatible. Use the same constant the swift backend
     // emits into the dep's Package.swift.
+    let targets_block = if let Some(binary_target) = binary_target_block {
+        format!(
+            r#"        {binary_target},
+        .testTarget(
+            name: "{module_name}E2ETests",
+            dependencies: [{test_target_dep}]
+        ),
+"#
+        )
+    } else {
+        // Local mode: no binary target, just the test target with product reference.
+        format!(
+            r#"        .testTarget(
+            name: "{module_name}E2ETests",
+            dependencies: [{test_target_dep}]
+        ),
+"#
+        )
+    };
     format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -414,15 +431,8 @@ let package = Package(
         .macOS(.v{min_macos_major}),
         .iOS(.v{min_ios_major}),
     ],
-    dependencies: [
-{dep_block},
-    ],
     targets: [
-        .testTarget(
-            name: "{module_name}E2ETests",
-            dependencies: [{product_dep}]
-        ),
-    ]
+{targets_block}    ]
 )
 "#
     )
