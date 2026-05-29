@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.10] - 2026-05-29
+
 ### Fixed
+
+- **alef zig trait-bridge: emit C-pointer call args + error-union return signatures.** Bytes parameters are now passed directly as the underlying `[*c]const u8` C pointer instead of reconstructed as Zig slices, matching the vtable ABI. Error-unionable methods emit `!T` / `!void` so the vtable thunk can use `if (...) |r| ... else |e| ...` to handle results. (`src/backends/zig/trait_bridge.rs`, `src/e2e/codegen/zig.rs`)
+
+- **alef kotlin object_wrapper: emit blank line between sealed-class variants for ktfmt parity.** Sealed-class variants (object/data class declarations) in the kotlin object-wrapper renderer were emitted back-to-back without blank lines, but `ktfmt` reflows the output to insert a blank line between consecutive variants. The committed file then drifted from alef's emission, triggering `alef-verify` failures on downstream polyglot repos. The fix inserts a single `\n` between variants (but not before the first or after the last). (`src/backends/kotlin/gen_bindings/object_wrapper.rs`)
 
 - **alef csharp: fix NullReferenceException in trait-bridge callbacks caused by premature bridge disposal.** When Rust called `FreeUserDataCallback` (to notify C# that the bridge is no longer needed), the generated code immediately disposed the bridge by calling `bridge.Dispose()`. However, if this occurred while a reverse P/Invoke callback was still executing (e.g., in the middle of `ProcessingStageFnCallback`), the disposed bridge's `_impl` field became invalid, causing NRE when the callback tried to call `bridge._impl.ProcessingStage()`. The fix removes the `bridge.Dispose()` call from `FreeUserData()`; instead, the method only removes the bridge from the registry. The GC then collects the bridge after all callbacks complete, ensuring the `_impl` field remains valid throughout callback execution. Fixes all 100 C# e2e tests that were crashing after ~11 tests due to registry-based bridge NRE. (`src/backends/csharp/templates/trait_bridge_class.jinja`)
 
