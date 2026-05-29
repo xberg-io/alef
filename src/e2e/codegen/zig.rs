@@ -21,19 +21,6 @@ use super::E2eCodegen;
 use super::client;
 use super::streaming_assertions::{StreamingFieldResolver, is_streaming_virtual_field};
 
-/// Supported platforms for Zig package distribution.
-/// Uses Go ecosystem convention (e.g. `linux-x86_64`, `macos-arm64`).
-/// This list must match the platform matrix in tslp's GitHub Actions release workflow.
-fn supported_zig_platforms() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("linux-x86_64", "linux-x86_64"),
-        ("linux-aarch64", "linux-aarch64"),
-        ("macos-x86_64", "macos-x86_64"),
-        ("macos-arm64", "macos-arm64"),
-        ("windows-x86_64", "windows-x86_64"),
-    ]
-}
-
 /// Zig e2e code generator.
 pub struct ZigE2eCodegen;
 
@@ -3099,16 +3086,14 @@ mod zig_hash_tests {
     }
 
     /// When no hash is available (None) the fallback `.hash = "TODO"` must be
-    /// emitted for all platforms.
+    /// emitted for the single generic tarball entry.
     #[test]
     fn build_zig_zon_falls_back_to_todo_when_no_hash() {
         let mut platform_hashes = std::collections::BTreeMap::new();
-        for (platform, _) in super::supported_zig_platforms() {
-            let url = format!(
-                "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32-{platform}.tar.gz"
-            );
-            platform_hashes.insert(platform.to_string(), (url, None));
-        }
+        let url =
+            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32.tar.gz"
+                .to_string();
+        platform_hashes.insert("generic".to_string(), (url, None));
         let content = render_build_zig_zon(
             "sample_llm",
             "../../packages/zig",
