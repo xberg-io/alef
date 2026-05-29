@@ -222,6 +222,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         builder.add_item(&format!("pub mod {module};"));
     }
 
+    // Service API module (when services are present)
+    if !api.services.is_empty() {
+        builder.add_item("pub mod service;");
+    }
+
     // Thread-local last_error infrastructure
     builder.add_item(&gen_last_error(prefix));
 
