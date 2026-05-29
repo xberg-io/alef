@@ -113,7 +113,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
             // Pin the bridge instance to prevent GC during the native register call.
             // This GCHandle remains active across the NativeMethods.Register call and beyond,
             // ensuring the bridge and its _impl remain reachable when Rust invokes callbacks.
-            userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
+            userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Pinned);
             var userData = GCHandle.ToIntPtr(userDataHandle);
             var vtablePtr = bridge._vtable;
 

@@ -1098,15 +1098,17 @@ impl Backend for RustlerBackend {
                             "      {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str})\n"
                         );
                         if single_line.len() > 98 {
-                            // Multi-line format that mix format produces for long calls.
+                            // Multi-line format that mix format produces for long calls:
+                            // every positional arg on its own line. Splitting on the first
+                            // ", " only would leave the 2nd+ args concatenated on one line
+                            // which mix format would then rewrap on every check, breaking
+                            // prek's mix-format hook.
                             content.push_str("      {:ok, _} =\n");
                             content.push_str(&format!("        {native_mod}.{nif_fn_name}_with_visitor(\n"));
-                            let args_parts: Vec<&str> = with_visitor_args_str.splitn(2, ", ").collect();
-                            if args_parts.len() == 2 {
-                                content.push_str(&format!("          {},\n", args_parts[0]));
-                                content.push_str(&format!("          {}\n", args_parts[1]));
-                            } else {
-                                content.push_str(&format!("          {with_visitor_args_str}\n"));
+                            let last_idx = with_visitor_args.len().saturating_sub(1);
+                            for (idx, arg) in with_visitor_args.iter().enumerate() {
+                                let sep = if idx == last_idx { "" } else { "," };
+                                content.push_str(&format!("          {arg}{sep}\n"));
                             }
                             content.push_str("        )\n");
                         } else {

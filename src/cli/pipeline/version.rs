@@ -737,6 +737,21 @@ pub fn sync_versions(
         }
     }
 
+    // Kotlin Android: packages/kotlin-android/build.gradle.kts carries the
+    // library version in a `coordinates(... version = "...")` block. The same
+    // `replace_gradle_project_version` function is safe to use here — it anchors
+    // to the first start-of-line `version = "..."` assignment, which in the
+    // Android build file is the `coordinates` version, not a plugin declaration.
+    let kotlin_android_gradle =
+        std::path::Path::new(&config.package_dir(Language::KotlinAndroid)).join("build.gradle.kts");
+    if let Ok(content) = std::fs::read_to_string(&kotlin_android_gradle) {
+        if let Some(new_content) = replace_gradle_project_version(&content, &version) {
+            std::fs::write(&kotlin_android_gradle, &new_content)
+                .with_context(|| format!("failed to write {}", kotlin_android_gradle.display()))?;
+            updated.push(kotlin_android_gradle.to_string_lossy().to_string());
+        }
+    }
+
     // WASM: package.json
     for wasm_pkg in glob::glob("crates/*-wasm/package.json").into_iter().flatten().flatten() {
         if let Ok(content) = std::fs::read_to_string(&wasm_pkg) {
@@ -864,11 +879,21 @@ pub fn sync_versions(
         }
     }
 
-    // Python: __init__.py
-    if let Ok(content) = std::fs::read_to_string("packages/python/__init__.py") {
-        if let Some(new_content) = replace_version_pattern(&content, r#"__version__\s*=\s*"[^"]*""#, &version) {
-            std::fs::write("packages/python/__init__.py", &new_content)?;
-            updated.push("packages/python/__init__.py".to_string());
+    // Python: __init__.py — may sit at packages/python/__init__.py (flat layout)
+    // or packages/python/<module>/__init__.py (src layout with named package).
+    // Walk both shapes with a glob so consumers that use either convention are
+    // covered by a single sync pass.
+    for py_init in glob::glob("packages/python/**/__init__.py")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if let Ok(content) = std::fs::read_to_string(&py_init) {
+            if let Some(new_content) = replace_version_pattern(&content, r#"__version__\s*=\s*"[^"]*""#, &version) {
+                std::fs::write(&py_init, &new_content)
+                    .with_context(|| format!("failed to write {}", py_init.display()))?;
+                updated.push(py_init.to_string_lossy().to_string());
+            }
         }
     }
 
@@ -894,6 +919,48 @@ pub fn sync_versions(
             if let Some(new_content) = replace_version_pattern(&content, r#"moduleVersion\s*=\s*"[^"]*""#, &version) {
                 std::fs::write(&entry, &new_content).with_context(|| format!("failed to write {}", entry.display()))?;
                 updated.push(entry.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // Swift test_apps/Package.swift: the generated test_apps entry uses a remote
+    // URL dependency with a `from: "X.Y.Z"` version bound. Without bumping this,
+    // `swift package resolve` fetches the prior release when the test_app is run
+    // against a freshly cut tag — causing 404s or wrong-version failures.
+    // The glob covers both test_apps/swift/Package.swift and any variant paths
+    // (e2e/swift/Package.swift, e2e/swift_e2e/Package.swift).
+    for swift_pkg in glob::glob("{test_apps,e2e}/*/Package.swift")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if let Ok(content) = std::fs::read_to_string(&swift_pkg) {
+            if let Some(new_content) =
+                replace_version_pattern(&content, r#"from:\s*"[^"]*""#, &version)
+            {
+                std::fs::write(&swift_pkg, &new_content)
+                    .with_context(|| format!("failed to write {}", swift_pkg.display()))?;
+                updated.push(swift_pkg.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // C FFI download_ffi.sh: the generated shell helper declares `VERSION="X.Y.Z"`
+    // (no spaces around `=`) at the top of the script so it can construct the
+    // correct GitHub-Releases tarball URL for the prebuilt FFI binary. Both the
+    // e2e and test_apps copies must be bumped in lock-step with the workspace version.
+    for sh_script in glob::glob("{e2e,test_apps}/c/download_ffi.sh")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if let Ok(content) = std::fs::read_to_string(&sh_script) {
+            if let Some(new_content) =
+                replace_version_pattern(&content, r#"VERSION="[^"]*""#, &version)
+            {
+                std::fs::write(&sh_script, &new_content)
+                    .with_context(|| format!("failed to write {}", sh_script.display()))?;
+                updated.push(sh_script.to_string_lossy().to_string());
             }
         }
     }
@@ -2171,6 +2238,12 @@ fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Optio
         p if p.contains("defaultFFIVersion") => format!(r#"defaultFFIVersion = "{version}""#),
         p if p.contains("moduleVersion") => format!(r#"moduleVersion = "{version}""#),
         p if p.contains("Version:") => format!("Version: {version}"),
+        // Swift Package.swift `.package(url:..., from: "X.Y.Z")` — keep the key,
+        // replace only the quoted version literal.
+        p if p.contains("from:") => format!(r#"from: "{version}""#),
+        // Bash `VERSION="X.Y.Z"` (no spaces around `=`). Must come before the
+        // generic `VERSION` arm below so the no-space form is preserved verbatim.
+        p if p.contains("VERSION=\"") => format!(r#"VERSION="{version}""#),
         p if p.contains("VERSION") => format!("VERSION = \"{version}\""),
         _ => return None,
     };
