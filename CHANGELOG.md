@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef dart frb_rewrite: qualify Uri.parse() with _DartCore alias to avoid conflict with Kreuzberg Uri class.** The frb_rewrite external-library loader uses `Uri.parse()` but the Kreuzberg FFI bindings auto-generate a local `Uri` class. When the loader code calls `Uri.parse()`, the Dart type resolver selects the local `Uri` class instead of `dart:core.Uri`, causing type mismatch errors in the generated frb_generated.dart file. Fix imports `dart:core` with the `_DartCore` alias and replaces all `Uri.parse()` calls with `_DartCore.Uri.parse()` to ensure correct resolution. (`src/backends/dart/frb_rewrite.rs`)
+
 ## [0.20.12] - 2026-05-29
 
 ### Fixed
