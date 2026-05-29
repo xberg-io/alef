@@ -199,8 +199,10 @@ pub(super) fn gen_field_accessor(
         null_return_value(&effective_ty).to_string()
     };
 
-    // Determine if we need an extra out-param for byte-length
-    let needs_len_out = matches!(field.ty, TypeRef::Bytes) && !field.optional;
+    // Determine if we need an extra out-param for byte-length.
+    // Optional Bytes fields (Option<Vec<u8>> / Option<Bytes>) must also use the
+    // (ptr, out_len) form per the FFI bytes contract (issue #118).
+    let needs_len_out = matches!(field.ty, TypeRef::Bytes);
 
     // Generate the accessor body based on field type and any override
     let body = gen_field_access_body(
@@ -269,15 +271,39 @@ fn gen_field_access_body(
     }
 
     if field.optional {
-        // Wrap in match on Option — val is a reference from &Option<T> destructure
-        // When is_boxed: val is &Box<T>, so deref twice (**val) to get &T
-        // When newtype_wrapper: the core field is Option<NewtypeT> but IR ty is Primitive;
-        //   val is &NewtypeT so we must access val.0 to get the inner primitive.
-        //
-        // Special case: field.ty = Optional(Primitive) means the Rust field is
-        // Option<Option<Primitive>> (outer=field.optional, inner=field.ty). Both the
-        // outer None and the inner None collapse to the primitive's zero/false sentinel.
-        if let TypeRef::Optional(inner) = &field.ty {
+        // Special case for optional Bytes fields (the #118 shape): we must still
+        // declare out_len (now that predicate is fixed) and write the length.
+        // Some path: real len; None path: write 0 then null. This preserves the
+        // established FFI bytes+len contract for C consumers.
+        if needs_len_out {
+            out.push_str(&crate::backends::ffi::template_env::render(
+                "match_field_start.jinja",
+                context! { field_name => field_name },
+            ));
+            out.push_str("        Some(val) => {\n");
+            out.push_str("            if !out_len.is_null() {\n");
+            out.push_str("                // SAFETY: null check above guarantees out_len is a valid pointer.\n");
+            out.push_str("                unsafe { *out_len = val.len(); }\n");
+            out.push_str("            }\n");
+            out.push_str("            val.as_ptr() as *mut u8\n");
+            out.push_str("        }\n");
+            out.push_str("        None => {\n");
+            out.push_str("            if !out_len.is_null() {\n");
+            out.push_str("                // SAFETY: null check above guarantees out_len is a valid pointer.\n");
+            out.push_str("                unsafe { *out_len = 0; }\n");
+            out.push_str("            }\n");
+            out.push_str("            std::ptr::null_mut()\n");
+            out.push_str("        }\n");
+            out.push_str("    }\n");
+        } else if let TypeRef::Optional(inner) = &field.ty {
+            // Wrap in match on Option — val is a reference from &Option<T> destructure
+            // When is_boxed: val is &Box<T>, so deref twice (**val) to get &T
+            // When newtype_wrapper: the core field is Option<NewtypeT> but IR ty is Primitive;
+            //   val is &NewtypeT so we must access val.0 to get the inner primitive.
+            //
+            // Special case: field.ty = Optional(Primitive) means the Rust field is
+            // Option<Option<Primitive>> (outer=field.optional, inner=field.ty). Both the
+            // outer None and the inner None collapse to the primitive's zero/false sentinel.
             // Option<Option<T>>: outer Some gives val: &Option<inner>, inner Some gives the value.
             let inner_null = null_return_value(&TypeRef::Optional(Box::new(*inner.clone())));
             let inner_val_expr = match inner.as_ref() {

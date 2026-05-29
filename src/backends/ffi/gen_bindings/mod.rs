@@ -2976,4 +2976,89 @@ type = "*const std::ffi::c_char"
             "Optional Vec<String> with is_ref=true should still use .as_deref()"
         );
     }
+
+    /// Regression test for https://github.com/kreuzberg-dev/alef/issues/118.
+    /// Struct fields typed `Option<Bytes>` / `Option<Vec<u8>>` (e.g. EmailAttachment.data)
+    /// must emit the same (ptr, out_len: *mut usize) contract as non-optional Bytes fields.
+    /// Previously the needs_len_out predicate only matched `Bytes && !optional`.
+    #[test]
+    fn test_optional_bytes_field_accessor_emits_out_len_and_length_writes() {
+        let field = FieldDef {
+            name: "data".to_string(),
+            ty: TypeRef::Bytes,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: crate::core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            original_type: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let typ = TypeDef {
+            name: "EmailAttachment".to_string(),
+            rust_path: "my_lib::EmailAttachment".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![field.clone()],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let code = gen_field_accessor(
+            &typ,
+            &field,
+            "kr",
+            "my_lib",
+            &ahash::AHashMap::<String, String>::new(),
+            &ahash::AHashSet::<String>::new(),
+            &ahash::AHashSet::<String>::new(),
+            &::std::collections::HashMap::<String, String>::new(),
+        );
+
+        // The header must include the out_len companion (the reported contract violation).
+        assert!(
+            code.contains("out_len: *mut usize"),
+            "optional Bytes field accessor must declare out_len param (issue #118), got:\n{code}"
+        );
+
+        // Body must write real length on Some path.
+        assert!(
+            code.contains("*out_len"),
+            "optional Bytes field must write length to out_len (Some path writes real len, None writes 0), got:\n{code}"
+        );
+
+        // None arm must write 0, not just any *out_len write.
+        assert!(
+            code.contains("*out_len = 0"),
+            "optional Bytes None arm must write 0 to out_len, got:\n{code}"
+        );
+
+        // Both arms must null-check out_len before dereferencing it.
+        assert!(
+            code.contains("!out_len.is_null()"),
+            "optional Bytes field must null-check out_len before writing, got:\n{code}"
+        );
+    }
 }
