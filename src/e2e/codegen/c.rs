@@ -190,8 +190,9 @@ impl E2eCodegen for CCodegen {
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| {
-                // Derive from base package name (e.g., "tree-sitter-language-pack" → "tree-sitter-language-pack-ffi")
-                // rather than from the cargo crate name (e.g., "ts-pack-core-ffi").
+                // Derive from the base package name (e.g., "<lib>" → "<lib>-ffi")
+                // rather than from the cargo crate name (which may differ when
+                // the C ffi crate uses a non-default suffix).
                 format!("{}-ffi", config.name)
             });
 

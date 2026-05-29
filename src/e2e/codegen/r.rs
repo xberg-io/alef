@@ -1503,9 +1503,17 @@ pub fn emit_test_backend(
                 match val {
                     serde_json::Value::Number(n) => n.to_string(),
                     serde_json::Value::String(s) => format!("\"{}\"", escape_r(s)),
-                    serde_json::Value::Bool(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+                    serde_json::Value::Bool(b) => {
+                        if *b {
+                            "TRUE".to_string()
+                        } else {
+                            "FALSE".to_string()
+                        }
+                    }
                     serde_json::Value::Array(_) => "c()".to_string(), // empty vector fallback
-                    serde_json::Value::Null | serde_json::Value::Object(_) => defaults.emit_default(&method.return_type),
+                    serde_json::Value::Null | serde_json::Value::Object(_) => {
+                        defaults.emit_default(&method.return_type)
+                    }
                 }
             } else {
                 defaults.emit_default(&method.return_type)
@@ -1549,6 +1557,34 @@ pub fn emit_test_backend(
         type_imports: Vec::new(),
         teardown_block,
     }
+}
+
+/// Extract a backend name string from the fixture input JSON.
+///
+/// Searches the top-level input object for the first string value at any depth
+/// under keys commonly used for names (`name`, or the first string field found).
+/// Falls back to the fixture id when no string is found.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    // Walk the top-level object, then one level deeper, looking for "name".
+    if let Some(obj) = input.as_object() {
+        // Direct "name" key.
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
 }
 
 #[cfg(test)]
@@ -1668,32 +1704,4 @@ mod tests {
             );
         }
     }
-}
-
-/// Extract a backend name string from the fixture input JSON.
-///
-/// Searches the top-level input object for the first string value at any depth
-/// under keys commonly used for names (`name`, or the first string field found).
-/// Falls back to the fixture id when no string is found.
-fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
-    // Walk the top-level object, then one level deeper, looking for "name".
-    if let Some(obj) = input.as_object() {
-        // Direct "name" key.
-        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
-            return s.to_string();
-        }
-        for v in obj.values() {
-            if let Some(inner) = v.as_object() {
-                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
-                    return s.to_string();
-                }
-            }
-        }
-        for v in obj.values() {
-            if let Some(s) = v.as_str() {
-                return s.to_string();
-            }
-        }
-    }
-    fallback.to_string()
 }

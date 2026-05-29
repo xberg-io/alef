@@ -1761,7 +1761,6 @@ package_name = "test-lib"
         run_wrapper: None,
         extra_lint_paths: vec![],
         crate_dir: None,
-        exclude_platforms: vec![],
     });
     resolved
 }

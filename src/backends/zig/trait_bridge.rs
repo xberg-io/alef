@@ -599,7 +599,14 @@ pub fn emit_trait_bridge(
     // -------------------------------------------------------------------------
     // Comptime vtable builder: make_{trait_snake}_vtable
     // -------------------------------------------------------------------------
-    emit_make_vtable(trait_name, has_super_trait, trait_def, excluded_types, out, &bridge_cfg.ffi_skip_methods);
+    emit_make_vtable(
+        trait_name,
+        has_super_trait,
+        trait_def,
+        excluded_types,
+        out,
+        &bridge_cfg.ffi_skip_methods,
+    );
 }
 
 // ---------------------------------------------------------------------------

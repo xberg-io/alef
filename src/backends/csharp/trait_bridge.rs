@@ -402,7 +402,7 @@ fn gen_single_trait_bridge(
     if has_super_trait {
         callbacks.push_str("    private int NameFnCallback(IntPtr userData, out IntPtr outName) {\n");
         callbacks.push_str("        try {\n");
-        callbacks.push_str(&format!("            string _name = null!;\n"));
+        callbacks.push_str("            string _name = null!;\n");
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
         callbacks.push_str(&format!(
             "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
@@ -426,7 +426,7 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str("    private int VersionFnCallback(IntPtr userData, out IntPtr outVersion) {\n");
         callbacks.push_str("        try {\n");
-        callbacks.push_str(&format!("            string _version = null!;\n"));
+        callbacks.push_str("            string _version = null!;\n");
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
         callbacks.push_str(&format!(
             "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
@@ -728,7 +728,12 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            outResult = IntPtr.Zero;\n");
         }
         if !is_options_field && !is_primitive_return {
-            callbacks.push_str("            try { outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name); } catch { outError = IntPtr.Zero; }\n");
+            // Double-nested try-catch: if StringToCoTaskMemUTF8 itself throws, use a hardcoded fallback
+            callbacks.push_str("            try {\n");
+            callbacks.push_str("                outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
+            callbacks.push_str("            } catch {\n");
+            callbacks.push_str("                outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(\"Callback error (exception marshalling failed)\");\n");
+            callbacks.push_str("            }\n");
         }
         if !is_primitive_return {
             callbacks.push_str("            return 1;\n");
