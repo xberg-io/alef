@@ -1,9 +1,9 @@
 /*
 #cgo CFLAGS: -I${SRCDIR}/include
-#cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/.lib/macos-arm64 -l{{ ffi_lib_name }}
-#cgo darwin,amd64 LDFLAGS: -L${SRCDIR}/.lib/macos-amd64 -l{{ ffi_lib_name }}
-#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/.lib/linux-amd64 -l{{ ffi_lib_name }}
-#cgo linux,arm64 LDFLAGS: -L${SRCDIR}/.lib/linux-arm64 -l{{ ffi_lib_name }}
+#cgo darwin,arm64 LDFLAGS: -L${SRCDIR}/.lib/macos-arm64 -Wl,-rpath,${SRCDIR}/.lib/macos-arm64 -l{{ ffi_lib_name }}
+#cgo darwin,amd64 LDFLAGS: -L${SRCDIR}/.lib/macos-amd64 -Wl,-rpath,${SRCDIR}/.lib/macos-amd64 -l{{ ffi_lib_name }}
+#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/.lib/linux-amd64 -Wl,-rpath,${SRCDIR}/.lib/linux-amd64 -l{{ ffi_lib_name }}
+#cgo linux,arm64 LDFLAGS: -L${SRCDIR}/.lib/linux-arm64 -Wl,-rpath,${SRCDIR}/.lib/linux-arm64 -l{{ ffi_lib_name }}
 #cgo windows,amd64 LDFLAGS: -L${SRCDIR}/.lib/windows-amd64 -l{{ ffi_lib_name }}
 #include "{{ ffi_header }}"
 */
