@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef c e2e Makefile: declare `.DEFAULT_GOAL := all` so plain `make` builds run_tests instead of stopping after download_ffi.sh.** Without explicit default goal, Make picked the first explicit target rule encountered — `$(FFI_DIR)/include/ts_pack.h: download_ffi.sh` — causing `make` (no args) to only download FFI and exit instead of building the test binary. CI `E2E / Test C FFI` job failed with `sh: 1: ./run_tests: not found`. Fixed by adding `.DEFAULT_GOAL := all` after variable declarations (CC, FFI_DIR) and before the first file-target rule. (`src/e2e/codegen/c.rs:449-450`)
+
 - **alef kotlin_android e2e: wrap nullable `System.getProperty` results with `?: ""` before string concatenation.** Generated test bodies for fixtures with mock URLs concatenated `System.getProperty(key, default) + "/fixtures/<id>"`. Under stricter Kotlin null-safety inference, `getProperty(String, String)` returns `String?`, and `String? + String` triggered "Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'String?'" compile errors in test_apps/kotlin_android. Fixed by wrapping each `System.getProperty(...)` call in `(... ?: "")` and applying `?: ""` to all nested `System.getenv()` calls. (`src/e2e/codegen/kotlin.rs:1368,1539,1545`)
 
 - **alef swift e2e: move binaryTarget from dependencies to targets in Package.swift.** Swift Package manifests require `dependencies:` to contain `Package.Dependency` values (`.package(url:from:)`), not `.binaryTarget(...)`. The e2e Package.swift emitter incorrectly placed `.binaryTarget(url:checksum:)` in the dependencies block, causing `swift build/test` to fail with "type 'Target.Dependency' has no member 'binaryTarget'". Fixed by emitting binary targets under `targets:` and using `.target(name:)` in test target dependencies. Registry mode now emits: `targets: [.binaryTarget(...), .testTarget(dependencies: [.target(name:...)])]`. Local mode emits: `targets: [.testTarget(dependencies: [.product(...)])]` with no binary target block. (`src/e2e/codegen/swift.rs`)
@@ -25,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef ruby scaffold: filter out directories from gemspec `spec.files` glob.** The `Dir.glob("**/*")` expression in the generated gemspec included directory entries, which rake-compiler's copy task then tried to `copy_file` (file-only) → `Errno::EISDIR: Is a directory - read`. Added `.select { |f| File.file?(f) }` so only regular files are listed. (`src/scaffold/languages/ruby.rs`)
 
-- **alef ruby scaffold: emit `ext.lib_dir = "lib"` (relative) instead of absolute path in ExtensionTask.** The previous template used `File.expand_path("lib", GEM_ROOT)`, but rake-compiler combines `lib_dir` with its own staging paths and absolute values caused mis-rooted copies. Switched to a relative `"lib"`, which rake-compiler resolves against the gem root. (`src/scaffold/languages/ruby.rs`)
+- **alef ruby scaffold: emit `ext.lib_dir = "lib"` (relative) instead of absolute path in ExtensionTask.** The previous template used `File.expand_path("lib", GEM_ROOT)`, but rake-compiler combines `lib_dir` with its own staging paths and absolute values caused incorrectly rooted copies. Switched to a relative `"lib"`, which rake-compiler resolves against the gem root. (`src/scaffold/languages/ruby.rs`)
 
 ## [0.20.13] - 2026-05-29
 

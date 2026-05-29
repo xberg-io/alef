@@ -447,6 +447,8 @@ fn render_makefile(
     let _ = writeln!(out, "CC = gcc");
     let _ = writeln!(out, "FFI_DIR = ffi");
     let _ = writeln!(out);
+    let _ = writeln!(out, ".DEFAULT_GOAL := all");
+    let _ = writeln!(out);
 
     // Rust's cdylib output normalizes hyphens to underscores in the filename
     // (e.g. crate "sample-markdown-ffi" → "libsample_markdown_ffi.dylib").
