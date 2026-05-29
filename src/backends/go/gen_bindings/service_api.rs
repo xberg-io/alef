@@ -89,20 +89,33 @@ fn gen_service_go(api: &ApiSurface, _config: &ResolvedCrateConfig, pkg_name: &st
 
     out.push_str(&format!("package {pkg_name}\n\n"));
 
-    // Imports
+    // cgo preamble with C headers and forward-declared exported function
+    out.push_str("/*\n");
+    out.push_str("#include <string.h>\n");
+    out.push_str("#include \"spikard.h\"\n");
+    // Forward declaration matching cgo's generated prototype for the //export trampoline
+    // (cgo maps the Go `*C.char` parameter to a non-const `char*`). A static adapter then
+    // supplies the `const char*` callback signature the C registration function expects.
+    out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
+    out.push_str("static char* service_handler_trampoline(void* ctx, const char* req) {\n");
+    out.push_str("\treturn service_handler_callback(ctx, (char*)req);\n");
+    out.push_str("}\n");
+    out.push_str("*/\n");
+    out.push_str("import \"C\"\n\n");
+
+    // Standard Go imports (separate from cgo import "C")
     out.push_str("import (\n");
     out.push_str("\t\"encoding/json\"\n");
     out.push_str("\t\"errors\"\n");
     out.push_str("\t\"fmt\"\n");
     out.push_str("\t\"sync\"\n");
     out.push_str("\t\"unsafe\"\n");
-    out.push_str("\t\"C\"\n");
     out.push_str(")\n\n");
 
-    // Generate C imports for all services
-    out.push_str("// ──────────────────────────────────────────── C FFI Imports ──\n\n");
+    // Generate C function references (now more of a comment section, not real FFI decls)
+    out.push_str("// ──────────────────────────────────────────── Service Definitions ──\n\n");
     for service in &api.services {
-        gen_service_c_imports(&mut out, service, api, ffi_prefix);
+        gen_service_c_imports_comment(&mut out, service, api, ffi_prefix);
     }
 
     // Generate the handler registry and trampoline
@@ -118,14 +131,15 @@ fn gen_service_go(api: &ApiSurface, _config: &ResolvedCrateConfig, pkg_name: &st
     out
 }
 
-/// Generate C FFI imports for one service.
-fn gen_service_c_imports(out: &mut String, service: &ServiceDef, _api: &ApiSurface, ffi_prefix: &str) {
+/// Generate documentation comments for one service's C FFI functions.
+///
+/// This is purely informational — the actual C declarations come from the header
+/// included in the cgo preamble. We emit a comment block for readability.
+fn gen_service_c_imports_comment(out: &mut String, service: &ServiceDef, _api: &ApiSurface, ffi_prefix: &str) {
     let service_snake = service.name.to_snake_case();
     let service_lower = ffi_prefix.to_lowercase();
 
-    out.push_str("/*\n");
     out.push_str(&format!("// Service: {}\n", service.name));
-    out.push_str("*/\n");
 
     // Constructor
     out.push_str(&format!(
@@ -267,11 +281,29 @@ fn gen_handler_registry(out: &mut String) {
     out.push_str("}\n\n");
 }
 
+/// Render a (possibly multi-line) doc string as a Go doc comment block.
+///
+/// Every line is prefixed with `//` so multi-paragraph docs (e.g. a Markdown `# Errors`
+/// section) cannot leak un-commented source into the generated Go file.
+fn go_doc_block(doc: &str) -> String {
+    let mut out = String::from("//\n");
+    for line in doc.trim_end().lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            out.push_str("//\n");
+        } else {
+            out.push_str(&format!("// {line}\n"));
+        }
+    }
+    out
+}
+
 /// Generate a Go service struct with constructor, registration, and entrypoint methods.
 fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, ffi_prefix: &str, api_surface: &ApiSurface) {
     let service_name = &service.name;
     let service_snake = service_name.to_snake_case();
     let service_lower = ffi_prefix.to_lowercase();
+    let upper_prefix = ffi_prefix.to_uppercase();
 
     // Service struct
     out.push_str(&format!(
@@ -279,14 +311,14 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         service_name
     ));
     if !service.doc.is_empty() {
-        out.push_str(&format!("//\n// {}\n", service.doc.trim()));
+        out.push_str(&go_doc_block(&service.doc));
     }
     out.push_str(&format!(
         "type {} struct {{\n\
-         \towner unsafe.Pointer // *{service_name}Opaque from C\n\
+         \towner unsafe.Pointer // *{}{}Opaque from C\n\
          \tmu    sync.Mutex\n\
          }}\n\n",
-        service_name
+        service_name, upper_prefix, service_name
     ));
 
     // Constructor
@@ -310,7 +342,7 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
          \ts.mu.Lock()\n\
          \tdefer s.mu.Unlock()\n\
          \tif s.owner != nil {{\n\
-         \t\tC.{service_lower}_{service_snake}_free((*C.{service_name}Opaque)(s.owner))\n\
+         \t\tC.{service_lower}_{service_snake}_free((*C.{upper_prefix}{service_name}Opaque)(s.owner))\n\
          \t\ts.owner = nil\n\
          \t}}\n\
          }}\n\n"
@@ -355,7 +387,7 @@ fn gen_registration_method(
         method_name_pascal, method_name
     ));
     if !reg.doc.is_empty() {
-        out.push_str(&format!("//\n// {}\n", reg.doc.trim()));
+        out.push_str(&go_doc_block(&reg.doc));
     }
 
     let return_type = if reg.error_type.is_some() {
@@ -387,36 +419,39 @@ fn gen_registration_method(
     out.push_str("\tctxID := registerHandler(handler)\n");
 
     // Call C registration function
+    // The callback function pointer is passed directly; cgo resolves C.service_handler_callback
+    // to the address of the exported //export function.
+    let upper_prefix = ffi_prefix.to_uppercase();
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
-         \t\t(*C.{}Opaque)(s.owner),\n\
-         \t\tC.handler_callback_t(C.service_handler_callback),\n\
-         \t\tunsafe.Pointer(ctxID)",
-        service_lower, service_snake, reg_method_snake, service_name
+         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
+         \t\tC.service_handler_trampoline,\n\
+         \t\tunsafe.Pointer(ctxID),\n",
+        service_lower, service_snake, reg_method_snake
     ));
 
-    // Add metadata params as arguments, marshaling opaque types correctly
-    let upper_prefix = ffi_prefix.to_uppercase();
+    // Add metadata params as arguments, marshaling opaque types correctly. Go requires a trailing
+    // comma on every argument when the closing paren sits on its own line, so each line ends with `,`.
     for meta_param in &reg.metadata_params {
         match &meta_param.ty {
             TypeRef::String => {
-                out.push_str(&format!(",\n\t\tC.CString({})", meta_param.name));
+                out.push_str(&format!("\t\tC.CString({}),\n", meta_param.name));
             }
             TypeRef::Named(type_name) if api.types.iter().any(|t| t.name == *type_name) => {
                 // Opaque type: pass (*C.{PREFIX}{TypeName})(unsafe.Pointer({param}.ptr))
                 out.push_str(&format!(
-                    ",\n\t\t(*C.{}{})( unsafe.Pointer({}.ptr))",
+                    "\t\t(*C.{}{})(unsafe.Pointer({}.ptr)),\n",
                     upper_prefix, type_name, meta_param.name
                 ));
             }
             _ => {
                 // Primitive or other type: pass directly (cast via C type)
                 let c_type = typeref_to_c_type(&meta_param.ty);
-                out.push_str(&format!(",\n\t\t{c_type}({})", meta_param.name));
+                out.push_str(&format!("\t\t{c_type}({}),\n", meta_param.name));
             }
         }
     }
-    out.push_str("\n\t)\n\n");
+    out.push_str("\t)\n\n");
 
     if reg.error_type.is_some() {
         out.push_str("\tif ret != 0 {\n");
@@ -480,7 +515,7 @@ fn gen_entrypoint_method(
         ep_method_pascal, ep_method
     ));
     if !ep.doc.is_empty() {
-        out.push_str(&format!("//\n// {}\n", ep.doc.trim()));
+        out.push_str(&go_doc_block(&ep.doc));
     }
 
     out.push_str(&format!(
@@ -504,16 +539,17 @@ fn gen_entrypoint_method(
     out.push_str("\t}\n\n");
 
     // Call C entrypoint function
+    let upper_prefix = ffi_prefix.to_uppercase();
     out.push_str(&format!(
         "\tC.{}_{}_ep_{}(\n\
-         \t\t(*C.{}Opaque)(s.owner)",
+         \t\t(*C.{upper_prefix}{}Opaque)(s.owner),\n",
         service_lower, service_snake, ep_name_snake, service_name
     ));
 
     for ep_param in &ep.params {
-        out.push_str(&format!(",\n\t\tC.CString({})", ep_param.name));
+        out.push_str(&format!("\t\tC.CString({}),\n", ep_param.name));
     }
-    out.push_str("\n\t)\n");
+    out.push_str("\t)\n");
 
     // Return statement
     if ep.error_type.is_some() {
@@ -699,7 +735,7 @@ mod tests {
             ..ResolvedCrateConfig::default()
         };
 
-        let go = gen_service_go(&api, &config, "binding", "test_crate");
+        let go = gen_service_go(&api, &config, "binding", "TEST_CRATE");
 
         // Verify that the generated Go contains expected markers
         assert!(go.contains("package binding"));
@@ -710,6 +746,14 @@ mod tests {
         assert!(go.contains("HandlerFunc"));
         assert!(go.contains("handlerRegistry"));
         assert!(go.contains("service_handler_callback"));
+        // Verify cgo preamble
+        assert!(go.contains("/*\n#include <string.h>"));
+        assert!(go.contains("#include \"spikard.h\""));
+        assert!(go.contains("extern char* service_handler_callback(void* ctx, char* req);"));
+        assert!(go.contains("static char* service_handler_trampoline(void* ctx, const char* req) {"));
+        assert!(go.contains("import \"C\""));
+        // Verify prefixed struct names (uppercase prefix)
+        assert!(go.contains("*TEST_CRATETestServiceOpaque"));
     }
 
     #[test]
@@ -720,11 +764,12 @@ mod tests {
             ..ResolvedCrateConfig::default()
         };
 
-        let go = gen_service_go(&api, &config, "binding", "test_crate");
+        let go = gen_service_go(&api, &config, "binding", "TEST_CRATE");
 
-        // The service struct must be present
+        // The service struct must be present with prefixed opaque type
         assert!(go.contains("type TestService struct"));
         assert!(go.contains("owner unsafe.Pointer"));
+        assert!(go.contains("*TEST_CRATETestServiceOpaque"));
         assert!(go.contains("mu    sync.Mutex"));
     }
 
@@ -738,7 +783,7 @@ mod tests {
 
         let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-        // Constructor should be present
+        // Constructor should be present with lowercase prefix
         assert!(go.contains("func NewTestService()"));
         assert!(go.contains("test_crate_test_service_new"));
     }
@@ -753,10 +798,14 @@ mod tests {
 
         let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-        // Registration method should be present
+        // Registration method should be present with correct callback passing
         assert!(go.contains("RegisterAddHandler"));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
+        // Verify callback is passed via the const-signature static trampoline
+        assert!(go.contains("C.service_handler_trampoline,"));
+        // Verify prefixed struct names
+        assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }
 
     #[test]
@@ -769,9 +818,10 @@ mod tests {
 
         let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-        // Entrypoint method should be present
+        // Entrypoint method should be present with prefixed struct names
         assert!(go.contains("func (s *TestService) Run("));
         assert!(go.contains("test_crate_test_service_ep_run"));
+        assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }
 
     #[test]
