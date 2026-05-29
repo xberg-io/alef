@@ -199,19 +199,14 @@ pub fn emit_make_vtable(
         // Cast user_data to *T
         out.push_str("                const self: *T = @ptrCast(@alignCast(ud));\n");
 
-        // Reconstruct Bytes slices and build forwarding arg list
+        // Pass Bytes parameters directly as C pointers.
+        // The Zig vtable ABI uses C pointers ([*c]const u8), not slices.
+        // Discard the len parameter since it's not used.
         let mut call_args: Vec<String> = Vec::new();
         for p in &method.params {
             if matches!(p.ty, TypeRef::Bytes) {
-                out.push_str(&crate::backends::zig::template_env::render(
-                    "thunk_bytes_slice.jinja",
-                    minijinja::context! {
-                        slice_name => format!("{}_slice", p.name),
-                        ptr_name => format!("{}_ptr", p.name),
-                        len_name => format!("{}_len", p.name),
-                    },
-                ));
-                call_args.push(format!("{}_slice", p.name));
+                out.push_str(&format!("                _ = {}_len;\n", p.name));
+                call_args.push(format!("{}_ptr", p.name));
             } else {
                 call_args.push(p.name.clone());
             }

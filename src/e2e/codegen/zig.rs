@@ -2885,13 +2885,21 @@ fn emit_test_backend_inner(
         }
         let param_list = params.join(", ");
 
-        // Test stub methods DO NOT use error unions.
-        // Error handling happens at the C FFI boundary (in the vtable thunks),
-        // not in the test stub methods themselves.
-        let ret_sig = if matches!(method.return_type, TypeRef::Unit) {
-            "void".to_string()
+        // For trait bridge methods, emit error-union returns if the method is
+        // fallible in the Rust trait. This lets the vtable thunk use `if` syntax
+        // to handle the error union result.
+        let ret_sig = if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                "!void".to_string()
+            } else {
+                format!("!{}", ret_ty)
+            }
         } else {
-            ret_ty.clone()
+            if matches!(method.return_type, TypeRef::Unit) {
+                "void".to_string()
+            } else {
+                ret_ty.clone()
+            }
         };
 
         if matches!(method.return_type, TypeRef::Unit) {
