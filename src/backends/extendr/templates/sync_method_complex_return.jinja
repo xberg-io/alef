@@ -26,7 +26,11 @@ match result {
 {% endif %}
     }
     Ok(val) => {
+{% if return_type == "bool" %}
+        let int_val = val.as_integer().unwrap_or(0) != 0;
+{% else %}
         let int_val = val.as_integer().unwrap_or(0) as {{ return_type }};
+{% endif %}
 {% if has_error %}
         Ok(int_val)
 {% else %}
