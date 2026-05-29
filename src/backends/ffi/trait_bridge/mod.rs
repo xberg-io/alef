@@ -99,6 +99,13 @@ impl FfiBridgeGenerator {
     /// - A list of additional out-parameters to append to the function signature.
     /// - The C return type (`i32` for fallible, or the direct primitive for infallible simple types).
     pub(super) fn c_return_convention(ty: &TypeRef, has_error: bool) -> (Vec<String>, String) {
+        // For complex return types (Named, Vec, Map, String), always include out_error
+        // even for infallible methods, to maintain stack alignment and C# FFI compatibility
+        let needs_out_error = matches!(
+            ty,
+            TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::String | TypeRef::Json
+        ) || has_error;
+
         let out_params = match ty {
             TypeRef::Unit => {
                 if has_error {
@@ -109,7 +116,7 @@ impl FfiBridgeGenerator {
             }
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
                 let mut v = vec!["out_result: *mut *mut std::ffi::c_char".to_string()];
-                if has_error {
+                if needs_out_error {
                     v.push("out_error: *mut *mut std::ffi::c_char".to_string());
                 }
                 v
@@ -117,7 +124,7 @@ impl FfiBridgeGenerator {
             TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Complex return: JSON-encode into an out_result string
                 let mut v = vec!["out_result: *mut *mut std::ffi::c_char".to_string()];
-                if has_error {
+                if needs_out_error {
                     v.push("out_error: *mut *mut std::ffi::c_char".to_string());
                 }
                 v
@@ -131,7 +138,7 @@ impl FfiBridgeGenerator {
             }
         };
 
-        let ret = if has_error {
+        let ret = if has_error || needs_out_error {
             "i32".to_string()
         } else {
             match ty {

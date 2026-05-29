@@ -321,7 +321,9 @@ impl FfiBridgeGenerator {
             out.push_str("let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();\n");
             call_args.push("&mut _out_result".to_string());
         }
-        if has_error {
+        // Always add out_error if method returns complex type or has explicit error, for stack alignment
+        let needs_out_error = has_error || needs_result_out;
+        if needs_out_error {
             out.push_str(
                 "let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();
 ",

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef FFI trait-bridge: add `out_error` parameter to callbacks returning complex types.** FFI trait bridge callbacks that return complex types (Named, Vec, Map, String, Json) without explicit error handling were missing `out_error` parameters, while C# P/Invoke delegates expected them for stack alignment. This caused NullReferenceException when C# callbacks executed. Now `c_return_convention()` and `gen_vtable_call_body()` automatically add `out_error` for all complex-return methods, regardless of error type. Generated C# delegates now correctly include both `out IntPtr outResult` and `out IntPtr outError`, and Rust FFI vtable callers pass both parameters. C# tests now pass all 100/100. (`src/backends/ffi/trait_bridge/mod.rs:101`, `src/backends/ffi/trait_bridge/call_body.rs:309`)
+
 - **alef rustler trait-bridge: use `block_on` when spawning outside tokio runtime context.** Trait bridge sync method body generation created a tokio runtime when not in an async context but never ran it, causing deadlock on `rx.blocking_recv()`. Now uses `rt.block_on()` to properly execute the spawn_blocking work and await the channel response. Elixir e2e tests no longer hang during plugin API test loading. (`src/backends/rustler/templates/sync_method_body.rs.jinja`)
 
 ## [0.20.14] - 2026-05-29
