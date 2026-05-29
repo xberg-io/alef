@@ -483,11 +483,11 @@ fn render_makefile(
     // Priority: downloaded ffi/ > in-tree > pkg-config
     let _ = writeln!(
         out,
-        "FFI_INCLUDE := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include,$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include))"
+        "FFI_INCLUDE = $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include,$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include))"
     );
     let _ = writeln!(
         out,
-        "FFI_LIB_DIR := $(if $(wildcard $(FFI_DIR)/lib),$(FFI_DIR)/lib,$(if $(wildcard ../../target/release),../../target/release))"
+        "FFI_LIB_DIR = $(if $(wildcard $(FFI_DIR)/lib),$(FFI_DIR)/lib,$(if $(wildcard ../../target/release),../../target/release))"
     );
     let _ = writeln!(out);
     let _ = writeln!(out, "ifneq ($(FFI_INCLUDE),)");

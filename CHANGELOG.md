@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef go: add -Wl,-rpath to cgo LDFLAGS for @rpath dylib resolution.** The Go binding's cgo LDFLAGS for darwin and linux did not include `-Wl,-rpath,${SRCDIR}/<lib-dir>`, which is required when the Rust cdylib uses `install_name=@rpath/<dylib>`. Without the rpath directive, Go tests fail at runtime with `dyld: Library not loaded: @rpath/lib<name>_ffi.dylib ... no LC_RPATH's found`. The fix adds the rpath flag to all darwin and linux LDFLAGS lines, ensuring the linker embeds the correct RPATH in the final binary. (`src/backends/go/templates/cgo_preamble_binding.jinja`)
+
+- **alef c-ffi: use deferred eval for FFI_INCLUDE/FFI_LIB_DIR in Makefile.** The C e2e Makefile template used immediate-eval assignment (`:=`) for `FFI_INCLUDE` and `FFI_LIB_DIR` variables. When `test_apps/c/` ran from a clean state before `download_ffi.sh` populated the `ffi/` directory, the `$(wildcard ...)` expressions evaluated as empty at parse time, causing CFLAGS/LDFLAGS to fall through to the pkg-config branch and fail with undefined linker symbols. The fix changes `:=` to `=` (deferred eval) so the wildcard re-runs at each command invocation, after the prerequisite `download_ffi.sh` has executed. (`src/e2e/codegen/c.rs`)
+
 - **`sync-versions`: include four previously-missed file categories.** `alef sync-versions --set <version>` now updates: (1) `packages/kotlin-android/build.gradle.kts` — the `coordinates(version = "...")` block in the KotlinAndroid Gradle build, which was skipped because only `Language::Kotlin` was covered; (2) `packages/python/**/__init__.py` — globs the nested src-layout module path (e.g. `packages/python/my_lib/__init__.py`) instead of only the flat `packages/python/__init__.py`; (3) `test_apps/*/Package.swift` and `e2e/*/Package.swift` — the `from: "X.Y.Z"` remote version bound in Swift Package.swift manifests, which was referenced in comments but never implemented; (4) `e2e/c/download_ffi.sh` and `test_apps/c/download_ffi.sh` — the `VERSION="X.Y.Z"` (no spaces) bash variable at the top of the generated C FFI download helper. The `replace_version_pattern` dispatch table gains two new arms for `from:` (Swift) and `VERSION="` (bash no-space form). Four regression tests added. (`src/cli/pipeline/version.rs`)
 
 - **alef c-ffi: download_ffi.sh uses release-asset prefix not cargo crate name.** The C e2e generator's `download_ffi.sh` script constructs tarball filenames using `FFI_PKG_NAME`, which was incorrectly defaulting to the cargo FFI crate name (e.g., `ts_pack_core_ffi`) instead of the release-asset package name (e.g., `tree-sitter-language-pack-ffi`). This caused `curl` 404 errors when E2E C tests tried to download prebuilt FFI libraries from GitHub Releases. The fix changes the fallback from `lib_name.clone()` (the cargo crate name) to `format!("{}-ffi", config.name)` (the base package name + "-ffi" suffix), which matches the actual tarball prefix emitted by the `alef publish package --lang ffi` flow. When the C package registry entry includes an explicit `name` field (recommended for multi-registry projects), that takes priority. (`src/e2e/codegen/c.rs`)
@@ -66,7 +70,7 @@ No user-facing changes; release bump only.
 
 ### Fixed
 
-- **alef elixir publish: revert darwin NIF extension from `.dylib` to `.so`.** v0.20.2 changed darwin to `.dylib` to "match real artifact filenames uploaded by publish workflows," but the consumer-side `rustler_precompiled 0.9.0` (the latest version on Hex; no `.dylib`-aware version exists) hardcodes `.so` for every non-Windows target in `lib_name_with_ext/2` and ignores all caller overrides. Publishing `.dylib.tar.gz` caused Hex publish failures across kreuzberg, kreuzcrawl, and liter-llm (checksum-file vs. uploaded-asset extension mismatch) and would have 404'd every downstream `mix deps.get` on darwin. Revert to `.so` to match consumer behavior. html-to-markdown and tree-sitter-language-pack's hand-maintained `publish.yaml` already normalized darwin uploads to `.so`; with this revert, alef-generated publish helpers align with that direction across all 5 polyglot sibling repos. (`src/publish/package/elixir.rs`)
+- **alef elixir publish: revert the darwin NIF extension to `.so`** (Windows keeps `.dll`). `rustler_precompiled 0.9.0` hardcodes `.so` for every non-Windows target and ignores caller overrides, so the `.dylib.tar.gz` uploads from 0.20.2 caused Hex publish and downstream `mix deps.get` failures on darwin. (`src/publish/package/elixir.rs`)
 
 - **alef java trait-bridge interface: honour `ffi_skip_methods` so generated `I{Trait}` interfaces stay in sync with their bridges.** Methods listed in a trait-bridge's `ffi_skip_methods` (e.g., `as_sync_extractor` on `DocumentExtractor`, which returns `Option<&dyn SyncExtractor>` — a trait-object reference with no FFI representation) were correctly skipped in the upcall/vtable bridge but still emitted into the public `I{Trait}.java` interface. E2e test stubs that `implements I{Trait}` were then required to override a method the bridge cannot dispatch, producing `is not abstract and does not override abstract method` compile errors. The fix threads `ffi_skip_methods` into `gen_interface_file` and filters the rendered method list, keeping the interface aligned with the bridge surface and unblocking Java e2e test compilation. (`src/backends/java/gen_bindings/trait_bridge.rs`, `src/backends/java/gen_bindings/mod.rs`)
 
@@ -112,19 +116,15 @@ No user-facing changes; release bump only.
 
 - **alef go binding codegen: remove duplicate `//export` directives from binding.go.** The trait-bridge //export directives and implementations were generated in both `binding.go` and `trait_bridges.go`, causing duplicate symbol exports to the C linker. When Go code linked against the C FFI library, the linker would report "Undefined symbols for architecture arm64" for all 54 trait-bridge functions (e.g., `goDocumentExtractorCanHandle`, `goOcrBackendProcessImage`) because the same symbol was exported twice. The fix removes the `plugin_bridge_exports.jinja` template rendering from `binding.go` generation in `gen_go_file()`, leaving the canonical home of the trait-bridge exports in `trait_bridges.go` (which is generated separately when `has_plugin_bridges` is true). This ensures one source of truth for exported symbols and allows Go e2e tests to link cleanly. (`src/backends/go/gen_bindings/mod.rs`)
 
-- **alef php trait-bridge: emit `use ext_php_rs::rc::PhpRc;` import so generated `inc_count()`/`dec_count()` calls compile.** The earlier fix that switched PHP trait-bridge object lifetime to `inc_count()`/`dec_count()` introduced calls to `PhpRc` trait methods, but the trait import was not added to the bridge module imports. Generated `crates/kreuzberg-php/src/lib.rs` failed to compile with `error[E0599]: no method named 'inc_count' found for mutable reference '&mut _zend_object'`. The fix adds `ext_php_rs::rc::PhpRc` to `PhpBridgeGenerator::bridge_imports()`. (`src/backends/php/trait_bridge.rs`)
-
 - **alef swift trait-bridge: make adapter methods async/throws, fix try/await order, encode all results as JSON.** The trait-bridge protocol correctly declared methods with `async throws` where needed, but the generated adapter methods omitted the `async` and `throws` keywords in their signatures, causing Swift compiler errors when calling async/throwing protocol methods without matching signatures. Additionally, async throwing methods used `await try` instead of Swift's required `try await` order, and methods returning non-primitive types (structs, enums, collections) were incorrectly passed raw to `marshal_ok_result<T: Encodable>`, which failed when those types don't conform to `Encodable` (e.g., `ExtractionResult`). The fix: (1) adapter methods now emit `async` and/or `throws` keywords matching their protocol method signatures; (2) for error-returning methods, the variable binding uses `try await` (correct Swift syntax) instead of `await try`; (3) for `Void`-returning methods, passes `Empty()` (a new `Codable` struct) to `marshal_ok_result()` instead of trying to encode the void result; (4) all named types (structs, enums) and collections are JSON-encoded via `JSONEncoder().encode(result)` before marshalling, ensuring conformance to `Encodable` at the FFI boundary, while primitives and strings pass through directly. Fixes Swift e2e compilation with `ExtractionResult` and other struct return types in trait-bridge methods. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
 
 - **alef csharp trait-bridge: fix callback method naming, bool-to-int conversion, userData parameter, and usize/isize type handling.** The trait-bridge vtable generation had four issues: (1) callback method names were generated in camelCase but referenced as PascalCase, causing `CS0103: name does not exist` errors; (2) bool-returning methods used invalid `(int)result` cast (no implicit bool→int in C#); (3) callback method signatures omitted the mandatory `IntPtr userData` first parameter that delegates expected, causing `CS0123: No overload matches` errors; (4) `usize` and `isize` Rust types were incorrectly mapped to `int` instead of `ulong` and `long`, causing implicit type conversion errors when returning primitive values. The fix ensures callback names are PascalCase via `to_csharp_name()`, bool returns use ternary `result ? 1 : 0`, primitive returns use variable `methodResult` to avoid shadowing, all callback signatures include `IntPtr userData`, and `usize`/`isize` are mapped to `ulong`/`long` consistently in both delegate and callback type declarations. (`src/backends/csharp/trait_bridge.rs`)
 
-- **alef php trait-bridge: use `inc_count()`/`dec_count()` to maintain PHP object reference count and prevent segfault.** When a PHP object is passed to a trait-bridge registration function (e.g., `register_ocr_backend(&mut ZendObject)`), the raw pointer was stored directly in the bridge struct without adjusting the refcount. When the PHP function returned and the reference was released, PHP's garbage collector could reclaim the object, leaving a dangling pointer. Later method calls on the stale pointer caused segmentation faults around test 63 of the PHP e2e suite. The fix calls `php_obj.inc_count()` in the bridge constructor to increment PHP's garbage-collection refcount, keeping the object alive while registered. The bridge struct implements `Clone` (which also increments refcount) and `Drop` (which calls `dec_count()` to safely release the reference), ensuring proper reference management across the object's lifetime. This applies to both visitor-style bridges (`PhpVisitorBridge` variants) and registration-style bridges (generic trait-bridge wrappers like `PhpOcrBackendBridge`). (`src/backends/php/templates/visitor_bridge_struct.jinja`, `src/backends/php/templates/bridge_constructor.jinja`)
+- **alef php trait-bridge: keep the registered ZendObject alive via `PhpRc::inc_count()`/`dec_count()`.** Registration stored a raw `&mut ZendObject` pointer without adjusting the refcount, so PHP could GC the object and later method calls read freed memory (segfault around PHP e2e test 63). The bridge now calls `inc_count()` in its constructor and on `Clone`, `dec_count()` on `Drop`, and imports `ext_php_rs::rc::PhpRc` so those calls compile; applies to visitor- and registration-style bridges. (`src/backends/php/templates/visitor_bridge_struct.jinja`, `src/backends/php/templates/bridge_constructor.jinja`, `src/backends/php/trait_bridge.rs`)
 
 - **alef go trait-bridge: wrap `cgo.Handle.Delete()` in defer/recover to handle stale or double-freed handles.** When trait-bridge plugins are registered (e.g., `RegisterOcrBackend`), a `cgo.Handle` is created and stored in the C registry. Later, when Rust drops the plugin (during cleanup), it calls the `FreeUserData` trampoline (e.g., `goOcrBackendFreeUserData`) to delete the handle. However, if the handle has already been deleted (e.g., due to a double-free, stale pointer, or cleanup race), `cgo.Handle.Delete()` panics with "misuse of an invalid Handle". This panic occurs in the cleanup goroutine, causing test failures with `runtime.goexit({})` in Go 1.24+. The fix wraps the `Delete()` call in `defer/recover` with a nil-check, silently catching and ignoring panics from invalid handle deletions. This prevents crashes and allows cleanup to proceed even if the handle is stale or already freed. (`src/backends/go/trait_bridge.rs`)
 
 - **alef zig e2e codegen: remove error-union return types from trait-bridge test-backend stub methods.** Trait-bridge test stubs are simple Zig structs whose methods invoke the `make_*_vtable` helper, which creates thunks that call the stub methods and handle error conversion at the C FFI boundary. The previous codegen incorrectly emitted error-union types (`!T`) on stub method signatures (e.g. `pub fn extract_bytes(...) ![*c]const u8`), which is invalid Zig syntax for struct methods — error handling must happen in the vtable thunks, not the stub methods themselves. The fix removes the error-union wrapping from stub return signatures, emitting bare types (`[*c]const u8`, `i32`, `void`, etc.) instead. This allows test stubs to compile and link correctly with the generated vtable helpers. (`src/e2e/codegen/zig.rs`)
-
-- **alef php trait-bridge: remove direct refcount manipulation to prevent panic on Abort trap 6.** The previous implementation attempted to manually increment/decrement ZendObject's `gc.refcount` field using `wrapping_add/wrapping_sub`, but this violates PHP's garbage collection invariants. When the refcount reached sentinel values (e.g., immortal objects marked with u32::MAX), incrementing would wrap to 0, triggering immediate garbage collection and causing a panic `thread caused non-unwinding panic. aborting.` during trait-bridge tests. This approach was fundamentally unsafe as it bypassed PHP's GC protocol. The fix removes all refcount manipulation entirely, relying on PHP's automatic reference management to keep the object alive during test execution. This accepts the theoretical risk of segfault if the object is GC'd during use, but avoids the immediate panic that was blocking PHP e2e tests. Future work should investigate `ext_php_rs`' safe reference-counting APIs (e.g., `try_call_method` lifetime guarantees or Zval-based object wrapping). (`src/backends/php/templates/bridge_constructor.jinja`, `src/backends/php/templates/bridge_sync_impl.jinja`)
 
 ## [0.20.2] - 2026-05-28
 
@@ -133,8 +133,6 @@ No user-facing changes; release bump only.
 - **alef go e2e codegen: exclude SyncExtractor trait type in trait-bridge test-backend stubs.** The `DocumentExtractor` trait includes a method `as_sync_extractor() -> Option<&dyn SyncExtractor>` which returns a trait reference. `SyncExtractor` is marked with `alef(skip)` because it's not exposed in Go bindings. However, the trait-bridge method reference wasn't being substituted with `json.RawMessage` (the JSON serialization format for excluded types in Go), causing the generated stub to reference the undefined type `kreuzberg.SyncExtractor`, failing at compilation with `undefined: kreuzberg.SyncExtractor`. The fix adds `SyncExtractor` to the hardcoded `excluded_named` set alongside `InternalDocument`, ensuring it's substituted with `json.RawMessage` in both the method signature and stub zero-value generation. Fixes Go e2e test compilation after alef v0.20.1. (`src/e2e/codegen/go.rs`)
 
 - **alef java e2e codegen: emit ALL trait methods in test-backend stubs, including those with default implementations.** Java interfaces require all abstract methods to be implemented explicitly, even if the Rust trait provides default implementations. The previous filter excluded `has_default_impl` methods from stub emission, causing generated test stubs to fail at compilation with missing method implementations (e.g., `version()`, `initialize()`, `shutdown()`). The fix removes the `has_default_impl` filter from method iteration in `emit_test_backend`, keeping only the exclusion of super-trait methods that are already emitted separately. This mirrors the corresponding Go fix (commit `d4cb5fb36`) and ensures full interface compliance. (`src/e2e/codegen/java.rs`)
-
-- **alef php trait-bridge: increment/decrement ZendObject refcount via GC_ADDREF/GC_DELREF macros to prevent segfault on stale pointers.** When a PHP object (e.g., a `DocumentExtractor` backend) is passed to a trait-bridge registration function (`register_document_extractor(&mut ZendObject)`), the raw pointer is stored in a wrapper struct and registered in a global Arc. The problem: when the PHP function returns, the ZendObject reference is released and may be garbage-collected by PHP's memory manager, leaving the stored pointer dangling. Later, when code calls a method on this stale pointer (e.g., `try_call_method`), it reads freed memory, causing a segmentation fault. The fix uses `ext_php_rs::sys::GC_ADDREF(&mut (*php_obj).gc)` in the bridge constructor to increment PHP's garbage-collection refcount, keeping the object alive while registered, and implements `Drop` to call `GC_DELREF(&mut (*self.inner).gc)` when the bridge is dropped, allowing PHP to garbage-collect the object safely. Applies to all registration-style trait bridges (DocumentExtractor, OcrBackend, PostProcessor, Validator, EmbeddingBackend, Renderer). Fixes `test_register_document_extractor_trait_bridge` segfault in PHP e2e. (`src/backends/php/templates/bridge_constructor.jinja`, `src/backends/php/templates/bridge_sync_impl.jinja`)
 
 
 - **alef go e2e codegen: emit struct-zero `Type{}` instead of `nil` for Named struct returns in trait-bridge stubs.** `go_stub_default()` delegated to `go_zero_value()` which returned `"nil"` for every `TypeRef::Named`. In binding signatures Named types are emitted as pointers (`*T`), so `nil` is valid — but in **stub** signatures (which use `stub_go_type_with_context`), Named types are emitted as **value types** (`alias.GoName{}` or `GoName{}`), where `nil` is a type error: `cannot use nil as kreuzberg.ExtractionResult value in return statement`. Added `go_stub_default_with_context()` that mirrors `stub_go_type_with_context`'s substitution logic: excluded → `nil` (json.RawMessage), enums → `""`, qualified Named → `alias.GoName{}`, bare Named → `GoName{}`. (`src/e2e/codegen/go.rs`)
@@ -189,7 +187,7 @@ No user-facing changes; release bump only.
 
 - **alef csharp service API: fix AccessViolationException in callback marshaling by pinning GCHandles and maintaining lifetime registry.** C# service-API registration methods would crash all e2e tests with `System.AccessViolationException: Attempted to read or write protected memory` during constructor initialization. The root cause: `GCHandle.Alloc(handler)` without pinning allowed the GC to move or collect the callback delegate, and the GCHandle was immediately freed on success, so the native callback trampoline would try to recover an invalid handle in `UnmanagedCallersOnlyHandler`. The fix pins the GCHandle with `GCHandleType.Pinned` and maintains a static thread-safe dictionary `_registeredCallbacks` to keep handles alive for the registration lifetime, freed only in `Dispose()`. All pinned handles are cleaned up atomically in the service class destructor. (`src/backends/csharp/gen_bindings/service_api.rs`)
 
-- **alef elixir: emit `.dylib` NIF extension for macOS targets and `.dll` for Windows, matching real artifact filenames uploaded by publish workflows.** The Elixir NIF extension function hardcoded `.so` for all non-Windows OSes, including macOS targets. But publish.yaml uploads `.dylib.tar.gz` for `*-apple-darwin` NIF artifacts per release asset naming convention. `rustler_precompiled` couldn't find assets because the checksum file listed `.so.tar.gz` but uploads were `.dylib.tar.gz`, causing test_app failures on macOS. The fix detects macOS targets and returns `.dylib`, while Windows targets return `.dll` and Linux/BSD targets return `.so`. Added unit test `nif_extension_macos` to prevent regression. (`src/publish/package/elixir.rs`)
+- **alef elixir: emit `.dll` NIF extension for Windows and `.dylib` for macOS targets** (previously hardcoded `.so` for all non-Windows OSes), matching publish-workflow asset names. The macOS `.dylib` choice was later reverted in 0.20.5. (`src/publish/package/elixir.rs`)
 
 - **alef JVM service-API native-symbol linking: align jni↔kotlin symbols and rewrite java service to Panama FFM.** The JVM service-API codegen would not link. (1) The jni backend emitted entry points with a hardcoded `Java_com_example_*` prefix and ad-hoc method names while the kotlin backend declared unrelated `external fun` names — these can never resolve. Both now use the shared `src/core/jni.rs` convention: a config-driven package (`jni_package`), the per-service bridge class `service_bridge_class_name` (new shared helper, e.g. `AppServiceBridge`), `bridge_method_name` for native method names, and `jni_symbol` for proper JNI §5.11.3 mangling — so the Rust `Java_*` symbols and the Kotlin `external fun`s in `object <Service>ServiceBridge` line up exactly. The Kotlin `System.loadLibrary` now uses `config.jni_lib_name()` instead of a hardcoded library name. (2) The java service backend was wrongly built on JNI `native` methods, but alef's java backend is **Panama FFM** (no `loadLibrary`, binds the C ABI). It is rewritten to bind the ffi backend's C service symbols (`{ffi_prefix}_{service}_new/_free/_register_{m}/_ep_{e}`) via `Linker.downcallHandle`, wrapping the host handler as a Panama `upcallStub` (mirroring the java trait-bridge pattern), with `Arena`-managed callback lifetime. (3) New `tests/service_api_jvm_symbol_consistency.rs` structurally proves every Kotlin `external fun` has the matching jni `Java_*` symbol, preventing future drift. (`src/core/jni.rs`, `src/backends/jni/service_api.rs`, `src/backends/kotlin/gen_bindings/service_api.rs`, `src/backends/java/gen_bindings/service_api.rs`, `tests/service_api_jvm_symbol_consistency.rs`)
 
@@ -1841,10 +1839,6 @@ No user-facing changes; release bump only.
 
 - **alef-e2e/php: honor `options_via = "from_json"` when constructing visitor options and in fallback builder path.** When a fixture used a visitor callback and the PHP e2e call override specified `options_via = "from_json"`, the test code generator unconditionally emitted `ConversionOptions::builder()->visitor($visitor)->build()`, which does not exist in the ext-php-rs binding. The correct behavior is to honor `options_via` and use `ConversionOptions::from_json(json_encode(['visitor' => $visitor]))` instead. Also added a guard in the fallback builder pattern (`build_args_and_setup`) to prevent emitting builder() when `options_via = "from_json"` and no `options_type` is configured — this now returns a descriptive error instructing users to configure `options_type` for typed config construction. This caused 54 php e2e test failures in html-to-markdown (ConversionTests, OptionsTests, VisitorTests) with "Call to undefined method ConversionOptions::builder()". (`src/e2e/codegen/php.rs`)
 
-### Changed
-
-- **maintenance: record a clean full-project `prek run --all-files` verification.**
-
 ## [0.17.15] - 2026-05-21
 
 ### Fixed
@@ -1866,10 +1860,6 @@ No user-facing changes; release bump only.
 - **alef-e2e: treat inline `href="/…"` anchors in fixture HTML as a `has_host_root_route` trigger.** Multi-page crawl fixtures that traversed between mock responses via plain `<a href="/page1">` links did not qualify, so language-specific e2e codegens emitted the shared `MOCK_SERVER_URL + /fixtures/<id>` URL rather than the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env-var lookup. Detecting `href="/` / `href='/` in any `body_inline` mirrors the runtime mock-server's `has_inline_host_link` predicate so compile-time and runtime decisions stay in sync. (`src/e2e/fixture.rs`)
 
 - **alef-e2e/php: honor `options_via = "from_json"` when constructing visitor options.** When a fixture used a visitor callback and the PHP e2e call override specified `options_via = "from_json"`, the test code generator unconditionally emitted `ConversionOptions::builder()->visitor($visitor)->build()`, which does not exist. Now uses `ConversionOptions::from_json(json_encode(['visitor' => $visitor]))` instead. (`src/e2e/codegen/php.rs`)
-
-### Changed
-
-- **maintenance: record a clean full-project `prek run --all-files` verification.**
 
 ## [0.17.14] - 2026-05-21
 
@@ -5347,6 +5337,28 @@ argument type 'Int'` because optional chaining propagates `?` through the
 - fix(wasm): add `#[allow(clippy::should_implement_trait)]` to inherent `default()` factory method; renaming would change the JS-visible API.
 - fix(java): marshal `Path` params via `.toString()` in opaque-type stream-method bodies — previously lumped with `String`/`Char`/`Json` whose template does not call `.toString()`, causing a Java type mismatch.
 
+## [0.15.47] - 2026-05-12
+
+### Added
+
+- **alef e2e: streaming virtual fields** — Phase D shared module plus 7-language codegen for streaming virtual-field access.
+- **alef dart: FRB v2 `StreamSink<T>` streaming support.**
+- **alef swift: emit `from_json` shims for serde param types used in methods.**
+
+### Fixed
+
+- **alef ffi/php: emit `to_vec`/deref for slice/char returns and `to_string` for `&str` params.**
+- **alef codegen: propagate `never_skip_cfg_field_names` through conversions and into napi/php.**
+- **alef pyo3: import config DTOs from `.options` when the type has Self-returning methods (#72).**
+- **alef php: always generate `from_json` for `ConversionOptions`.**
+- **alef ffi: implement `HtmlVisitor` trait methods for visitor bridges.**
+- **alef java: exclude bridge type aliases from `_from_json` handle generation.**
+- **e2e codegen fixes across java, csharp, kotlin** — `assertNotNull`/`Assert.NotNull` for `not_error` on `byte[]`, plural values in `not_contains`, skipped-field comment substitution.
+
+### Changed
+
+- **deps: update `zip` to v8 (#77) and the `cargo-deny` action to v0.19.6 (#76).**
+
 ## [0.15.44] - 2026-05-12
 
 ### Added
@@ -5654,6 +5666,31 @@ argument type 'Int'` because optional chaining propagates `?` through the
 
 - fix(alef-backend-java): revert kreuzcrawl-specific `dispatchCrawlError` typed-exception dispatch in the FFI `checkLastError` helper. Commit `44507046` had hardcoded references to `TimeoutException`, `ConnectionException`, `GoneException`, `BadGatewayException`, `BrowserTimeoutException`, `CrawlErrorException` etc. — exception classes that exist in kreuzcrawl but not in any other downstream — into the shared template. Regenerating the Java binding for liter-llm (or any downstream other than kreuzcrawl) produced a `LiterLlmRs.java` referencing undefined symbols and broke `mvn package`. The case-2 branch is now back to the pre-44507046 emission `throw new ConversionErrorException(msg)`. The proper fix — config-driven typed-exception dispatch keyed by error-code mapping — is tracked under iter15's "remove downstream-crate special-casing" plan; kreuzcrawl can re-add its dispatcher via that mechanism (or via a post-process step in its own toolchain) without polluting the shared backend.
 
+## [0.15.32] - 2026-05-11
+
+### Fixed
+
+- **alef napi: use `Vec<u8>` for `Bytes` fields in struct position.**
+- **alef php: skip cfg-gated fields in constructor params, let-bindings, and `From` impls.**
+- **alef swift: fix JSON envelope format strings; skip `has_default_impl` methods.**
+- **alef codegen: `Box::leak` `Vec<String>` to `&[&'static str]` in the trait bridge.**
+- **e2e codegen fixes across dart, java, ruby, zig** — `json_object` array args as `List<String>`, Java mock-server URL, Ruby client-factory signatures, Zig `allocPrint` for `mock_url`.
+
+## [0.15.31] - 2026-05-11
+
+### Added
+
+- **alef rust e2e: emit `tests/common.rs` to auto-spawn the mock server.**
+
+### Fixed
+
+- **alef codegen/php: skip cfg-gated fields in binding→core struct literal helpers.**
+- **alef napi: cfg-filter struct fields; null-JSON on `Err`; fix `Map(Bytes)` conversion.**
+- **alef swift: use a `String` JSON envelope for error-returning trait-bridge methods.**
+- **alef java: only coerce null in the compact constructor, not on explicit zero.**
+- **alef magnus/wasm e2e: thread `core_path` through streaming; set the vitest `testTimeout`.**
+- **e2e codegen fixes across rust, csharp, java** — `needs_mock_server()` array-fixture detection, owned `BufReader` for E0597, `select_when` fixture routing.
+
 ## [0.15.30] - 2026-05-10
 
 ### Fixed
@@ -5882,6 +5919,25 @@ argument type 'Int'` because optional chaining propagates `?` through the
 - fix(scaffold-swift): bump `swift-version` in the generated `.github/workflows/swift.yml` from `5.10` to `6.0`. The scaffolded `Package.swift` declares Swift tools 6.0, so CI failed with `package 'swift' is using Swift tools version 6.0.0 but the installed version is 5.10.1` whenever the workflow ran.
 
 - fix(scaffold-kotlin): emit the generated `packages/kotlin/build.gradle.kts` with 2-space indentation matching the `[*.gradle.kts] indent_size = 2` rule already declared in the scaffolded `.editorconfig`. The template previously emitted 4-space indent, which ktlint flagged via `ktlintKotlinScriptCheck` against the build script itself. Also drops the redundant `${rootDir}/...` braces in the JNA `libPath` assignment to silence the matching ktlint warning.
+
+## [0.15.12] - 2026-05-09
+
+### Fixed
+
+- **alef kotlin scaffold: bump JDK to 25 (FFM stable)**; restore the ktlint filter, jspecify, and artifactId override.
+- **alef dart scaffold: drop lints removed in Dart 3.x**; exclude frb-generated paths from the analyzer.
+- **alef zig scaffold: use the in-house setup-zig action and `cargo build` the FFI crate.**
+- **alef wasm e2e: construct config via the `WasmCrawlConfig` factory pattern.**
+- **e2e codegen fixes across brew, elixir** — jq `// empty` fallback for `is_empty`; default elixir package path when unconfigured.
+
+## [0.15.11] - 2026-05-09
+
+### Fixed
+
+- **alef magnus: add `serde(default = "30000")` for `Duration` fields.**
+- **alef java: coerce null `Long`/`Integer`/etc. to `0`/`false` before `MethodHandle.invoke`.**
+- **alef swift e2e: load file bytes for `Vec<u8>` args; build `ExtractionConfig` from JSON; preserve optional arg slots.**
+- **e2e codegen fixes across csharp, java** — `setup_lines` in error cases, global `fields_enum` enum assertions, per-call `enum_fields` merge for `Optional<Enum>`.
 
 ## [0.15.9] - 2026-05-09
 
@@ -6385,6 +6441,24 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(e2e-swift): document test placement path. Clarified that tests are placed in `packages/swift/Tests/` (not `e2e/swift/`) due to SwiftPM 6.0 limitations, with rationale in comments.
 - fix(e2e-zig): implement proper error union and async function handling. Error-path tests now use `catch` syntax; async functions emit informational notes; all test variants (error/no-assertions/success) now compile and run.
 
+## [0.14.34] - 2026-05-08
+
+### Added
+
+- **alef napi/magnus: per-variant getters/accessors for tagged enums.**
+- **alef swift: type aliases and string/bytes/JSON-config wrapper helpers**; native Swift enums instead of typealiasing `RustBridge` types.
+- **alef zig e2e: error-union and async-function handling (Zig 0.16 support).**
+
+### Fixed
+
+- **alef rustler/elixir: use `rustler::Binary` for NIF binary params**, converting to an owned `Vec<u8>` and re-borrowing at `&[u8]` call sites.
+- **alef magnus: handle optional `String` params via `magnus::Value`**; remove a re-export loop in `native.rb`.
+- **alef java: handle `byte[]` marshalling; remove `JsonUnwrapped`.**
+- **alef csharp: remove duplicate accessor properties from sealed records and a stray opening brace after class headers.**
+- **alef r: sanitize error messages to prevent extendr-api serialization panics.**
+- **alef gleam/ffi/scaffold: preserve dep version ranges in sync-versions**; string literal in the build.rs Go-header copy; platform-dispatch `index.js` for the node scaffold.
+- **e2e codegen fixes across swift, dart, wasm, zig, kotlin, gleam, java** — missing imports, receiver/argument emission, snake_case→camelCase function names, WASM init wiring, Gradle deps, checkstyle suppression.
+
 ## [0.14.33] - 2026-05-07
 
 ### Fixed
@@ -6539,6 +6613,38 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(java-backend): `createObjectMapper()` now calls `.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)` so Jackson maps snake_case JSON keys (e.g. `total_lines`) to camelCase builder `with`-methods during deserialization.
 - fix(java-e2e): `contains` / `contains_all` / `not_contains` assertions on array fields now call `.toString().contains(value)` instead of `List.contains(value)`; `List.contains` uses `equals()` and always returns false when comparing a `String` against complex record types such as `StructureItem`.
 - fix(e2e/csharp): config arguments are now generated as typed C# object initializers (`new ProcessConfig { Language = "abl" }`) with PascalCase property names instead of raw `JsonSerializer.Deserialize` calls; this matches the `[JsonPropertyName]`-annotated C# API surface and avoids snake_case key mismatches.
+
+## [0.14.26] - 2026-05-07
+
+### Added
+
+- **alef magnus: set up Jinja template infrastructure and migrate opaque-struct codegen.**
+
+### Fixed
+
+- **alef csharp: move `[JsonDerivedType]` to the base abstract record for `[JsonPolymorphic]`**; drop tagged unions from `custom_converter_enums`; allow `dead_code` on the `template_env` scaffold.
+- **alef magnus: emit lib files into the correct Ruby `lib` dir (add `native.rb`)**; `to_s` for content-field structs; require the `json` gem; single-quote `VERSION` in `version.rb`.
+- **alef publish/e2e: fix crates.io publish order, version stamping, the homebrew check, and the csproj LICENSE path.**
+
+## [0.14.24] - 2026-05-07
+
+### Added
+
+- **alef extendr (R): `from_json` factory plus flat-enum JSON round-trip.**
+- **alef pyo3/napi: tagged-enum variant accessor properties/methods**; serde-tag getter and class stub for opaque data enums.
+- **alef java/php/go: migrate visitor, helper, exception, and binding codegen onto Jinja `render()`.**
+
+### Fixed
+
+- **alef java: resolve checkstyle violations in generated code**; split the `_to_json` MethodHandle declaration across lines.
+- **alef napi: valid env in `None`/`Err` fallbacks (prevents segfaults with optional params)**; drop invalid `napi(getter)` on `napi(object)` tagged enums; `serde(skip)` for opaque `Object<'static>` fields.
+- **alef wasm: serialize `BTreeMap` fields as plain JS objects** instead of ES6 `Map`s.
+- **alef php: fix double-brace regression in visitor bridge codegen**; correct serde defaults and camelCase key conversion.
+- **alef magnus/ruby: accept `Hash` as `ConversionOptions`**; fix Hash visitor-return detection, count-assertion paths, and the Rakefile `gem_name` template.
+- **alef pyo3: handle `Box<T>` variants in tagged-enum accessors.**
+- **alef codegen/ffi: add `convert_with_visitor` to visitor bindings; honor `skip_types` in lossy fields.**
+- **alef scaffold: drop workspace lints and allow `unsafe_code` in node/php/python binding crates.**
+- **e2e codegen fixes across c, r, ruby, php, typescript** — null guards, `paste0`/`list()` rendering, snake_case params, lang-specific options construction.
 
 ## [0.14.23] - 2026-05-05
 
@@ -8658,6 +8764,18 @@ A patch release reworking `alef verify` to be **idempotent across alef versions*
 - **`alef readme` panicked when a snippet section was missing from the language template** — missing snippet keys default to an empty Tera object instead of raising.
 - **`fmt_post_generate` did not run the configured formatters for WASM, C#, and Java** because the lint/format dispatch was hardcoded to a static set of languages — the dispatch is now driven entirely by `LintConfig::format` so any backend can opt in.
 - **NAPI `.d.ts` emission placed optional parameters before required ones**, which TypeScript rejects with `TS1016`. NAPI generators now reorder optional parameters last in the emitted `.d.ts` signatures.
+
+## [0.10.1] - 2026-04-27
+
+### Fixed
+
+- **alef verify: make `alef:hash` per-file (source + output) and idempotent across alef versions.**
+- **alef scaffold: emit the license field in Dart/Swift `Cargo.toml`; drop the unused `serde_json` dep.**
+- **alef go e2e: route method names through `to_go_name` for correct casing.**
+- **alef dart: escape reserved keywords, numeric identifiers, and string-literal specials.**
+- **alef readme: default missing snippets to an empty object.**
+- **alef pipeline: make the wasm/csharp/java formatters config-driven.**
+- **alef napi: reorder optional params last in the generated `.d.ts` to fix TS1016.**
 
 ## [0.10.0] - 2026-04-27
 
