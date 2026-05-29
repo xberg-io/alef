@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.15] - 2026-05-29
+
 ### Fixed
 
 - **alef c e2e Makefile: declare `.DEFAULT_GOAL := all` so plain `make` builds run_tests instead of stopping after download_ffi.sh.** Without explicit default goal, Make picked the first explicit target rule encountered — `$(FFI_DIR)/include/ts_pack.h: download_ffi.sh` — causing `make` (no args) to only download FFI and exit instead of building the test binary. CI `E2E / Test C FFI` job failed with `sh: 1: ./run_tests: not found`. Fixed by adding `.DEFAULT_GOAL := all` after variable declarations (CC, FFI_DIR) and before the first file-target rule. (`src/e2e/codegen/c.rs:449-450`)
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef swift e2e: move binaryTarget from dependencies to targets in Package.swift.** Swift Package manifests require `dependencies:` to contain `Package.Dependency` values (`.package(url:from:)`), not `.binaryTarget(...)`. The e2e Package.swift emitter incorrectly placed `.binaryTarget(url:checksum:)` in the dependencies block, causing `swift build/test` to fail with "type 'Target.Dependency' has no member 'binaryTarget'". Fixed by emitting binary targets under `targets:` and using `.target(name:)` in test target dependencies. Registry mode now emits: `targets: [.binaryTarget(...), .testTarget(dependencies: [.target(name:...)])]`. Local mode emits: `targets: [.testTarget(dependencies: [.product(...)])]` with no binary target block. (`src/e2e/codegen/swift.rs`)
 
 - **alef FFI trait-bridge: add `out_error` parameter to callbacks returning complex types.** FFI trait bridge callbacks that return complex types (Named, Vec, Map, String, Json) without explicit error handling were missing `out_error` parameters, while C# P/Invoke delegates expected them for stack alignment. This caused NullReferenceException when C# callbacks executed. Now `c_return_convention()` and `gen_vtable_call_body()` automatically add `out_error` for all complex-return methods, regardless of error type. Generated C# delegates now correctly include both `out IntPtr outResult` and `out IntPtr outError`, and Rust FFI vtable callers pass both parameters. C# tests now pass all 100/100. (`src/backends/ffi/trait_bridge/mod.rs:101`, `src/backends/ffi/trait_bridge/call_body.rs:309`)
+
+- **alef FFI trait-bridge: pass `out_error` from the constructor slice-cache initializer.** The constructor slice-cache init invoked the vtable function pointer with only `out_result`, but complex-return callbacks now take an `out_error` parameter (see above). The mismatched call dropped the trailing argument; the initializer now passes a null-initialized `out_error` so the call matches the ABI. (`src/backends/ffi/templates/constructor_slice_cache_init.jinja`)
 
 - **alef rustler trait-bridge: use `block_on` when spawning outside tokio runtime context.** Trait bridge sync method body generation created a tokio runtime when not in an async context but never ran it, causing deadlock on `rx.blocking_recv()`. Now uses `rt.block_on()` to properly execute the spawn_blocking work and await the channel response. Elixir e2e tests no longer hang during plugin API test loading. (`src/backends/rustler/templates/sync_method_body.rs.jinja`)
 
