@@ -198,7 +198,7 @@ pub(crate) fn scaffold_node_cargo(
         .join(", ");
 
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
-    // Order: async-trait?, futures-util?, html-to-markdown-rs (core), napi,
+    // Order: async-trait?, futures-util?, <core-crate>, napi,
     // napi-derive, serde, serde_json, + any extra deps.
     let core_dep = crate::scaffold::render_core_dep(
         &config.name,

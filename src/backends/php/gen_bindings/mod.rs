@@ -854,7 +854,7 @@ impl Backend for PhpBackend {
         let extension_name = config.php_extension_name();
         let config_m4 = generate_config_m4(&extension_name, &config.name);
         // The config.m4 file must be at the repository root (one level above the Cargo.toml)
-        // output_dir is like "crates/ts-pack-core-php/src", so we pop three times to get to root.
+        // output_dir is like "crates/<name>-core-php/src", so we pop three times to get to root.
         let mut config_m4_path = PathBuf::from(&output_dir);
         config_m4_path.pop(); // remove "src"
         config_m4_path.pop(); // remove crate directory
@@ -2091,7 +2091,7 @@ fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
 /// to source compilation without errors.
 fn generate_config_m4(extension_name: &str, package_name: &str) -> String {
     // Convert extension_name (with underscores) back to cargo crate name (with hyphens)
-    // e.g., "liter_llm" → "liter-llm" for directory lookup
+    // e.g., "my_ext" → "my-ext" for directory lookup
     let cargo_crate_name = package_name;
     let lib_name = extension_name.replace('_', "-");
 

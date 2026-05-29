@@ -145,10 +145,10 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     };
 
     // Build [dependencies] block, alphabetically sorted to match cargo-sort:
-    // ahash, async-trait?, futures-util?, html-to-markdown-rs, serde_json, tokio, …
+    // ahash, async-trait?, futures-util?, <core-crate>, serde_json, tokio, …
     // (cargo-sort orders dependencies by key name). core_dep_line is the
-    // core crate (e.g. html-to-markdown-rs), which sorts between ahash and
-    // serde_json by `h*` < `s*`. extra_dep_lines come from
+    // core crate dependency, which is sorted with other deps by crate name.
+    // extra_dep_lines come from
     // [crate.extra_dependencies] in alef.toml and are pre-sorted above.
     let mut dep_entries: Vec<String> = vec![
         "ahash = \"0.8\"".to_string(),

@@ -1806,6 +1806,7 @@ fn build_args_and_setup(
                         fixture,
                         &config.java_package(),
                         &excluded_named,
+                        &class_name,
                     );
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
@@ -3127,19 +3128,23 @@ pub fn emit_test_backend(
     fixture: &crate::e2e::fixture::Fixture,
     binding_pkg: &str,
 ) -> super::TestBackendEmission {
-    emit_test_backend_with_context(trait_bridge, methods, fixture, binding_pkg, &Default::default())
+    emit_test_backend_with_context(trait_bridge, methods, fixture, binding_pkg, &Default::default(), "")
 }
 
 /// Like `emit_test_backend` but with excluded_types context.
 ///
 /// Excluded types are substituted with `String` in method signatures and default to `""`.
 /// This matches how the trait-bridge interface serializes binding-excluded types to JSON strings.
+///
+/// `binding_class` is the unqualified class name used for static teardown calls
+/// (e.g. `unregister_<trait>`). When empty, teardown is omitted.
 pub fn emit_test_backend_with_context(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
     binding_pkg: &str,
     excluded_types: &std::collections::HashSet<&str>,
+    binding_class: &str,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::e2e::escape::escape_java;
@@ -3226,17 +3231,21 @@ pub fn emit_test_backend_with_context(
     let _ = writeln!(setup, "}}");
 
     // Java test runner (JUnit) runs each test in the same process, so registering a
-    // test backend leaks into later tests. Emit `Kreuzberg.unregister_<trait>("backend_name")`
+    // test backend leaks into later tests. Emit `<BindingClass>.unregister_<trait>("backend_name")`
     // after the call+assertions to drain the test backend from the global registry.
-    let teardown_block = trait_bridge
-        .unregister_fn
-        .as_deref()
-        .map(|unregister_fn| {
-            let escaped = escape_java(&backend_name);
-            let camel_case_fn = unregister_fn.to_lower_camel_case();
-            format!("        Kreuzberg.{camel_case_fn}(\"{escaped}\");\n")
-        })
-        .unwrap_or_default();
+    let teardown_block = if binding_class.is_empty() {
+        String::new()
+    } else {
+        trait_bridge
+            .unregister_fn
+            .as_deref()
+            .map(|unregister_fn| {
+                let escaped = escape_java(&backend_name);
+                let camel_case_fn = unregister_fn.to_lower_camel_case();
+                format!("        {binding_class}.{camel_case_fn}(\"{escaped}\");\n")
+            })
+            .unwrap_or_default()
+    };
 
     super::TestBackendEmission {
         setup_block: setup,

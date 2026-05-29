@@ -73,7 +73,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .collect::<Vec<_>>()
         .join(", ");
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
-    // Order: async-trait?, ext-php-rs, futures-util?, html-to-markdown-rs (core),
+    // Order: async-trait?, ext-php-rs, futures-util?, <core-crate>,
     // serde, serde_json, tokio.
     let core_dep_php = crate::scaffold::render_core_dep(
         &config.name,
