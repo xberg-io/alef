@@ -105,9 +105,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // For local mode, we emit a single path-based dependency.
         let platform_hashes = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             let mut hashes = BTreeMap::new();
-            let url = format!(
-                "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz"
-            );
+            let url = format!("{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz");
             let hash = resolve_zig_hash(explicit_hash.as_deref(), &url);
             // Store a single entry; render_build_zig_zon will extract it as the sole dependency.
             hashes.insert("generic".to_string(), (url, hash));
@@ -477,18 +475,14 @@ fn render_build_zig_zon(
             // This matches the alef-published artifact pattern:
             // `{crate_name}-zig-v{version}.tar.gz` (source + bundled FFI for this build platform).
             // The build.zig script links against the prebuilt FFI library included in the tarball.
-            let url = format!(
-                "{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz"
-            );
-            let hash_str = match platform_hashes
-                .values()
-                .next()
-                .and_then(|(_, h)| h.as_ref())
-            {
+            let url = format!("{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
+            let hash_str = match platform_hashes.values().next().and_then(|(_, h)| h.as_ref()) {
                 Some(h) => format!("\"{h}\""),
                 None => "\"TODO\"".to_string(),
             };
-            format!("        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = {hash_str},\n        }},")
+            format!(
+                "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = {hash_str},\n        }},"
+            )
         }
         crate::e2e::config::DependencyMode::Local => {
             // Zig 0.16+ requires named dependencies. Use the package name as the key.
@@ -618,7 +612,10 @@ pub fn build(b: *std.Build) void {
             // build.zig.zon. The tarball is a single generic source distribution
             // (contains source code + prebuilt FFI library for consumption).
             content.push_str("\n    // Fetch the published Zig package from the registry.\n");
-            let _ = writeln!(content, "    const {module_name}_module = b.dependency(\"{pkg_name}\", .{{");
+            let _ = writeln!(
+                content,
+                "    const {module_name}_module = b.dependency(\"{pkg_name}\", .{{"
+            );
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
             let _ = writeln!(content, "    }}).module(\"{module_name}\");");
@@ -3149,8 +3146,7 @@ mod zig_hash_tests {
             "https://github.com/sample_crate-dev/sample-markdown",
         );
         // Verify the generic (no-suffix) URL is present with proper repo segment.
-        let expected_url =
-            "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
+        let expected_url = "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the generic source tarball URL with proper repo segment; got:\n{content}"

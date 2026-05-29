@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef csharp/zig: re-apply `cargo fmt` to long-line `push_str(&format!(...))` calls and zig codegen `format!` URL strings that drifted past rustfmt's width limit.** Resolves CI `cargo fmt --check` failures on v0.20.10. (`src/backends/csharp/trait_bridge.rs`, `src/e2e/codegen/zig.rs`)
+
 ## [0.20.10] - 2026-05-29
 
 ### Fixed

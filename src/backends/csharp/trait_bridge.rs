@@ -404,13 +404,18 @@ fn gen_single_trait_bridge(
         callbacks.push_str("        try {\n");
         callbacks.push_str(&format!("            string _name = null!;\n"));
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str(&format!(
+            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
+            trait_pascal
+        ));
         callbacks.push_str("                    outName = IntPtr.Zero;\n");
         callbacks.push_str("                    return 1;\n");
         callbacks.push_str("                }\n");
         callbacks.push_str("                _name = bridge._impl.Name;\n");
         callbacks.push_str("            }\n");
-        callbacks.push_str("            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_name);\n");
+        callbacks.push_str(
+            "            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_name);\n",
+        );
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch {\n");
         callbacks.push_str("            outName = IntPtr.Zero;\n");
@@ -423,7 +428,10 @@ fn gen_single_trait_bridge(
         callbacks.push_str("        try {\n");
         callbacks.push_str(&format!("            string _version = null!;\n"));
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str(&format!(
+            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
+            trait_pascal
+        ));
         callbacks.push_str("                    outVersion = IntPtr.Zero;\n");
         callbacks.push_str("                    return 1;\n");
         callbacks.push_str("                }\n");
@@ -443,7 +451,10 @@ fn gen_single_trait_bridge(
         callbacks.push_str("    private int InitializeFnCallback(IntPtr userData, out IntPtr outError) {\n");
         callbacks.push_str("        try {\n");
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str(&format!(
+            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
+            trait_pascal
+        ));
         callbacks.push_str("                    outError = IntPtr.Zero;\n");
         callbacks.push_str("                    return 1;\n");
         callbacks.push_str("                }\n");
@@ -461,7 +472,10 @@ fn gen_single_trait_bridge(
         callbacks.push_str("    private int ShutdownFnCallback(IntPtr userData, out IntPtr outError) {\n");
         callbacks.push_str("        try {\n");
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str(&format!(
+            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
+            trait_pascal
+        ));
         callbacks.push_str("                    outError = IntPtr.Zero;\n");
         callbacks.push_str("                    return 1;\n");
         callbacks.push_str("                }\n");
@@ -566,9 +580,15 @@ fn gen_single_trait_bridge(
         }
         callbacks.push_str("        try {\n");
         // Recover the bridge instance from the registry using userData as key
-        callbacks.push_str(&format!("            {}Bridge _bridgeFromRegistry = null!;\n", trait_pascal));
+        callbacks.push_str(&format!(
+            "            {}Bridge _bridgeFromRegistry = null!;\n",
+            trait_pascal
+        ));
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n", trait_pascal));
+        callbacks.push_str(&format!(
+            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n",
+            trait_pascal
+        ));
 
         // Bridge not found: return error gracefully instead of throwing.
         // This can happen when Rust dispatches callbacks on bridges that were unregistered
