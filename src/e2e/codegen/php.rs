@@ -702,6 +702,7 @@ fn render_test_file(
 
     // Render all test methods
     let mut fixtures_body = String::new();
+    let mut trait_bridge_imports: Vec<String> = Vec::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         if fixture.is_http_test() {
             render_http_test_method(&mut fixtures_body, fixture, fixture.http.as_ref().unwrap());
@@ -722,12 +723,15 @@ fn render_test_file(
                 adapters,
                 &php_lang_rename_all,
                 config,
+                &mut trait_bridge_imports,
             );
         }
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
         }
     }
+    // Merge trait-bridge imports into imports_use
+    imports_use.extend(trait_bridge_imports);
 
     crate::e2e::template_env::render(
         "php/test_file.jinja",
@@ -1055,6 +1059,7 @@ fn render_test_method(
     adapters: &[crate::core::config::extras::AdapterConfig],
     php_lang_rename_all: &str,
     config: &ResolvedCrateConfig,
+    trait_bridge_imports: &mut Vec<String>,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let mut call_config = e2e_config.resolve_call_for_fixture(
@@ -1656,6 +1661,8 @@ fn build_args_and_setup(
                     }
                     parts.push(emission.arg_expr);
                     teardown_block.push_str(&emission.teardown_block);
+                    // Collect any function imports needed for trait-bridge teardown
+                    trait_bridge_imports.extend(emission.type_imports);
                     continue;
                 }
             }
@@ -2671,19 +2678,24 @@ pub fn emit_test_backend_with_ns(
     // PHP test runner (PHPUnit) runs each test in the same process, so registering a
     // test backend leaks into later tests. Emit `unregister_<trait>("backend_name")`
     // after the call+assertions to drain the test backend from the global registry.
-    let teardown_block = trait_bridge
+    // Add the unregister function to type_imports so it's pulled in at the top via
+    // `use function Kreuzberg\unregister_<trait>;` — this allows bare function calls
+    // in the test file (which is in Kreuzberg\E2e namespace).
+    let (teardown_block, type_imports) = trait_bridge
         .unregister_fn
         .as_deref()
         .map(|unregister_fn| {
             let escaped = escape_php(&backend_name);
-            format!("        {unregister_fn}(\"{escaped}\");\n")
+            let teardown = format!("        {unregister_fn}(\"{escaped}\");\n");
+            let import = format!("use function Kreuzberg\\{unregister_fn};");
+            (teardown, vec![import])
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| (String::new(), Vec::new()));
 
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: "$stub".to_string(),
-        type_imports: Vec::new(),
+        type_imports,
         teardown_block,
     }
 }

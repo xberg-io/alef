@@ -100,9 +100,8 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
             params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
         }
         params.push(("out_error".to_string(), "?*?[*c]u8".to_string()));
-    } else if !matches!(method.return_type, TypeRef::Unit) {
-        params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
     }
+    // Infallible methods: return directly (no out-params)
     params
 }
 
@@ -283,13 +282,7 @@ pub fn emit_make_vtable(
             out.push_str("                    return 1;\n");
             out.push_str("                }\n");
         } else {
-            // Infallible non-Unit methods get an `out_result` param "for uniformity"
-            // (see vtable_c_params), but the body returns the value directly via the
-            // function return type — so the param is unused. Discard it so zig 0.16+
-            // doesn't flag "unused function parameter".
-            if !matches!(method.return_type, TypeRef::Unit) {
-                out.push_str("                _ = out_result;\n");
-            }
+            // Infallible methods return directly via the function return type.
             match &method.return_type {
                 TypeRef::Unit => {
                     out.push_str(&crate::backends::zig::template_env::render(
@@ -448,10 +441,8 @@ pub fn emit_trait_bridge(
                 params.push("out_result: ?*?[*c]u8".to_string());
             }
             params.push("out_error: ?*?[*c]u8".to_string());
-        } else if !matches!(method.return_type, TypeRef::Unit) {
-            // Infallible non-void: return via out_result too for uniformity
-            params.push("out_result: ?*?[*c]u8".to_string());
         }
+        // Infallible methods: return directly (no out-params)
 
         let params_str = params.join(", ");
         out.push_str(&crate::backends::zig::template_env::render(

@@ -2510,6 +2510,35 @@ fn gen_extendr_wrappers_r(
         ));
     }
 
+    // Unit enum wrapper functions — simple enums with no data variants that are not
+    // registered as extendr classes. Emit a function that returns the default variant.
+    // R callers can write `ProcessingStage()` to get the default variant.
+    for e in &api.enums {
+        if is_flat_data_enum(e) || is_json_passthrough_data_enum(e) {
+            continue;
+        }
+        // Only emit for unit enums (no data in any variant)
+        let is_unit_enum = e.variants.iter().all(|v| v.fields.is_empty());
+        if !is_unit_enum {
+            continue;
+        }
+
+        let enum_name = &e.name;
+
+        let roxygen_block = format!(
+            "#' Create a {} enum value\n#'\n#' Returns the default {} variant.\n#'\n#' @return A {} enum value\n#' @export\n",
+            enum_name, enum_name, enum_name
+        );
+
+        // Emit a simple wrapper function that returns the default variant as a list with class attribute.
+        // This mirrors how structs are constructed via `TypeName$default()` in R.
+        out.push_str(&roxygen_block);
+        out.push_str(&format!(
+            "{}  <- function() list() |> structure(class = \"{}\")\n\n",
+            enum_name, enum_name
+        ));
+    }
+
     // JSON-passthrough data enum class env blocks — these enums are also
     // registered as structs in extendr_module! with `default` and `from_json`
     // static methods. Emit the class env + method bindings + dispatchers so R
