@@ -95,6 +95,8 @@ pub(crate) fn scaffold_ruby_cargo(
     if needs_ahash {
         machete_ignored.push("ahash");
     }
+    // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
+    // before `[lib]` / `[dependencies]`.
     let machete_section = if machete_ignored.is_empty() {
         String::new()
     } else {
@@ -103,23 +105,23 @@ pub(crate) fn scaffold_ruby_cargo(
             .map(|d| format!("\"{d}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        format!("\n[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n")
+        format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n")
     };
 
     let content = format!(
         r#"{pkg_header}
 
-[lib]
+{machete_section}[lib]
 name = "{lib_name}"
 path = "../src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-{deps_section}{machete_section}"#,
+{deps_section}"#,
         pkg_header = pkg_header,
+        machete_section = machete_section,
         lib_name = lib_name,
         deps_section = deps_section,
-        machete_section = machete_section,
     );
 
     Ok(vec![GeneratedFile {

@@ -156,19 +156,38 @@ pub(crate) fn scaffold_python_cargo(
         .map(|d| format!("\"{d}\""))
         .collect::<Vec<_>>()
         .join(", ");
+    // Build [dependencies] block alphabetically sorted to match cargo-sort.
+    let core_dep_py = crate::scaffold::render_core_dep(
+        &config.name,
+        &format!("../{core_crate_dir}"),
+        &core_dep_features(config, Language::Python),
+        version,
+    );
+    let mut dep_entries: Vec<String> = vec![
+        format!("pyo3 = {{ version = \"{}\" }}", tv::cargo::PYO3),
+        format!(
+            "pyo3-async-runtimes = {{ version = \"{}\", features = [\"tokio-runtime\"] }}",
+            tv::cargo::PYO3_ASYNC_RUNTIMES
+        ),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
+        "serde_json = \"1\"".to_string(),
+    ];
+    if !core_dep_py.is_empty() {
+        dep_entries.push(core_dep_py.clone());
+    }
+    if !all_deps.is_empty() {
+        for line in all_deps.lines() {
+            if !line.is_empty() {
+                dep_entries.push(line.to_string());
+            }
+        }
+    }
+    dep_entries.sort();
+    let dep_block = dep_entries.join("\n");
+    let _ = extra_deps_section;
+
     let content = format!(
         r#"{pkg_header}
-
-[lib]
-name = "{module_name}"
-crate-type = ["cdylib"]
-
-[dependencies]
-{core_dep}
-pyo3 = {{ version = "{pyo3}" }}
-pyo3-async-runtimes = {{ version = "{pyo3_async_runtimes}", features = ["tokio-runtime"] }}
-serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{extra_deps_section}
 
 # `pyo3-async-runtimes` and `serde_json` are emitted unconditionally above so
 # the manifest is stable across regens, but for umbrella crates with no
@@ -179,21 +198,21 @@ serde_json = "1"{extra_deps_section}
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
+[lib]
+name = "{module_name}"
+crate-type = ["cdylib"]
+
 [features]
 extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]
+
+[dependencies]
+{dep_block}
 
 "#,
         pkg_header = pkg_header,
         module_name = module_name,
-        core_dep = crate::scaffold::render_core_dep(
-            &config.name,
-            &format!("../{core_crate_dir}"),
-            &core_dep_features(config, Language::Python),
-            version,
-        ),
-        pyo3 = tv::cargo::PYO3,
-        pyo3_async_runtimes = tv::cargo::PYO3_ASYNC_RUNTIMES,
-        extra_deps_section = extra_deps_section,
+        dep_block = dep_block,
+        machete_ignored_str = machete_ignored_str,
     );
 
     Ok(vec![GeneratedFile {

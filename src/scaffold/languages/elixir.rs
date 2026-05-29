@@ -122,6 +122,8 @@ pub(crate) fn scaffold_elixir_cargo(
     if needs_ahash {
         machete_ignored.push("ahash");
     }
+    // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
+    // before `[workspace]`, `[lib]`, `[features]`, `[dependencies]`.
     let machete_section = if machete_ignored.is_empty() {
         String::new()
     } else {
@@ -130,13 +132,13 @@ pub(crate) fn scaffold_elixir_cargo(
             .map(|d| format!("\"{d}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        format!("\n[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n")
+        format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n")
     };
 
     let content = format!(
         r#"{pkg_header}
 
-[workspace]
+{machete_section}[workspace]
 
 [lib]
 name = "{nif_name}"
@@ -144,12 +146,12 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{deps_section}{machete_section}"#,
+{deps_section}"#,
         pkg_header = pkg_header,
+        machete_section = machete_section,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
         deps_section = deps_section,
-        machete_section = machete_section,
     );
 
     Ok(vec![GeneratedFile {

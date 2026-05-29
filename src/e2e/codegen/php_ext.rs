@@ -127,8 +127,8 @@ fn render_run_tests(pkg_name: &str, version: &str, extension_name: &str) -> Stri
     let _ = writeln!(out);
     let _ = writeln!(out, "# Determine OS-specific extension suffix.");
     let _ = writeln!(out, "case \"$(uname -s)\" in");
-    let _ = writeln!(out, "  Darwin) EXT_SUFFIX=\".dylib\" ;;");
-    let _ = writeln!(out, "  *)      EXT_SUFFIX=\".so\" ;;");
+    let _ = writeln!(out, "Darwin) EXT_SUFFIX=\".dylib\" ;;");
+    let _ = writeln!(out, "*) EXT_SUFFIX=\".so\" ;;");
     let _ = writeln!(out, "esac");
     let _ = writeln!(out);
     let _ = writeln!(out, "EXT_PATH=\"$EXT_DIR/$EXT_NAME$EXT_SUFFIX\"");
