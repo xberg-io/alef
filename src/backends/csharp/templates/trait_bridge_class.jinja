@@ -107,9 +107,13 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {% endif %}
 
         var bridge = new {{ trait_pascal }}Bridge(impl);
+        GCHandle userDataHandle = default;
 
         try {
-            var userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
+            // Pin the bridge instance to prevent GC during the native register call.
+            // This GCHandle remains active across the NativeMethods.Register call and beyond,
+            // ensuring the bridge and its _impl remain reachable when Rust invokes callbacks.
+            userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
             var userData = GCHandle.ToIntPtr(userDataHandle);
             var vtablePtr = bridge._vtable;
 
@@ -122,8 +126,13 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
                 throw new InvalidOperationException($"Failed to register {name}: {errorMsg}");
             }
 
+            // Return the userData handle (which keeps the bridge alive).
+            // The FFI layer holds this handle and will call FreeUserDataCallback when done.
             return userData;
         } catch {
+            if (userDataHandle.IsAllocated) {
+                userDataHandle.Free();
+            }
             bridge.Dispose();
             throw;
         }
