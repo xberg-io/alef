@@ -579,12 +579,14 @@ fn gen_single_trait_bridge(
             }
         }
         callbacks.push_str("        try {\n");
+        callbacks.push_str(&format!("            global::System.Console.Error.WriteLine($\"[CALLBACK ENTRY] Method: {}, userData={{userData}}\");\n", to_csharp_name(&method.name)));
         // Recover the bridge instance from the registry using userData as key
         callbacks.push_str(&format!(
             "            {}Bridge _bridgeFromRegistry = null!;\n",
             trait_pascal
         ));
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
+        callbacks.push_str(&format!("                global::System.Console.Error.WriteLine($\"[LOCK] Registry count: {{{}Bridge._bridgeRegistry.Count}}\");\n", trait_pascal));
         callbacks.push_str(&format!(
             "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n",
             trait_pascal
@@ -689,6 +691,7 @@ fn gen_single_trait_bridge(
             }
         } else {
             // Complex return: use out params
+            callbacks.push_str(&format!("            global::System.Console.Error.WriteLine($\"[BEFORE CALL] bridge!={{bridge != null}}, bridge._impl!={{bridge._impl != null}}\");\n"));
             callbacks.push_str(&render(
                 "callback_result_call.jinja",
                 minijinja::context! { method_pascal, param_call, result_var => "methodResult" },
@@ -717,19 +720,28 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            return 0;\n");
         }
 
-        if is_options_field {
+        if is_primitive_return {
             callbacks.push_str("        } catch (Exception) {\n");
-        } else if !is_primitive_return {
-            callbacks.push_str("        } catch (Exception ex) {\n");
         } else {
-            callbacks.push_str("        } catch (Exception) {\n");
+            // Always bind ex for non-primitive returns so we can log it
+            callbacks.push_str("        } catch (Exception ex) {\n");
         }
 
         if !is_primitive_return {
             callbacks.push_str("            outResult = IntPtr.Zero;\n");
         }
         if !is_options_field && !is_primitive_return {
-            callbacks.push_str("            try { outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name); } catch { outError = IntPtr.Zero; }\n");
+            callbacks.push_str("            global::System.Console.Error.WriteLine($\"[CATCH] userData={userData}, ex.GetType()={ex.GetType().Name}, ex.Message={ex.Message}\");\n");
+            callbacks.push_str("            try {\n");
+            callbacks.push_str("                global::System.Console.Error.WriteLine(\"[CATCH] About to call Marshal.StringToCoTaskMemUTF8\");\n");
+            callbacks.push_str("                var msg = ex.Message ?? ex.GetType().Name;\n");
+            callbacks.push_str("                global::System.Console.Error.WriteLine($\"[CATCH] msg={msg}\");\n");
+            callbacks.push_str("                outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(msg);\n");
+            callbacks.push_str("                global::System.Console.Error.WriteLine($\"[CATCH] outError set\");\n");
+            callbacks.push_str("            } catch (Exception ex2) {\n");
+            callbacks.push_str("                global::System.Console.Error.WriteLine($\"[CATCH] Inner catch: {ex2.GetType().Name}: {ex2.Message}\");\n");
+            callbacks.push_str("                outError = IntPtr.Zero;\n");
+            callbacks.push_str("            }\n");
         }
         if !is_primitive_return {
             callbacks.push_str("            return 1;\n");

@@ -802,8 +802,10 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     out.push_str("}\n");
     out.push('\n');
 
-    // FreeUserData trampoline — called by Rust Drop to delete the cgo.Handle
-    // Wrapped in defer/recover to handle stale or double-freed handles gracefully
+    // FreeUserData trampoline — called by Rust Drop (Go 1.26+ cleanup-queue).
+    // DO NOT call cgo.Handle.Delete() here: Go's cleanup-queue runs finalizers in a
+    // context where they may panic if the handle is invalid or already deleted.
+    // Instead, rely on explicit Unregister() calls for proper cleanup.
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
         minijinja::context! {
@@ -817,16 +819,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
         },
     ));
     out.push('\n');
-    out.push_str("\tdefer func() {\n");
-    out.push_str("\t\tif r := recover(); r != nil {\n");
-    out.push_str("\t\t\t// Handle already deleted or invalid; silently ignore.\n");
-    out.push_str("\t\t\t// This can occur if the C side double-frees or if the handle\n");
-    out.push_str("\t\t\t// was already deleted by another cleanup path.\n");
-    out.push_str("\t\t}\n");
-    out.push_str("\t}()\n");
-    out.push_str("\tif userData != nil {\n");
-    out.push_str("\t\tcgo.Handle(uintptr(unsafe.Pointer(userData))).Delete()\n");
-    out.push_str("\t}\n");
+    out.push_str("\t// No-op to avoid cleanup-queue panics. Handles cleaned in Unregister().\n");
     out.push_str("}\n");
     out.push('\n');
 }
