@@ -198,6 +198,16 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         None => String::new(),
     };
 
+    // Format rustler_crates in multi-line pre-formatted shape to match mix format's output.
+    // mix format enforces 98-char line limit by default, so single-line shape
+    // (which can exceed 140 chars with many targets) gets reflowed. Emit pre-formatted
+    // to avoid format drift on sync-versions check.
+    let rustler_crates_block = format!(
+        "rustler_crates: [\n        {nif_atom}: [\n          mode: :release,\n          targets: ~w({nif_targets})\n        ]\n      ],",
+        nif_atom = format_args!("{app_name}_nif"),
+        nif_targets = nif_targets,
+    );
+
     // `lib/` is populated when either (a) at least one non-OptionsField trait
     // bridge emits a GenServer module into `lib/`, or (b) a wrapper module file
     // (`lib/<app_name>.ex`, or any `.ex` under `lib/`) was emitted earlier in
@@ -313,7 +323,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
       app: :{app_name},
       version: "{version}",
       elixir: "~> 1.14",{elixirc_paths}
-      rustler_crates: [{nif_atom}: [mode: :release, targets: ~w({nif_targets})]],
+      {rustler_crates_block}
       description: "{description}",
       package: package(),
       deps: deps()
@@ -340,10 +350,9 @@ end
 "#,
         module = app_name.to_pascal_case(),
         app_name = app_name,
-        nif_atom = format_args!("{app_name}_nif"),
-        nif_targets = nif_targets,
         version = version,
         elixirc_paths = elixirc_paths_line,
+        rustler_crates_block = rustler_crates_block,
         files_keyword = files_keyword,
         jason_dep = jason_dep,
         description = meta.description,

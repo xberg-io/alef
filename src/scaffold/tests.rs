@@ -1086,7 +1086,7 @@ fn test_scaffold_ruby_production_features() {
     assert_eq!(files[1].path, PathBuf::from("packages/ruby/.rubocop.yml"));
     // Check for Rakefile generation
     assert_eq!(files[2].path, PathBuf::from("packages/ruby/Rakefile"));
-    assert!(files[2].content.contains("Rake::ExtensionTask"));
+    assert!(files[2].content.contains("RbSys::ExtensionTask"));
     assert!(files[2].content.contains("my_lib_rb"));
     // Check for extconf.rb generation
     assert_eq!(files[3].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
@@ -1665,9 +1665,9 @@ nif_targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
     let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
 
     assert!(
-        mix_exs.content.contains(
-            "rustler_crates: [my_lib_nif: [mode: :release, targets: ~w(aarch64-apple-darwin x86_64-unknown-linux-gnu)]]"
-        ),
+        mix_exs.content.contains("rustler_crates: [\n") &&
+        mix_exs.content.contains("my_lib_nif: [") &&
+        mix_exs.content.contains("targets: ~w(aarch64-apple-darwin x86_64-unknown-linux-gnu)"),
         "mix.exs must wire configured nif_targets into rustler_crates; content:\n{}",
         mix_exs.content
     );
