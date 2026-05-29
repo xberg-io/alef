@@ -85,6 +85,16 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let is_result_type = method.error_type.is_some();
         let is_unit_return = matches!(method.return_type, TypeRef::Unit);
         let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_));
+
+        let return_type = match &method.return_type {
+            TypeRef::Named(n) => self
+                .type_paths
+                .get(n.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| n.clone()),
+            other => crate::codegen::generators::trait_bridge::format_type_ref(other, &self.type_paths),
+        };
+
         let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
         let call_error_expr = spec.make_error("e.to_string()");
 
@@ -96,6 +106,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 is_result_type => is_result_type,
                 is_unit_return => is_unit_return,
                 is_primitive_return => is_primitive_return,
+                return_type => return_type,
                 deserialize_error_expr => deserialize_error_expr,
                 call_error_expr => call_error_expr,
             },

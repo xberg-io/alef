@@ -1665,9 +1665,11 @@ nif_targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
     let mix_exs = files.iter().find(|f| f.path.ends_with("mix.exs")).unwrap();
 
     assert!(
-        mix_exs.content.contains("rustler_crates: [\n") &&
-        mix_exs.content.contains("my_lib_nif: [") &&
-        mix_exs.content.contains("targets: ~w(aarch64-apple-darwin x86_64-unknown-linux-gnu)"),
+        mix_exs.content.contains("rustler_crates: [\n")
+            && mix_exs.content.contains("my_lib_nif: [")
+            && mix_exs
+                .content
+                .contains("targets: ~w(aarch64-apple-darwin x86_64-unknown-linux-gnu)"),
         "mix.exs must wire configured nif_targets into rustler_crates; content:\n{}",
         mix_exs.content
     );

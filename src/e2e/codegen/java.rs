@@ -1361,6 +1361,7 @@ fn render_test_method(
             None
         };
 
+    let mut teardown_block = String::new();
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         &filtered_args,
@@ -1372,6 +1373,7 @@ fn render_test_method(
             owner_handle_is_receiver: streaming_owner_handle.is_some(),
             config,
             type_defs,
+            teardown_block: &mut teardown_block,
         },
     );
 
@@ -1573,6 +1575,7 @@ fn render_test_method(
             returns_void => call_config.returns_void,
             collect_snippet => collect_snippet,
             assertions_body => assertions_body,
+            teardown_block => teardown_block,
         },
     );
     out.push_str(&rendered);
@@ -1589,6 +1592,7 @@ struct JavaArgsContext<'a> {
     owner_handle_is_receiver: bool,
     config: &'a ResolvedCrateConfig,
     type_defs: &'a [crate::core::ir::TypeDef],
+    teardown_block: &'a mut String,
 }
 
 fn build_args_and_setup(
@@ -1604,6 +1608,7 @@ fn build_args_and_setup(
         owner_handle_is_receiver,
         config,
         type_defs,
+        teardown_block,
     } = context;
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1804,6 +1809,7 @@ fn build_args_and_setup(
                     );
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
+                    teardown_block.push_str(&emission.teardown_block);
                     continue;
                 }
             }
@@ -3136,6 +3142,7 @@ pub fn emit_test_backend_with_context(
     excluded_types: &std::collections::HashSet<&str>,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
+    use crate::e2e::escape::escape_java;
     use std::fmt::Write as _;
 
     let pascal_id = fixture.id.to_upper_camel_case();
@@ -3149,6 +3156,7 @@ pub fn emit_test_backend_with_context(
     };
 
     let plugin_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
+    let backend_name = plugin_name.clone();
 
     let defaults = language_defaults("java");
 
@@ -3217,11 +3225,24 @@ pub fn emit_test_backend_with_context(
 
     let _ = writeln!(setup, "}}");
 
+    // Java test runner (JUnit) runs each test in the same process, so registering a
+    // test backend leaks into later tests. Emit `Kreuzberg.unregister_<trait>("backend_name")`
+    // after the call+assertions to drain the test backend from the global registry.
+    let teardown_block = trait_bridge
+        .unregister_fn
+        .as_deref()
+        .map(|unregister_fn| {
+            let escaped = escape_java(&backend_name);
+            let camel_case_fn = unregister_fn.to_lower_camel_case();
+            format!("        Kreuzberg.{camel_case_fn}(\"{escaped}\");\n")
+        })
+        .unwrap_or_default();
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("new {class_name}()"),
         type_imports: Vec::new(),
-        teardown_block: String::new(),
+        teardown_block,
     }
 }
 

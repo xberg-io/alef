@@ -104,6 +104,7 @@ classifiers = [
 packages = []
 {uv_sources_block}
 [tool.ruff]
+line-length = 120
 lint.ignore = {ruff_ignore_array}
 lint.per-file-ignores."tests/**" = {ruff_tests_array}
 

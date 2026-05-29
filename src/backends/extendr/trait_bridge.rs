@@ -56,6 +56,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         };
 
         // Determine which template to use based on return type
+        let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_));
         let template_name = match &method.return_type {
             TypeRef::Unit => "sync_method_unit_return.jinja",
             TypeRef::String | TypeRef::Char => "sync_method_string_return.jinja",
@@ -80,6 +81,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 empty_args => empty_args,
                 args_pairs => args_pairs,
                 return_type => ret_ty,
+                is_primitive_return => is_primitive_return,
                 missing_method_error => method_error_expr(
                     &spec.error_constructor,
                     name,

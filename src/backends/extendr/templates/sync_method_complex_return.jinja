@@ -15,6 +15,26 @@ let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
 let result = fn_robj.call(args);
 {% endif %}
 
+{% if is_primitive_return %}
+// Primitive return: extract directly from Robj without JSON deserialization
+match result {
+    Err(_) => {
+{% if has_error %}
+        Err({{ failed_method_error }})
+{% else %}
+        Default::default()
+{% endif %}
+    }
+    Ok(val) => {
+        let int_val = val.as_integer().unwrap_or(0) as {{ return_type }};
+{% if has_error %}
+        Ok(int_val)
+{% else %}
+        int_val
+{% endif %}
+    }
+}
+{% else %}
 // R callbacks return JSON-encoded strings (e.g. via `jsonlite::toJSON`). Parse the string
 // payload back into the trait return type. Note: `extendr_api::Robj` does not implement
 // `serde::Serialize`, so we cannot serialize it directly — the caller must serialize on
@@ -40,3 +60,4 @@ match result {
         }
     }
 }
+{% endif %}

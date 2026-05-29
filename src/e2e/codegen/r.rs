@@ -366,6 +366,7 @@ fn render_test_case(
     });
     // Build visitor setup and args if present
     let mut setup_lines = Vec::new();
+    let mut teardown_block = String::new();
     let args_str = build_args_string(
         &fixture.input,
         fixture.resolved_args(call_config),
@@ -376,6 +377,7 @@ fn render_test_case(
             config,
             type_defs,
             setup_lines: &mut setup_lines,
+            teardown_block: &mut teardown_block,
         },
     );
 
@@ -468,6 +470,11 @@ fn render_test_case(
         render_assertion(out, assertion, result_var, &context);
     }
 
+    // Emit teardown for trait-bridge tests to clean up registered test backends.
+    for line in teardown_block.lines() {
+        let _ = writeln!(out, "{line}");
+    }
+
     let _ = writeln!(out, "}})");
 }
 
@@ -521,6 +528,7 @@ struct RArgsContext<'a> {
     config: &'a ResolvedCrateConfig,
     type_defs: &'a [crate::core::ir::TypeDef],
     setup_lines: &'a mut Vec<String>,
+    teardown_block: &'a mut String,
 }
 
 fn build_args_string(
@@ -535,6 +543,7 @@ fn build_args_string(
         config,
         type_defs,
         setup_lines,
+        teardown_block,
     } = context;
     if args.is_empty() {
         // No declared args means the wrapper takes zero parameters. Always
@@ -667,6 +676,8 @@ fn build_args_string(
                         if !emission.setup_block.is_empty() {
                             setup_lines.push(emission.setup_block.trim_end().to_string());
                         }
+                        // Collect teardown for trait-bridge tests to clean up after assertions.
+                        teardown_block.push_str(&emission.teardown_block);
                         return Some(format!("{arg_name} = {}", emission.arg_expr));
                     }
                 }
@@ -1445,8 +1456,10 @@ pub fn emit_test_backend(
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
+    use crate::e2e::escape::escape_r;
 
     let defaults = language_defaults("r");
+    let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
     let var_name = format!("r_backend_{}", sanitize_ident(&fixture.id));
 
     let mut setup = String::new();
@@ -1498,6 +1511,18 @@ pub fn emit_test_backend(
 
     let _ = writeln!(setup, "  )");
 
+    // R test runner (testthat) runs each test in the same process, so registering a
+    // test backend leaks into later tests. Emit `unregister_<trait>("backend_name")`
+    // after the call+assertions to drain the test backend from the global registry.
+    let teardown_block = trait_bridge
+        .unregister_fn
+        .as_deref()
+        .map(|unregister_fn| {
+            let escaped = escape_r(&backend_name);
+            format!("  {unregister_fn}(\"{escaped}\")\n")
+        })
+        .unwrap_or_default();
+
     // The arg_expr is just the variable name — the outer call (the fixture's
     // configured function) supplies the registration wrapper.  The setup_block
     // containing the list definition must be emitted before the call site.
@@ -1505,7 +1530,7 @@ pub fn emit_test_backend(
         setup_block: setup,
         arg_expr: var_name,
         type_imports: Vec::new(),
-        teardown_block: String::new(),
+        teardown_block,
     }
 }
 
@@ -1626,4 +1651,32 @@ mod tests {
             );
         }
     }
+}
+
+/// Extract a backend name string from the fixture input JSON.
+///
+/// Searches the top-level input object for the first string value at any depth
+/// under keys commonly used for names (`name`, or the first string field found).
+/// Falls back to the fixture id when no string is found.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    // Walk the top-level object, then one level deeper, looking for "name".
+    if let Some(obj) = input.as_object() {
+        // Direct "name" key.
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
 }

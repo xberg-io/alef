@@ -4,6 +4,12 @@ let result = unsafe { (*self.inner).try_call_method("{{ method_name }}", {{ args
 match result {
 {% if is_unit_return %}
     Ok(_) => Ok(()),
+{% elif is_primitive_return %}
+    Ok(val) => {
+        // For primitives, extract directly from Zval without JSON parsing
+        let int_val = val.long().unwrap_or_default() as {{ return_type }};
+        Ok(int_val)
+    }
 {% else %}
     Ok(val) => {
         let json_str = val.string().unwrap_or_default();
@@ -16,6 +22,8 @@ match result {
 match result {
 {% if is_unit_return %}
     Ok(_) => (),
+{% elif is_primitive_return %}
+    Ok(val) => val.long().unwrap_or_default() as {{ return_type }},
 {% else %}
     Ok(val) => {
         let json_str = val.string().unwrap_or_default();

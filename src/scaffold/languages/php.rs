@@ -72,36 +72,55 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .map(|d| format!("\"{d}\""))
         .collect::<Vec<_>>()
         .join(", ");
+    // Build [dependencies] block alphabetically sorted to match cargo-sort.
+    // Order: async-trait?, ext-php-rs, futures-util?, html-to-markdown-rs (core),
+    // serde, serde_json, tokio.
+    let core_dep_php = crate::scaffold::render_core_dep(
+        &config.name,
+        &format!("../{core_crate_dir}"),
+        &core_dep_features(config, Language::Php),
+        version,
+    );
+    let mut dep_entries: Vec<String> = vec![
+        format!("ext-php-rs = \"{}\"", tv::cargo::EXT_PHP_RS),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
+        "serde_json = \"1\"".to_string(),
+        "tokio = { version = \"1\", features = [\"full\"] }".to_string(),
+    ];
+    if !core_dep_php.is_empty() {
+        dep_entries.push(core_dep_php.clone());
+    }
+    if !all_deps.is_empty() {
+        for line in all_deps.lines() {
+            if !line.is_empty() {
+                dep_entries.push(line.to_string());
+            }
+        }
+    }
+    dep_entries.sort();
+    let dep_block = dep_entries.join("\n");
+    let _ = extra_deps_section;
+
     let content = format!(
         r#"{pkg_header}
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-{core_dep}
-ext-php-rs = "{ext_php_rs}"
-serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"
-tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
 # `ahash` and `futures-util` are conditionally included but not directly used in PHP code.
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
+[lib]
+crate-type = ["cdylib"]
+
 [features]
 extension-module = []
 
+[dependencies]
+{dep_block}
+
 "#,
         pkg_header = pkg_header,
-        core_dep = crate::scaffold::render_core_dep(
-            &config.name,
-            &format!("../{core_crate_dir}"),
-            &core_dep_features(config, Language::Php),
-            version,
-        ),
-        ext_php_rs = tv::cargo::EXT_PHP_RS,
-        extra_deps_section = extra_deps_section,
+        dep_block = dep_block,
+        machete_ignored_str = machete_ignored_str,
     );
 
     Ok(vec![GeneratedFile {

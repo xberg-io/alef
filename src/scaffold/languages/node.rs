@@ -197,18 +197,42 @@ pub(crate) fn scaffold_node_cargo(
         .collect::<Vec<_>>()
         .join(", ");
 
+    // Build [dependencies] block alphabetically sorted to match cargo-sort.
+    // Order: async-trait?, futures-util?, html-to-markdown-rs (core), napi,
+    // napi-derive, serde, serde_json, + any extra deps.
+    let core_dep = crate::scaffold::render_core_dep(
+        &config.name,
+        &format!("../{core_crate_dir}"),
+        &core_dep_features(config, Language::Node),
+        version,
+    );
+    let mut dep_entries: Vec<String> = vec![
+        format!(
+            "napi = {{ version = \"{napi}\", features = [{napi_features_str}] }}",
+            napi = tv::cargo::NAPI
+        ),
+        format!("napi-derive = \"{}\"", tv::cargo::NAPI_DERIVE),
+        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
+        "serde_json = \"1\"".to_string(),
+    ];
+    if !core_dep.is_empty() {
+        dep_entries.push(core_dep.clone());
+    }
+    if !all_deps.is_empty() {
+        for line in all_deps.lines() {
+            if !line.is_empty() {
+                dep_entries.push(line.to_string());
+            }
+        }
+    }
+    dep_entries.sort();
+    let dep_block = dep_entries.join("\n");
+    // Silence unused vars from the prior template wiring; the new dep block
+    // collapses extra_deps_section into dep_entries directly.
+    let _ = extra_deps_section;
+
     let content = format!(
         r#"{pkg_header}
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-{core_dep}
-napi = {{ version = "{napi}", features = [{napi_features}] }}
-napi-derive = "{napi_derive}"
-serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{extra_deps_section}
 
 # `serde_json` is emitted unconditionally above so the manifest is stable
 # across regens, but for umbrella crates with no JSON-marshalled return types
@@ -218,22 +242,20 @@ serde_json = "1"{extra_deps_section}
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+{dep_block}
+
 [build-dependencies]
 napi-build = "{napi_build}"
 
 "#,
         pkg_header = pkg_header,
-        core_dep = crate::scaffold::render_core_dep(
-            &config.name,
-            &format!("../{core_crate_dir}"),
-            &core_dep_features(config, Language::Node),
-            version,
-        ),
-        napi = tv::cargo::NAPI,
-        napi_features = napi_features_str,
-        napi_derive = tv::cargo::NAPI_DERIVE,
+        dep_block = dep_block,
+        machete_ignored_str = machete_ignored_str,
         napi_build = tv::cargo::NAPI_BUILD,
-        extra_deps_section = extra_deps_section,
     );
 
     Ok(vec![GeneratedFile {

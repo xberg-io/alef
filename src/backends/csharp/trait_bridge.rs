@@ -402,7 +402,15 @@ fn gen_single_trait_bridge(
     if has_super_trait {
         callbacks.push_str("    private int NameFnCallback(IntPtr userData, out IntPtr outName) {\n");
         callbacks.push_str("        try {\n");
-        callbacks.push_str("            var name = _impl.Name;\n");
+        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
+        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str("                    outName = IntPtr.Zero;\n");
+        callbacks.push_str("                    return 1;\n");
+        callbacks.push_str("                }\n");
+        callbacks.push_str("                var name = bridge._impl.Name;\n");
+        callbacks.push_str("                outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(name);\n");
+        callbacks.push_str("            }\n");
+        callbacks.push_str("            return 0;\n");
         callbacks.push_str(
             "            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(name);\n",
         );
@@ -416,10 +424,16 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str("    private int VersionFnCallback(IntPtr userData, out IntPtr outVersion) {\n");
         callbacks.push_str("        try {\n");
-        callbacks.push_str("            var version = _impl.Version;\n");
+        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
+        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str("                    outVersion = IntPtr.Zero;\n");
+        callbacks.push_str("                    return 1;\n");
+        callbacks.push_str("                }\n");
+        callbacks.push_str("                var version = bridge._impl.Version;\n");
         callbacks.push_str(
-            "            outVersion = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(version);\n",
+            "                outVersion = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(version);\n",
         );
+        callbacks.push_str("            }\n");
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch {\n");
         callbacks.push_str("            outVersion = IntPtr.Zero;\n");
@@ -430,8 +444,14 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str("    private int InitializeFnCallback(IntPtr userData, out IntPtr outError) {\n");
         callbacks.push_str("        try {\n");
-        callbacks.push_str("            _impl.Initialize();\n");
-        callbacks.push_str("            outError = IntPtr.Zero;\n");
+        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
+        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str("                    outError = IntPtr.Zero;\n");
+        callbacks.push_str("                    return 1;\n");
+        callbacks.push_str("                }\n");
+        callbacks.push_str("                bridge._impl.Initialize();\n");
+        callbacks.push_str("                outError = IntPtr.Zero;\n");
+        callbacks.push_str("            }\n");
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch (Exception ex) {\n");
         callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
@@ -442,8 +462,14 @@ fn gen_single_trait_bridge(
 
         callbacks.push_str("    private int ShutdownFnCallback(IntPtr userData, out IntPtr outError) {\n");
         callbacks.push_str("        try {\n");
-        callbacks.push_str("            _impl.Shutdown();\n");
-        callbacks.push_str("            outError = IntPtr.Zero;\n");
+        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
+        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str("                    outError = IntPtr.Zero;\n");
+        callbacks.push_str("                    return 1;\n");
+        callbacks.push_str("                }\n");
+        callbacks.push_str("                bridge._impl.Shutdown();\n");
+        callbacks.push_str("                outError = IntPtr.Zero;\n");
+        callbacks.push_str("            }\n");
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch (Exception ex) {\n");
         callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
@@ -541,6 +567,15 @@ fn gen_single_trait_bridge(
             }
         }
         callbacks.push_str("        try {\n");
+        // Recover the bridge instance from the registry using userData as key
+        callbacks.push_str(&format!("            {}Bridge _bridge = null!;\n", trait_pascal));
+        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
+        callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n", trait_pascal));
+        callbacks.push_str("                    throw new InvalidOperationException($\"Bridge not found for userData: {userData}\");\n");
+        callbacks.push_str("                }\n");
+        callbacks.push_str("                _bridge = bridge;\n");
+        callbacks.push_str("            }\n");
+        callbacks.push_str("            var bridge = _bridge;\n");
 
         // Marshal parameters from IntPtr to managed types
         let mut param_call_parts = Vec::new();
@@ -605,7 +640,7 @@ fn gen_single_trait_bridge(
             // Primitive return: call method and return directly
             // Use methodResult to avoid variable shadowing with parameters
             callbacks.push_str(&format!(
-                "            var methodResult = _impl.{}({});\n",
+                "            var methodResult = bridge._impl.{}({});\n",
                 method_pascal, param_call
             ));
             // Convert return value based on method return type

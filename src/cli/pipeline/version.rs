@@ -932,9 +932,7 @@ pub fn sync_versions(
     for swift_pkg_pattern in &["test_apps/*/Package.swift", "e2e/*/Package.swift"] {
         for swift_pkg in glob::glob(swift_pkg_pattern).into_iter().flatten().flatten() {
             if let Ok(content) = std::fs::read_to_string(&swift_pkg) {
-                if let Some(new_content) =
-                    replace_version_pattern(&content, r#"from:\s*"[^"]*""#, &version)
-                {
+                if let Some(new_content) = replace_version_pattern(&content, r#"from:\s*"[^"]*""#, &version) {
                     std::fs::write(&swift_pkg, &new_content)
                         .with_context(|| format!("failed to write {}", swift_pkg.display()))?;
                     updated.push(swift_pkg.to_string_lossy().to_string());
@@ -951,9 +949,7 @@ pub fn sync_versions(
     for sh_pattern in &["e2e/c/download_ffi.sh", "test_apps/c/download_ffi.sh"] {
         for sh_script in glob::glob(sh_pattern).into_iter().flatten().flatten() {
             if let Ok(content) = std::fs::read_to_string(&sh_script) {
-                if let Some(new_content) =
-                    replace_version_pattern(&content, r#"VERSION="[^"]*""#, &version)
-                {
+                if let Some(new_content) = replace_version_pattern(&content, r#"VERSION="[^"]*""#, &version) {
                     std::fs::write(&sh_script, &new_content)
                         .with_context(|| format!("failed to write {}", sh_script.display()))?;
                     updated.push(sh_script.to_string_lossy().to_string());

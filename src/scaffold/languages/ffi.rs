@@ -156,18 +156,30 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         format!("\n{target_blocks}\n")
     };
 
+    // Build [dependencies] block, alphabetically sorted to match cargo-sort:
+    // ahash, async-trait?, futures-util?, html-to-markdown-rs, serde_json, tokio, …
+    // (cargo-sort orders dependencies by key name). core_dep_line is the
+    // core crate (e.g. html-to-markdown-rs), which sorts between ahash and
+    // serde_json by `h*` < `s*`. extra_dep_lines come from
+    // [crate.extra_dependencies] in alef.toml and are pre-sorted above.
+    let mut dep_entries: Vec<String> = vec![
+        "ahash = \"0.8\"".to_string(),
+        "serde_json = \"1\"".to_string(),
+        "tokio = { version = \"1\", features = [\"full\"] }".to_string(),
+    ];
+    if !core_dep_line.is_empty() {
+        dep_entries.push(core_dep_line.clone());
+    }
+    for line in &extra_dep_lines {
+        dep_entries.push(line.clone());
+    }
+    dep_entries.sort();
+    let dep_block = dep_entries.join("\n");
+
     let content = format!(
         r#"{pkg_header}
 repository = "{repository}"
 
-[lib]
-crate-type = ["cdylib", "staticlib"]
-
-[dependencies]
-{core_dep_line_block}ahash = "0.8"
-serde_json = "1"
-tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
-{target_blocks_section}
 # `serde_json`, `ahash`, and `tokio` are emitted unconditionally above so the
 # manifest is stable across regens (and so the C FFI codegen can pull them in
 # when an async / Result-typed function appears in the API surface), but for
@@ -179,9 +191,15 @@ tokio = {{ version = "1", features = ["full"] }}{extra_deps_block}
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
 [features]
 default = []
 
+[dependencies]
+{dep_block}
+{target_blocks_section}
 [build-dependencies]
 cbindgen = "{cbindgen}"
 
@@ -190,11 +208,11 @@ tempfile = "{tempfile}"
 "#,
         pkg_header = pkg_header,
         repository = meta.repository,
-        core_dep_line_block = core_dep_line_block,
+        dep_block = dep_block,
         target_blocks_section = target_blocks_section,
         cbindgen = tv::cargo::CBINDGEN,
         tempfile = tv::cargo::TEMPFILE,
-        extra_deps_block = extra_deps_block,
+        machete_ignored_str = machete_ignored_str,
     );
 
     let ffi_name = format!("{core_crate_dir}-ffi");

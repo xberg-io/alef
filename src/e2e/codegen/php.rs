@@ -1139,7 +1139,7 @@ fn render_test_method(
         None
     };
 
-    let (mut setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, args_str, teardown_block) = build_args_and_setup(
         &fixture.input,
         args,
         class_name,
@@ -1371,6 +1371,7 @@ fn render_test_method(
             collect_snippet => collect_snippet,
             field_bindings => field_bindings,
             assertions_body => assertions_body,
+            teardown_block => teardown_block,
         },
     );
     out.push_str(&rendered);
@@ -1457,7 +1458,7 @@ fn build_args_and_setup(
     type_defs: &[crate::core::ir::TypeDef],
     php_lang_rename_all: &str,
     config: &ResolvedCrateConfig,
-) -> (Vec<String>, String) {
+) -> (Vec<String>, String, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args configuration: pass the whole input only if it's non-empty.
@@ -1468,13 +1469,14 @@ fn build_args_and_setup(
             _ => false,
         };
         if is_empty_input {
-            return (Vec::new(), String::new());
+            return (Vec::new(), String::new(), String::new());
         }
-        return (Vec::new(), json_to_php(input));
+        return (Vec::new(), json_to_php(input), String::new());
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
+    let mut teardown_block = String::new();
 
     // True when any arg after `from_idx` has a fixture value (or has no fixture
     // value but is required — i.e. would emit *something*). Used to decide
@@ -1653,6 +1655,7 @@ fn build_args_and_setup(
                         setup_lines.push(line.to_string());
                     }
                     parts.push(emission.arg_expr);
+                    teardown_block.push_str(&emission.teardown_block);
                     continue;
                 }
             }
@@ -1895,7 +1898,7 @@ fn build_args_and_setup(
         }
     }
 
-    (setup_lines, parts.join(", "))
+    (setup_lines, parts.join(", "), teardown_block)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2665,11 +2668,23 @@ pub fn emit_test_backend_with_ns(
 
     let _ = writeln!(setup, "}};");
 
+    // PHP test runner (PHPUnit) runs each test in the same process, so registering a
+    // test backend leaks into later tests. Emit `unregister_<trait>("backend_name")`
+    // after the call+assertions to drain the test backend from the global registry.
+    let teardown_block = trait_bridge
+        .unregister_fn
+        .as_deref()
+        .map(|unregister_fn| {
+            let escaped = escape_php(&backend_name);
+            format!("        {unregister_fn}(\"{escaped}\");\n")
+        })
+        .unwrap_or_default();
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: "$stub".to_string(),
         type_imports: Vec::new(),
-        teardown_block: String::new(),
+        teardown_block,
     }
 }
 

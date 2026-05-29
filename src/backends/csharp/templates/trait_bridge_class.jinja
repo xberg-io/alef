@@ -3,11 +3,18 @@
 /// </summary>
 public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
-    private readonly I{{ trait_pascal }} _impl;
+    internal readonly I{{ trait_pascal }} _impl;
     private readonly GCHandle _implHandle;
     internal IntPtr _vtable;
     private bool _disposed;
     private readonly object[] _delegates;
+    private readonly IntPtr _bridgeId;
+
+    // Static registry: maps bridge ID (IntPtr) to bridge instance
+    // This prevents GC while Rust holds the bridge ID as userData.
+    internal static readonly Dictionary<IntPtr, {{ trait_pascal }}Bridge> _bridgeRegistry = new();
+    internal static int _nextBridgeId = 1;
+    internal static readonly object _registryLock = new();
 
     // Vtable slot delegates ({{ num_vtable_fields }})
 {% if has_super_trait %}
@@ -61,6 +68,10 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
         _vtable = IntPtr.Zero;
         _disposed = false;
         _delegates = new object[{{ num_vtable_fields }}];
+        // Allocate unique bridge ID for registry lookup during callbacks
+        lock (_registryLock) {
+            _bridgeId = new IntPtr(_nextBridgeId++);
+        }
         BuildVtable();
     }
 
@@ -73,6 +84,16 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     private static string ToJsonString<T>(T value) {
         return JsonSerializer.Serialize(value);
+    }
+
+    /// <summary>Called by Rust via FreeUserDataCallback when done with this bridge</summary>
+    internal static void FreeUserData(IntPtr bridgeId) {
+        lock (_registryLock) {
+            if (_bridgeRegistry.TryGetValue(bridgeId, out var bridge)) {
+                _bridgeRegistry.Remove(bridgeId);
+                bridge.Dispose();
+            }
+        }
     }
 
 {{ callbacks }}
@@ -107,31 +128,34 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {% endif %}
 
         var bridge = new {{ trait_pascal }}Bridge(impl);
-        GCHandle userDataHandle = default;
 
         try {
-            // Pin the bridge instance to prevent GC during the native register call.
-            // This GCHandle remains active across the NativeMethods.Register call and beyond,
-            // ensuring the bridge and its _impl remain reachable when Rust invokes callbacks.
-            userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Pinned);
-            var userData = GCHandle.ToIntPtr(userDataHandle);
+            // Register bridge in the static registry using its unique ID.
+            // This keeps the bridge alive while Rust holds the ID (userData).
+            lock (_registryLock) {
+                _bridgeRegistry[bridge._bridgeId] = bridge;
+            }
+
             var vtablePtr = bridge._vtable;
+            var userData = bridge._bridgeId;
 
             var result = NativeMethods.Register{{ trait_pascal }}(name, vtablePtr, userData, out var outError);
             if (result != 0) {
-                userDataHandle.Free();
+                lock (_registryLock) {
+                    _bridgeRegistry.Remove(bridge._bridgeId);
+                }
                 bridge.Dispose();
                 var errorMsg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
                 global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(outError);
                 throw new InvalidOperationException($"Failed to register {name}: {errorMsg}");
             }
 
-            // Return the userData handle (which keeps the bridge alive).
-            // The FFI layer holds this handle and will call FreeUserDataCallback when done.
+            // Return the bridge ID (userData).
+            // The FFI layer holds this ID and will call FreeUserDataCallback with it when done.
             return userData;
         } catch {
-            if (userDataHandle.IsAllocated) {
-                userDataHandle.Free();
+            lock (_registryLock) {
+                _bridgeRegistry.Remove(bridge._bridgeId);
             }
             bridge.Dispose();
             throw;

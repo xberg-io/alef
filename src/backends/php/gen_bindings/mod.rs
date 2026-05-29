@@ -2147,6 +2147,8 @@ fi
         extension_name,
         lib_name,
         lib_name,
+        lib_name,
+        lib_name,
         cargo_crate_name,
         extension_name
     )
