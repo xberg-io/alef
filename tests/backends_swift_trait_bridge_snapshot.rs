@@ -255,8 +255,9 @@ fn test_trait_bridge_excluded_type_return() {
     assert_eq!(files.len(), 1);
     let (_filename, content) = &files[0];
 
-    // Protocol should accept excluded type as native struct, not as String
-    assert!(content.contains("func process(image_bytes: Data) async throws -> ExtractionResult"));
+    // Protocol marshals an excluded return type as a JSON String — the native
+    // struct is not visible to the Swift side, so the conformer returns JSON.
+    assert!(content.contains("func process(image_bytes: Data) async throws -> String"));
 
     // Adapter method should return String (JSON envelope)
     assert!(content.contains("func processCall(image_bytes: Data) async throws -> String"));

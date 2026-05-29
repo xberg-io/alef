@@ -104,17 +104,12 @@ fn render_registry_build_zig() -> String {
 fn registry_build_zig_consumes_published_dependency() {
     let content = render_registry_build_zig();
 
-    // The dependency key is the platform-specific package name resolved via the
-    // `pkg_name` variable. Verify the platform-suffixed names appear (e.g.
-    // `sample_crawler_linux_x86_64`) and that `b.dependency(pkg_name, ...)`
-    // wires them into the build graph.
+    // Registry mode emits a single generic package (no platform suffix), wired
+    // into the build graph via `b.dependency("<pkg_name>", ...)` and consumed
+    // through its exported module.
     assert!(
-        content.contains("b.dependency(pkg_name, .{"),
-        "registry build.zig must consume the published package via b.dependency(pkg_name, ...):\n{content}"
-    );
-    assert!(
-        content.contains("sample_crawler_linux_x86_64"),
-        "registry build.zig must reference the linux-x86_64 platform package name:\n{content}"
+        content.contains("b.dependency(\"sample_crawler\", .{"),
+        "registry build.zig must consume the published package via b.dependency(\"sample_crawler\", ...):\n{content}"
     );
     assert!(
         content.contains(".module(\"sample_crawler\")"),

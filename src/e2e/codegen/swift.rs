@@ -394,6 +394,16 @@ fn render_package_swift(
             (None, prod)
         }
     };
+    // Local deps must be declared as a top-level package dependency so the
+    // `.product(package:)` reference in the test target resolves. Registry deps
+    // are vendored via `.binaryTarget` (a target, not a package dependency), so
+    // no top-level `dependencies:` array is emitted in that mode.
+    let dependencies_block = match dep_mode {
+        crate::e2e::config::DependencyMode::Local => {
+            format!("    dependencies: [\n        .package(path: \"{pkg_path}\"),\n    ],\n")
+        }
+        crate::e2e::config::DependencyMode::Registry => String::new(),
+    };
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
@@ -431,7 +441,7 @@ let package = Package(
         .macOS(.v{min_macos_major}),
         .iOS(.v{min_ios_major}),
     ],
-    targets: [
+{dependencies_block}    targets: [
 {targets_block}    ]
 )
 "#
