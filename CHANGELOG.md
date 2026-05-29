@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef rustler trait-bridge: use `block_on` when spawning outside tokio runtime context.** Trait bridge sync method body generation created a tokio runtime when not in an async context but never ran it, causing deadlock on `rx.blocking_recv()`. Now uses `rt.block_on()` to properly execute the spawn_blocking work and await the channel response. Elixir e2e tests no longer hang during plugin API test loading. (`src/backends/rustler/templates/sync_method_body.rs.jinja`)
+
 ## [0.20.14] - 2026-05-29
 
 ### Fixed
@@ -31,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef rustler/elixir template: pre-wrap `RustlerPrecompiled` `base_url:` URL so downstream `mix format` doesn't have to.** The `native_module_header.jinja` template emitted the `base_url:` field and its URL on a single line, which exceeds `mix format`'s default ~98 char width whenever `repo_url + version` overflows. Every downstream consumer (e.g. tree-sitter-language-pack) had to hand-apply the `mix format` autofix after every regen. Fix pre-wraps the URL onto the next indented line in the template so the generated `native.ex` is already idempotent under `mix format`. (`src/backends/rustler/template_env.rs`)
 
-- **alef C# trait-bridge: pin delegates array in memory to prevent NRE during callbacks.** C# trait bridge callbacks (PostProcessor, OcrBackend, etc.) were crashing with NullReferenceException when invoked after aggressive GC. Root cause: the `_delegates` object array (holding delegate instances whose function pointers are stored in the vtable) was kept only as an instance field without an explicit GCHandle. If the bridge was disposed or removed from the registry while a callback was in flight, the delegates could be garbage collected, invalidating their function pointers. When Rust invoked these now-invalid function pointers, it resulted in undefined behavior culminating in NRE when exception handlers tried to marshal the error message. Fixed by creating a `GCHandle.Alloc(_delegates, GCHandleType.Normal)` in the bridge constructor and freeing it in `Dispose()`. The delegates array now remains pinned until the bridge is explicitly disposed, ensuring function pointers remain valid throughout the callback lifecycle. C# e2e test suite now passes all 100 tests. (`src/backends/csharp/templates/trait_bridge_class.jinja`)
+- **alef C# trait-bridge: pin impl and delegates with GCHandle to prevent callback NRE.** C# trait bridge callbacks were crashing with NullReferenceException during callback execution. Root cause: the impl and delegates array could be garbage collected if the bridge was disposed or evicted from the registry while callbacks were in flight. Solution: create GCHandle.Pinned for the impl (to prevent collection of the plugin instance) and GCHandle.Normal for the _delegates array (to retain the delegate objects). Both are freed in Dispose(). The combination of GCHandles plus the registry refcount mechanism ensures objects remain valid throughout callback execution. C# e2e test suite now passes all 100 tests. (`src/backends/csharp/templates/trait_bridge_class.jinja`)
 
 - **alef dart frb_rewrite: qualify Uri.parse() with _DartCore alias to avoid conflict with Kreuzberg Uri class.** The frb_rewrite external-library loader uses `Uri.parse()` but the Kreuzberg FFI bindings auto-generate a local `Uri` class. When the loader code calls `Uri.parse()`, the Dart type resolver selects the local `Uri` class instead of `dart:core.Uri`, causing type mismatch errors in the generated frb_generated.dart file. Fix imports `dart:core` with the `_DartCore` alias and replaces all `Uri.parse()` calls with `_DartCore.Uri.parse()` to ensure correct resolution. (`src/backends/dart/frb_rewrite.rs`)
 

@@ -3672,12 +3672,20 @@ fn emit_async_free_function_forwarder(
     //
     // For first-class DTOs, convert RustBridge.T -> T inside the closure so Swift's type
     // inference can correctly determine the closure's return type.
+    // For JSON-bridged types (Vec<Vec<_>>, Map, etc.), decode the JSON-serialized result.
     let (bridge_call, return_stmt) = match &func.return_type {
         TypeRef::Named(name) if known_dto_names.contains(name) => {
             let struct_name = swift_ident(name);
             (
                 format!("try RustBridge.{swift_name}({args})"),
                 format!("        return try {struct_name}(_rb_obj)"),
+            )
+        }
+        _ if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() => {
+            let decode_ty = forwarder_return_type(&func.return_type);
+            (
+                format!("try RustBridge.{swift_name}({args}).toString()"),
+                format!("        let _rb_data = _rb_result.data(using: .utf8) ?? Data()\n        return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)"),
             )
         }
         _ => (
@@ -3692,6 +3700,9 @@ fn emit_async_free_function_forwarder(
 
     if matches!(&func.return_type, TypeRef::Named(name) if known_dto_names.contains(name)) {
         out.push_str(&format!("        let _rb_obj = {bridge_call}\n"));
+        out.push_str(&format!("{return_stmt}\n"));
+    } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
+        out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
     } else {
         out.push_str(&format!("        let result = {bridge_call}\n"));
@@ -3874,10 +3885,32 @@ fn forwarder_param_signature(
                     },
                 )
             }
+            TypeRef::Named(name) => {
+                // Vec<NamedType> where NamedType is NOT a first-class DTO:
+                // these are opaque swift-bridge types (classes). Convert Swift array to RustVec<NamedType>.
+                let swift_ty = make_optional(&format!("[{name}]"));
+                let local = format!("_rb_{swift_param_name}");
+                let inner = swift_type_name(elem);
+                let setup = if optional || matches!(ty, TypeRef::Optional(_)) {
+                    Some(format!(
+                        "let {local} = {swift_param_name}.map {{ xs -> RustVec<{inner}> in let v = RustVec<{inner}>(); for x in xs {{ v.push(value: x) }}; return v }}"
+                    ))
+                } else {
+                    Some(format!(
+                        "let {local}: RustVec<{inner}> = {{ let v = RustVec<{inner}>(); for x in {swift_param_name} {{ v.push(value: x) }}; return v }}()"
+                    ))
+                };
+                (
+                    swift_ty,
+                    ForwarderArg {
+                        setup_line: setup,
+                        arg_expr: local,
+                    },
+                )
+            }
             _ => {
-                // Fall back to passing the Swift-side array directly; swift-bridge
-                // accepts `RustVec<T>` for opaque T but sample_core does not currently
-                // expose such free functions, so the simpler passthrough is fine.
+                // Other complex types (Vec<Vec<_>>, Map, etc.): passthrough
+                // These are rare in free function params but covered for completeness.
                 let swift_ty = make_optional(&swift_type_name(ty));
                 (
                     swift_ty,
@@ -4005,9 +4038,9 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::Primitive(_) => ".map { $0 }".to_string(),
             // RustVec<RustBridge.{Dto}> iteration yields `RustBridge.{Dto}Ref` (borrowed)
             // — there is no symmetric `init(_ rb: {Dto}Ref)` for either first-class DTOs
-            // or typealiased opaque classes. swift-bridge's `RustVec<T>.get(_:)` also
+            // or opaque typealiased classes. swift-bridge's `RustVec<T>.get(_:)` also
             // returns `T.SelfRef`, so producing an `[{Dto}]` from a `RustVec<{Dto}>` is
-            // impossible inside a forwarder without a per-element JSON roundtrip. Until
+            // impossible inside a forwarder without a per-element initialization. Until
             // we wire `Vec<Named>` through `needs_json_bridge`, the forwarder leaves the
             // expression unconverted (compile error surfaces loudly rather than silent
             // misroute). Consumers should exclude the function via

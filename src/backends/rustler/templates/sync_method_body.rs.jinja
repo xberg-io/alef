@@ -18,21 +18,20 @@ let args_json = {
 
 let method = "{{ method_name }}";
 
-// Check if we're already in a tokio runtime context. If not, create one.
-let _rt_guard = if tokio::runtime::Handle::try_current().is_err() {
-    Some(tokio::runtime::Runtime::new().unwrap())
-} else {
-    None
-};
+// Check if we're already in a tokio runtime context. If not, use block_on.
+let result = if tokio::runtime::Handle::try_current().is_err() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        tokio::task::spawn_blocking(move || {
+            let mut env = rustler::OwnedEnv::new();
+            let _ = env.send_and_clear(&pid, |env| {
+                (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),
+                 method, args_json.as_str(), reply_id).encode(env)
+            });
+        }).await.ok();
 
-if let Some(ref rt) = _rt_guard {
-    rt.spawn_blocking(move || {
-        let mut env = rustler::OwnedEnv::new();
-        let _ = env.send_and_clear(&pid, |env| {
-            (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),
-             method, args_json.as_str(), reply_id).encode(env)
-        });
-    });
+        rx.recv().await
+    })
 } else {
     tokio::task::spawn_blocking(move || {
         let mut env = rustler::OwnedEnv::new();
@@ -41,9 +40,10 @@ if let Some(ref rt) = _rt_guard {
              method, args_json.as_str(), reply_id).encode(env)
         });
     });
-}
+    rx.blocking_recv()
+};
 
-match rx.blocking_recv() {
+match result {
 {%- if has_error %}
     Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {{ error_deser }}),
     Ok(Err(msg)) => Err({{ error_msg }}),

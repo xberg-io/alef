@@ -2759,6 +2759,37 @@ fn zig_stub_default_value(stub_type: &str) -> String {
     }
 }
 
+/// Determine if a method needs JSON-encoded default values for out_result parameters.
+/// This occurs for infallible (non-error) methods with complex return types that are
+/// wrapped in out_result parameters at the FFI boundary.
+fn method_needs_json_default(method: &crate::core::ir::MethodDef) -> bool {
+    // Only infallible methods need JSON defaults
+    if method.error_type.is_some() {
+        return false;
+    }
+
+    // Skip Unit and primitive types
+    use crate::core::ir::TypeRef;
+    match &method.return_type {
+        TypeRef::Unit => false,
+        TypeRef::Primitive(_) => false,
+        _ => true, // String, Vec, Named types, etc. need JSON encoding
+    }
+}
+
+/// Generate appropriate JSON default for a method return type.
+/// For complex types that are serialized to JSON, return a sensible empty/default JSON value.
+fn zig_json_default_for_type(return_type: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::TypeRef;
+    match return_type {
+        TypeRef::Vec(_) => "\"[]\"".to_string(),        // Empty array
+        TypeRef::Map(_, _) => "\"{}\"".to_string(),     // Empty object
+        TypeRef::String => "\"\"".to_string(),           // Empty string
+        TypeRef::Named(_) => "\"{}\"".to_string(),      // Default JSON object for custom types
+        _ => "\"{}\"".to_string(),                       // Fallback to empty object
+    }
+}
+
 /// Emit a Zig test backend stub with excluded type handling.
 ///
 /// Wraps `emit_test_backend_inner` with an excluded types set passed through
@@ -2857,7 +2888,14 @@ fn emit_test_backend_inner(
         }
         let method_snake = method.name.to_snake_case();
         let ret_ty = zig_type_for_stub(&method.return_type, excluded_types);
-        let default_val = zig_stub_default_value(&ret_ty);
+
+        // For infallible methods with complex return types, use JSON-encoded defaults.
+        // These methods are wrapped in out_result parameters at the FFI boundary.
+        let default_val = if method_needs_json_default(method) {
+            zig_json_default_for_type(&method.return_type)
+        } else {
+            zig_stub_default_value(&ret_ty)
+        };
         let _ = _defaults; // unused but imported for future use
 
         // Build Zig parameter list (self first using @This(), then method params).

@@ -1,1 +1,7 @@
-            outResult = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8({{ serialize_expr }});
+            try {
+                string __result_str = ({{ serialize_expr }}) ?? string.Empty;
+                outResult = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(__result_str);
+            } catch {
+                outResult = IntPtr.Zero;
+                throw;
+            }

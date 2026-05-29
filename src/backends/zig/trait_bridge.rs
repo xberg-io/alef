@@ -62,13 +62,28 @@ fn vtable_param_type(ty: &TypeRef) -> &'static str {
     }
 }
 
+/// Check if a method returns a type that requires out_result wrapping at the FFI boundary.
+///
+/// Methods that return strings, bytes, or complex types are wrapped with `out_result`
+/// and return `i32` status code, even if they're infallible in Rust. This is because
+/// the C FFI layer cannot return complex types directly.
+fn method_needs_out_result(method: &MethodDef) -> bool {
+    if method.error_type.is_some() && !matches!(method.return_type, TypeRef::Unit) {
+        return true; // Fallible with non-unit return: needs out_result
+    }
+    if method.error_type.is_none() && !matches!(method.return_type, TypeRef::Unit | TypeRef::Primitive(_)) {
+        return true; // Infallible but returns complex type: needs wrapping
+    }
+    false
+}
+
 /// Zig return type for a vtable slot.
 ///
 /// Fallible methods always return `i32` (0 = success, non-zero = error).
 /// Unit infallible methods return `void`.  Other infallible returns use the
-/// primitive mapping.
+/// primitive mapping. Infallible methods with complex returns are wrapped to return `i32`.
 fn vtable_return_type(method: &MethodDef) -> String {
-    if method.error_type.is_some() {
+    if method.error_type.is_some() || method_needs_out_result(method) {
         "i32".to_string()
     } else {
         vtable_param_type(&method.return_type).to_string()
@@ -95,10 +110,12 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
             params.push((p.name.clone(), vtable_param_type(&p.ty).to_string()));
         }
     }
+    // Add out_result for methods that need output wrapping (fallible OR infallible-complex).
+    if method_needs_out_result(method) {
+        params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
+    }
+    // Add out_error for fallible methods.
     if method.error_type.is_some() {
-        if !matches!(method.return_type, TypeRef::Unit) {
-            params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
-        }
         params.push(("out_error".to_string(), "?*?[*c]u8".to_string()));
     }
     params
@@ -226,7 +243,12 @@ pub fn emit_make_vtable(
             "value"
         };
 
-        if method.error_type.is_some() {
+        // Check if this method needs out_result wrapping (either fallible or infallible-complex).
+        let needs_out_result = method_needs_out_result(method);
+        let has_error_type = method.error_type.is_some();
+        let is_infallible_complex = !has_error_type && needs_out_result;
+
+        if has_error_type {
             // Fallible method: call returns error union, write out_result/out_error
             let has_result_out = !matches!(method.return_type, TypeRef::Unit);
             out.push_str(&crate::backends::zig::template_env::render(
@@ -280,6 +302,31 @@ pub fn emit_make_vtable(
             out.push_str("                    if (out_error) |ptr| ptr.* = null; // caller checks error code\n");
             out.push_str("                    return 1;\n");
             out.push_str("                }\n");
+        } else if is_infallible_complex {
+            // Infallible method returning complex type: call directly, wrap in out_result, return 0.
+            // The method returns a string (typically JSON for complex types).
+            // We allocate a C string via c.kreuzberg_string_new and write it to out_result.
+            out.push_str("                const ");
+            out.push_str(&ok_binding);
+            out.push_str(" = self.");
+            out.push_str(&method_snake);
+            out.push_str("(");
+            out.push_str(&args_str);
+            out.push_str(");\n");
+            // Convert the returned string pointer to a C-allocated string.
+            // The method is expected to return a pointer to a NUL-terminated C string.
+            out.push_str("                if (");
+            out.push_str(&ok_binding);
+            out.push_str(" != null and out_result != null) {\n");
+            out.push_str("                    const zig_str = ");
+            out.push_str(&ok_binding);
+            out.push_str(".?;\n");
+            out.push_str("                    var len: usize = 0;\n");
+            out.push_str("                    while (zig_str[len] != 0) : (len += 1) {}\n");
+            out.push_str("                    const c_str = c.kreuzberg_string_new(@ptrCast(zig_str), len);\n");
+            out.push_str("                    out_result.*.* = c_str;\n");
+            out.push_str("                }\n");
+            out.push_str("                return 0;\n");
         } else {
             // Infallible methods return directly via the function return type.
             match &method.return_type {
@@ -434,14 +481,14 @@ pub fn emit_trait_bridge(
             }
         }
 
-        // Fallible methods get out-result and out-error pointers.
+        // Methods with out_result wrapping: fallible OR infallible-complex.
+        if method_needs_out_result(method) {
+            params.push("out_result: ?*?[*c]u8".to_string());
+        }
+        // Fallible methods also get out_error.
         if method.error_type.is_some() {
-            if !matches!(method.return_type, TypeRef::Unit) {
-                params.push("out_result: ?*?[*c]u8".to_string());
-            }
             params.push("out_error: ?*?[*c]u8".to_string());
         }
-        // Infallible methods: return directly (no out-params)
 
         let params_str = params.join(", ");
         out.push_str(&crate::backends::zig::template_env::render(
