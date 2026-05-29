@@ -923,24 +923,22 @@ pub fn sync_versions(
         }
     }
 
-    // Swift test_apps/Package.swift: the generated test_apps entry uses a remote
-    // URL dependency with a `from: "X.Y.Z"` version bound. Without bumping this,
-    // `swift package resolve` fetches the prior release when the test_app is run
-    // against a freshly cut tag — causing 404s or wrong-version failures.
-    // The glob covers both test_apps/swift/Package.swift and any variant paths
-    // (e2e/swift/Package.swift, e2e/swift_e2e/Package.swift).
-    for swift_pkg in glob::glob("{test_apps,e2e}/*/Package.swift")
-        .into_iter()
-        .flatten()
-        .flatten()
-    {
-        if let Ok(content) = std::fs::read_to_string(&swift_pkg) {
-            if let Some(new_content) =
-                replace_version_pattern(&content, r#"from:\s*"[^"]*""#, &version)
-            {
-                std::fs::write(&swift_pkg, &new_content)
-                    .with_context(|| format!("failed to write {}", swift_pkg.display()))?;
-                updated.push(swift_pkg.to_string_lossy().to_string());
+    // Swift test_apps/Package.swift and e2e/*/Package.swift: generated entries
+    // use a remote URL dependency with a `from: "X.Y.Z"` version bound. Without
+    // bumping this, `swift package resolve` fetches the prior release when the
+    // test_app is run against a freshly cut tag — causing 404s or wrong-version
+    // failures. The glob crate (0.3.x) does not support brace alternatives, so
+    // we run two separate glob passes.
+    for swift_pkg_pattern in &["test_apps/*/Package.swift", "e2e/*/Package.swift"] {
+        for swift_pkg in glob::glob(swift_pkg_pattern).into_iter().flatten().flatten() {
+            if let Ok(content) = std::fs::read_to_string(&swift_pkg) {
+                if let Some(new_content) =
+                    replace_version_pattern(&content, r#"from:\s*"[^"]*""#, &version)
+                {
+                    std::fs::write(&swift_pkg, &new_content)
+                        .with_context(|| format!("failed to write {}", swift_pkg.display()))?;
+                    updated.push(swift_pkg.to_string_lossy().to_string());
+                }
             }
         }
     }
@@ -949,18 +947,17 @@ pub fn sync_versions(
     // (no spaces around `=`) at the top of the script so it can construct the
     // correct GitHub-Releases tarball URL for the prebuilt FFI binary. Both the
     // e2e and test_apps copies must be bumped in lock-step with the workspace version.
-    for sh_script in glob::glob("{e2e,test_apps}/c/download_ffi.sh")
-        .into_iter()
-        .flatten()
-        .flatten()
-    {
-        if let Ok(content) = std::fs::read_to_string(&sh_script) {
-            if let Some(new_content) =
-                replace_version_pattern(&content, r#"VERSION="[^"]*""#, &version)
-            {
-                std::fs::write(&sh_script, &new_content)
-                    .with_context(|| format!("failed to write {}", sh_script.display()))?;
-                updated.push(sh_script.to_string_lossy().to_string());
+    // The glob crate (0.3.x) does not support brace alternatives; run two passes.
+    for sh_pattern in &["e2e/c/download_ffi.sh", "test_apps/c/download_ffi.sh"] {
+        for sh_script in glob::glob(sh_pattern).into_iter().flatten().flatten() {
+            if let Ok(content) = std::fs::read_to_string(&sh_script) {
+                if let Some(new_content) =
+                    replace_version_pattern(&content, r#"VERSION="[^"]*""#, &version)
+                {
+                    std::fs::write(&sh_script, &new_content)
+                        .with_context(|| format!("failed to write {}", sh_script.display()))?;
+                    updated.push(sh_script.to_string_lossy().to_string());
+                }
             }
         }
     }
@@ -4466,5 +4463,267 @@ packages:
             !description.contains("Version: 0.0.0"),
             "stale Version: 0.0.0 must be gone from DESCRIPTION:\n{description}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Four-pattern gap regression tests (kotlin-android, python __version__,
+    // swift from:, C download_ffi.sh VERSION=)
+    // -----------------------------------------------------------------------
+
+    /// `sync_versions` must bump `version = "..."` inside `packages/kotlin-android/build.gradle.kts`
+    /// (the `coordinates()` block version), leaving plugin `version "..."` declarations intact.
+    #[test]
+    fn sync_versions_bumps_kotlin_android_gradle_coordinates_version() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.9.0-rc.17\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        let gradle_content = concat!(
+            "plugins {\n",
+            "    id(\"com.android.library\") version \"8.13.0\"\n",
+            "    kotlin(\"android\") version \"2.3.21\"\n",
+            "}\n",
+            "\n",
+            "mavenPublishing {\n",
+            "    coordinates(\n",
+            "        groupId = \"dev.kreuzberg\",\n",
+            "        artifactId = \"mylib-android\",\n",
+            "        version = \"1.9.0-rc.16\",\n",
+            "    )\n",
+            "}\n",
+        );
+        std::fs::create_dir_all(root.join("packages/kotlin-android")).expect("mkdir");
+        std::fs::write(root.join("packages/kotlin-android/build.gradle.kts"), gradle_content)
+            .expect("write build.gradle.kts");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"kotlin_android\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let gradle = std::fs::read_to_string(root.join("packages/kotlin-android/build.gradle.kts"))
+            .expect("read build.gradle.kts");
+        assert!(
+            gradle.contains("version = \"1.9.0-rc.17\""),
+            "kotlin-android coordinates version must be bumped:\n{gradle}"
+        );
+        assert!(
+            gradle.contains(r#"kotlin("android") version "2.3.21""#),
+            "kotlin plugin version must not change:\n{gradle}"
+        );
+        assert!(
+            gradle.contains(r#"id("com.android.library") version "8.13.0""#),
+            "android plugin version must not change:\n{gradle}"
+        );
+        assert!(
+            !gradle.contains("1.9.0-rc.16"),
+            "stale rc.16 version must be gone:\n{gradle}"
+        );
+    }
+
+    /// `sync_versions` must find `__version__ = "..."` in a nested module `__init__.py`
+    /// under `packages/python/<module>/` (src layout), not just a flat `packages/python/__init__.py`.
+    #[test]
+    fn sync_versions_bumps_nested_python_init_version() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.9.0-rc.17\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Nested src-layout module path: packages/python/mylib/__init__.py
+        let py_module_dir = root.join("packages/python/mylib");
+        std::fs::create_dir_all(&py_module_dir).expect("mkdir");
+        std::fs::write(
+            py_module_dir.join("__init__.py"),
+            "\"\"\"mylib public API.\"\"\"\n\n__version__ = \"1.9.0-rc.16\"\n",
+        )
+        .expect("write __init__.py");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"python\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let content = std::fs::read_to_string(py_module_dir.join("__init__.py")).expect("read __init__.py");
+        assert!(
+            content.contains("__version__ = \"1.9.0-rc.17\""),
+            "nested __version__ must be bumped:\n{content}"
+        );
+        assert!(
+            !content.contains("1.9.0-rc.16"),
+            "stale rc.16 __version__ must be gone:\n{content}"
+        );
+    }
+
+    /// `sync_versions` must bump the `from: "X.Y.Z"` version pin in
+    /// `test_apps/swift/Package.swift` without touching the rest of the file.
+    #[test]
+    fn sync_versions_bumps_swift_package_from_version() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.9.0-rc.17\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        let swift_pkg_content = concat!(
+            "// swift-tools-version: 6.0\n",
+            "import PackageDescription\n",
+            "\n",
+            "let package = Package(\n",
+            "    name: \"TestApp\",\n",
+            "    dependencies: [\n",
+            "        .package(url: \"https://github.com/kreuzberg-dev/mylib.git\", from: \"1.9.0-rc.16\"),\n",
+            "    ],\n",
+            "    targets: []\n",
+            ")\n",
+        );
+        let swift_dir = root.join("test_apps/swift");
+        std::fs::create_dir_all(&swift_dir).expect("mkdir");
+        std::fs::write(swift_dir.join("Package.swift"), swift_pkg_content).expect("write Package.swift");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let swift_pkg = std::fs::read_to_string(swift_dir.join("Package.swift")).expect("read Package.swift");
+        assert!(
+            swift_pkg.contains("from: \"1.9.0-rc.17\""),
+            "swift from: version must be bumped:\n{swift_pkg}"
+        );
+        assert!(
+            !swift_pkg.contains("from: \"1.9.0-rc.16\""),
+            "stale rc.16 from: version must be gone:\n{swift_pkg}"
+        );
+        assert!(
+            swift_pkg.contains("https://github.com/kreuzberg-dev/mylib.git"),
+            "repo URL must be preserved:\n{swift_pkg}"
+        );
+    }
+
+    /// `sync_versions` must bump `VERSION="X.Y.Z"` (no spaces around `=`) in
+    /// both `e2e/c/download_ffi.sh` and `test_apps/c/download_ffi.sh`.
+    #[test]
+    fn sync_versions_bumps_c_download_ffi_sh_version() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.9.0-rc.17\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        let sh_content = concat!(
+            "#!/usr/bin/env bash\n",
+            "set -euo pipefail\n",
+            "\n",
+            "REPO_URL=\"https://github.com/kreuzberg-dev/mylib\"\n",
+            "VERSION=\"1.9.0-rc.16\"\n",
+            "FFI_PKG_NAME=\"mylib-ffi\"\n",
+        );
+
+        let e2e_c_dir = root.join("e2e/c");
+        std::fs::create_dir_all(&e2e_c_dir).expect("mkdir e2e/c");
+        std::fs::write(e2e_c_dir.join("download_ffi.sh"), sh_content).expect("write e2e download_ffi.sh");
+
+        let test_apps_c_dir = root.join("test_apps/c");
+        std::fs::create_dir_all(&test_apps_c_dir).expect("mkdir test_apps/c");
+        std::fs::write(test_apps_c_dir.join("download_ffi.sh"), sh_content).expect("write test_apps download_ffi.sh");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"c\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        for (label, dir) in [("e2e", &e2e_c_dir), ("test_apps", &test_apps_c_dir)] {
+            let content = std::fs::read_to_string(dir.join("download_ffi.sh"))
+                .unwrap_or_else(|_| panic!("read {label}/c/download_ffi.sh"));
+            assert!(
+                content.contains("VERSION=\"1.9.0-rc.17\""),
+                "{label}/c/download_ffi.sh VERSION must be bumped:\n{content}"
+            );
+            assert!(
+                !content.contains("VERSION=\"1.9.0-rc.16\""),
+                "{label}/c/download_ffi.sh stale rc.16 must be gone:\n{content}"
+            );
+            // Ensure we only replaced VERSION, not REPO_URL or FFI_PKG_NAME.
+            assert!(
+                content.contains("REPO_URL="),
+                "{label}/c/download_ffi.sh REPO_URL must be preserved:\n{content}"
+            );
+        }
     }
 }

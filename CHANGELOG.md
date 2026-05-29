@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sync-versions`: include four previously-missed file categories.** `alef sync-versions --set <version>` now updates: (1) `packages/kotlin-android/build.gradle.kts` — the `coordinates(version = "...")` block in the KotlinAndroid Gradle build, which was skipped because only `Language::Kotlin` was covered; (2) `packages/python/**/__init__.py` — globs the nested src-layout module path (e.g. `packages/python/my_lib/__init__.py`) instead of only the flat `packages/python/__init__.py`; (3) `test_apps/*/Package.swift` and `e2e/*/Package.swift` — the `from: "X.Y.Z"` remote version bound in Swift Package.swift manifests, which was referenced in comments but never implemented; (4) `e2e/c/download_ffi.sh` and `test_apps/c/download_ffi.sh` — the `VERSION="X.Y.Z"` (no spaces) bash variable at the top of the generated C FFI download helper. The `replace_version_pattern` dispatch table gains two new arms for `from:` (Swift) and `VERSION="` (bash no-space form). Four regression tests added. (`src/cli/pipeline/version.rs`)
+
 - **alef c-ffi: download_ffi.sh uses release-asset prefix not cargo crate name.** The C e2e generator's `download_ffi.sh` script constructs tarball filenames using `FFI_PKG_NAME`, which was incorrectly defaulting to the cargo FFI crate name (e.g., `ts_pack_core_ffi`) instead of the release-asset package name (e.g., `tree-sitter-language-pack-ffi`). This caused `curl` 404 errors when E2E C tests tried to download prebuilt FFI libraries from GitHub Releases. The fix changes the fallback from `lib_name.clone()` (the cargo crate name) to `format!("{}-ffi", config.name)` (the base package name + "-ffi" suffix), which matches the actual tarball prefix emitted by the `alef publish package --lang ffi` flow. When the C package registry entry includes an explicit `name` field (recommended for multi-registry projects), that takes priority. (`src/e2e/codegen/c.rs`)
 
 - **alef ruby: pass cargo package name (hyphens) to RbSys::ExtensionTask.** The Ruby scaffold was emitting `RbSys::ExtensionTask.new("{ext_name}", ...)` where `ext_name` uses underscores (e.g., `ts_pack_core_rb`), but the generated `native/Cargo.toml` uses hyphens for the package name (e.g., `ts-pack-core-rb`), per the binding-crate naming convention. `RbSys::ExtensionTask.new(name, ...)` performs a `cargo metadata` lookup using the package name, so the underscore form caused "Could not find Cargo package metadata" errors during gem builds across all platforms. The fix creates a separate `cargo_pkg_name` variable with hyphens and passes that to the task constructor, while `ext_dir` continues to use underscores for the filesystem path (which is correct). (`src/scaffold/languages/ruby.rs`)
@@ -26,6 +28,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef setup: pass --config.minimumReleaseAge=0 to pnpm install for node and wasm.** The setup phase invokes `pnpm install` when configuring node and wasm language dependencies. When downstream consumers publish release candidates, pnpm's default 24-hour supply-chain policy rejects packages published within the last day, causing setup to timeout. The fix adds `--config.minimumReleaseAge=0` to both pnpm invocations, following the same precedent used in 0.20.5 for test_apps_run_defaults. (`src/core/config/setup_defaults.rs`)
 
 - **alef elixir: emit mix.exs rustler_crates in multi-line pre-formatted shape.** The Elixir scaffold was emitting `rustler_crates` as a single line, which exceeded mix format's default 98-character line limit when there were 4+ target triples. This caused mix format to reflow the line into multi-line form during CI, making the committed mix.exs drift from alef's emission, which triggered "Versions are out of sync" failures in downstream polyglot repos. The fix emits the `rustler_crates` block pre-formatted to match mix format's canonical multi-line shape, preventing format drift. (`src/scaffold/languages/elixir.rs`)
+
+## [0.20.6] - 2026-05-28
+
+### Fixed
+
+- **alef swift trait-bridge: protocol declares native types; adapter marshals to JSON at the FFI boundary.** (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+- **alef zig trait-bridge: stub method signatures match the C FFI types.** (`src/e2e/codegen/zig.rs`)
+- **alef csharp trait-bridge: exclude enum types from the visible-types set so they JSON-serialize correctly.** (`src/backends/csharp/trait_bridge.rs`)
+- **alef dart: emit the FRB constructor with the opening brace on the next line to match FRB's expected format.** (`src/backends/dart/frb_rewrite.rs`)
+- **alef go: collapse the blank line between `//export` and its `func` so cgo recognizes the directive.** (`src/backends/go/gen_bindings/mod.rs`)
+- **alef java e2e: emit a fixture `name()` for traits without a super-trait.** (`src/e2e/codegen/java.rs`)
+- **alef php trait-bridge: drop the arity-blind `try_call_method` validation in the register fn.** (`src/backends/php/trait_bridge.rs`)
+
+## [0.20.7] - 2026-05-28
+
+### Fixed
+
+- **alef swift trait-bridge: use JSON for excluded return types and fix the generated syntax.** (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
+## [0.20.8] - 2026-05-28
+
+No user-facing changes; release bump only.
+
+## [0.20.9] - 2026-05-29
+
+### Fixed
+
+- **alef swift: emit `Package.swift` `target`/`testTarget` blocks in multi-line shape** so `swift format` does not reflow the committed manifest. (`src/backends/swift/gen_bindings`)
+- **alef php, ruby: drop the unused `unsafe` block in visitor-bridge `new()`; ruby scaffold uses `RbSys::ExtensionTask`.** (`src/backends/php`, `src/scaffold/languages/ruby.rs`)
+
+### Chore
+
+- Add the missing `NodeConfig.exclude_platforms` field in the napi gen test; `clippy --fix` on `frb_rewrite`.
 
 ## [0.20.5] - 2026-05-28
 
@@ -970,6 +1005,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-backend-pyo3: alias serde-renamed dict keys in `_to_rust_*_config` converters, and use serde-renamed param names in final pyo3 binding calls.** When a Rust struct field carries `#[serde(rename = "...")]`, the serde wire name differs from the Rust field name. The Python dataclass in `options.py` uses Rust field names (e.g., `max_characters`), but JSON fixtures use serde wire names (e.g., `max_chars`). When `api.py`'s `_to_rust_chunking_config` coerced a fixture-loaded dict to a Python class, it failed with `TypeError: ChunkingConfig.__init__() got an unexpected keyword argument 'max_chars'` because the dict still held serde keys. The fix adds an aliasing block after `if isinstance(value, dict):` that maps every serde-renamed key back to its Rust field name (e.g., `value["max_characters"] = value.pop("max_chars")`) before constructing the dataclass. Additionally, the pyo3 binding's constructor parameters are named after serde renames (matching Rust function signatures), so `field_kwarg.jinja` now uses `field.serde_rename` when available (instead of always using the Rust field name). This ensures the final `_rust.ChunkingConfig(max_chars=value, ...)` call matches the pyo3 constructor's actual parameter names. Surfaced regenerating kreuzberg's Python e2e suite: 87/88 tests passed before the fix, 88/88 after. (`src/backends/pyo3/gen_bindings/functions.rs`)
 
+## [0.18.1] - 2026-05-23
+
+### Added
+
+- **alef extract: serde-default detection** — `#[serde(default)]` and `#[serde(default = "...")]` fields are recognized as having defaults, propagating nullability into generated builders. (`src/extract/`)
+- **alef wasm: apply if-let wrapping to all optionalized fields**, not just `Duration`. (`src/codegen/`)
+- **alef java: sealed-interface tagged enums** — field defaults emit `new EnumName.Variant()`, and `#[serde(default)]` fields are treated as nullable in builder classes. (`src/backends/java/`)
+
+### Fixed
+
+- **alef codegen: preserve core `Default` in duration-builder `binding_to_core`**, delegate to core `Default` for `has_default` structs, and add `CoreWrapper::Box` for `Box<str>` round-trips.
+- **alef extract: resolve bare `str` to `TypeRef::String`** without a spurious sanitized flag.
+- **alef pyo3: guard optional data-enum fields in return statements** and alias serde-renamed dict keys before Python-class coercion.
+- **alef java: use `writerFor(constructCollectionType)` for `Vec<T>`/`Map<K,V>` marshaling**; align the maven-javadoc-plugin sourcepath with sourceDirectory.
+- **alef php: use `CorePath::default()` in the flat-enum `From` wildcard arm.**
+- **alef scaffold/cli: prek idempotency** — `.gitkeep`, Kotlin `.kt`, Python pyproject arrays, Ruby string quotes, and markdown blank-line capping emit in canonical form so hooks are no-ops on fresh output.
+- **e2e codegen fixes across dart, zig, java, php** — Dart connection retries and non-persistent connections, Zig 0.16 std.Io migration plus SIGABRT suppression, Java per-fixture mock URLs, PHP streaming-adapter and enum-accessor handling.
+
 ## [0.18.0] - 2026-05-23
 
 ### Changed
@@ -1087,6 +1140,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-backend-kotlin-android: disable ktlint's `trailing-comma-on-call-site` / `-on-declaration-site` rules in the generated `.editorconfig` so ktfmt and ktlint stop fighting.** ktfmt in `--kotlinlang-style` strips trailing commas before `)` on multiline call sites; ktlint then re-reports the missing comma. After the kotlin-android `vanniktech` maven-publish migration, this trapped repos in an unfixable ktfmt↔ktlint loop on `build.gradle.kts`. Defer to ktfmt — the new `.editorconfig` block disables both ktlint rules under `[*.kt]` and `[*.gradle.kts]`. (`src/backends/kotlin-android/gen_editorconfig.rs`)
 
 - **alef-backend-csharp: map sanitized Vec fields and sanitized enum-variant payloads to `null` / `object` so external Rust types can round-trip through System.Text.Json.** Two related bugs surfaced in kreuzberg C# e2e: (1) `KeywordConfig.ngram_range: (usize, usize)` with `#[serde(default = "default_ngram_range")]` was emitted as `List<ulong> NgramRange { get; init; } = [];` — the empty-list default reached Rust and serde rejected it with `invalid length 0, expected a tuple of size 2`; (2) `FormatMetadata::Code(tree_sitter_language_pack::ProcessResult)` was generated as `Code(string Value)` because ProcessResult is sanitized to `String` in the IR, then System.Text.Json blew up trying to read a `StartObject` token as a string. Both fixes: when a field is sanitized (the IR's `sanitized` flag with `type_rust_path`), the C# backend now emits a `null` default for Vec types so `JsonIgnoreCondition.WhenWritingNull` drops the field and Rust applies its serde default; and emits `object` (not the sanitized scalar) for enum-variant struct payloads so JSON objects round-trip cleanly. Added `src/e2e/tests/csharp_tuple_default.rs` and `src/e2e/tests/csharp_enum_variant_struct.rs`. Fixes `Test_ConfigKeywords`, `Test_ConfigTreeSitter`, and `Test_CodeShebangDetection` in kreuzberg C# e2e. (`src/backends/csharp/gen_bindings/enums.rs`, `src/backends/csharp/gen_bindings/types.rs`)
+
+## [0.17.36] - 2026-05-23
+
+### Added
+
+- **alef core: per-backend `unsupported_in` call configuration** with documented rationale — marks calls that structurally cannot be supported on a backend, emitting visible skip comments in generated tests. (`src/core/config/e2e.rs`)
+
+### Fixed
+
+- **alef pyo3: correct constructor param types for `Optional` fields and bridge params**, plus cfg-gated constructor kwargs. (`src/backends/pyo3`)
+- **alef magnus: emit rubocop-clean blank-line layout and single-quoted `from_hash` dispatcher literals** in tagged-enum modules. (`src/backends/magnus`)
+- **alef java: expose the canonical streaming facade method** and fix the enum-builder default. (`src/backends/java`)
+- **alef csharp: fix variant struct payload and sanitize the tuple default.** (`src/backends/csharp`)
+- **alef wasm: dedup `Cargo.toml` deps so `extra_dependencies` override built-ins.** (`src/backends/wasm`)
+- **alef kotlin-android: add the `SonatypeHost` classpath and typed `sourcesJar`/`javadocJar` API**, plus an AGP bump. (`src/backends/kotlin-android`)
+- **alef publish: hoist `alef-scaffold` above backends in publish order.** (`src/publish`)
+- **e2e codegen fixes across java, elixir** — deterministic fixture-map output via `BTreeMap`, Java nullable-accessor `String` coercion for `.contains()`, and Elixir Rustler `NifTaggedEnum` tuples for array args. (`src/e2e/codegen`)
 
 ## [0.17.35] - 2026-05-23
 
@@ -1231,6 +1301,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-backend-kotlin: import `kotlin.time.Duration.Companion.milliseconds` when a Duration default is emitted.** A `Duration`-typed field with an integer default is rendered as `<n>.milliseconds` to match the declared `kotlin.time.Duration` type, but the generated file only imported `kotlin.time.Duration` — so `.milliseconds` was an unresolved reference and the binding failed to compile. The data-class emitter now adds `import kotlin.time.Duration.Companion.milliseconds` whenever a rendered field default uses the `.milliseconds` extension. Applies to the `kotlin-android` backend too (shared `object_wrapper.rs`). (`src/backends/kotlin/src/gen_bindings/object_wrapper.rs`)
 
 - **alef-backend-swift: emit `@unchecked Sendable` for opaque result types returned across the bridge.** The catch-all `@unchecked Sendable` emission filtered `api.types` by the IR `is_opaque` flag, which is false for a result struct like `ScrapeResult` even though swift-bridge still bridges it as an opaque `RustBridge.ScrapeResult` class — and async forwarders return that class out of a `Task.detached`, so Swift 6 strict-concurrency rejected the binding with `type 'ScrapeResult' does not conform to the 'Sendable' protocol`. The emission now also covers `compute_handle_returned_types` (every type returned across the bridge as an opaque handle), and a shared `sendable_emitted` set prevents the streaming-specific emissions and the catch-all block from declaring the same conformance twice (Swift warns on a redundant conformance). (`src/backends/swift/src/gen_bindings.rs`)
+
+## [0.17.34] - 2026-05-22
+
+### Added
+
+- **alef php: generate streaming facade methods and request types**, giving PHP bindings a first-class streaming surface, and use snake_case adapter names for Rust method calls. (`src/backends/php/gen_bindings/mod.rs`)
+- **alef scaffold: LICENSE sync plus Dart `pubspec.yaml` and CHANGELOG fixes.** (`src/scaffold`)
+
+### Fixed
+
+- **alef pyo3: keyword-escape and apply signature defaults in serde-rename constructors**, and emit a non-optional duration struct field as `u64` in constructor params. (`src/backends/pyo3`)
+- **alef csharp: use the plural `clear_fn` name (not the trait name) for facade methods.** (`src/backends/csharp`)
+- **alef java: throw `clear_fn` errors via the `(int, String)` constructor.** (`src/backends/java`)
+- **alef cli: prepend the lib dir to the search-path env var in the e2e runner.** (`src/cli`)
+- **e2e codegen fixes across go, c, zig, csharp, php, java, dart** — Go sum-type/import-alias decoding, C/Zig/C# compile errors, PHP fixture-key and config-type qualification, Java streaming request-type wrapping and `.size()` assertions, Dart scalar positional args. (`src/e2e/codegen`)
+
+## [0.17.33] - 2026-05-22
+
+### Fixed
+
+- **alef go: decode streaming sum-type items via `Unmarshal<Type>`.** (`src/backends/go`)
+- **alef csharp: emit `Clear*` facade methods on the wrapper class for trait bridges.** (`src/backends/csharp`)
+- **alef rustler: use `Mix.env()` for the `force_build` predicate.** (`src/backends/rustler`)
+- **alef ruby scaffold: exclude generated binding code from RuboCop linting.** (`src/scaffold/languages/ruby.rs`)
+- **e2e codegen fixes across r, php, ruby, typescript, go** — corrections for simple types and optionals; keep the system `php.ini` in the PHPUnit harness. (`src/e2e/codegen`)
+
+## [0.17.32] - 2026-05-22
+
+### Fixed
+
+- **alef swift trait-bridge: emit result enums as first-class Swift enums** and refresh opaque-result `Sendable` conformance. (`src/backends/swift`)
+- **alef java: reference the singular FFI clear handle in facade method bodies.** (`src/backends/java`)
+- **alef kotlin, swift: repair the `Duration` import and opaque-result `Sendable` conformance.**
+- **alef ruby scaffold: stop clobbering the Magnus gem entry point.** (`src/scaffold/languages/ruby.rs`)
+- **e2e codegen fixes across java, dart** — keep the engine handle in Java streaming calls and emit the Dart url-list argument. (`src/e2e/codegen`)
 
 ## [0.17.31] - 2026-05-22
 
