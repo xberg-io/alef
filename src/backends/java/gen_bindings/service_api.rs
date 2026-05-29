@@ -21,8 +21,15 @@ use std::path::PathBuf;
 
 // ────────────────────────────────────────────────────────── helpers ──
 
+/// Check if a TypeRef is an opaque (surface-wrapped Named type).
+fn is_opaque_metadata(ty: &TypeRef, api: &ApiSurface) -> bool {
+    matches!(ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n))
+}
+
 /// Map TypeRef to Java parameter type.
-fn java_type_for_metadata(ty: &TypeRef) -> String {
+/// For Named types that are in the API surface, return the wrapper class name (opaque handle).
+/// For String/Char/primitives, return the Java type.
+fn java_type_for_metadata(ty: &TypeRef, api: &ApiSurface) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_owned(),
         TypeRef::Primitive(p) => {
@@ -40,6 +47,10 @@ fn java_type_for_metadata(ty: &TypeRef) -> String {
         }
         TypeRef::Bytes => "byte[]".to_owned(),
         TypeRef::Unit => "void".to_owned(),
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+            // Opaque wrapper class for surface-wrapped types (e.g., RouteBuilder, AppConfig)
+            n.clone()
+        }
         _ => "Object".to_owned(),
     }
 }
@@ -54,7 +65,7 @@ fn java_type_for_metadata(ty: &TypeRef) -> String {
 /// - Run/Finalize entrypoint methods that invoke C FFI entrypoint downcalls
 /// - AutoCloseable interface with close() to invoke the C FFI `_free()` downcall
 /// - All Panama FFM binding details (Linker, downcallHandle, FunctionDescriptor, etc.)
-fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, config: &ResolvedCrateConfig) -> String {
+fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, config: &ResolvedCrateConfig) -> String {
     let mut out = String::new();
 
     // File header
@@ -155,7 +166,7 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
             out.push_str(&format!(
                 "     * @param {} {}\n",
                 meta_param.name.to_lower_camel_case(),
-                java_type_for_metadata(&meta_param.ty)
+                java_type_for_metadata(&meta_param.ty, api)
             ));
         }
         out.push_str("     * @return 0 on success, non-zero error code on failure\n");
@@ -168,7 +179,7 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
 
         // Add metadata parameters
         for meta_param in &reg.metadata_params {
-            let java_type = java_type_for_metadata(&meta_param.ty);
+            let java_type = java_type_for_metadata(&meta_param.ty, api);
             let param_name = meta_param.name.to_lower_camel_case();
             out.push_str(&format!(", {} {}", java_type, param_name));
         }
@@ -233,6 +244,7 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
                     out.push_str(&format!(",\n                {}    // ", layout));
                 }
                 _ => {
+                    // Named types (opaque handles) and other complex types use ADDRESS
                     out.push_str(",\n                ValueLayout.ADDRESS    // ");
                 }
             }
@@ -250,7 +262,13 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
 
         for meta_param in &reg.metadata_params {
             let param_name = meta_param.name.to_lower_camel_case();
-            out.push_str(&format!(",\n                {}    // metadata", param_name));
+            if is_opaque_metadata(&meta_param.ty, api) {
+                // Opaque types pass the MemorySegment handle
+                out.push_str(&format!(",\n                {}.handle()    // opaque handle", param_name));
+            } else {
+                // String/primitive/other types pass directly
+                out.push_str(&format!(",\n                {}    // metadata", param_name));
+            }
         }
 
         out.push_str("\n            };\n");
@@ -286,7 +304,7 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
             if i > 0 {
                 out.push_str(", ");
             }
-            let java_type = java_type_for_metadata(&param.ty);
+            let java_type = java_type_for_metadata(&param.ty, api);
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&format!("{} {}", java_type, param_name));
         }
@@ -303,13 +321,43 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
         out.push_str("            FunctionDescriptor epDesc = FunctionDescriptor.of(\n");
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str("                ValueLayout.JAVA_VOID,   // return void\n");
+                out.push_str("                ValueLayout.JAVA_INT,    // return int (status)\n");
             }
             EntrypointKind::Finalize => {
-                out.push_str("                ValueLayout.JAVA_LONG,   // return long\n");
+                out.push_str("                ValueLayout.ADDRESS,     // return *mut opaque or int status\n");
             }
         }
         out.push_str("                ValueLayout.ADDRESS       // owner: *mut opaque\n");
+
+        // Add entrypoint params to descriptor
+        for param in &ep.params {
+            match &param.ty {
+                TypeRef::String => {
+                    out.push_str(",\n                ValueLayout.ADDRESS    // ");
+                }
+                TypeRef::Primitive(p) => {
+                    use crate::core::ir::PrimitiveType;
+                    let layout = match p {
+                        PrimitiveType::Bool => "ValueLayout.JAVA_BOOLEAN",
+                        PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_BYTE",
+                        PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_SHORT",
+                        PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_INT",
+                        PrimitiveType::U64 | PrimitiveType::I64 => "ValueLayout.JAVA_LONG",
+                        PrimitiveType::F32 => "ValueLayout.JAVA_FLOAT",
+                        PrimitiveType::F64 => "ValueLayout.JAVA_DOUBLE",
+                        PrimitiveType::Usize | PrimitiveType::Isize => "ValueLayout.ADDRESS",
+                    };
+                    out.push_str(&format!(",\n                {}    // ", layout));
+                }
+                _ => {
+                    // Named types (opaque handles) use ADDRESS
+                    out.push_str(",\n                ValueLayout.ADDRESS    // ");
+                }
+            }
+            out.push_str(&param.name.to_lower_camel_case());
+            out.push_str(" param\n");
+        }
+
         out.push_str("            );\n");
 
         out.push_str("            MethodHandle epHandle = LINKER.downcallHandle(epAddr, epDesc);\n");
@@ -326,7 +374,13 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
         // Pass entrypoint arguments
         for param in &ep.params {
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!(", {}", param_name));
+            if is_opaque_metadata(&param.ty, api) {
+                // Opaque types pass the MemorySegment handle
+                out.push_str(&format!(", {}.handle()", param_name));
+            } else {
+                // String/primitive/other types pass directly
+                out.push_str(&format!(", {}", param_name));
+            }
         }
 
         out.push_str(");\n");

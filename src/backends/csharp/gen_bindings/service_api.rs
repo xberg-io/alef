@@ -17,15 +17,28 @@
 //! All names and signatures are derived entirely from the [`ApiSurface`] IR — no
 //! transport- or domain-specific assumptions are made anywhere in this module.
 
-use crate::codegen::naming::to_csharp_name;
+use crate::codegen::naming::{to_csharp_name, csharp_type_name};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, EntrypointDef, ServiceDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::path::PathBuf;
 
-/// Map TypeRef to C# type name.
-fn csharp_type_for_metadata(ty: &TypeRef) -> String {
+/// Whether an entrypoint's return type can be represented over the C ABI.
+/// Opaque types are representable only when this surface wraps them.
+/// Unit/primitive/string/bytes/Named opaques are representable;
+/// everything else (foreign framework types) is not representable.
+fn entrypoint_return_representable(ep: &EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n && t.is_opaque),
+        _ => false,
+    }
+}
+
+/// Map TypeRef to C# type name for metadata parameters and return types.
+/// For opaque types in this surface, returns the C# wrapper class name (e.g., "GraphQLRouteConfig").
+fn csharp_type_for_metadata(ty: &TypeRef, api: &ApiSurface) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => "string".to_owned(),
         TypeRef::Primitive(p) => {
@@ -48,6 +61,14 @@ fn csharp_type_for_metadata(ty: &TypeRef) -> String {
         }
         TypeRef::Bytes => "byte[]".to_owned(),
         TypeRef::Unit => "void".to_owned(),
+        TypeRef::Named(name) => {
+            // Check if this is an opaque type in the surface
+            if api.types.iter().any(|t| t.name == *name && t.is_opaque) {
+                csharp_type_name(name)
+            } else {
+                "string".to_owned() // Fallback for non-opaque Named or unknown types
+            }
+        }
         _ => "string".to_owned(), // Fallback for complex types
     }
 }
@@ -61,7 +82,7 @@ fn csharp_type_for_metadata(ty: &TypeRef) -> String {
 /// - Configurators as fluent builder methods
 /// - Registration methods that accept C# delegates
 /// - Run/Finalize entrypoint methods
-fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, prefix: &str) -> String {
+fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefix: &str) -> String {
     let mut out = String::new();
 
     // File header
@@ -105,7 +126,7 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
                 if i > 0 {
                     out.push_str(", ");
                 }
-                let ty = csharp_type_for_metadata(&param.ty);
+                let ty = csharp_type_for_metadata(&param.ty, api);
                 let name = param.name.to_lower_camel_case();
                 out.push_str(&format!("{} {}", ty, name));
             }
@@ -131,7 +152,7 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
             if i > 0 {
                 out.push_str(", ");
             }
-            let ty = csharp_type_for_metadata(&param.ty);
+            let ty = csharp_type_for_metadata(&param.ty, api);
             let name = param.name.to_lower_camel_case();
             out.push_str(&format!("{} {}", ty, name));
         }
@@ -157,7 +178,7 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
             if i > 0 {
                 out.push_str(", ");
             }
-            let ty = csharp_type_for_metadata(&meta_param.ty);
+            let ty = csharp_type_for_metadata(&meta_param.ty, api);
             let name = meta_param.name.to_lower_camel_case();
             out.push_str(&format!("{} {}", ty, name));
         }
@@ -181,7 +202,13 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
         // Add metadata arguments
         for meta_param in &reg.metadata_params {
             let name = meta_param.name.to_lower_camel_case();
-            out.push_str(&format!(",\n            {}", name));
+            // Check if this is an opaque type — if so, extract .Handle
+            let arg = if matches!(&meta_param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque)) {
+                format!("{}.Handle", name)
+            } else {
+                name
+            };
+            out.push_str(&format!(",\n            {}", arg));
         }
 
         out.push_str("\n        );\n\n");
@@ -206,6 +233,11 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
         out.push_str(&format!("    /// {}.\n", ep_method));
         out.push_str("    /// </summary>\n");
 
+        // Check if return type is representable (skip finalize if not)
+        if !entrypoint_return_representable(ep, api) {
+            continue;
+        }
+
         let return_type = if ep.is_async { "void" } else { "int" };
         out.push_str(&format!("    public {} {}(", return_type, ep_method));
 
@@ -213,7 +245,7 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
             if i > 0 {
                 out.push_str(", ");
             }
-            let ty = csharp_type_for_metadata(&param.ty);
+            let ty = csharp_type_for_metadata(&param.ty, api);
             let name = param.name.to_lower_camel_case();
             out.push_str(&format!("{} {}", ty, name));
         }
@@ -231,7 +263,13 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
 
         for param in &ep.params {
             let name = param.name.to_lower_camel_case();
-            out.push_str(&format!(",\n            {}", name));
+            // Check if this is an opaque type — if so, extract .Handle
+            let arg = if matches!(&param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque)) {
+                format!("{}.Handle", name)
+            } else {
+                name
+            };
+            out.push_str(&format!(",\n            {}", arg));
         }
 
         out.push_str("\n        );\n");
@@ -292,6 +330,8 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
 ///
 /// Mirrors the C FFI contract exactly: constructor/destructor, registration functions,
 /// and entrypoint functions with their exact signatures and names.
+/// Opaque metadata parameters are marshalled as IntPtr (handle);
+/// other Named/complex types are not expected in P/Invoke metadata.
 fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> String {
     let mut out = String::new();
 
@@ -391,6 +431,11 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
 
         // Entrypoint functions
         for ep in &service.entrypoints {
+            // Skip non-representable finalize entrypoints (e.g., foreign framework returns)
+            if !entrypoint_return_representable(ep, api) {
+                continue;
+            }
+
             let ep_method_snake = ep.method.to_snake_case();
             let return_type = match &ep.return_type {
                 TypeRef::Primitive(p) => {

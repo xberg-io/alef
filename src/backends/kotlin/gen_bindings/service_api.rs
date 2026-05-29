@@ -12,15 +12,32 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, EntrypointKind, ParamDef, ServiceDef, TypeRef};
 use crate::core::jni::{bridge_method_name, jni_package, service_bridge_class_name};
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
 // ──────────────────────────────────────────────────────────────── helpers ──
 
+/// Whether an entrypoint's return type can be represented over the JNI ABI as a function return.
+///
+/// Unit/primitive types return an Int (status code); a `Named` type is representable only
+/// when this surface wraps it. Anything else (e.g. a foreign framework type) is not representable.
+fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::Primitive(_) => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
+        _ => false,
+    }
+}
+
+/// Whether a parameter type is a surface-wrapped opaque type.
+fn param_is_opaque_surface_type(param: &ParamDef, api: &ApiSurface) -> bool {
+    matches!(&param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n))
+}
+
 /// Emit external fun declarations inside the service bridge object.
-fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef) {
+fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef, api: &ApiSurface) {
     // Constructor: uses bridge_method_name for naming consistency
     let ctor_method = bridge_method_name(&service.name, "new");
     out.push_str("    /**\n");
@@ -49,7 +66,7 @@ fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef) {
 
         // Metadata parameter types
         for meta_param in &reg.metadata_params {
-            let kotlin_ty = kotlin_type_for_metadata(&meta_param.ty);
+            let kotlin_ty = kotlin_type_for_metadata(&meta_param.ty, api);
             out.push_str(&format!(",\n        {}: {}", meta_param.name, kotlin_ty));
         }
 
@@ -58,6 +75,11 @@ fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef) {
 
     // Entrypoint externals
     for ep in &service.entrypoints {
+        // Skip finalize entrypoints whose return type cannot be represented over the JNI ABI.
+        if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+            continue;
+        }
+
         let ep_method = bridge_method_name(&service.name, &ep.method);
         let return_type = match ep.kind {
             EntrypointKind::Run => "Unit",
@@ -72,7 +94,7 @@ fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef) {
         out.push_str("        handle: Long");
 
         for param in &ep.params {
-            let kotlin_ty = kotlin_type_for_metadata(&param.ty);
+            let kotlin_ty = kotlin_type_for_metadata(&param.ty, api);
             out.push_str(&format!(",\n        {}: {}", param.name, kotlin_ty));
         }
 
@@ -81,7 +103,8 @@ fn emit_service_bridge_externals(out: &mut String, service: &ServiceDef) {
 }
 
 /// Map a Kotlin type for metadata parameters.
-fn kotlin_type_for_metadata(ty: &TypeRef) -> String {
+/// For opaque surface-wrapped types, returns the Kotlin opaque wrapper class name.
+fn kotlin_type_for_metadata(ty: &TypeRef, api: &ApiSurface) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_owned(),
         TypeRef::Primitive(p) => {
@@ -100,6 +123,7 @@ fn kotlin_type_for_metadata(ty: &TypeRef) -> String {
         }
         TypeRef::Bytes => "ByteArray".to_owned(),
         TypeRef::Unit => "Unit".to_owned(),
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => n.clone(),
         _ => "Any".to_owned(),
     }
 }
@@ -111,7 +135,7 @@ fn kotlin_type_for_metadata(ty: &TypeRef) -> String {
 /// Emits two components:
 /// 1. A top-level `object {ServiceName}ServiceBridge` with `external fun` declarations
 /// 2. A `public class {ServiceName}` wrapping the opaque handle and delegating to the bridge
-fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, lib_name: &str) -> String {
+fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, lib_name: &str) -> String {
     let mut out = String::new();
 
     // File header and package
@@ -136,7 +160,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
     out.push_str("    }\n\n");
 
     // Emit external funs in the bridge object (placed inline here; detailed below)
-    emit_service_bridge_externals(&mut out, service);
+    emit_service_bridge_externals(&mut out, service, api);
 
     out.push_str("}\n\n");
 
@@ -199,7 +223,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
 
         // Metadata parameters
         for meta_param in &reg.metadata_params {
-            let kotlin_ty = kotlin_type_for_metadata(&meta_param.ty);
+            let kotlin_ty = kotlin_type_for_metadata(&meta_param.ty, api);
             let param_name = meta_param.name.to_lower_camel_case();
             out.push_str(&format!(",\n        {}: {}", param_name, kotlin_ty));
         }
@@ -218,7 +242,12 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
                 out.push_str(",\n");
             }
             let param_name = meta_param.name.to_lower_camel_case();
-            out.push_str(&format!("            {}", param_name));
+            // For opaque surface types, pass the inner Java facade reference
+            if param_is_opaque_surface_type(meta_param, api) {
+                out.push_str(&format!("            {param_name}.inner"));
+            } else {
+                out.push_str(&format!("            {param_name}"));
+            }
             first = false;
         }
 
@@ -228,6 +257,11 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
 
     // Entrypoint methods
     for ep in &service.entrypoints {
+        // Skip finalize entrypoints whose return type cannot be represented over the JNI ABI.
+        if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+            continue;
+        }
+
         let ep_method = &ep.method;
 
         out.push_str("    /**\n");
@@ -261,7 +295,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
                 format!(
                     "{}: {}",
                     param.name.to_lower_camel_case(),
-                    kotlin_type_for_metadata(&param.ty)
+                    kotlin_type_for_metadata(&param.ty, api)
                 )
             })
             .collect::<Vec<_>>()
@@ -277,7 +311,12 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
 
                 for param in &ep.params {
                     let param_name = param.name.to_lower_camel_case();
-                    out.push_str(&format!(",\n            {}", param_name));
+                    // For opaque surface types, pass the inner Java facade reference
+                    if param_is_opaque_surface_type(param, api) {
+                        out.push_str(&format!(",\n            {param_name}.inner"));
+                    } else {
+                        out.push_str(&format!(",\n            {param_name}"));
+                    }
                 }
 
                 out.push_str("\n        )\n");
@@ -288,7 +327,12 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
 
                 for param in &ep.params {
                     let param_name = param.name.to_lower_camel_case();
-                    out.push_str(&format!(",\n            {}", param_name));
+                    // For opaque surface types, pass the inner Java facade reference
+                    if param_is_opaque_surface_type(param, api) {
+                        out.push_str(&format!(",\n            {param_name}.inner"));
+                    } else {
+                        out.push_str(&format!(",\n            {param_name}"));
+                    }
                 }
 
                 out.push_str("\n        )\n");

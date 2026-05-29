@@ -27,6 +27,18 @@ use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
+/// Whether an entrypoint's return type can be represented over the C ABI as a function return.
+///
+/// Unit/primitive/string/bytes map to a status code or scalar; a `Named` type is representable only
+/// when this surface wraps it (so it can cross as an opaque handle). Anything else is not representable.
+fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
+        _ => false,
+    }
+}
+
 /// Map a `TypeRef` to a Swift type string for function parameters.
 fn typeref_to_swift_type(ty: &TypeRef) -> String {
     match ty {
@@ -121,6 +133,10 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
 
     // Entrypoint methods
     for ep in &service.entrypoints {
+        // Skip finalize entrypoints whose return type can't be represented over the C ABI.
+        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+            continue;
+        }
         gen_entrypoint_method(&mut out, service, ep, &service_snake);
     }
 
@@ -132,7 +148,7 @@ fn gen_registration_method(
     out: &mut String,
     _service: &ServiceDef,
     reg: &RegistrationDef,
-    _api: &ApiSurface,
+    api: &ApiSurface,
     service_snake: &str,
 ) {
     let method_name = &reg.method;
@@ -201,9 +217,22 @@ fn gen_registration_method(
         "        RustBridge.{service_snake}Register{method_camel_upper}(\n            handle,\n            trampolineFunc,\n            contextPtr"
     ));
 
-    // Add metadata parameters
+    // Add metadata parameters, marshaling opaque handles appropriately.
+    // For Named types that are in the API surface, pass the underlying opaque handle.
+    // For everything else (primitives, strings), pass the value as-is.
     for meta_param in &reg.metadata_params {
-        out.push_str(&format!(",\n            {}", meta_param.name));
+        match &meta_param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+                // Opaque handle: pass the underlying pointer via Unsafe methods.
+                // The parameter is a RustBridge.{Name}Ref or RustBridge.{Name}.
+                // We extract the opaque pointer for FFI passing.
+                out.push_str(&format!(",\n            {}.unsafelyUnwrapped", meta_param.name));
+            }
+            _ => {
+                // Primitive or string: pass as-is.
+                out.push_str(&format!(",\n            {}", meta_param.name));
+            }
+        }
     }
 
     out.push_str("\n        )\n");

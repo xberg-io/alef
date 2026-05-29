@@ -20,7 +20,7 @@ pub mod trait_bridge;
 
 pub struct SwiftBackend;
 
-fn effective_exclude_types(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
+fn effective_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface) -> std::collections::HashSet<String> {
     let mut exclude_types: std::collections::HashSet<String> = config
         .ffi
         .as_ref()
@@ -29,6 +29,7 @@ fn effective_exclude_types(config: &ResolvedCrateConfig) -> std::collections::Ha
     if let Some(swift) = &config.swift {
         exclude_types.extend(swift.exclude_types.iter().cloned());
     }
+    exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types
 }
 
@@ -61,7 +62,7 @@ impl Backend for SwiftBackend {
         // Function-wrapper emission is disabled in this phase (see comment below);
         // `swift.exclude_functions` therefore has no effect on the host wrapper but
         // is still consumed by the Rust-side bridge crate via gen_rust_crate::emit.
-        let exclude_types = effective_exclude_types(config);
+        let exclude_types = effective_exclude_types(config, api);
         // The Rust-side gen_rust_crate uses the same `exclude_fields` set to gate which
         // fields appear in the `#[swift_bridge(init)] fn new(...)` constructor extern.
         // We mirror that set here so `intoRust()` knows when a bulk constructor extern

@@ -40,7 +40,7 @@ impl JavaBackend {
     }
 }
 
-fn effective_exclude_types(config: &ResolvedCrateConfig) -> HashSet<String> {
+fn effective_exclude_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> HashSet<String> {
     let mut exclude_types: HashSet<String> = config
         .ffi
         .as_ref()
@@ -49,6 +49,8 @@ fn effective_exclude_types(config: &ResolvedCrateConfig) -> HashSet<String> {
     if let Some(java) = &config.java {
         exclude_types.extend(java.exclude_types.iter().cloned());
     }
+    // Also exclude types flagged binding_excluded by the service extraction pass
+    exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types
 }
 
@@ -120,7 +122,7 @@ impl Backend for JavaBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let exclude_types = effective_exclude_types(config);
+        let exclude_types = effective_exclude_types(api, config);
         let filtered_api;
         let api = if exclude_types.is_empty() {
             api

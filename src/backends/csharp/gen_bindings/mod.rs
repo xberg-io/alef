@@ -59,7 +59,7 @@ impl CsharpBackend {
     // lib_name comes from config.ffi_lib_name()
 }
 
-fn effective_exclude_types(config: &ResolvedCrateConfig) -> HashSet<String> {
+fn effective_exclude_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> HashSet<String> {
     let mut exclude_types: HashSet<String> = config
         .ffi
         .as_ref()
@@ -68,6 +68,8 @@ fn effective_exclude_types(config: &ResolvedCrateConfig) -> HashSet<String> {
     if let Some(csharp) = &config.csharp {
         exclude_types.extend(csharp.exclude_types.iter().cloned());
     }
+    // Also exclude types marked as binding_excluded (service-owned types emitted via service API)
+    exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types
 }
 
@@ -134,7 +136,7 @@ impl Backend for CsharpBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let exclude_types = effective_exclude_types(config);
+        let exclude_types = effective_exclude_types(api, config);
         let filtered_api;
         let api = if exclude_types.is_empty() {
             api
