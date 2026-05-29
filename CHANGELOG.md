@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef ruby scaffold: wrap `RbSys::ExtensionTask.new` in `Dir.chdir(ext/<name>/native)` and restore `config.ext_dir = "native"` in extconf.rb.** The v0.20.11 fix changed `ext.ext_dir = "ext/<name>" → "ext/<name>/native"` and removed `config.ext_dir = "native"` from extconf.rb, but `RbSys::ExtensionTask.init()` (rb_sys 0.9.128) **overrides** the user-set `@ext_dir` with `Cargo::Metadata.new_or_inferred(name).manifest_directory`, and that metadata lookup runs `cargo metadata` from `Dir.pwd` (i.e. `packages/<lang>/`). When the binding native crate is in the parent workspace's `exclude` list — the default for kreuzcrawl, html-to-markdown, liter-llm, tree-sitter-language-pack, kreuzberg — the metadata lookup misses the crate and raises `RbSys::PackageNotFoundError: Could not find Cargo package metadata for "<name>-rb"`. Setting `ext.ext_dir` has no effect on this lookup. Real fix: run the `ExtensionTask.new` block inside `Dir.chdir(ext/<name>/native)` so cargo metadata finds the standalone `Cargo.toml`; restore `config.ext_dir = "native"` so the build-time `rb_sys/mkmf` path resolves identically. Absolute `lib_dir` keeps the rake task pointing at the gem root regardless of CWD. (`src/scaffold/languages/ruby.rs`)
+
 ## [0.20.11] - 2026-05-29
 
 ### Fixed
