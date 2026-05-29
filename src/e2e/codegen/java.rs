@@ -1806,7 +1806,7 @@ fn build_args_and_setup(
                         fixture,
                         &config.java_package(),
                         &excluded_named,
-                        &class_name,
+                        class_name,
                     );
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);

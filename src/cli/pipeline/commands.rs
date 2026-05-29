@@ -765,7 +765,7 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
             continue;
         }
         let backend = registry::get_backend(lang);
-        if let Some(bc) = backend.build_config() {
+        if let Some(bc) = backend.build_config_with_config(config) {
             if bc.depends_on_ffi() {
                 ffi_dependent.push((lang, bc));
                 need_ffi = true;

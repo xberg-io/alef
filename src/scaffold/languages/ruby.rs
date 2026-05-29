@@ -357,7 +357,10 @@ end
             generated_header: true,
         },
         GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/ext/{ext_name}/native/extconf.rb", ext_name = ext_name)),
+            path: PathBuf::from(format!(
+                "{pkg_dir}/ext/{ext_name}/native/extconf.rb",
+                ext_name = ext_name
+            )),
             content: extconf_content,
             generated_header: true,
         },

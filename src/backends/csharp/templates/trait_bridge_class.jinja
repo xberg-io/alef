@@ -5,6 +5,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     internal readonly I{{ trait_pascal }} _impl;
     private readonly GCHandle _implHandle;
+    private readonly GCHandle _delegatesHandle;
     internal IntPtr _vtable;
     private bool _disposed;
     private readonly object[] _delegates;
@@ -66,9 +67,10 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
     public {{ trait_pascal }}Bridge(I{{ trait_pascal }} impl) {
         _impl = impl ?? throw new ArgumentNullException(nameof(impl));
         _implHandle = GCHandle.Alloc(impl, GCHandleType.Normal);
+        _delegates = new object[{{ num_vtable_fields }}];
+        _delegatesHandle = GCHandle.Alloc(_delegates, GCHandleType.Normal);
         _vtable = IntPtr.Zero;
         _disposed = false;
-        _delegates = new object[{{ num_vtable_fields }}];
         // Allocate unique bridge ID for registry lookup during callbacks
         lock (_registryLock) {
             _bridgeId = new IntPtr(_nextBridgeId++);
@@ -130,6 +132,10 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
         if (_implHandle.IsAllocated) {
             _implHandle.Free();
+        }
+
+        if (_delegatesHandle.IsAllocated) {
+            _delegatesHandle.Free();
         }
     }
 

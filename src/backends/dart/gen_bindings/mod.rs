@@ -255,6 +255,10 @@ impl Backend for DartBackend {
         })
     }
 
+    fn build_config_with_config(&self, config: &ResolvedCrateConfig) -> Option<BuildConfig> {
+        self.build_config_for(config)
+    }
+
     fn generate_service_api(
         &self,
         api: &ApiSurface,
