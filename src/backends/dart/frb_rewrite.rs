@@ -679,10 +679,12 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
 
         // Check if this line starts a const constructor for a known type with optional fields.
         // Match patterns like `const EmbeddingConfig({` or `const EmbeddingConfig(`
-        let struct_name_opt = struct_names.iter().find(|&&name| {
-            trimmed.starts_with(&format!("const {}({{", name))
-                || trimmed.starts_with(&format!("const {}(", name))
-        }).cloned();
+        let struct_name_opt = struct_names
+            .iter()
+            .find(|&&name| {
+                trimmed.starts_with(&format!("const {}({{", name)) || trimmed.starts_with(&format!("const {}(", name))
+            })
+            .cloned();
 
         if let Some(struct_name) = struct_name_opt {
             let fields_to_make_optional = optional_fields[struct_name].clone();
