@@ -1365,7 +1365,7 @@ fn render_test_method(
         // per-fixture property holds the full URL; fall back to the base URL
         // (mockServerUrl or env var) with the /fixtures/<id> suffix appended.
         let mock_url_expr = format!(
-            "System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") + \"/fixtures/{fixture_id}\")"
+            "System.getProperty(\"mockServer.{fixture_id}\", (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\")"
         );
         if expects_error {
             // Wrap setup + client construction + call in assertFailsWith so
@@ -1536,12 +1536,12 @@ fn build_args_and_setup(
         if arg.arg_type == "mock_url" {
             if fixture.has_host_root_route() {
                 setup_lines.push(format!(
-                    "val {} = System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\")",
+                    "val {} = System.getProperty(\"mockServer.{fixture_id}\", (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\")",
                     arg.name,
                 ));
             } else {
                 setup_lines.push(format!(
-                    "val {} = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\"",
+                    "val {} = (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"",
                     arg.name,
                 ));
             }
