@@ -2782,11 +2782,11 @@ fn method_needs_json_default(method: &crate::core::ir::MethodDef) -> bool {
 fn zig_json_default_for_type(return_type: &crate::core::ir::TypeRef) -> String {
     use crate::core::ir::TypeRef;
     match return_type {
-        TypeRef::Vec(_) => "\"[]\"".to_string(),        // Empty array
-        TypeRef::Map(_, _) => "\"{}\"".to_string(),     // Empty object
-        TypeRef::String => "\"\"".to_string(),           // Empty string
-        TypeRef::Named(_) => "\"{}\"".to_string(),      // Default JSON object for custom types
-        _ => "\"{}\"".to_string(),                       // Fallback to empty object
+        TypeRef::Vec(_) => "\"[]\"".to_string(),    // Empty array
+        TypeRef::Map(_, _) => "\"{}\"".to_string(), // Empty object
+        TypeRef::String => "\"\"".to_string(),      // Empty string
+        TypeRef::Named(_) => "\"{}\"".to_string(),  // Default JSON object for custom types
+        _ => "\"{}\"".to_string(),                  // Fallback to empty object
     }
 }
 

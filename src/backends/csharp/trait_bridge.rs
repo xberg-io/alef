@@ -733,11 +733,15 @@ fn gen_single_trait_bridge(
             // just set outError to IntPtr.Zero and let Rust see the 1 return code.
             // The issue is that StringToCoTaskMemUTF8 itself can crash if the stack is corrupted.
             callbacks.push_str("            outError = IntPtr.Zero;\n");
-            callbacks.push_str("            // Attempt to marshal exception message, but on ANY failure just leave outError null\n");
+            callbacks.push_str(
+                "            // Attempt to marshal exception message, but on ANY failure just leave outError null\n",
+            );
             callbacks.push_str("            try {\n");
             callbacks.push_str("                string _errMsg = null!;\n");
             callbacks.push_str("                try {\n");
-            callbacks.push_str("                    _errMsg = ex?.Message ?? ex?.GetType()?.Name ?? \"Unknown exception\";\n");
+            callbacks.push_str(
+                "                    _errMsg = ex?.Message ?? ex?.GetType()?.Name ?? \"Unknown exception\";\n",
+            );
             callbacks.push_str("                } catch {\n");
             callbacks.push_str("                    _errMsg = \"Callback failed\";\n");
             callbacks.push_str("                }\n");
@@ -745,7 +749,8 @@ fn gen_single_trait_bridge(
             callbacks.push_str("                    outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_errMsg);\n");
             callbacks.push_str("                }\n");
             callbacks.push_str("            } catch {\n");
-            callbacks.push_str("                // Marshalling failed; outError stays null — Rust will see return code 1\n");
+            callbacks
+                .push_str("                // Marshalling failed; outError stays null — Rust will see return code 1\n");
             callbacks.push_str("            }\n");
         }
         if !is_primitive_return {

@@ -3685,7 +3685,9 @@ fn emit_async_free_function_forwarder(
             let decode_ty = forwarder_return_type(&func.return_type);
             (
                 format!("try RustBridge.{swift_name}({args}).toString()"),
-                format!("        let _rb_data = _rb_result.data(using: .utf8) ?? Data()\n        return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)"),
+                format!(
+                    "        let _rb_data = _rb_result.data(using: .utf8) ?? Data()\n        return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)"
+                ),
             )
         }
         _ => (
@@ -3704,9 +3706,14 @@ fn emit_async_free_function_forwarder(
     } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
         out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
-    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(name) if known_dto_names.contains(name))) {
+    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(name) if known_dto_names.contains(name)))
+    {
         // Vec<Named> return: apply the .map conversion suffix
-        let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, func.error_type.is_some());
+        let suffix = forwarder_return_conversion_suffix_with_throws(
+            &func.return_type,
+            known_dto_names,
+            func.error_type.is_some(),
+        );
         out.push_str(&format!("        let result = {bridge_call}\n"));
         out.push_str(&format!("        return result{suffix}\n"));
     } else {
@@ -4048,7 +4055,7 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::Named(name) => {
                 let struct_name = swift_ident(name);
                 format!(".map {{ ref in var item = {struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}")
-            },
+            }
             _ => String::new(),
         },
         // Optional<Named DTO> return: bridge call returns the low-level

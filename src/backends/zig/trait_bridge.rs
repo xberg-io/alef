@@ -306,17 +306,17 @@ pub fn emit_make_vtable(
             // Infallible method returning complex type: call directly, write to out_result, return 0.
             // The method is expected to return a pointer to a NUL-terminated C string ([*c]const u8).
             out.push_str("                const ");
-            out.push_str(&ok_binding);
+            out.push_str(ok_binding);
             out.push_str(" = self.");
             out.push_str(&method_snake);
-            out.push_str("(");
+            out.push('(');
             out.push_str(&args_str);
             out.push_str(");\n");
             // Write the returned string pointer to out_result.
             // Cast away const if necessary to match the mutable out_result pointer.
             out.push_str("                if (out_result) |ptr| {\n");
             out.push_str("                    ptr.* = @constCast(");
-            out.push_str(&ok_binding);
+            out.push_str(ok_binding);
             out.push_str(");\n");
             out.push_str("                }\n");
             out.push_str("                return 0;\n");
