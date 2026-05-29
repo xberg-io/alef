@@ -101,7 +101,6 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
         }
         params.push(("out_error".to_string(), "?*?[*c]u8".to_string()));
     }
-    // Infallible methods: return directly (no out-params)
     params
 }
 

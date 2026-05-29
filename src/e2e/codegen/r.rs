@@ -1474,20 +1474,21 @@ pub fn emit_test_backend(
     // `shutdown` on every registered plugin (mirroring the python/ruby
     // bridges), so the R `list` stub must define them or registration
     // fails with `Plugin '<name>' missing method 'initialize'`.
-    let super_trait_entries: &[&str] = if trait_bridge.super_trait.is_some() {
-        &[
-            "    name = \"test\"",
-            "    initialize = function() invisible(NULL)",
-            "    shutdown = function() invisible(NULL)",
+    let super_trait_entries: Vec<String> = if trait_bridge.super_trait.is_some() {
+        let escaped_name = escape_r(&backend_name);
+        vec![
+            format!("    name = \"{escaped_name}\""),
+            "    initialize = function() invisible(NULL)".to_string(),
+            "    shutdown = function() invisible(NULL)".to_string(),
         ]
     } else {
-        &[]
+        vec![]
     };
 
     let total_entries = super_trait_entries.len() + required.len();
     let mut emitted = 0usize;
 
-    for entry in super_trait_entries {
+    for entry in &super_trait_entries {
         emitted += 1;
         let trailing = if emitted < total_entries { "," } else { "" };
         let _ = writeln!(setup, "{entry}{trailing}");
