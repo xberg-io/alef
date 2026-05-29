@@ -98,19 +98,19 @@ impl E2eCodegen for ZigE2eCodegen {
             .unwrap_or_else(|| config.github_repo());
         let github_repo = github_repo_owned.trim_end_matches('/');
 
-        // Resolve content multihashes for registry mode, one per platform.
-        // For registry mode, we emit per-platform dependency entries in build.zig.zon
-        // and let build.zig select via @import("builtin").
+        // Resolve content multihash for registry mode (single generic source tarball).
+        // For registry mode, we emit one dependency entry pointing to the generic
+        // `{crate_name}-zig-v{version}.tar.gz` tarball (published by alef, contains
+        // source code + prebuilt FFI library for all platforms).
         // For local mode, we emit a single path-based dependency.
         let platform_hashes = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             let mut hashes = BTreeMap::new();
-            for (platform, _) in supported_zig_platforms() {
-                let url = format!(
-                    "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}-{platform}.tar.gz"
-                );
-                let hash = resolve_zig_hash(explicit_hash.as_deref(), &url);
-                hashes.insert(platform.to_string(), (url, hash));
-            }
+            let url = format!(
+                "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz"
+            );
+            let hash = resolve_zig_hash(explicit_hash.as_deref(), &url);
+            // Store a single entry; render_build_zig_zon will extract it as the sole dependency.
+            hashes.insert("generic".to_string(), (url, hash));
             hashes
         } else {
             BTreeMap::new()
@@ -473,31 +473,22 @@ fn render_build_zig_zon(
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Emit one dependency entry per supported platform.
-            // Each entry has its own .url (platform-suffixed) and .hash.
-            // The build.zig script selects the correct one at build time via @import("builtin").
-            let mut entries = String::new();
-            for (platform, _) in supported_zig_platforms() {
-                let (url, hash_opt) = &platform_hashes.get(&platform.to_string()).cloned().unwrap_or_else(|| {
-                    // Fallback in case platform is missing from the map (shouldn't happen).
-                    let fallback_url = format!(
-                        "{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}-{platform}.tar.gz"
-                    );
-                    (fallback_url, None)
-                });
-
-                let platform_clean = platform.replace('-', "_");
-                let hash_str = match hash_opt {
-                    Some(h) => format!("\"{h}\""),
-                    None => "\"TODO\"".to_string(),
-                };
-
-                let _ = writeln!(
-                    entries,
-                    "        .{pkg_name}_{platform_clean} = .{{\n            .url = \"{url}\",\n            .hash = {hash_str},\n        }},"
-                );
-            }
-            entries
+            // Emit a single generic source tarball (no platform suffix).
+            // This matches the alef-published artifact pattern:
+            // `{crate_name}-zig-v{version}.tar.gz` (source + bundled FFI for this build platform).
+            // The build.zig script links against the prebuilt FFI library included in the tarball.
+            let url = format!(
+                "{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz"
+            );
+            let hash_str = match platform_hashes
+                .values()
+                .next()
+                .and_then(|(_, h)| h.as_ref())
+            {
+                Some(h) => format!("\"{h}\""),
+                None => "\"TODO\"".to_string(),
+            };
+            format!("        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = {hash_str},\n        }},")
         }
         crate::e2e::config::DependencyMode::Local => {
             // Zig 0.16+ requires named dependencies. Use the package name as the key.
@@ -577,19 +568,16 @@ fn render_build_zig(
             crate::e2e::config::DependencyMode::Registry => {
                 format!(
                     r#"const std = @import("std");
-const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {{
     const target = b.standardTargetOptions(.{{}});
     const optimize = b.standardOptimizeOption(.{{}});
 
-    // Select the platform-specific dependency based on build host.
-    const pkg_name = if (builtin.target.os.tag == .linux) (
-        if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_linux_x86_64" else "{pkg_name}_linux_aarch64")
-    else if (builtin.target.os.tag == .macos) (
-        if (builtin.target.cpu.arch == .x86_64) "{pkg_name}_macos_x86_64" else "{pkg_name}_macos_arm64")
-    else if (builtin.target.os.tag == .windows) "{pkg_name}_windows_x86_64"
-    else @compileError("unsupported platform for this Zig package");
+    // Fetch the published Zig package from the registry.
+    const {module_name}_module = b.dependency("{pkg_name}", .{{
+        .target = target,
+        .optimize = optimize,
+    }}).module("{module_name}");
 
     const test_step = b.step("test", "Run tests");
 }}
@@ -627,26 +615,10 @@ pub fn build(b: *std.Build) void {
     match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
             // Registry mode: consume the published Zig package declared in
-            // build.zig.zon. Per-platform dependencies are listed in build.zig.zon;
-            // select the correct one based on the build host's OS and CPU architecture.
-            content.push_str("\n    // Select the platform-specific dependency based on build host.\n");
-            content.push_str("    const pkg_name = if (builtin.target.os.tag == .linux) (\n");
-            content.push_str("        if (builtin.target.cpu.arch == .x86_64) \"");
-            content.push_str(&format!("{pkg_name}_linux_x86_64"));
-            content.push_str("\" else \"");
-            content.push_str(&format!("{pkg_name}_linux_aarch64"));
-            content.push_str("\")\n");
-            content.push_str("    else if (builtin.target.os.tag == .macos) (\n");
-            content.push_str("        if (builtin.target.cpu.arch == .x86_64) \"");
-            content.push_str(&format!("{pkg_name}_macos_x86_64"));
-            content.push_str("\" else \"");
-            content.push_str(&format!("{pkg_name}_macos_arm64"));
-            content.push_str("\")\n");
-            content.push_str("    else if (builtin.target.os.tag == .windows) \"");
-            content.push_str(&format!("{pkg_name}_windows_x86_64"));
-            content.push('"');
-            content.push_str(" else @compileError(\"unsupported platform for this Zig package\");\n\n");
-            let _ = writeln!(content, "    const {module_name}_module = b.dependency(pkg_name, .{{");
+            // build.zig.zon. The tarball is a single generic source distribution
+            // (contains source code + prebuilt FFI library for consumption).
+            content.push_str("\n    // Fetch the published Zig package from the registry.\n");
+            let _ = writeln!(content, "    const {module_name}_module = b.dependency(\"{pkg_name}\", .{{");
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
             let _ = writeln!(content, "    }}).module(\"{module_name}\");");
@@ -3088,17 +3060,15 @@ mod zig_hash_tests {
         );
     }
 
-    /// When the explicit hash is used it must be emitted in build.zig.zon for all platforms.
+    /// When the explicit hash is used it must be emitted in build.zig.zon (single generic tarball).
     #[test]
     fn build_zig_zon_emits_explicit_hash() {
         let hash = "12208badf00d";
         let mut platform_hashes = std::collections::BTreeMap::new();
-        for (platform, _) in super::supported_zig_platforms() {
-            let url = format!(
-                "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0-{platform}.tar.gz"
-            );
-            platform_hashes.insert(platform.to_string(), (url, Some(hash.to_string())));
-        }
+        let url =
+            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32.tar.gz"
+                .to_string();
+        platform_hashes.insert("generic".to_string(), (url, Some(hash.to_string())));
         let content = render_build_zig_zon(
             "sample_llm",
             "../../packages/zig",
@@ -3116,14 +3086,11 @@ mod zig_hash_tests {
             !content.contains(".hash = \"TODO\""),
             "build.zig.zon must not emit TODO when hash is provided, got:\n{content}"
         );
-        // Verify all platforms are present with their suffixes.
-        for (platform, _) in super::supported_zig_platforms() {
-            let platform_clean = platform.replace('-', "_");
-            assert!(
-                content.contains(&format!("sample_llm_{platform_clean}")),
-                "build.zig.zon must include platform-specific dependency for {platform}, got:\n{content}"
-            );
-        }
+        // Verify the single generic (no-suffix) URL is present.
+        assert!(
+            content.contains("sample-llm-zig-v1.4.0-rc.32.tar.gz"),
+            "build.zig.zon must emit the generic source tarball URL (no platform suffix), got:\n{content}"
+        );
     }
 
     /// When no hash is available (None) the fallback `.hash = "TODO"` must be
@@ -3156,16 +3123,14 @@ mod zig_hash_tests {
     /// include the repo segment (`<org>/<repo>/releases/...`).  Previously the
     /// codegen defaulted `github_repo` to `https://github.com/<org>` (no
     /// repo), producing `https://github.com/<org>/releases/...` which 404s.
-    /// Also verify that platform-suffixed URLs are emitted correctly.
+    /// Now the URL is a single generic (no platform suffix) source tarball.
     #[test]
     fn build_zig_zon_emits_full_release_url_with_repo_segment_and_platform_suffix() {
         let mut platform_hashes = std::collections::BTreeMap::new();
-        for (platform, _) in super::supported_zig_platforms() {
-            let url = format!(
-                "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1-{platform}.tar.gz"
-            );
-            platform_hashes.insert(platform.to_string(), (url, None));
-        }
+        let url =
+            "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz"
+                .to_string();
+        platform_hashes.insert("generic".to_string(), (url, None));
         let content = render_build_zig_zon(
             "sample_markdown",
             "../../packages/zig",
@@ -3175,15 +3140,12 @@ mod zig_hash_tests {
             "sample-markdown-rs",
             "https://github.com/sample_crate-dev/sample-markdown",
         );
-        // Verify all platform-suffixed URLs are present.
-        for (platform, _) in super::supported_zig_platforms() {
-            let expected_url = format!(
-                "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1-{platform}.tar.gz"
-            );
-            assert!(
-                content.contains(&expected_url),
-                "build.zig.zon must emit platform-suffixed URL for {platform}; got:\n{content}"
-            );
-        }
+        // Verify the generic (no-suffix) URL is present with proper repo segment.
+        let expected_url =
+            "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
+        assert!(
+            content.contains(expected_url),
+            "build.zig.zon must emit the generic source tarball URL with proper repo segment; got:\n{content}"
+        );
     }
 }
