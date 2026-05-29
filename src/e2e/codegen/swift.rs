@@ -879,7 +879,7 @@ fn render_test_method(
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let is_async = call_config.r#async;
+    let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     // Streaming detection (call-level `streaming` opt-out is honored).
     let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);

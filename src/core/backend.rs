@@ -166,4 +166,13 @@ pub trait Backend: Send + Sync {
     fn build_config(&self) -> Option<BuildConfig> {
         None
     }
+
+    /// Build configuration for this backend with full access to the crate config.
+    /// This allows backends to customize build steps based on configuration (e.g., exclude functions, styles).
+    ///
+    /// Default implementation calls `build_config()` (no config dependency).
+    /// Backends that need config access (like Dart) can override this method.
+    fn build_config_with_config(&self, _config: &ResolvedCrateConfig) -> Option<BuildConfig> {
+        self.build_config()
+    }
 }

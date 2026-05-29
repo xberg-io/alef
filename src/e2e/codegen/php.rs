@@ -1655,7 +1655,7 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace, &class_name);
+                    let emission = emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace, class_name);
                     // Split multi-line setup_block into individual lines so the
                     // Jinja template can indent each line uniformly with `        {{ line }}`.
                     for line in emission.setup_block.lines() {
