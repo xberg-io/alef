@@ -2103,6 +2103,31 @@ PHP_ARG_ENABLE([{}],
 if test "$PHP_{}_ENABLED" = "yes"; then
   dnl Recognize the extension directory for phpize/make
   PHP_NEW_EXTENSION({}, [], $ext_shared)
+
+  dnl Invoke cargo build to compile the Rust FFI library
+  AC_CONFIG_COMMANDS([cargo-build], [
+    if test -f "crates/{}-php/Cargo.toml"; then
+      cargo build --release --manifest-path crates/{}-php/Cargo.toml || exit 1
+      cargo_output_dir="crates/{}-php/target/release"
+      ext_soname="{}"
+
+      dnl Detect output filename based on platform
+      if test -f "${{cargo_output_dir}}/lib{}_php.dylib"; then
+        cargo_lib="${{cargo_output_dir}}/lib{}_php.dylib"
+      elif test -f "${{cargo_output_dir}}/lib{}_php.so"; then
+        cargo_lib="${{cargo_output_dir}}/lib{}_php.so"
+      else
+        AC_MSG_ERROR([cargo build succeeded but .so/.dylib not found])
+      fi
+
+      dnl Copy the compiled library to modules/ directory for phpize to install
+      cp "${{cargo_lib}}" "modules/${{ext_soname}}.so" || exit 1
+    else
+      AC_MSG_ERROR([crates/{}-php/Cargo.toml not found])
+    fi
+  ], [
+    extension_name={}
+  ])
 fi
 "#,
         extension_name,
@@ -2110,6 +2135,16 @@ fi
         extension_name,
         extension_name,
         extension_name.to_uppercase(),
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
+        extension_name,
         extension_name
     )
 }
