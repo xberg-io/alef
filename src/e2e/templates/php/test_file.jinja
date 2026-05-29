@@ -20,11 +20,9 @@ namespace {{ namespace }}\E2e;
 
 use PHPUnit\Framework\TestCase;
 use {{ namespace }}\{{ class_name }};
-{%- if imports_use %}
-{%- for use_stmt in imports_use %}
+{% for use_stmt in imports_use %}
 {{ use_stmt }}
-{%- endfor %}
-{%- endif %}
+{% endfor %}
 {%- if has_http_tests %}
 use GuzzleHttp\Client;
 {%- endif %}
