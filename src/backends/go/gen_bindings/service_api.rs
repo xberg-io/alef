@@ -418,14 +418,15 @@ fn gen_registration_method(
     // Register the handler in Go's registry
     out.push_str("\tctxID := registerHandler(handler)\n");
 
-    // Call C registration function
-    // The callback function pointer is passed directly; cgo resolves C.service_handler_callback
-    // to the address of the exported //export function.
+    // Call C registration function.
+    // cgo types the callback parameter (an inline C function-pointer in the generated header)
+    // as `*[0]byte`. The static trampoline `C.service_handler_trampoline` resolves to an
+    // `unsafe.Pointer`; convert it to `*[0]byte` so it satisfies the parameter type.
     let upper_prefix = ffi_prefix.to_uppercase();
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.service_handler_trampoline,\n\
+         \t\t(*[0]byte)(C.service_handler_trampoline),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -501,13 +502,22 @@ fn gen_entrypoint_method(
         params.join(", ")
     };
 
-    let return_type = typeref_to_go_type(&ep.return_type);
-    let return_sig = if !return_type.is_empty() {
-        format!(" ({})", return_type)
-    } else if ep.error_type.is_some() {
-        " error".to_owned()
-    } else {
-        String::new()
+    // The C entrypoint returns either a `*mut T` opaque pointer (when this surface wraps the
+    // entrypoint's return type) or an `i32` status code (0 = ok). Mirror that ABI here: expose the
+    // opaque wrapper as a value; otherwise the call is status-only, reported through `error`. A
+    // value type the surface does not wrap (e.g. a foreign framework type) has no C return form, so
+    // it collapses to the status call rather than a bogus Go value.
+    let upper_prefix = ffi_prefix.to_uppercase();
+    let opaque_return = match &ep.return_type {
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => Some(n.clone()),
+        _ => None,
+    };
+    let has_err = ep.error_type.is_some();
+    let return_sig = match (&opaque_return, has_err) {
+        (Some(t), true) => format!(" (*{t}, error)"),
+        (Some(t), false) => format!(" *{t}"),
+        (None, true) => " error".to_owned(),
+        (None, false) => String::new(),
     };
 
     out.push_str(&format!(
@@ -519,61 +529,55 @@ fn gen_entrypoint_method(
     }
 
     out.push_str(&format!(
-        "func (s *{}) {}({}) {} {{\n",
+        "func (s *{}) {}({}){} {{\n",
         service_name, ep_method_pascal, param_sig, return_sig
     ));
     out.push_str("\ts.mu.Lock()\n");
     out.push_str("\tdefer s.mu.Unlock()\n");
     out.push_str("\tif s.owner == nil {\n");
-
-    if ep.error_type.is_some() {
-        if !return_type.is_empty() {
-            let zero_val = zero_value_for_type(&return_type);
-            out.push_str(&format!("\t\treturn {zero_val}, errors.New(\"service is closed\")\n"));
-        } else {
-            out.push_str("\t\treturn errors.New(\"service is closed\")\n");
-        }
-    } else {
-        out.push_str("\t\tpanic(\"service is closed\")\n");
+    match (&opaque_return, has_err) {
+        (Some(_), true) => out.push_str("\t\treturn nil, errors.New(\"service is closed\")\n"),
+        (Some(_), false) => out.push_str("\t\treturn nil\n"),
+        (None, true) => out.push_str("\t\treturn errors.New(\"service is closed\")\n"),
+        (None, false) => out.push_str("\t\tpanic(\"service is closed\")\n"),
     }
     out.push_str("\t}\n\n");
 
-    // Call C entrypoint function
-    let upper_prefix = ffi_prefix.to_uppercase();
+    // Call the C entrypoint, capturing its return when it carries a value or status.
+    let capture = if opaque_return.is_some() || has_err { "ret := " } else { "" };
     out.push_str(&format!(
-        "\tC.{}_{}_ep_{}(\n\
+        "\t{capture}C.{}_{}_ep_{}(\n\
          \t\t(*C.{upper_prefix}{}Opaque)(s.owner),\n",
         service_lower, service_snake, ep_name_snake, service_name
     ));
-
     for ep_param in &ep.params {
         out.push_str(&format!("\t\tC.CString({}),\n", ep_param.name));
     }
     out.push_str("\t)\n");
 
-    // Return statement
-    if ep.error_type.is_some() {
-        if !return_type.is_empty() {
-            out.push_str(&format!("\treturn {}, nil\n", zero_value_for_type(&return_type)));
-        } else {
+    match (&opaque_return, has_err) {
+        (Some(t), true) => {
+            out.push_str("\tif ret == nil {\n");
+            out.push_str(&format!("\t\treturn nil, errors.New(\"{} failed\")\n", ep_method));
+            out.push_str("\t}\n");
+            out.push_str(&format!("\treturn &{t}{{ptr: unsafe.Pointer(ret)}}, nil\n"));
+        }
+        (Some(t), false) => {
+            out.push_str(&format!("\treturn &{t}{{ptr: unsafe.Pointer(ret)}}\n"));
+        }
+        (None, true) => {
+            out.push_str("\tif ret != 0 {\n");
+            out.push_str(&format!(
+                "\t\treturn fmt.Errorf(\"{} failed: error code %d\", ret)\n",
+                ep_method
+            ));
+            out.push_str("\t}\n");
             out.push_str("\treturn nil\n");
         }
+        (None, false) => {}
     }
 
     out.push_str("}\n\n");
-}
-
-/// Return a Go zero value for the given type.
-fn zero_value_for_type(go_type: &str) -> String {
-    match go_type {
-        "bool" => "false".to_owned(),
-        "string" => "\"\"".to_owned(),
-        s if s.starts_with("int") || s.starts_with("uint") || s.starts_with("float") => "0".to_owned(),
-        s if s.starts_with('[') => "nil".to_owned(),
-        s if s.starts_with("map[") => "nil".to_owned(),
-        s if s.starts_with('*') => "nil".to_owned(),
-        _ => "nil".to_owned(),
-    }
 }
 
 // ──────────────────────────────────────────────────────────────── public entry point ──
@@ -802,8 +806,9 @@ mod tests {
         assert!(go.contains("RegisterAddHandler"));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
-        // Verify callback is passed via the const-signature static trampoline
-        assert!(go.contains("C.service_handler_trampoline,"));
+        // Verify callback is passed via the const-signature static trampoline, cast to the
+        // cgo function-pointer type the register parameter expects.
+        assert!(go.contains("(*[0]byte)(C.service_handler_trampoline),"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }

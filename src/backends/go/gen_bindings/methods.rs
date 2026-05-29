@@ -696,8 +696,10 @@ pub(super) fn gen_param_to_c(
                 out.push('\n');
             }
         }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Vec and Map types are serialized as JSON strings across the FFI boundary.
+        TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Json => {
+            // Vec, Map, and raw-JSON (json.RawMessage) types are serialized as JSON strings
+            // across the FFI boundary. json.Marshal on a json.RawMessage returns its bytes
+            // verbatim, so the same path produces the C string the call-site references.
             let err_action = if can_return_error {
                 format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
             } else {
