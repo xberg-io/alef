@@ -1025,24 +1025,6 @@ pub(crate) fn gen_opaque_handle_class(
     let has_static_factories = !static_factory_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;
 
-    // Check instance methods for List, Map, Optional return types using the
-    // same public mapper that renders the method signatures.
-    let mut has_list_return = false;
-    let mut has_optional_return = false;
-    let mut has_map_return = false;
-    for method in &instance_methods {
-        let return_type_str = java_return_type(&method.return_type).to_string();
-        if return_type_str.contains("List<") {
-            has_list_return = true;
-        }
-        if return_type_str.contains("Optional<") {
-            has_optional_return = true;
-        }
-        if return_type_str.contains("Map<") {
-            has_map_return = true;
-        }
-    }
-
     // Build the class body first so we can compute imports from actual usage —
     // Checkstyle's UnusedImports rule fails if we declare an import that
     // never appears in the file body (e.g. when every instance method body
@@ -1130,13 +1112,15 @@ pub(crate) fn gen_opaque_handle_class(
     // so no short-form import is needed. Adding one would trigger Checkstyle's
     // UnusedImports rule (confirmed in sample-llm DefaultClient.java:12).
     let _ = has_streaming;
-    if has_list_return {
+    // Import collection types from actual body usage (params AND returns), not just return types —
+    // e.g. a builder method taking `List<String>` needs the import even with no List return.
+    if body.contains("List<") {
         imports.push("java.util.List");
     }
-    if has_optional_return {
+    if body.contains("Optional<") {
         imports.push("java.util.Optional");
     }
-    if has_map_return {
+    if body.contains("Map<") {
         imports.push("java.util.Map");
     }
 
