@@ -36,7 +36,9 @@ impl TypeMapper for JavaMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("Object")
+        // Raw JSON crosses the FFI as a JSON string (allocated via `allocateFrom(String)`); nothing
+        // Jackson-serializes a `Json` value, so the public surface is a raw JSON `String`, not `Object`.
+        Cow::Borrowed("String")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -124,7 +126,8 @@ impl TypeMapper for JavaBoxedMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("Object")
+        // Raw JSON is a JSON string over the FFI (see the unboxed mapper).
+        Cow::Borrowed("String")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -243,7 +246,7 @@ mod tests {
 
     #[test]
     fn java_type_json() {
-        assert_eq!(java_type(&TypeRef::Json), "Object");
+        assert_eq!(java_type(&TypeRef::Json), "String");
     }
 
     #[test]
