@@ -681,6 +681,7 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
     let mut result = String::with_capacity(source.len());
     let mut i = 0;
+    let mut changes_made = false;
 
     while i < lines.len() {
         let line = lines[i];
@@ -697,6 +698,7 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
 
         if let Some(struct_name) = struct_name_opt {
             let fields_to_make_optional = optional_fields[struct_name].clone();
+            eprintln!("[ALEF DEBUG] Found struct: {} with fields to make optional: {:?}", struct_name, fields_to_make_optional);
 
             // Emit the constructor opening line
             result.push_str(line);
@@ -725,9 +727,11 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
                             &format!("required this.{}", field_name),
                             &format!("this.{}", field_name),
                         );
+                        eprintln!("[ALEF DEBUG]   Modified {} field: '{}' -> '{}'", field_name, param_line.trim(), modified_line.trim());
                         result.push_str(&modified_line);
                         result.push('\n');
                         modified = true;
+                        changes_made = true;
                         break;
                     }
                 }
@@ -746,6 +750,11 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
         }
     }
 
+    if changes_made {
+        eprintln!("[ALEF DEBUG] make_struct_fields_with_defaults_optional: MADE CHANGES");
+    } else {
+        eprintln!("[ALEF DEBUG] make_struct_fields_with_defaults_optional: NO CHANGES");
+    }
     result
 }
 

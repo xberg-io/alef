@@ -2943,7 +2943,7 @@ fn emit_test_backend_inner(
     );
 
     let out_err_var = format!("out_err_{id_snake}");
-    let _ = writeln!(setup, "var {out_err_var}: ?[*:0]u8 = null;");
+    let _ = writeln!(setup, "var {out_err_var}: ?[*c]u8 = null;");
 
     // arg_expr expands into the argument list for the registration call site:
     // `sample_core.register_fn("test", vtable, &stub, @ptrCast(&out_err))`

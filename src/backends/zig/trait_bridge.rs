@@ -303,9 +303,8 @@ pub fn emit_make_vtable(
             out.push_str("                    return 1;\n");
             out.push_str("                }\n");
         } else if is_infallible_complex {
-            // Infallible method returning complex type: call directly, wrap in out_result, return 0.
-            // The method returns a string (typically JSON for complex types).
-            // We allocate a C string via c.kreuzberg_string_new and write it to out_result.
+            // Infallible method returning complex type: call directly, write to out_result, return 0.
+            // The method is expected to return a pointer to a NUL-terminated C string ([*c]const u8).
             out.push_str("                const ");
             out.push_str(&ok_binding);
             out.push_str(" = self.");
@@ -313,18 +312,12 @@ pub fn emit_make_vtable(
             out.push_str("(");
             out.push_str(&args_str);
             out.push_str(");\n");
-            // Convert the returned string pointer to a C-allocated string.
-            // The method is expected to return a pointer to a NUL-terminated C string.
-            out.push_str("                if (");
+            // Write the returned string pointer to out_result.
+            // Cast away const if necessary to match the mutable out_result pointer.
+            out.push_str("                if (out_result) |ptr| {\n");
+            out.push_str("                    ptr.* = @constCast(");
             out.push_str(&ok_binding);
-            out.push_str(" != null and out_result != null) {\n");
-            out.push_str("                    const zig_str = ");
-            out.push_str(&ok_binding);
-            out.push_str(".?;\n");
-            out.push_str("                    var len: usize = 0;\n");
-            out.push_str("                    while (zig_str[len] != 0) : (len += 1) {}\n");
-            out.push_str("                    const c_str = c.kreuzberg_string_new(@ptrCast(zig_str), len);\n");
-            out.push_str("                    out_result.*.* = c_str;\n");
+            out.push_str(");\n");
             out.push_str("                }\n");
             out.push_str("                return 0;\n");
         } else {

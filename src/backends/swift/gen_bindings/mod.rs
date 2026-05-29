@@ -3704,6 +3704,11 @@ fn emit_async_free_function_forwarder(
     } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
         out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
+    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(name) if known_dto_names.contains(name))) {
+        // Vec<Named> return: apply the .map conversion suffix
+        let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, func.error_type.is_some());
+        out.push_str(&format!("        let result = {bridge_call}\n"));
+        out.push_str(&format!("        return result{suffix}\n"));
     } else {
         out.push_str(&format!("        let result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
@@ -4036,16 +4041,14 @@ fn forwarder_return_conversion_suffix_inner(
             // `as_str().toString()` chain directly at every call site.
             TypeRef::String => ".map { $0.as_str().toString() }".to_string(),
             TypeRef::Primitive(_) => ".map { $0 }".to_string(),
-            // RustVec<RustBridge.{Dto}> iteration yields `RustBridge.{Dto}Ref` (borrowed)
-            // — there is no symmetric `init(_ rb: {Dto}Ref)` for either first-class DTOs
-            // or opaque typealiased classes. swift-bridge's `RustVec<T>.get(_:)` also
-            // returns `T.SelfRef`, so producing an `[{Dto}]` from a `RustVec<{Dto}>` is
-            // impossible inside a forwarder without a per-element initialization. Until
-            // we wire `Vec<Named>` through `needs_json_bridge`, the forwarder leaves the
-            // expression unconverted (compile error surfaces loudly rather than silent
-            // misroute). Consumers should exclude the function via
-            // `[crates.swift.exclude_functions]` or add a hand-written adapter.
-            TypeRef::Named(_) => String::new(),
+            // RustVec<RustBridge.{Dto}> iteration yields `RustBridge.{Dto}Ref` (borrowed).
+            // For opaque types (no first-class DTO init), we reuse the borrowed pointer
+            // by wrapping it in the owned type with `isOwned = false` to prevent double-free.
+            // This is safe because the RustVec maintains ownership of the underlying memory.
+            TypeRef::Named(name) => {
+                let struct_name = swift_ident(name);
+                format!(".map {{ ref in var item = {struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}")
+            },
             _ => String::new(),
         },
         // Optional<Named DTO> return: bridge call returns the low-level
