@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.13] - 2026-05-29
+
 ### Fixed
+
+- **alef dart build: wire up config-aware BuildConfig so post-processors run during `alef build --lang dart`.** The `Backend::build_config()` trait method had no access to the crate `ResolvedCrateConfig`, so Dart's style-dependent post-processors (FrbDartOptionalFieldsWithDefaults for fields with Rust defaults) were never executed. Added optional trait method `build_config_with_config(&self, config: &ResolvedCrateConfig)` with a default implementation that calls the parameterless `build_config()`, allowing backends to override it with config-aware logic. `alef build` now calls `build_config_with_config()` instead of `build_config()`. DartBackend overrides the new method to delegate to `build_config_for(config)`, which already had the full set of post-processors including `FrbDartOptionalFieldsWithDefaults`. This fixes the kreuzberg Dart e2e: `EmbeddingConfig(...)` constructor now compiles because `required this.model` is correctly rewritten to `this.model` (optional). (`src/core/backend.rs`, `src/cli/pipeline/commands.rs`, `src/backends/dart/gen_bindings/mod.rs`)
 
 - **alef swift e2e: respect per-language async overrides in test codegen.** Swift-bridge cannot natively expose async Rust functions — all Rust async calls are wrapped in `block_on` at the Rust FFI layer and exposed as synchronous functions to Swift. The e2e codegen was ignoring language-specific `async = false` overrides in `alef.toml` and always generating `async throws` test functions when the call's base `async = true`. This caused test compilation errors when a language's override explicitly set `async = false`. Fixed by checking `call_overrides.r#async` first, falling back to `call_config.r#async` only if the override is not set. Swift e2e tests for `extract_bytes` and `extract_file` now correctly generate as synchronous `throws` (not `async throws`). (`src/e2e/codegen/swift.rs:882-887`)
 

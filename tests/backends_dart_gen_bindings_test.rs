@@ -1674,3 +1674,44 @@ fn build_config_for_frb_run_command_uses_config_file() {
         "flutter_rust_bridge_codegen must read the generated config file"
     );
 }
+
+#[test]
+fn build_config_with_config_includes_post_build_steps() {
+    use alef::core::backend::PostBuildStep;
+
+    let config = make_config(); // crate name = "demo-crate"
+    let backend = DartBackend;
+
+    // The new method `build_config_with_config` should delegate to `build_config_for`
+    // and include the full set of post-build steps including FrbDartOptionalFieldsWithDefaults
+    let bc_with_config = backend
+        .build_config_with_config(&config)
+        .expect("build_config_with_config must return a BuildConfig");
+    let bc_for = backend
+        .build_config_for(&config)
+        .expect("build_config_for must return a BuildConfig");
+
+    // Both should be identical
+    assert_eq!(
+        bc_with_config.post_build.len(),
+        bc_for.post_build.len(),
+        "build_config_with_config must have the same number of post-build steps as build_config_for"
+    );
+
+    // Verify that the post-build steps include FrbDartOptionalFieldsWithDefaults
+    let has_optional_fields_processor = bc_with_config.post_build.iter().any(|step| {
+        if let PostBuildStep::PostProcessFile { processor, .. } = step {
+            matches!(
+                processor,
+                alef::core::backend::PostProcessor::FrbDartOptionalFieldsWithDefaults
+            )
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        has_optional_fields_processor,
+        "build_config_with_config must include FrbDartOptionalFieldsWithDefaults processor"
+    );
+}
