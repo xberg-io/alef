@@ -4478,7 +4478,7 @@ mod trait_bridge_tests {
 
         let enum_names = std::collections::HashSet::new();
         let emission =
-            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg", &enum_names);
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "mylib", &enum_names);
 
         // Method returning Optional<ExcludedType> must NOT appear in stub.
         assert!(

@@ -1655,7 +1655,7 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace);
+                    let emission = emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace, &class_name);
                     // Split multi-line setup_block into individual lines so the
                     // Jinja template can indent each line uniformly with `        {{ line }}`.
                     for line in emission.setup_block.lines() {
@@ -2586,16 +2586,19 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    emit_test_backend_with_ns(trait_bridge, methods, fixture, "")
+    emit_test_backend_with_ns(trait_bridge, methods, fixture, "", "")
 }
 
 /// Namespace-aware variant called directly from the PHP e2e renderer.
 /// `binding_namespace` is the PHP namespace where the binding interfaces live (e.g. `SampleCrate`).
+/// `binding_class` is the unqualified class name used for static teardown calls
+/// (e.g. `unregister<Trait>`). When empty, teardown is omitted.
 pub fn emit_test_backend_with_ns(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
     binding_namespace: &str,
+    binding_class: &str,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::e2e::escape::sanitize_ident;
@@ -2678,34 +2681,38 @@ pub fn emit_test_backend_with_ns(
     let _ = writeln!(setup, "}};");
 
     // PHP test runner (PHPUnit) runs each test in the same process, so registering a
-    // test backend leaks into later tests. Emit `Kreuzberg::unregister<Trait>("backend_name")`
+    // test backend leaks into later tests. Emit `<BindingClass>::unregister<Trait>("backend_name")`
     // after the call+assertions to drain the test backend from the global registry.
     // Use static method calls instead of standalone functions (which don't exist as PHP functions,
-    // only as methods on the Kreuzberg class).
-    let (teardown_block, type_imports) = trait_bridge
-        .unregister_fn
-        .as_deref()
-        .map(|unregister_fn| {
-            let escaped = escape_php(&backend_name);
-            // Convert snake_case to camelCase: unregister_document_extractor -> unregisterDocumentExtractor
-            let parts: Vec<&str> = unregister_fn.split('_').collect();
-            let mut method_name = String::new();
-            for (i, part) in parts.iter().enumerate() {
-                if i == 0 {
-                    // "unregister" stays lowercase
-                    method_name.push_str(part);
-                } else {
-                    // Capitalize each subsequent word
-                    if let Some(first) = part.chars().next() {
-                        method_name.push_str(&first.to_uppercase().to_string());
-                        method_name.push_str(&part[1..]);
+    // only as methods on the entry-point class).
+    let (teardown_block, type_imports) = if binding_class.is_empty() {
+        (String::new(), Vec::new())
+    } else {
+        trait_bridge
+            .unregister_fn
+            .as_deref()
+            .map(|unregister_fn| {
+                let escaped = escape_php(&backend_name);
+                // Convert snake_case to camelCase: unregister_document_extractor -> unregisterDocumentExtractor
+                let parts: Vec<&str> = unregister_fn.split('_').collect();
+                let mut method_name = String::new();
+                for (i, part) in parts.iter().enumerate() {
+                    if i == 0 {
+                        // "unregister" stays lowercase
+                        method_name.push_str(part);
+                    } else {
+                        // Capitalize each subsequent word
+                        if let Some(first) = part.chars().next() {
+                            method_name.push_str(&first.to_uppercase().to_string());
+                            method_name.push_str(&part[1..]);
+                        }
                     }
                 }
-            }
-            let teardown = format!("        Kreuzberg::{method_name}(\"{escaped}\");\n");
-            (teardown, vec![])
-        })
-        .unwrap_or_else(|| (String::new(), Vec::new()));
+                let teardown = format!("        {binding_class}::{method_name}(\"{escaped}\");\n");
+                (teardown, vec![])
+            })
+            .unwrap_or_else(|| (String::new(), Vec::new()))
+    };
 
     super::TestBackendEmission {
         setup_block: setup,

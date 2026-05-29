@@ -85,7 +85,7 @@ pub(crate) fn emit_cargo_toml(
         version,
     );
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
-    // Order: ahash, async-trait, futures-util?, html_to_markdown_rs (core),
+    // Order: ahash, async-trait, futures-util?, <core-crate>,
     // serde, serde_json, swift-bridge, tokio.
     let mut dep_entries: Vec<String> = vec![
         "ahash = \"0.8\"".to_string(),

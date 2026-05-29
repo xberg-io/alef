@@ -229,7 +229,7 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
 /// `File`, `Isolate`, and `Uri`). Inserts the imports after the first existing `import`
 /// line if missing. Idempotent.
 ///
-/// To avoid namespace conflict with the Kreuzberg-generated `Uri` class, imports
+/// To avoid namespace conflict with the FRB-generated `Uri` class, imports
 /// `dart:core.Uri` with an alias (`_DartCoreUri`), then replaces all
 /// `Uri.parse()` and `Uri.resolve()` calls with the aliased name.
 fn ensure_loader_imports(source: &str) -> String {
@@ -253,7 +253,7 @@ fn ensure_loader_imports(source: &str) -> String {
         }
     }
 
-    // Replace Uri.parse() with qualified name to avoid conflict with the Kreuzberg Uri class.
+    // Replace Uri.parse() with qualified name to avoid conflict with the generated Uri class.
     // Note: .resolve() is called on Uri instances, so it doesn't need qualification.
     result = result.replace("Uri.parse(", "_DartCore.Uri.parse(");
 

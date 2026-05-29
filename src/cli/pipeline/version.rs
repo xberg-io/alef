@@ -4491,7 +4491,7 @@ packages:
             "\n",
             "mavenPublishing {\n",
             "    coordinates(\n",
-            "        groupId = \"dev.kreuzberg\",\n",
+            "        groupId = \"dev.example\",\n",
             "        artifactId = \"mylib-android\",\n",
             "        version = \"1.9.0-rc.16\",\n",
             "    )\n",
