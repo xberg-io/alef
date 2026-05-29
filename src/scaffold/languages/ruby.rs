@@ -289,15 +289,19 @@ GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", G
 # native crate. The native binding crate at ext/{ext_name}/native is excluded
 # from the parent Cargo workspace (so the parent does not pull in rb_sys
 # deps), so the lookup raises PackageNotFoundError when the Rakefile runs
-# from the gem root. Run init from the native dir so cargo metadata finds the
-# standalone Cargo.toml; absolute lib_dir keeps the rake task pointing at the
-# gem root.
+# from the gem root. Change to the native dir for ExtensionTask initialization
+# to allow cargo metadata to find the standalone Cargo.toml. Pre-declare the
+# Cargo.lock file task with absolute path so rake finds it regardless of CWD.
 EXT_NATIVE_DIR = File.expand_path("ext/{ext_name}/native", GEM_ROOT)
 
 Dir.chdir(EXT_NATIVE_DIR) do
+  # Declare Cargo.lock and Cargo.toml file tasks here (within chdir context)
+  # so they are resolved relative to the native dir where rake will access them.
+  file "Cargo.lock"
+  file "Cargo.toml"
+
   RbSys::ExtensionTask.new("{cargo_pkg_name}", GEMSPEC) do |ext|
     ext.lib_dir = File.expand_path("lib", GEM_ROOT)
-    ext.ext_dir = EXT_NATIVE_DIR
     ext.cross_compile = true
     ext.cross_platform = %w[
       x86_64-linux
@@ -353,7 +357,7 @@ end
             generated_header: true,
         },
         GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/ext/{ext_name}/extconf.rb", ext_name = ext_name)),
+            path: PathBuf::from(format!("{pkg_dir}/ext/{ext_name}/native/extconf.rb", ext_name = ext_name)),
             content: extconf_content,
             generated_header: true,
         },
