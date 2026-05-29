@@ -78,7 +78,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             let install_cmd = match pm {
                 "npm" => format!("cd {output_dir} && npm install"),
                 "yarn" => format!("cd {output_dir} && yarn install"),
-                _ => format!("cd {output_dir} && pnpm install"),
+                _ => format!("cd {output_dir} && pnpm install --config.minimumReleaseAge=0"),
             };
             SetupConfig {
                 precondition: Some(require_tool(pm)),

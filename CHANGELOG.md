@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef setup: pass --config.minimumReleaseAge=0 to pnpm install for node and wasm.** The setup phase invokes `pnpm install` when configuring node and wasm language dependencies. When downstream consumers publish release candidates, pnpm's default 24-hour supply-chain policy rejects packages published within the last day, causing setup to timeout. The fix adds `--config.minimumReleaseAge=0` to both pnpm invocations, following the same precedent used in 0.20.5 for test_apps_run_defaults. (`src/core/config/setup_defaults.rs`)
+
 - **alef elixir: emit mix.exs rustler_crates in multi-line pre-formatted shape.** The Elixir scaffold was emitting `rustler_crates` as a single line, which exceeded mix format's default 98-character line limit when there were 4+ target triples. This caused mix format to reflow the line into multi-line form during CI, making the committed mix.exs drift from alef's emission, which triggered "Versions are out of sync" failures in downstream polyglot repos. The fix emits the `rustler_crates` block pre-formatted to match mix format's canonical multi-line shape, preventing format drift. (`src/scaffold/languages/elixir.rs`)
 
 ## [0.20.5] - 2026-05-28
