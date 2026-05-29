@@ -228,10 +228,14 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
 /// Ensure `dart:io`, `dart:isolate`, and `dart:core` are imported (the loader helper uses
 /// `File`, `Isolate`, and `Uri`). Inserts the imports after the first existing `import`
 /// line if missing. Idempotent.
+///
+/// To avoid namespace conflict with the Kreuzberg-generated `Uri` class, imports
+/// `dart:core.Uri` with an alias (`_DartCoreUri`), then replaces all
+/// `Uri.parse()` and `Uri.resolve()` calls with the aliased name.
 fn ensure_loader_imports(source: &str) -> String {
     let mut result = source.to_string();
     let needed = [
-        ("import 'dart:core';", "import 'dart:core';\n"),
+        ("import 'dart:core' as _DartCore;", "import 'dart:core' as _DartCore;\n"),
         ("import 'dart:io';", "import 'dart:io';\n"),
         ("import 'dart:isolate';", "import 'dart:isolate';\n"),
     ];
@@ -248,6 +252,11 @@ fn ensure_loader_imports(source: &str) -> String {
             None => result.insert_str(0, line),
         }
     }
+
+    // Replace Uri.parse() with qualified name to avoid conflict with the Kreuzberg Uri class.
+    // Note: .resolve() is called on Uri instances, so it doesn't need qualification.
+    result = result.replace("Uri.parse(", "_DartCore.Uri.parse(");
+
     result
 }
 

@@ -728,11 +728,15 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            outResult = IntPtr.Zero;\n");
         }
         if !is_options_field && !is_primitive_return {
-            // Double-nested try-catch: if StringToCoTaskMemUTF8 itself throws, use a hardcoded fallback
+            // Triple-nested try-catch: even the fallback error message could fail to marshal
             callbacks.push_str("            try {\n");
             callbacks.push_str("                outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
             callbacks.push_str("            } catch {\n");
-            callbacks.push_str("                outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(\"Callback error (exception marshalling failed)\");\n");
+            callbacks.push_str("                try {\n");
+            callbacks.push_str("                    outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(\"Callback error (exception marshalling failed)\");\n");
+            callbacks.push_str("                } catch {\n");
+            callbacks.push_str("                    outError = IntPtr.Zero;\n");
+            callbacks.push_str("                }\n");
             callbacks.push_str("            }\n");
         }
         if !is_primitive_return {
