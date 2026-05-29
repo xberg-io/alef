@@ -1754,6 +1754,7 @@ package_name = "test-lib"
         capsule_types: capsule_map,
         exclude_functions: vec![],
         exclude_types: vec![],
+        exclude_platforms: vec![],
         extra_dependencies: Default::default(),
         scaffold_output: None,
         rename_fields: Default::default(),
