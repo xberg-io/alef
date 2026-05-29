@@ -27,9 +27,15 @@ match result {
     }
     Ok(val) => {
 {% if return_type == "bool" %}
-        let int_val = val.as_integer().unwrap_or(0) != 0;
+        let int_val = val.as_integer()
+            .map(|i| i != 0)
+            .or_else(|| val.as_real().map(|r| r != 0.0))
+            .unwrap_or(false);
 {% else %}
-        let int_val = val.as_integer().unwrap_or(0) as {{ return_type }};
+        let int_val = val.as_integer()
+            .map(|i| i as {{ return_type }})
+            .or_else(|| val.as_real().map(|r| r as {{ return_type }}))
+            .unwrap_or_default();
 {% endif %}
 {% if has_error %}
         Ok(int_val)

@@ -1496,7 +1496,23 @@ pub fn emit_test_backend(
 
     for method in required.iter() {
         let method_name = &method.name;
-        let default_val = defaults.emit_default(&method.return_type);
+
+        // Try to extract method return value from fixture input, fall back to default.
+        let method_val = if let Some(backend_obj) = fixture.input.get("backend") {
+            if let Some(val) = backend_obj.get(method_name) {
+                match val {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => format!("\"{}\"", escape_r(s)),
+                    serde_json::Value::Bool(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+                    serde_json::Value::Array(_) => "c()".to_string(), // empty vector fallback
+                    serde_json::Value::Null | serde_json::Value::Object(_) => defaults.emit_default(&method.return_type),
+                }
+            } else {
+                defaults.emit_default(&method.return_type)
+            }
+        } else {
+            defaults.emit_default(&method.return_type)
+        };
 
         // Build parameter list: skip `&self` (no receiver in R).
         let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
@@ -1506,7 +1522,7 @@ pub fn emit_test_backend(
         let trailing = if emitted < total_entries { "," } else { "" };
         let _ = writeln!(
             setup,
-            "    {method_name} = function({param_list}) {default_val}{trailing}"
+            "    {method_name} = function({param_list}) {method_val}{trailing}"
         );
     }
 
