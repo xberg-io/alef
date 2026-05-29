@@ -89,10 +89,8 @@ fn gen_service_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     out.push_str(&config.ffi_header_name());
     out.push_str("\"));\n\n");
 
-    // Emit extern declarations for each service's C FFI functions
-    for service in &api.services {
-        gen_service_externs(&mut out, service, api, &prefix_lower);
-    }
+    // The C FFI symbols are provided by the `@cImport`ed header (as `c.<symbol>`); no manual
+    // `extern` redeclarations are needed (and they would duplicate / mistype the header's contract).
 
     // Emit Zig service structs and methods
     for service in &api.services {
@@ -102,92 +100,20 @@ fn gen_service_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     out
 }
 
-/// Emit C extern declarations for one service's FFI contract.
-fn gen_service_externs(out: &mut String, service: &ServiceDef, api: &ApiSurface, prefix_lower: &str) {
-    let service_snake = service.name.to_snake_case();
-    let opaque_name = format!("{}Opaque", service.name);
-
-    out.push_str(&format!("// {0} C FFI extern declarations\n", service.name));
-
-    // Constructor
-    out.push_str(&format!(
-        "extern \"C\" fn {0}_{1}_new() *{2} = undefined;\n\n",
-        prefix_lower, service_snake, opaque_name
-    ));
-
-    // Destructor
-    out.push_str(&format!(
-        "extern \"C\" fn {0}_{1}_free(ptr: *{2}) void = undefined;\n\n",
-        prefix_lower, service_snake, opaque_name
-    ));
-
-    // Registration functions
-    for reg in &service.registrations {
-        let reg_method_snake = reg.method.to_snake_case();
-        out.push_str(&format!(
-            "extern \"C\" fn {0}_{1}_register_{2}(\n    \
-                 owner: *{3},\n    \
-                 callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8,\n    \
-                 context: *anyopaque",
-            prefix_lower, service_snake, reg_method_snake, opaque_name
-        ));
-
-        // Metadata parameters: opaque Named types cross as *anyopaque
-        for meta_param in &reg.metadata_params {
-            let zig_type = match &meta_param.ty {
-                TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => "*anyopaque".to_owned(),
-                ty => typeref_to_zig_type(ty),
-            };
-            out.push_str(&format!(",\n    {} {}", zig_type, meta_param.name));
-        }
-        out.push_str("\n) c_int = undefined;\n\n");
-    }
-
-    // Entrypoint functions
-    for ep in &service.entrypoints {
-        // Skip finalize entrypoints whose return type is not representable over the C ABI
-        if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
-            continue;
-        }
-
-        let ep_name_snake = ep.method.to_snake_case();
-        let return_type = match &ep.return_type {
-            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
-            ty => typeref_to_zig_type(ty),
-        };
-
-        out.push_str(&format!(
-            "extern \"C\" fn {0}_{1}_ep_{2}(\n    \
-                 owner: *{3}",
-            prefix_lower, service_snake, ep_name_snake, opaque_name
-        ));
-
-        // Parameters: opaque Named types cross as *anyopaque
-        for ep_param in &ep.params {
-            let zig_type = match &ep_param.ty {
-                TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => "*anyopaque".to_owned(),
-                ty => typeref_to_zig_type(ty),
-            };
-            out.push_str(&format!(",\n    {} {}", zig_type, ep_param.name));
-        }
-
-        out.push_str(&format!("\n) {return_type} = undefined;\n\n"));
-    }
-}
-
 /// Emit a Zig service struct and methods for one service.
 fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, _prefix: &str, prefix_lower: &str) {
     let service_name = &service.name;
     let service_snake = service_name.to_snake_case();
-    let opaque_name = format!("{}Opaque", service_name);
 
-    // Service struct wrapping the C opaque pointer
+    // Service struct wrapping the C opaque pointer. The owner is stored as an optional `*anyopaque`
+    // (mirroring how this backend wraps every other opaque handle); the concrete C opaque type is
+    // reached only through `@ptrCast` at each `c.<symbol>` call, so its cbindgen name is never named.
     out.push_str(&format!(
         "/// Zig wrapper for the {0} service.\n\
          /// Owns an opaque C pointer to the service instance.\n\
          pub const {0} = struct {{\n    \
-             owner: *{1},\n\n",
-        service_name, opaque_name
+             owner: ?*anyopaque,\n\n",
+        service_name
     ));
 
     // Constructor
@@ -195,7 +121,7 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         "    /// Create a new {0} instance.\n    \
          pub fn init() {0} {{\n        \
              return .{{\n            \
-                 .owner = {1}_{2}_new(),\n        \
+                 .owner = @ptrCast(c.{1}_{2}_new()),\n        \
              }};\n    \
          }}\n\n",
         service_name, prefix_lower, service_snake
@@ -205,8 +131,8 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     out.push_str(&format!(
         "    /// Free the {0} instance.\n    \
          pub fn deinit(self: *{0}) void {{\n        \
-             if (self.owner != null) {{\n            \
-                 {1}_{2}_free(self.owner);\n            \
+             if (self.owner) |owner_ptr| {{\n            \
+                 c.{1}_{2}_free(@ptrCast(owner_ptr));\n            \
                  self.owner = null;\n        \
              }}\n    \
          }}\n\n",
@@ -260,14 +186,12 @@ fn gen_registration_method(
     }
 
     out.push_str(") c_int {\n");
-    out.push_str("        if (self.owner == null) {\n");
-    out.push_str("            return 1; // Error: null pointer\n");
-    out.push_str("        }\n\n");
+    out.push_str("        const owner_ptr = self.owner orelse return 1;\n\n");
 
     out.push_str(&format!(
-        "        return {}_{}_register_{}(\n            \
-             self.owner,\n            \
-             callback,\n            \
+        "        return c.{}_{}_register_{}(\n            \
+             @ptrCast(owner_ptr),\n            \
+             @ptrCast(callback),\n            \
              context",
         prefix_lower, service_snake, reg_method_snake
     ));
@@ -305,10 +229,12 @@ fn gen_entrypoint_method(
     let ep_name_snake = ep.method.to_snake_case();
     let ep_method = &ep.method;
     let service_name = &service.name;
-    let return_type = match &ep.return_type {
-        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
-        ty => typeref_to_zig_type(ty),
-    };
+
+    // Mirror the C ABI: the ffi entrypoint glue returns `*mut T` (an opaque pointer) only when its
+    // return type is an opaque this surface wraps, otherwise an `i32` status code. So the Zig method
+    // returns `?*anyopaque` for the opaque case and `c_int` for the status case.
+    let returns_opaque = matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n));
+    let return_type = if returns_opaque { "?*anyopaque" } else { "c_int" };
 
     out.push_str(&format!(
         "    /// Run the service entrypoint '{0}'.\n    \
@@ -316,10 +242,10 @@ fn gen_entrypoint_method(
         ep_method, ep_name_snake, service_name
     ));
 
-    // Entrypoint parameters: opaque Named types are accepted as *TypeName pointers
+    // Entrypoint parameters: opaque Named types are accepted as `*anyopaque` handles.
     for ep_param in &ep.params {
         let zig_type = match &ep_param.ty {
-            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => "*anyopaque".to_owned(),
             ty => typeref_to_zig_type(ty),
         };
         out.push_str(&format!(", {}: {}", ep_param.name, zig_type));
@@ -327,18 +253,25 @@ fn gen_entrypoint_method(
 
     out.push_str(&format!(") {return_type} {{\n"));
 
-    out.push_str("        if (self.owner == null) {\n");
-    match return_type.as_str() {
-        "void" => out.push_str("            return;\n"),
-        _ => out.push_str("            return 0;\n"),
+    if returns_opaque {
+        out.push_str("        const owner_ptr = self.owner orelse return null;\n");
+    } else {
+        out.push_str("        const owner_ptr = self.owner orelse return 1;\n");
     }
-    out.push_str("        }\n\n");
 
-    out.push_str(&format!(
-        "        return {}_{}_ep_{}(\n            \
-             self.owner",
-        prefix_lower, service_snake, ep_name_snake
-    ));
+    if returns_opaque {
+        out.push_str(&format!(
+            "        return @ptrCast(c.{}_{}_ep_{}(\n            \
+                 @ptrCast(owner_ptr)",
+            prefix_lower, service_snake, ep_name_snake
+        ));
+    } else {
+        out.push_str(&format!(
+            "        return c.{}_{}_ep_{}(\n            \
+                 @ptrCast(owner_ptr)",
+            prefix_lower, service_snake, ep_name_snake
+        ));
+    }
 
     // Entrypoint arguments: extract _handle from opaque Named params
     for ep_param in &ep.params {
@@ -352,7 +285,11 @@ fn gen_entrypoint_method(
         }
     }
 
-    out.push_str("\n        );\n");
+    if returns_opaque {
+        out.push_str("\n        ));\n");
+    } else {
+        out.push_str("\n        );\n");
+    }
     out.push_str("    }\n\n");
 }
 
@@ -533,13 +470,13 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // The service struct must be declared
+        // The service struct must be declared with an optional opaque owner
         assert!(zig.contains("pub const TestService = struct"));
-        assert!(zig.contains("owner: *TestServiceOpaque"));
+        assert!(zig.contains("owner: ?*anyopaque"));
     }
 
     #[test]
-    fn test_extern_declarations_are_generated() {
+    fn test_c_symbols_are_called_via_cimport() {
         let api = make_fixture_surface();
         let config = ResolvedCrateConfig {
             name: "test_crate".to_owned(),
@@ -548,14 +485,13 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // Constructor and destructor externs
-        assert!(zig.contains("extern \"C\" fn test_crate_test_service_new()"));
-        assert!(zig.contains("extern \"C\" fn test_crate_test_service_free("));
+        // No manual extern redeclarations — the C symbols come from the @cImport'd header as `c.<sym>`.
+        assert!(!zig.contains("extern \"C\" fn"));
+        assert!(zig.contains("c.test_crate_test_service_new()"));
+        assert!(zig.contains("c.test_crate_test_service_free("));
+        assert!(zig.contains("c.test_crate_test_service_register_add_handler("));
 
-        // Registration extern
-        assert!(zig.contains("extern \"C\" fn test_crate_test_service_register_add_handler("));
-
-        // The callback signature must match the FFI contract
+        // The callback parameter signature is still the FFI contract shape.
         assert!(zig.contains("fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8"));
     }
 
