@@ -434,7 +434,7 @@ fn gen_single_trait_bridge(
         callbacks.push_str("            outError = IntPtr.Zero;\n");
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch (Exception ex) {\n");
-        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message);\n");
+        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
         callbacks.push_str("            return 1;\n");
         callbacks.push_str("        }\n");
         callbacks.push_str("    }\n");
@@ -446,7 +446,7 @@ fn gen_single_trait_bridge(
         callbacks.push_str("            outError = IntPtr.Zero;\n");
         callbacks.push_str("            return 0;\n");
         callbacks.push_str("        } catch (Exception ex) {\n");
-        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message);\n");
+        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
         callbacks.push_str("            return 1;\n");
         callbacks.push_str("        }\n");
         callbacks.push_str("    }\n");
@@ -659,7 +659,7 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            outResult = IntPtr.Zero;\n");
         }
         if !is_options_field && !is_primitive_return {
-            callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message);\n");
+            callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
         }
         if !is_primitive_return {
             callbacks.push_str("            return 1;\n");
