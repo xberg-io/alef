@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef dart frb_rewrite: remove leftover `[ALEF DEBUG]` eprintln instrumentation.** `make_struct_fields_with_defaults_optional` printed `[ALEF DEBUG]` lines to stderr on every Dart generation (struct detection, per-field rewrites, and a final MADE/NO CHANGES summary). The debug prints and the `changes_made` flag that only fed them are removed; generation output is now quiet. (`src/backends/dart/frb_rewrite.rs`)
+
 ## [0.20.15] - 2026-05-29
 
 ### Fixed
