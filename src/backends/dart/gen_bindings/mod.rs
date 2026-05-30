@@ -103,6 +103,7 @@ impl Backend for DartBackend {
                 module_name => module_name.as_str(),
             },
         ));
+        body.push_str("export 'traits.dart';\n");
 
         // Collect trait bridge configs that are not excluded for Dart and have at least
         // one of register_fn / unregister_fn / clear_fn set. These produce additional

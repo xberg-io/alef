@@ -20,4 +20,6 @@
 		return fmt.Errorf("%s", msg)
 	}
 
+	// Store handle by name for later cleanup on unregister
+	{{ trait_snake }}Registry.store(impl.Name(), handle)
 	return nil

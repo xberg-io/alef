@@ -10,4 +10,6 @@
 		return fmt.Errorf("%s", msg)
 	}
 
+	// Delete all handles now that Rust has cleared all plugins
+	{{ trait_snake }}Registry.clear()
 	return nil

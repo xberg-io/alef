@@ -10,4 +10,6 @@
 		return fmt.Errorf("%s", msg)
 	}
 
+	// Delete the handle now that Rust has unregistered the plugin
+	{{ trait_snake }}Registry.delete(name)
 	return nil

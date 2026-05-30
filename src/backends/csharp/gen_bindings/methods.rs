@@ -760,10 +760,15 @@ fn gen_wrapper_function(
             out.push_str("        }\n");
         }
     } else {
+        // Sync: wrap in try-finally if we have cleanup to do
+        if needs_outer_try {
+            out.push_str("        try\n        {\n");
+        }
+
         if func.return_type != TypeRef::Unit {
-            out.push_str("        var nativeResult = ");
+            out.push_str("            var nativeResult = ");
         } else {
-            out.push_str("        ");
+            out.push_str("            ");
         }
 
         out.push_str(
@@ -795,8 +800,10 @@ fn gen_wrapper_function(
                 }
                 out.push('\n');
             }
-            out.push_str("        );\n");
+            out.push_str("            );\n");
         }
+
+        let body_indent = if needs_outer_try { "            " } else { "        " };
 
         // Check for FFI error (null result means the call failed).
         // Pointer returns use IntPtr.Zero as a sentinel; numeric Result returns surface failure
@@ -805,30 +812,39 @@ fn gen_wrapper_function(
         // For Optional(_) return types, null means None (not found), not an error.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
-                out.push_str(
-                    "        if (nativeResult == IntPtr.Zero)\n        {\n            return null;\n        }\n",
-                );
+                out.push_str(&format!(
+                    "{body_indent}if (nativeResult == IntPtr.Zero)\n{body_indent}{{\n{body_indent}    return null;\n{body_indent}}}\n",
+                ));
             } else {
-                out.push_str(
-                    "        if (nativeResult == IntPtr.Zero)\n        {\n            throw GetLastError();\n        }\n",
-                );
+                out.push_str(&format!(
+                    "{body_indent}if (nativeResult == IntPtr.Zero)\n{body_indent}{{\n{body_indent}    throw GetLastError();\n{body_indent}}}\n",
+                ));
             }
         } else if func.error_type.is_some() {
-            out.push_str(
-                "        if (NativeMethods.LastErrorCode() != 0)\n        {\n            throw GetLastError();\n        }\n",
-            );
+            out.push_str(&format!(
+                "{body_indent}if (NativeMethods.LastErrorCode() != 0)\n{body_indent}{{\n{body_indent}    throw GetLastError();\n{body_indent}}}\n",
+            ));
         }
 
         emit_return_marshalling_indented(
             &mut out,
             &func.return_type,
-            "        ",
+            body_indent,
             enum_names,
             true_opaque_types,
             handle_returned_types,
         );
-        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types, enum_names);
-        emit_return_statement(&mut out, &func.return_type);
+
+        if needs_outer_try {
+            emit_named_param_teardown_indented(&mut out, &visible_params, body_indent, true_opaque_types, enum_names);
+            emit_return_statement_indented(&mut out, &func.return_type, body_indent);
+            out.push_str("        }\n        finally\n        {\n");
+            emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
+            out.push_str("        }\n");
+        } else {
+            emit_named_param_teardown(&mut out, &visible_params, true_opaque_types, enum_names);
+            emit_return_statement(&mut out, &func.return_type);
+        }
     }
 
     out.push_str("    }\n\n");

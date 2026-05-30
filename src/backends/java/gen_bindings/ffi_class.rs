@@ -491,7 +491,11 @@ pub(crate) fn gen_sync_function_method(
             if is_optional_return {
                 out.push_str("                return Optional.empty();\n");
             } else {
-                out.push_str("                return null;\n");
+                out.push_str("                throw new ");
+                out.push_str(&exception_class_name);
+                out.push_str("(\"");
+                out.push_str(&to_java_name(&func.name));
+                out.push_str(": failed to serialize response\", null);\n");
             }
             out.push_str("            }\n");
             out.push_str("            String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
