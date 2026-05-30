@@ -2581,7 +2581,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// ```
 ///
 /// Also emits the `_loadBytesFromPathOrUtf8` helper that resolves a string argument
-/// as either a file path (checking CWD, KREUZBERG_TEST_DOCUMENTS_DIR env var, and
+/// as either a file path (checking CWD, ALEF_TEST_DOCUMENTS_DIR env var, and
 /// ancestor `test_documents/` or `fixtures/` directories) or literal UTF-8 content.
 fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
     use heck::AsSnakeCase;
@@ -2685,13 +2685,13 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
 /// Emit the `_loadBytesFromPathOrUtf8` helper function.
 fn emit_load_bytes_from_path_or_utf8(out: &mut String) {
     out.push_str("/// Resolves a string argument as either a file path or literal UTF-8 content.\n");
-    out.push_str("/// Searches: current working directory, KREUZBERG_TEST_DOCUMENTS_DIR env var,\n");
+    out.push_str("/// Searches: current working directory, ALEF_TEST_DOCUMENTS_DIR env var,\n");
     out.push_str("/// and ancestor `test_documents/` or `fixtures/` directories (up to 16 levels).\n");
     out.push_str("/// If no file is found, treats the string as UTF-8 content and returns its bytes.\n");
     out.push_str("private func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] {\n");
     out.push_str("    let fm = FileManager.default\n");
     out.push_str("    var roots: [String] = [fm.currentDirectoryPath]\n");
-    out.push_str("    if let envRoot = ProcessInfo.processInfo.environment[\"KREUZBERG_TEST_DOCUMENTS_DIR\"] {\n");
+    out.push_str("    if let envRoot = ProcessInfo.processInfo.environment[\"ALEF_TEST_DOCUMENTS_DIR\"] {\n");
     out.push_str("        roots.append(envRoot)\n");
     out.push_str("    }\n");
     out.push_str("    var walker = URL(fileURLWithPath: fm.currentDirectoryPath)\n");

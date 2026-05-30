@@ -462,7 +462,7 @@ pub fn gen_bridge_registration_overloads_file(
     content.push_str("    var roots: [String] = [\n");
     content.push_str("        fm.currentDirectoryPath,\n");
     content.push_str("    ]\n");
-    content.push_str("    if let envRoot = ProcessInfo.processInfo.environment[\"KREUZBERG_TEST_DOCUMENTS_DIR\"] {\n");
+    content.push_str("    if let envRoot = ProcessInfo.processInfo.environment[\"ALEF_TEST_DOCUMENTS_DIR\"] {\n");
     content.push_str("        roots.append(envRoot)\n");
     content.push_str("    }\n");
     content.push_str("    var walker = URL(fileURLWithPath: fm.currentDirectoryPath)\n");
