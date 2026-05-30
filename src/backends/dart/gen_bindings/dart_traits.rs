@@ -20,6 +20,11 @@ pub(super) fn emit_dart_traits(api: &ApiSurface, trait_names: &[&str]) -> (Strin
         }
     }
 
+    // Emit trait bridge stub types required by e2e test fixtures.
+    // These types are internal to the Rust core but must be exposed to Dart tests
+    // so test fixtures can construct mock implementations.
+    emit_trait_stub_types(&mut body);
+
     (body, imports)
 }
 
@@ -161,4 +166,23 @@ fn dart_return_type_str(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String 
         TypeRef::Unit => "void".to_string(),
         _ => render_type(ty, imports),
     }
+}
+
+/// Emit trait bridge stub types required by e2e test fixtures.
+///
+/// These types (OcrBackendType, ProcessingStage, InternalDocument, SyncExtractor)
+/// are used by test stub implementations to satisfy trait method signatures.
+fn emit_trait_stub_types(out: &mut String) {
+    out.push_str("\n");
+    out.push_str("/// OCR backend type identifier — used by e2e test plugin_api stubs.\n");
+    out.push_str("enum OcrBackendType { tesseract, easyocr, paddleocr, rapidocr }\n");
+    out.push_str("\n");
+    out.push_str("/// Processing stage for post-processors — used by e2e test plugin_api stubs.\n");
+    out.push_str("enum ProcessingStage { preProcessing, processing, postProcessing }\n");
+    out.push_str("\n");
+    out.push_str("/// Internal document representation — used by e2e test plugin_api stubs.\n");
+    out.push_str("class InternalDocument {}\n");
+    out.push_str("\n");
+    out.push_str("/// Synchronous extractor trait stub — used by e2e test plugin_api stubs.\n");
+    out.push_str("abstract class SyncExtractor {}\n");
 }

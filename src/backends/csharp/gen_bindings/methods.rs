@@ -660,20 +660,32 @@ fn gen_wrapper_function(
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
+    // Check if this function has Bytes/GCHandle or Vec/HGlobal parameters that need cleanup
+    let has_gchandle_param = visible_params.iter().any(|p| matches!(p.ty, TypeRef::Bytes));
+    let has_hglobal_param = visible_params.iter().any(|p| matches!(p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
+    let needs_outer_try = has_gchandle_param || has_hglobal_param;
+
     if func.is_async {
         // Async: wrap in Task.Run for non-blocking execution. CS1997 disallows
         // `return await Task.Run(...)` in an `async Task` (non-generic) method,
         // so for unit returns we drop the `return`.
+
+        // If we have GCHandle or HGlobal params, wrap everything in try-finally
+        // to ensure cleanup happens even if setup or Task.Run throws
+        if needs_outer_try {
+            out.push_str("        try\n        {\n");
+        }
+
         if func.return_type == TypeRef::Unit {
-            out.push_str("        await Task.Run(() =>\n        {\n");
+            out.push_str("            await Task.Run(() =>\n            {\n");
         } else {
-            out.push_str("        return await Task.Run(() =>\n        {\n");
+            out.push_str("            return await Task.Run(() =>\n            {\n");
         }
 
         if func.return_type != TypeRef::Unit {
-            out.push_str("            var nativeResult = ");
+            out.push_str("                var nativeResult = ");
         } else {
-            out.push_str("            ");
+            out.push_str("                ");
         }
 
         out.push_str(
@@ -705,7 +717,7 @@ fn gen_wrapper_function(
                 }
                 out.push('\n');
             }
-            out.push_str("            );\n");
+            out.push_str("                );\n");
         }
 
         // Check for FFI error (null result means the call failed).
@@ -716,30 +728,37 @@ fn gen_wrapper_function(
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
                 out.push_str(
-                    "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
+                    "                if (nativeResult == IntPtr.Zero)\n                {\n                    return null;\n                }\n",
                 );
             } else {
                 out.push_str(
-                    "            if (nativeResult == IntPtr.Zero)\n            {\n                throw GetLastError();\n            }\n",
+                    "                if (nativeResult == IntPtr.Zero)\n                {\n                    throw GetLastError();\n                }\n",
                 );
             }
         } else if func.error_type.is_some() {
             out.push_str(
-                "            if (NativeMethods.LastErrorCode() != 0)\n            {\n                throw GetLastError();\n            }\n",
+                "                if (NativeMethods.LastErrorCode() != 0)\n                {\n                    throw GetLastError();\n                }\n",
             );
         }
 
         emit_return_marshalling_indented(
             &mut out,
             &func.return_type,
-            "            ",
+            "                ",
             enum_names,
             true_opaque_types,
             handle_returned_types,
         );
-        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
-        emit_return_statement_indented(&mut out, &func.return_type, "            ");
-        out.push_str("        });\n");
+        emit_named_param_teardown_indented(&mut out, &visible_params, "                ", true_opaque_types, enum_names);
+        emit_return_statement_indented(&mut out, &func.return_type, "                ");
+        out.push_str("            });\n");
+
+        // Close outer try-finally if needed
+        if needs_outer_try {
+            out.push_str("        }\n        finally\n        {\n");
+            emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
+            out.push_str("        }\n");
+        }
     } else {
         if func.return_type != TypeRef::Unit {
             out.push_str("        var nativeResult = ");

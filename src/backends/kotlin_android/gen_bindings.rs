@@ -687,8 +687,13 @@ fn emit_module_kt(
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
     if needs_jackson {
-        imports.insert("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
+        imports.insert("import com.fasterxml.jackson.annotation.JsonInclude".to_string());
+        imports.insert("import com.fasterxml.jackson.databind.DeserializationFeature".to_string());
         imports.insert("import com.fasterxml.jackson.databind.PropertyNamingStrategies".to_string());
+        imports.insert("import com.fasterxml.jackson.datatype.jdk8.Jdk8Module".to_string());
+        imports.insert("import com.fasterxml.jackson.module.kotlin.KotlinFeature".to_string());
+        imports.insert("import com.fasterxml.jackson.module.kotlin.KotlinModule".to_string());
+        imports.insert("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
@@ -710,8 +715,55 @@ fn emit_module_kt(
         // facade's mapper so Jackson translates between them automatically,
         // matching the streaming-method mapper above and the convention used
         // across the JVM/Kotlin backends.
+        body.push_str("    /// Jackson module that marshals ByteArray as a JSON array of unsigned bytes,\n");
+        body.push_str("    /// matching how Rust serde encodes Vec<u8> on the wire.\n");
+        body.push_str("    /// Jackson's default writes ByteArray as a Base64 string, which Rust serde rejects\n");
+        body.push_str("    /// with \"invalid type: string, expected a sequence\".\n");
+        body.push_str("    private val byteArrayModule = com.fasterxml.jackson.databind.module.SimpleModule().apply {\n");
+        body.push_str("        addSerializer(\n");
+        body.push_str("            ByteArray::class.java,\n");
+        body.push_str("            object : com.fasterxml.jackson.databind.ser.std.StdSerializer<ByteArray>(ByteArray::class.java) {\n");
+        body.push_str("                override fun serialize(\n");
+        body.push_str("                    value: ByteArray,\n");
+        body.push_str("                    gen: com.fasterxml.jackson.core.JsonGenerator,\n");
+        body.push_str("                    provider: com.fasterxml.jackson.databind.SerializerProvider,\n");
+        body.push_str("                ) {\n");
+        body.push_str("                    gen.writeStartArray()\n");
+        body.push_str("                    for (b in value) gen.writeNumber(b.toInt() and 0xff)\n");
+        body.push_str("                    gen.writeEndArray()\n");
+        body.push_str("                }\n");
+        body.push_str("            },\n");
+        body.push_str("        )\n");
+        body.push_str("        addDeserializer(\n");
+        body.push_str("            ByteArray::class.java,\n");
+        body.push_str("            object : com.fasterxml.jackson.databind.deser.std.StdDeserializer<ByteArray>(ByteArray::class.java) {\n");
+        body.push_str("                override fun deserialize(\n");
+        body.push_str("                    parser: com.fasterxml.jackson.core.JsonParser,\n");
+        body.push_str("                    ctx: com.fasterxml.jackson.databind.DeserializationContext,\n");
+        body.push_str("                ): ByteArray {\n");
+        body.push_str("                    val node = parser.codec.readTree<com.fasterxml.jackson.databind.JsonNode>(parser)\n");
+        body.push_str("                    return when {\n");
+        body.push_str("                        node.isArray -> ByteArray(node.size()) { i -> node.get(i).asInt().toByte() }\n");
+        body.push_str("                        node.isTextual -> java.util.Base64.getDecoder().decode(node.asText())\n");
+        body.push_str("                        else -> ByteArray(0)\n");
+        body.push_str("                    }\n");
+        body.push_str("                }\n");
+        body.push_str("            },\n");
+        body.push_str("        )\n");
+        body.push_str("    }\n\n");
         body.push_str("    private val mapper = jacksonObjectMapper()\n");
-        body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n\n");
+        body.push_str("        .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
+        body.push_str("        .registerModule(byteArrayModule)\n");
+        body.push_str("        .registerModule(\n");
+        body.push_str("            com.fasterxml.jackson.module.kotlin.KotlinModule.Builder()\n");
+        body.push_str("                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullIsSameAsDefault, true)\n");
+        body.push_str("                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullToEmptyCollection, true)\n");
+        body.push_str("                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullToEmptyMap, true)\n");
+        body.push_str("                .build(),\n");
+        body.push_str("        )\n");
+        body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n");
+        body.push_str("        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)\n");
+        body.push_str("        .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)\n\n");
     }
 
     for f in &visible_functions {

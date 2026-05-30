@@ -174,9 +174,73 @@ pub fn gen_trait_bridges_file(
     out.push_str("\t\"encoding/json\"\n");
     out.push_str("\t\"fmt\"\n");
     out.push_str("\t\"runtime/cgo\"\n");
+    out.push_str("\t\"sync\"\n");
     out.push_str("\t\"unsafe\"\n");
     out.push_str(")\n");
     out.push('\n');
+
+    // Generate handle registry type and instances for all trait bridges.
+    // Each trait needs a registry to track cgo.Handles by name for cleanup on unregister.
+    let has_trait_bridges = config.trait_bridges.iter().any(|cfg| {
+        !cfg.exclude_languages.iter().any(|lang| lang == "go")
+            && api.types.iter().any(|t| t.name == cfg.trait_name)
+    });
+
+    if has_trait_bridges {
+        out.push_str("// handleRegistry tracks cgo.Handles by name to ensure proper cleanup on unregister.\n");
+        out.push_str("// Without this, unregistered plugins can cause use-after-free crashes when Rust\n");
+        out.push_str("// still holds vtable pointers and tries to invoke callbacks on deleted handles.\n");
+        out.push_str("type handleRegistry struct {\n");
+        out.push_str("\tmu      sync.Mutex\n");
+        out.push_str("\thandles map[string]cgo.Handle\n");
+        out.push_str("}\n");
+        out.push('\n');
+
+        out.push_str("var (\n");
+        for bridge_cfg in &config.trait_bridges {
+            if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go") {
+                if api.types.iter().any(|t| t.name == bridge_cfg.trait_name) {
+                    let trait_snake = heck::AsSnakeCase(&bridge_cfg.trait_name).to_string();
+                    out.push_str(&format!(
+                        "\t{trait_snake}Registry = &handleRegistry{{handles: make(map[string]cgo.Handle)}}\n"
+                    ));
+                }
+            }
+        }
+        out.push_str(")\n");
+        out.push('\n');
+
+        // Generate handle registry methods.
+        out.push_str("// store adds a handle to the registry, keyed by name.\n");
+        out.push_str("func (reg *handleRegistry) store(name string, handle cgo.Handle) {\n");
+        out.push_str("\treg.mu.Lock()\n");
+        out.push_str("\tdefer reg.mu.Unlock()\n");
+        out.push_str("\treg.handles[name] = handle\n");
+        out.push_str("}\n");
+        out.push('\n');
+
+        out.push_str("// delete removes and deletes a handle from the registry by name.\n");
+        out.push_str("func (reg *handleRegistry) delete(name string) {\n");
+        out.push_str("\treg.mu.Lock()\n");
+        out.push_str("\tdefer reg.mu.Unlock()\n");
+        out.push_str("\tif handle, ok := reg.handles[name]; ok {\n");
+        out.push_str("\t\tdelete(reg.handles, name)\n");
+        out.push_str("\t\thandle.Delete()\n");
+        out.push_str("\t}\n");
+        out.push_str("}\n");
+        out.push('\n');
+
+        out.push_str("// clear removes and deletes all handles from the registry.\n");
+        out.push_str("func (reg *handleRegistry) clear() {\n");
+        out.push_str("\treg.mu.Lock()\n");
+        out.push_str("\tdefer reg.mu.Unlock()\n");
+        out.push_str("\tfor _, handle := range reg.handles {\n");
+        out.push_str("\t\thandle.Delete()\n");
+        out.push_str("\t}\n");
+        out.push_str("\treg.handles = make(map[string]cgo.Handle)\n");
+        out.push_str("}\n");
+        out.push('\n');
+    }
 
     // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
@@ -185,6 +249,7 @@ pub fn gen_trait_bridges_file(
             continue;
         }
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
+            let trait_snake = heck::AsSnakeCase(&trait_def.name).to_string();
             gen_trait_bridge(
                 &mut out,
                 trait_def,
@@ -192,6 +257,7 @@ pub fn gen_trait_bridges_file(
                 ffi_prefix,
                 crate_name,
                 &excluded_named_types,
+                &trait_snake,
             );
             out.push('\n');
         }
@@ -208,6 +274,7 @@ fn gen_trait_bridge(
     ffi_prefix: &str,
     crate_name: &str,
     excluded_named_types: &HashSet<&str>,
+    trait_snake: &str,
 ) {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
@@ -389,6 +456,7 @@ fn gen_trait_bridge(
         minijinja::context! {
             c_function => format!("{}_register_{}", ffi_prefix, trait_snake),
             trait_name => trait_name,
+            trait_snake => trait_snake,
         },
     ));
     out.push_str("}\n");
@@ -409,6 +477,7 @@ fn gen_trait_bridge(
         minijinja::context! {
             c_function => format!("{}_unregister_{}", ffi_prefix, trait_snake),
             trait_name => trait_name,
+            trait_snake => trait_snake,
         },
     ));
     out.push_str("}\n");
@@ -502,6 +571,7 @@ fn gen_clear_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &s
         minijinja::context! {
             c_function => c_function,
             trait_name => trait_name,
+            trait_snake => &trait_snake,
         },
     ));
     out.push_str("}\n");
