@@ -23,7 +23,9 @@ pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSu
     }
     if let Some(raw) = &field.default {
         if !raw.is_empty() {
-            return format!("`{raw}`");
+            // Collapse multi-line and multi-space strings into a single line
+            let collapsed = crate::docs::doc_cleaning::collapse_whitespace(raw);
+            return format!("`{collapsed}`");
         }
     }
     if field.optional {
@@ -755,5 +757,39 @@ mod tests {
             format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
             "`Duration::default()`"
         );
+    }
+
+    // MD038: spaces inside code span elements — multi-line defaults must be collapsed
+    #[test]
+    fn test_format_default_multiline_raw_string_collapsed() {
+        let api = empty_api();
+        // Create a field with a multiline raw default
+        let mut field = make_field(
+            "config",
+            TypeRef::String,
+            false,
+            None,
+        );
+        field.default = Some("line1\nline2\nline3".to_string());
+        let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
+        assert_eq!(result, "`line1 line2 line3`", "multiline defaults must be collapsed");
+        assert!(!result.contains('\n'), "backtick code span must be single-line");
+    }
+
+    #[test]
+    fn test_format_default_raw_string_with_extra_spaces_collapsed() {
+        let api = empty_api();
+        let mut field = make_field(
+            "config",
+            TypeRef::String,
+            false,
+            None,
+        );
+        // Simulate a string with internal double-spaces (e.g., from serde attributes)
+        field.default = Some("value   with    spaces".to_string());
+        let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
+        // collapse_whitespace uses split_whitespace which normalizes consecutive spaces
+        assert!(result.contains("value"), "default should be wrapped");
+        assert!(!result.contains("   "), "extra spaces should be normalized");
     }
 }
