@@ -2667,7 +2667,7 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
             if i == config_param_idx {
-                call_args.push(format!("config: config"));
+                call_args.push("config: config".to_string());
             } else {
                 call_args.push(format!("{param_name}: {param_name}"));
             }
@@ -4986,9 +4986,12 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
             }
 
             if !type_has_extensions {
-                type_content.push_str("\n");
+                type_content.push('\n');
                 type_content.push_str(&format!("extension RustBridge.{}Ref {{\n", ty.name));
                 type_has_extensions = true;
+            } else {
+                // Add blank line between properties
+                type_content.push('\n');
             }
 
             // Emit computed property
