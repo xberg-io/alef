@@ -1629,6 +1629,20 @@ fn render_assertion(
                         }
                         return;
                     }
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            out.push_str(&format!("    expect({result_var}).to eq({rb_val})\n"));
+                        }
+                        return;
+                    }
+                    "contains" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = crate::e2e::escape::ruby_string_literal(s);
+                            out.push_str(&format!("    expect({result_var}).to include({escaped})\n"));
+                        }
+                        return;
+                    }
                     _ => {
                         out.push_str(&format!(
                             "    # skipped: field '{f}' not applicable for simple result type\n"

@@ -834,9 +834,7 @@ mod tests {
             "options",
             TypeRef::String,
             false,
-            Some(DefaultValue::StringLiteral(
-                "option1  option2   option3".to_string(),
-            )),
+            Some(DefaultValue::StringLiteral("option1  option2   option3".to_string())),
         );
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
         // Multiple spaces should be normalized
