@@ -262,10 +262,12 @@ mod plugin_trait_stub_generation {
     #[test]
     fn method_parameters_are_typed() {
         let bridge = make_trait_bridge("TestBackend", Some("Plugin"));
-        let mut param = ParamDef::default();
-        param.name = "input".to_string();
-        param.ty = TypeRef::Named("String".to_string());
-        param.optional = false;
+        let param = ParamDef {
+            name: "input".to_string(),
+            ty: TypeRef::Named("String".to_string()),
+            optional: false,
+            ..Default::default()
+        };
 
         let method = make_method("process", true, TypeRef::Named("Result".to_string()), vec![param]);
         let methods = [&method];

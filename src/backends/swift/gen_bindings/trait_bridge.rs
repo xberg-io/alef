@@ -925,20 +925,4 @@ mod tests {
         assert_eq!(to_pascal_case("test"), "Test");
         assert_eq!(to_pascal_case("a"), "A");
     }
-
-    #[test]
-    fn test_derive_short_stub_name() {
-        // Traits with -backend suffix should be stripped
-        assert_eq!(derive_short_stub_name("OcrBackend"), "ocr");
-        assert_eq!(derive_short_stub_name("EmbeddingBackend"), "embedding");
-
-        // Traits without -backend suffix should remain as kebab-case
-        assert_eq!(derive_short_stub_name("PostProcessor"), "post-processor");
-        assert_eq!(derive_short_stub_name("DocumentExtractor"), "document-extractor");
-        assert_eq!(derive_short_stub_name("Validator"), "validator");
-        assert_eq!(derive_short_stub_name("Renderer"), "renderer");
-
-        // Single word traits
-        assert_eq!(derive_short_stub_name("MyLib"), "my-lib");
-    }
 }

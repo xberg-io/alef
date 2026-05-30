@@ -1074,14 +1074,33 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             out.push_str(&format!(
                 "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
             ));
-            out.push_str(&format!(
-                "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-            ));
-            out.push_str("        Ok(v) => v,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-            ));
-            out.push_str("    };\n");
+            if is_optional {
+                out.push_str(&format!(
+                    "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
+                ));
+                out.push_str("        Ok(0) => None,\n");
+                out.push_str(&format!(
+                    "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                ));
+                out.push_str("            Ok(v) => Some(v),\n");
+                out.push_str(&format!(
+                    "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                ));
+                out.push_str("        },\n");
+                out.push_str(&format!(
+                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                ));
+                out.push_str("    };\n");
+            } else {
+                out.push_str(&format!(
+                    "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                ));
+                out.push_str("        Ok(v) => v,\n");
+                out.push_str(&format!(
+                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                ));
+                out.push_str("    };\n");
+            }
         }
         TypeRef::Bytes => {
             // jbyteArray → Vec<u8> via env.convert_byte_array.
@@ -1091,14 +1110,33 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
             out.push_str(&format!(
                 "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
             ));
-            out.push_str(&format!(
-                "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-            ));
-            out.push_str("        Ok(v) => v,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-            ));
-            out.push_str("    };\n");
+            if is_optional {
+                out.push_str(&format!(
+                    "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
+                ));
+                out.push_str("        Ok(0) => None,\n");
+                out.push_str(&format!(
+                    "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                ));
+                out.push_str("            Ok(v) => Some(v),\n");
+                out.push_str(&format!(
+                    "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                ));
+                out.push_str("        },\n");
+                out.push_str(&format!(
+                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                ));
+                out.push_str("    };\n");
+            } else {
+                out.push_str(&format!(
+                    "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                ));
+                out.push_str("        Ok(v) => v,\n");
+                out.push_str(&format!(
+                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+                ));
+                out.push_str("    };\n");
+            }
         }
         TypeRef::Path => {
             // JString → PathBuf via raw string (no JSON decode).
