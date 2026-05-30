@@ -156,14 +156,14 @@ fn json_string_overloads_emitted_for_serde_config() {
 
     // Verify JSON-string overload is emitted.
     assert!(
-        content.contains("public func processData(_ input: String, _ config: String)"),
-        "must emit positional-arg JSON-string overload. Content:\n{content}"
+        content.contains("public func processData(_ input: String, _ configJson: String)"),
+        "must emit positional-arg JSON-string overload with configJson parameter. Content:\n{content}"
     );
 
     // Verify config decoding call is present.
     assert!(
-        content.contains("processConfigFromJson(config)"),
-        "must decode JSON config via fromJson helper. Content:\n{content}"
+        content.contains("processConfigFromJson(configJson)"),
+        "must decode JSON config via fromJson helper using configJson parameter. Content:\n{content}"
     );
 
     // Verify the helper delegation is present.
@@ -237,28 +237,35 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
     );
 }
 
-/// Verify that async functions are skipped.
+/// Verify that both async and sync functions emit JSON-string overloads.
 #[test]
-fn json_string_overloads_skip_async_functions() {
+fn json_string_overloads_emitted_for_async_and_sync_functions() {
     let config_type = make_type(
         "ProcessConfig",
         vec![make_field("timeout_ms", TypeRef::Primitive(PrimitiveType::U64), false)],
         true,
     );
 
-    // Create an async function.
-    let mut func = make_function(
-        "process_data_async",
+    // Create a sync function.
+    let sync_func = make_function(
+        "process_data",
         vec![make_param("config", TypeRef::Named("ProcessConfig".to_string()))],
         TypeRef::Named("ProcessResult".to_string()),
     );
-    func.is_async = true;
+
+    // Create an async function with same name.
+    let mut async_func = make_function(
+        "process_data",
+        vec![make_param("config", TypeRef::Named("ProcessConfig".to_string()))],
+        TypeRef::Named("ProcessResult".to_string()),
+    );
+    async_func.is_async = true;
 
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],
-        functions: vec![func],
+        functions: vec![sync_func, async_func],
         enums: vec![],
         errors: vec![],
         excluded_type_paths: Default::default(),
@@ -281,10 +288,9 @@ fn json_string_overloads_skip_async_functions() {
         .content
         .clone();
 
-    // Should NOT emit JSON-string overload for async function
-    // (only for sync functions in this pass).
+    // Should emit JSON-string overload for both async and sync variants.
     assert!(
-        !content.contains("public func processDataAsync(_ config: String)"),
-        "must not emit JSON-string overload for async function. Content:\n{content}"
+        content.contains("public func processData(_ configJson: String)"),
+        "must emit JSON-string overload for both async and sync functions with configJson parameter. Content:\n{content}"
     );
 }
