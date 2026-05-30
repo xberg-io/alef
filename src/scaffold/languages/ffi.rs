@@ -180,7 +180,7 @@ repository = "{repository}"
 ignored = [{machete_ignored_str}]
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []
