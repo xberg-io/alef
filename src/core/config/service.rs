@@ -27,6 +27,10 @@ use serde::{Deserialize, Serialize};
 /// callback_param = "handler"
 /// callback_bound = "IntoHandler"
 /// callback_contract = "Handler"
+///
+/// [[crates.services.registrations.variants]]
+/// name = "get"
+/// fixed = { method = "GET" }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistrationSpec {
@@ -41,6 +45,46 @@ pub struct RegistrationSpec {
     /// Name of the [`HandlerContractConfig`] (and trait) this callback maps to
     /// (e.g. `"Handler"`).
     pub callback_contract: String,
+    /// Named shortcuts over this registration with pinned parameter values.
+    /// Each variant emits as an additional method on the service owner whose
+    /// signature drops the pinned params and whose body forwards to this base
+    /// registration with the pinned values substituted in.
+    #[serde(default)]
+    pub variants: Vec<RegistrationVariantSpec>,
+}
+
+/// A named shortcut over a base [`RegistrationSpec`] with one or more pinned
+/// parameter values.
+///
+/// The variant's emitted method takes the **non-pinned** subset of the base's
+/// metadata params and forwards them, along with the handler, to the base
+/// registration with the pinned values substituted in. For library-supplied
+/// enum overrides, the pinned value is the variant *name* (e.g. `"GET"`); the
+/// extractor resolves it against the param type's [`EnumDef`] variants. For
+/// non-enum types, the pinned value is a verbatim expression in the host
+/// language's Rust bridge.
+///
+/// ```toml
+/// [[crates.services.registrations.variants]]
+/// name = "get"
+/// fixed = { method = "GET" }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrationVariantSpec {
+    /// Shortcut name (e.g. `"get"`). Used as the variant method's name on the
+    /// owner, transformed to each language's idiomatic casing by the backend
+    /// templates.
+    pub name: String,
+    /// Map of base-registration metadata-param name → pinned value expression.
+    /// For enum-typed params, the value is the enum variant name. For other
+    /// types, the value is a verbatim expression substituted in the wrapper
+    /// constructor call.
+    #[serde(default)]
+    pub fixed: std::collections::BTreeMap<String, String>,
+    /// Optional documentation for the variant. When absent, backends emit a
+    /// generic docstring referencing the base registration.
+    #[serde(default)]
+    pub doc: Option<String>,
 }
 
 /// Per-entrypoint configuration inside a `[[crates.services]]` table.
