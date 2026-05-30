@@ -343,12 +343,17 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
         emit_kdoc_pub(body, &method.doc, "    ");
         let suspend_keyword = if method.is_async { "suspend " } else { "" };
         let method_name = to_lower_camel(&method.name);
+        // Map InternalDocument to ExtractionResult in parameter types
         let params = method
             .params
             .iter()
             .map(|param| {
                 let name = to_lower_camel(&param.name);
-                let ty = kotlin_type_str_pub(&param.ty, param.optional, imports);
+                let mut ty = kotlin_type_str_pub(&param.ty, param.optional, imports);
+                // Substitute InternalDocument with ExtractionResult in param types
+                if ty.starts_with("InternalDocument") {
+                    ty = ty.replace("InternalDocument", "ExtractionResult");
+                }
                 format!("{name}: {ty}")
             })
             .collect::<Vec<_>>()
