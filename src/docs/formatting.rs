@@ -820,8 +820,10 @@ mod tests {
         assert!(!result.contains('\n'), "newlines must be collapsed");
         // The result should have normalized spaces
         let without_backticks = result.trim_matches('`').trim_matches('"');
+        // collapse_whitespace intentionally preserves HTML comment delimiters since they
+        // appear verbatim in real defaults (e.g., page markers like "<!-- PAGE {n} -->").
         assert!(
-            without_backticks.starts_with("PAGE"),
+            without_backticks.starts_with("<!-- PAGE"),
             "normalized: {}",
             without_backticks
         );

@@ -1169,10 +1169,11 @@ mod tests {
             "expected fixed wrapper arg in:\n{rust}"
         );
 
-        // Verify calls back to base registration method
+        // Verify calls back to base registration method, wrapping the constructed
+        // inner value in the local Dart wrapper newtype before forwarding.
         assert!(
-            rust.contains("self.route(builder"),
-            "expected call to base route method in:\n{rust}"
+            rust.contains("self.route(RouteBuilder { inner }"),
+            "expected call to base route method with local newtype wrapper in:\n{rust}"
         );
     }
 }

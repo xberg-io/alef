@@ -635,7 +635,12 @@ fn gen_variant_match_arm(
                 }
             }
         }
-        let call_expr = format!("{}({})", wc.wrapper_type_path, call_args.join(", "));
+        let call_expr = format!(
+            "{}::{}({})",
+            wc.wrapper_type_path,
+            wc.constructor_method,
+            call_args.join(", ")
+        );
         out.push_str(&format!(
             "                    let {}: {} = {};\n",
             wc.metadata_param, wc.wrapper_type_path, call_expr
