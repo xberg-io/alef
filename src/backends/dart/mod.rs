@@ -17,6 +17,9 @@ pub mod naming;
 mod template_env;
 pub(crate) mod type_map;
 
+#[cfg(test)]
+mod plugin_trait_stubs_test;
+
 pub use frb_rewrite::{
     filter_excluded_functions, make_struct_fields_with_defaults_optional, rewrite_frb_sealed_variants,
 };

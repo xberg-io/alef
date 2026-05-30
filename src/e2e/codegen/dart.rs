@@ -3033,14 +3033,24 @@ fn map_dart_type_with_fallback(
     mapped.to_string()
 }
 
-/// Emit a Dart default value for a type, with special handling for enums.
+/// Emit a Dart default value for a type, with special handling for enums and internal types.
 fn emit_dart_default_for_type(
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
     ty: &crate::core::ir::TypeRef,
 ) -> String {
     use crate::core::ir::TypeRef;
+
+    // Map internal-only types to public types for default generation
+    let effective_ty = match ty {
+        TypeRef::Named(name) if name.contains("Internal") => {
+            // Internal types like InternalDocument should be mapped to public equivalents
+            TypeRef::Named("ExtractionResult".to_string())
+        }
+        _ => ty.clone(),
+    };
+
     // For named types that are enums (OcrBackendType, ProcessingStage, etc.), emit a default enum variant.
-    if let TypeRef::Named(name) = ty {
+    if let TypeRef::Named(name) = &effective_ty {
         if name.ends_with("Type") || name.ends_with("Stage") {
             // Assume the enum has a default variant like .standard or .pending
             // Fallback to a safe generic form if not recognized.
@@ -3051,7 +3061,7 @@ fn emit_dart_default_for_type(
             }
         }
     }
-    defaults.emit_default(ty).to_string()
+    defaults.emit_default(&effective_ty).to_string()
 }
 
 #[cfg(test)]
