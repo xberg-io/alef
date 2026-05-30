@@ -1238,6 +1238,19 @@ fn render_test_method(
         out.push_str(&assertion_out);
     }
 
+    // Emit teardown for test backends: unregister to prevent leaking into subsequent tests.
+    for arg in args {
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let unregister_fn = format!("unregister{}", trait_bridge.trait_name.to_upper_camel_case());
+                    let adapter_name = format!("swift-bridge-{}", trait_bridge.trait_name.to_snake_case());
+                    let _ = writeln!(out, "        try? {module_name}.{unregister_fn}(\"{adapter_name}\")");
+                }
+            }
+        }
+    }
+
     let _ = writeln!(out, "    }}");
 }
 
@@ -1612,13 +1625,15 @@ fn build_args_and_setup(
     // Method calls on the DefaultClient handle (e.g. `_client.chat(req)`) use
     // anonymous Swift argument labels (`func chat(_ req:)`), so omit `name:` prefixes.
     // Free-function calls (e.g. `process(source:, config:)`) keep labelled args.
+    // Registration functions (e.g. `registerOcrBackend(_:)`) also use positional args.
     // Swift argument labels must be camelCase, so convert from snake_case.
     // Some APIs like detectMimeTypeFromBytes take unnamed first parameters —
     // omit labels for indices listed in unnamed_arg_indices.
+    let is_register_call = function_name.starts_with("register") || function_name.starts_with("Register");
     let args_str = parts
         .into_iter()
         .map(|(idx, val)| {
-            if is_method_call || unnamed_arg_indices.contains(&idx) {
+            if is_method_call || is_register_call || unnamed_arg_indices.contains(&idx) {
                 val
             } else {
                 let label = args[idx].name.to_lower_camel_case();
@@ -3380,11 +3395,11 @@ pub fn emit_test_backend(
         }
         let method_name = method.name.to_lower_camel_case();
 
-        // Build parameter list with concrete Swift types.
+        // Build parameter list with concrete Swift types using labeled parameters (no underscore).
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("_ {}: {}", p.name.to_lower_camel_case(), mapper.map_type(&p.ty)))
+            .map(|p| format!("{}: {}", p.name.to_lower_camel_case(), mapper.map_type(&p.ty)))
             .collect();
         let params_str = params.join(", ");
 
@@ -3411,11 +3426,19 @@ pub fn emit_test_backend(
 
     let _ = writeln!(setup, "}}");
 
+    // Emit teardown: unregister call to prevent test backends from leaking into subsequent tests.
+    // The adapter class emitted by alef-backend-swift uses a fixed name derived from the trait.
+    // Pattern: `try? <Module>.unregister<Trait>("<adapter-name>")`
+    let unregister_fn = format!("unregister{}", trait_bridge.trait_name.to_upper_camel_case());
+    let adapter_name = format!("swift-bridge-{}", trait_bridge.trait_name.to_snake_case());
+    // Emit without module qualification: caller will add it when needed.
+    let teardown = format!("try? {unregister_fn}(\"{adapter_name}\")");
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("{class_name}()"),
         type_imports: Vec::new(),
-        teardown_block: String::new(),
+        teardown_block: teardown,
     }
 }
 
