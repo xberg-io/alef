@@ -137,111 +137,85 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
 /// Generate Rust extern "Rust" declarations for a service (INSIDE the bridge module).
 /// These are appended to the `#[swift_bridge::bridge] mod ffi { ... }` block in lib.rs.
 /// Registration callbacks are excluded — they go outside the bridge via `generate_rust_callback_c_functions`.
-fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> String {
-    let mut out = String::new();
+///
+/// IMPORTANT: This emits a SINGLE consolidated `extern "Rust"` block containing the opaque type,
+/// constructor, all configurators, and all entrypoints. swift-bridge 0.1.59 requires all methods
+/// on an opaque type to be in a single block; splitting them across multiple blocks causes a
+/// parse error: "expected path".
+fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> String {
     let service_snake = service.name.to_snake_case();
 
-    // Opaque type declaration
-    out.push_str(&crate::backends::swift::template_env::render(
-        "rust_extern_opaque_type.rs.jinja",
-        minijinja::context! {
-            service_name => &service.name,
-        },
-    ));
-
-    // Constructor
-    out.push_str(&crate::backends::swift::template_env::render(
-        "rust_extern_init.rs.jinja",
-        minijinja::context! {
-            service_snake => &service_snake,
-            service_name => &service.name,
-        },
-    ));
-
-    // Configurator methods (mutating, return unit for now; swift-bridge chains via Swift wrapper)
-    for config in &service.configurators {
-        let config_snake = config.name.to_snake_case();
-        let config_camel = config_snake.to_lower_camel_case();
-        out.push_str(&crate::backends::swift::template_env::render(
-            "rust_extern_configurator.rs.jinja",
+    // Build configurator list for the template
+    let configurators: Vec<minijinja::Value> = service
+        .configurators
+        .iter()
+        .map(|config| {
+            let config_snake = config.name.to_snake_case();
+            let config_camel = config_snake.to_lower_camel_case();
             minijinja::context! {
-                service_snake => &service_snake,
-                config_name => &config_snake,
-                config_camel => &config_camel,
-                service_name => &service.name,
-            },
-        ));
-    }
-
-    // NOTE: Registration methods (callback-based) are EXCLUDED from here.
-    // They are emitted as plain C functions OUTSIDE the bridge module via
-    // `generate_rust_callback_c_functions`, since swift-bridge 0.1.59 cannot parse
-    // raw pointer types or `extern "C" fn` function pointers inside `extern "Rust"` blocks.
-
-    // Entrypoint methods
-    for ep in &service.entrypoints {
-        // Skip finalize entrypoints whose return type can't be represented over the C ABI.
-        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, service, _api) {
-            continue;
-        }
-
-        let ep_snake = ep.method.to_snake_case();
-        let ep_camel = ep_snake.to_lower_camel_case();
-        let params: Vec<minijinja::Value> = ep
-            .params
-            .iter()
-            .map(|p| {
-                minijinja::context! {
-                    name => &p.name,
-                    rust_type => typeref_to_rust_ffi_type(&p.ty),
-                }
-            })
-            .collect();
-
-        // Return type. swift-bridge 0.1.59 cannot parse `Result<T, E>` in extern blocks,
-        // so error-returning functions return a JSON envelope string instead:
-        // `{"ok": <value>}` on success or `{"err": "<message>"}` on failure.
-        let return_type = match &ep.return_type {
-            TypeRef::Unit => {
-                if ep.error_type.is_some() {
-                    // Error case: return JSON envelope as String
-                    "String".to_owned()
-                } else {
-                    "()".to_owned()
-                }
+                name => &config_snake,
+                camel => &config_camel,
             }
-            TypeRef::String => {
-                if ep.error_type.is_some() {
-                    // Error case: return JSON envelope as String
-                    "String".to_owned()
-                } else {
-                    "String".to_owned()
-                }
-            }
-            _ => {
-                if ep.error_type.is_some() {
-                    // Error case: return JSON envelope as String
-                    "String".to_owned()
-                } else {
-                    "String".to_owned()
-                }
-            }
-        };
+        })
+        .collect();
 
-        out.push_str(&crate::backends::swift::template_env::render(
-            "rust_extern_entrypoint.rs.jinja",
+    // Build entrypoint list for the template (skip non-representable finalize)
+    let entrypoints: Vec<minijinja::Value> = service
+        .entrypoints
+        .iter()
+        .filter(|ep| {
+            // Skip finalize entrypoints whose return type can't be represented over the C ABI.
+            !matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize)
+                || entrypoint_return_representable(ep, service, api)
+        })
+        .map(|ep| {
+            let ep_snake = ep.method.to_snake_case();
+            let ep_camel = ep_snake.to_lower_camel_case();
+            let params: Vec<minijinja::Value> = ep
+                .params
+                .iter()
+                .map(|p| {
+                    minijinja::context! {
+                        name => &p.name,
+                        rust_type => typeref_to_rust_ffi_type(&p.ty),
+                    }
+                })
+                .collect();
+
+            // Return type. swift-bridge 0.1.59 cannot parse `Result<T, E>` in extern blocks,
+            // so error-returning functions return a JSON envelope string instead:
+            // `{"ok": <value>}` on success or `{"err": "<message>"}` on failure.
+            let return_type = match &ep.return_type {
+                TypeRef::Unit => {
+                    if ep.error_type.is_some() {
+                        "String".to_owned()
+                    } else {
+                        "()".to_owned()
+                    }
+                }
+                TypeRef::String => "String".to_owned(),
+                _ => "String".to_owned(),
+            };
+
             minijinja::context! {
-                service_snake => &service_snake,
-                ep_snake => &ep_snake,
-                ep_camel => &ep_camel,
-                service_name => &service.name,
+                snake => &ep_snake,
+                camel => &ep_camel,
                 params => params,
                 return_type => return_type,
-            },
-        ));
-    }
+            }
+        })
+        .collect();
 
-    out
+    // Emit a single consolidated extern "Rust" block
+    crate::backends::swift::template_env::render(
+        "rust_extern_service_consolidated.rs.jinja",
+        minijinja::context! {
+            service_name => &service.name,
+            service_snake => &service_snake,
+            configurators => configurators,
+            entrypoints => entrypoints,
+        },
+    )
 }
 
 /// Generate plain C functions for callback registration (OUTSIDE the bridge module).

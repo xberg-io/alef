@@ -908,6 +908,7 @@ pub(super) fn emit_named_param_setup(
     true_opaque_types: &HashSet<String>,
     exception_name: &str,
     types: &[TypeDef],
+    enum_names: &HashSet<String>,
 ) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
@@ -919,6 +920,19 @@ pub(super) fn emit_named_param_setup(
                 // Truly opaque handles: the C# wrapper class holds the IntPtr directly.
                 // No from_json round-trip needed — pass .Handle directly in native_call_arg.
                 if true_opaque_types.contains(type_name) {
+                    continue;
+                }
+                // Enums: marshal as i32 (cast directly), not JSON
+                if enum_names.contains(type_name) {
+                    // For optional enums, emit: var enumHandle = paramName != null ? (int)paramName : -1;
+                    if param.optional {
+                        out.push_str(&format!(
+                            "{indent}var {handle_var} = {param_name} != null ? (int){param_name} : -1;\n"
+                        ));
+                    } else {
+                        // For required enums, just cast: var enumHandle = (int)paramName;
+                        out.push_str(&format!("{indent}var {handle_var} = (int){param_name};\n"));
+                    }
                     continue;
                 }
                 let from_json_method = format!("{}FromJson", csharp_type_name(type_name));
@@ -1007,10 +1021,12 @@ pub(super) fn emit_named_param_setup(
 ///
 /// Truly opaque handles (is_opaque = true) are NOT freed here — their lifetime is managed by
 /// the C# wrapper class (IDisposable). Only data-struct handles (from_json-allocated) are freed.
+/// Enums are not freed (they are stack values, not heap-allocated).
 pub(super) fn emit_named_param_teardown(
     out: &mut String,
     params: &[crate::core::ir::ParamDef],
     true_opaque_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
 ) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
@@ -1019,6 +1035,10 @@ pub(super) fn emit_named_param_teardown(
             TypeRef::Named(type_name) => {
                 if true_opaque_types.contains(type_name) {
                     // Caller owns the opaque handle — do not free it here.
+                    continue;
+                }
+                if enum_names.contains(type_name) {
+                    // Enums are passed as i32 (stack values); no cleanup needed.
                     continue;
                 }
                 let free_method = format!("{}Free", csharp_type_name(type_name));
@@ -1050,6 +1070,7 @@ pub(super) fn emit_named_param_teardown_indented(
     params: &[crate::core::ir::ParamDef],
     indent: &str,
     true_opaque_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
 ) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
@@ -1058,6 +1079,10 @@ pub(super) fn emit_named_param_teardown_indented(
             TypeRef::Named(type_name) => {
                 if true_opaque_types.contains(type_name) {
                     // Caller owns the opaque handle — do not free it here.
+                    continue;
+                }
+                if enum_names.contains(type_name) {
+                    // Enums are passed as i32 (stack values); no cleanup needed.
                     continue;
                 }
                 let free_method = format!("{}Free", csharp_type_name(type_name));

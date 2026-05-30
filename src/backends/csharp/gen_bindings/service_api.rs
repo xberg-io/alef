@@ -17,7 +17,7 @@
 //! All names and signatures are derived entirely from the [`ApiSurface`] IR — no
 //! transport- or domain-specific assumptions are made anywhere in this module.
 
-use crate::codegen::naming::{to_csharp_name, csharp_type_name};
+use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointDef, ServiceDef, TypeRef};
@@ -107,9 +107,7 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
     out.push_str("    private static readonly Dictionary<IntPtr, GCHandle> _registeredCallbacks = new();\n");
     // A single static delegate instance bridges the native callback. Held in a static field so the
     // marshalled function pointer outlives every registration (a transient delegate would be collected).
-    out.push_str(
-        "    private static readonly NativeMethods.HandlerCallback _handlerCallback = HandlerTrampoline;\n\n",
-    );
+    out.push_str("    private static readonly NativeMethods.HandlerCallback _handlerCallback = HandlerTrampoline;\n\n");
 
     // Constructor
     {
@@ -210,7 +208,8 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         for meta_param in &reg.metadata_params {
             let name = meta_param.name.to_lower_camel_case();
             // Check if this is an opaque type — if so, extract .Handle
-            let arg = if matches!(&meta_param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque)) {
+            let arg = if matches!(&meta_param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque))
+            {
                 format!("{}.Handle", name)
             } else {
                 name
@@ -276,7 +275,8 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         for param in &ep.params {
             let name = param.name.to_lower_camel_case();
             // Check if this is an opaque type — if so, extract .Handle
-            let arg = if matches!(&param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque)) {
+            let arg = if matches!(&param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque))
+            {
                 format!("{}.Handle", name)
             } else {
                 name

@@ -11,6 +11,7 @@ use heck::ToSnakeCase;
 /// (`<prefix>_<type>_<method>_start`, `_next`, `_free`) and exposes a typed
 /// `<-chan <ItemType>` to Go callers. A goroutine drives `_next` until null
 /// (clean end-of-stream) or an error is signalled, then frees the handle.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_streaming_method_wrapper(
     typ: &TypeDef,
     method: &MethodDef,
@@ -19,6 +20,7 @@ pub(super) fn gen_streaming_method_wrapper(
     data_enum_names: &std::collections::HashSet<&str>,
     opaque_names: &std::collections::HashSet<&str>,
     _value_only_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -80,6 +82,7 @@ pub(super) fn gen_streaming_method_wrapper(
             /* can_return_error = */ true,
             ffi_prefix,
             opaque_names,
+            enum_names,
         ));
     }
 
@@ -144,6 +147,7 @@ pub(super) fn gen_method_wrapper(
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
     value_only_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -271,6 +275,7 @@ pub(super) fn gen_method_wrapper(
                 method_can_return_error,
                 ffi_prefix,
                 opaque_names,
+                enum_names,
             ));
         }
 
@@ -384,11 +389,13 @@ pub(super) fn gen_method_wrapper(
             return out;
         }
 
-        // Detect builder pattern: opaque type method that returns the same opaque type.
+        // Detect builder pattern: opaque type METHOD (not static constructor) that returns the same opaque type.
         // The C function consumes (Box::from_raw) the input pointer and returns a new pointer.
-        // Instead of creating a new Go struct, update r.ptr so the caller's handle stays valid.
-        let is_builder_return =
-            typ.is_opaque && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == typ.name.as_str());
+        // Instead of creating a new Go struct, update h.ptr so the caller's handle stays valid.
+        // For static constructors, we create a new struct wrapper instead.
+        let is_builder_return = !method.is_static
+            && typ.is_opaque
+            && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == typ.name.as_str());
 
         if method_can_return_error {
             if matches!(method.return_type, TypeRef::Unit) {
@@ -588,6 +595,7 @@ pub(super) fn gen_param_to_c(
     can_return_error: bool,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(512);
     // Go param names must be lowerCamelCase (no underscores), and internal C-side
@@ -664,8 +672,39 @@ pub(super) fn gen_param_to_c(
                     },
                 ));
                 out.push('\n');
+            } else if enum_names.contains(name) {
+                // Enum types: marshal to JSON, create a handle via _from_json.
+                // Note: This is a workaround because FFI doesn't yet emit enum params as i32 discriminants.
+                // When FFI is fixed, this should be replaced with direct i32 conversion.
+                let type_snake = name.to_snake_case();
+                let err_action = if can_return_error {
+                    format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
+                } else {
+                    "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
+                };
+                let from_json_err_action = if can_return_error {
+                    format!(
+                        "return {err_return_prefix}fmt.Errorf(\"failed to create {type_snake}: %s\", C.GoString(C.{ffi_prefix}_last_error_context()))"
+                    )
+                } else {
+                    format!(
+                        "panic(\"failed to create {type_snake}: \" + C.GoString(C.{ffi_prefix}_last_error_context()))"
+                    )
+                };
+                out.push_str(&crate::backends::go::template_env::render(
+                    "param_named_type.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                        err_action => &err_action,
+                        from_json_err_action => &from_json_err_action,
+                        ffi_prefix => ffi_prefix,
+                        type_snake => &type_snake,
+                    },
+                ));
+                out.push('\n');
             } else {
-                // Non-opaque Named types: marshal to JSON, create a handle via _from_json,
+                // Non-opaque, non-enum Named types: marshal to JSON, create a handle via _from_json,
                 // and pass that to the C function.
                 let type_snake = name.to_snake_case();
                 let err_action = if can_return_error {
@@ -938,7 +977,8 @@ mod tests {
         let method = simple_method("close", TypeRef::Unit, false);
         let opaque: std::collections::HashSet<&str> = ["Client"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
+        let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types, &enum_names);
         // The function signature may span multiple lines (method_receiver_instance + params + method_return).
         // Check for the receiver and name components rather than the full single-line form.
         assert!(
@@ -952,7 +992,8 @@ mod tests {
     fn test_gen_param_to_c_string_param_emits_cstring() {
         let param = simple_param("name", TypeRef::String);
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        let out = gen_param_to_c(&param, "", false, "krz", &opaque);
+        let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names);
         assert!(out.contains("C.CString("));
         assert!(out.contains("defer C.free("));
     }
@@ -961,7 +1002,8 @@ mod tests {
     fn test_gen_param_to_c_primitive_u64_emits_cgo_cast() {
         let param = simple_param("count", TypeRef::Primitive(PrimitiveType::U64));
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        let out = gen_param_to_c(&param, "", false, "krz", &opaque);
+        let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names);
         assert!(out.contains("C.uint64_t("));
     }
 
@@ -973,7 +1015,8 @@ mod tests {
         let method = simple_method("default_value", TypeRef::String, true);
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
+        let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types, &enum_names);
         // Static methods become package-level functions (no receiver)
         assert!(out.contains("func Config"));
     }
@@ -988,7 +1031,8 @@ mod tests {
         let method = simple_method("get_description", TypeRef::Optional(Box::new(TypeRef::String)), false);
         let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "sample_router", &opaque, &value_only_types);
+        let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "sample_router", &opaque, &value_only_types, &enum_names);
         // Signature must be *string for Optional<String>.
         assert!(out.contains(") *string {"), "expected *string return in:\n{out}");
         // Body must include nil check and take-address pattern, NOT a bare C.GoString(ptr).
@@ -1044,7 +1088,8 @@ mod tests {
         };
         let opaque: std::collections::HashSet<&str> = ["Renderer"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types);
+        let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types, &enum_names);
         // Return type must be ([]byte, error).
         assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
         // Must declare out-param variables.

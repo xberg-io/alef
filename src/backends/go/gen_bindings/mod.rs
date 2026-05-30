@@ -721,6 +721,7 @@ fn gen_go_file(
                 bridge_param_names,
                 bridge_type_aliases,
                 value_only_types,
+                &ffi_enum_names,
             ));
             out.push_str("\n\n");
         }
@@ -766,12 +767,17 @@ fn gen_go_file(
             if method.name == "default" {
                 continue;
             }
-            // For opaque types skip static methods that return Named types — the opaque
-            // handle conversion pipeline is not implemented for those. For non-opaque DTO
-            // types, static preset constructors (e.g. All(), Minimal()) are
-            // emitted as package-level free functions via gen_method_wrapper and must not
-            // be suppressed.
-            if typ.is_opaque && method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
+            // For opaque types, skip static methods that return Named types OTHER than `new`
+            // constructors. The `new` constructor is special: it's emitted by gen_method_wrapper,
+            // which properly handles FFI calls and opaque pointer wrapping. Other static methods
+            // returning Named types (e.g., preset constructors on opaque types) are not yet
+            // supported. For non-opaque DTO types, static preset constructors (e.g. All(),
+            // Minimal()) are emitted as package-level free functions and must not be suppressed.
+            if typ.is_opaque
+                && method.is_static
+                && method.name != "new"
+                && matches!(method.return_type, TypeRef::Named(_))
+            {
                 continue;
             }
             if let Some(item_type) = streaming_methods.get(&(typ.name.clone(), method.name.clone())) {
@@ -785,6 +791,7 @@ fn gen_go_file(
                     &data_enum_names,
                     &opaque_names,
                     value_only_types,
+                    &ffi_enum_names,
                 ));
                 out.push_str("\n\n");
                 continue;
@@ -804,6 +811,7 @@ fn gen_go_file(
                 ffi_prefix,
                 &opaque_names,
                 value_only_types,
+                &ffi_enum_names,
             ));
             out.push_str("\n\n");
         }

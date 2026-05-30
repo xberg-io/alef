@@ -541,6 +541,7 @@ fn gen_wrapper_function(
             true_opaque_types,
             exception_name,
             types,
+            enum_names,
         );
         // Build the args block for the template: each arg on its own indented line with trailing comma.
         let mut args_block = String::new();
@@ -561,7 +562,13 @@ fn gen_wrapper_function(
         }
         // Build cleanup block for try-finally
         let mut cleanup_block = String::new();
-        emit_named_param_teardown_indented(&mut cleanup_block, &visible_params, "            ", true_opaque_types);
+        emit_named_param_teardown_indented(
+            &mut cleanup_block,
+            &visible_params,
+            "            ",
+            true_opaque_types,
+            enum_names,
+        );
         out.push_str(&render(
             "bytes_result_call.jinja",
             minijinja::context! {
@@ -647,6 +654,7 @@ fn gen_wrapper_function(
         true_opaque_types,
         exception_name,
         types,
+        enum_names,
     );
 
     // Method body - delegation to native method with proper marshalling
@@ -729,7 +737,7 @@ fn gen_wrapper_function(
             true_opaque_types,
             handle_returned_types,
         );
-        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types);
+        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
         emit_return_statement_indented(&mut out, &func.return_type, "            ");
         out.push_str("        });\n");
     } else {
@@ -800,7 +808,7 @@ fn gen_wrapper_function(
             true_opaque_types,
             handle_returned_types,
         );
-        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types);
+        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types, enum_names);
         emit_return_statement(&mut out, &func.return_type);
     }
 
@@ -1159,6 +1167,7 @@ fn gen_wrapper_method(
             true_opaque_types,
             exception_name,
             types,
+            enum_names,
         );
         // Build the args block: receiver (if any) then visible params, each with trailing comma.
         let mut args_block = String::new();
@@ -1185,7 +1194,13 @@ fn gen_wrapper_method(
         }
         // Build cleanup block for try-finally
         let mut cleanup_block = String::new();
-        emit_named_param_teardown_indented(&mut cleanup_block, &visible_params, "            ", true_opaque_types);
+        emit_named_param_teardown_indented(
+            &mut cleanup_block,
+            &visible_params,
+            "            ",
+            true_opaque_types,
+            enum_names,
+        );
         out.push_str(&render(
             "bytes_result_call.jinja",
             minijinja::context! {
@@ -1206,6 +1221,7 @@ fn gen_wrapper_method(
         true_opaque_types,
         exception_name,
         types,
+        enum_names,
     );
 
     // Method body - delegation to native method with proper marshalling.
@@ -1288,7 +1304,7 @@ fn gen_wrapper_method(
             true_opaque_types,
             &HashSet::new(),
         );
-        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types);
+        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
         emit_return_statement_indented(&mut out, &method.return_type, "            ");
         out.push_str("        });\n");
     } else {
@@ -1358,7 +1374,7 @@ fn gen_wrapper_method(
             true_opaque_types,
             handle_returned_types,
         );
-        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types);
+        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types, enum_names);
         emit_return_statement(&mut out, &method.return_type);
     }
 

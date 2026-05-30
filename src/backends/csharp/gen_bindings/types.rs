@@ -90,6 +90,19 @@ pub(super) fn gen_opaque_handle(
             }
             continue;
         }
+        // Static constructor: emit as public constructor instead of instance method
+        if is_static_constructor(method, &typ.name) {
+            out.push('\n');
+            out.push_str(&gen_opaque_static_constructor(
+                method,
+                &class_name,
+                exception_name,
+                types,
+                enum_names,
+                true_opaque_types,
+            ));
+            continue;
+        }
         out.push('\n');
         out.push_str(&gen_opaque_method(
             method,
@@ -156,6 +169,106 @@ fn ffi_ty_to_csharp_public(rust_ty: &str) -> &'static str {
 
 /// Generate the public factory method `public static TypeName Create(params...)` that
 /// calls `NativeMethods.{TypeName}New(...)` and wraps the returned handle.
+/// Check if a method is a static constructor (returns the owner type by name).
+///
+/// Returns true ONLY for static methods that take at least one parameter. Zero-arg
+/// `new()` constructors are already emitted by `gen_opaque_factory_method` via the
+/// configured `client_constructor`, so emitting them here too would produce duplicate
+/// definitions.
+fn is_static_constructor(method: &MethodDef, type_name: &str) -> bool {
+    if !method.is_static || method.params.is_empty() {
+        return false;
+    }
+    match &method.return_type {
+        TypeRef::Named(n) => n == type_name,
+        _ => false,
+    }
+}
+
+/// Generate a public C# constructor for a static `new` FFI method on an opaque type.
+///
+/// For a method like `RouteBuilder::new(method: Method, path: &str) -> Self`,
+/// the FFI backend generates `spikard_route_builder_new(method: i32, path: *const c_char) -> *mut RouteBuilderOpaque`.
+/// This emits a public C# constructor that marshals parameters and calls the FFI function.
+#[allow(clippy::too_many_arguments)]
+fn gen_opaque_static_constructor(
+    method: &MethodDef,
+    class_name: &str,
+    exception_name: &str,
+    types: &[TypeDef],
+    enum_names: &HashSet<String>,
+    true_opaque_types: &HashSet<String>,
+) -> String {
+    let mut out = String::new();
+
+    // Public param list
+    let param_parts: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let param_name = p.name.to_lower_camel_case();
+            let param_type = csharp_type(&p.ty);
+            format!("{param_type} {param_name}")
+        })
+        .collect();
+    let param_list = param_parts.join(", ");
+
+    // XML doc comment
+    out.push_str(&format!(
+        "    /// <summary>Creates a new <see cref=\"{class_name}\"/> instance.</summary>\n"
+    ));
+
+    // Public constructor signature
+    out.push_str(&format!("    public {class_name}({param_list})\n    {{\n"));
+
+    // Emit setup for Named and Bytes parameters (marshal to handles)
+    emit_named_param_setup(
+        &mut out,
+        &method.params,
+        "        ",
+        true_opaque_types,
+        exception_name,
+        types,
+        enum_names,
+    );
+
+    // Build native call args using the native_call_arg helper
+    let native_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types))
+        .collect();
+    let native_args_str = native_args.join(", ");
+
+    // FFI function name: {class_name}New (matches gen_opaque_factory_method pattern)
+    let ffi_method_name = format!("{}New", class_name);
+
+    // Call the FFI constructor
+    out.push_str(&format!(
+        "        var handle = NativeMethods.{ffi_method_name}({native_args_str});\n"
+    ));
+
+    // Error check
+    out.push_str("        if (handle == IntPtr.Zero)\n        {\n");
+    out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
+    out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
+    out.push_str(
+        "            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"Constructor failed\";\n",
+    );
+    out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
+    out.push_str("        }\n");
+
+    // Emit cleanup for Named and Bytes parameters
+    emit_named_param_teardown(&mut out, &method.params, true_opaque_types, enum_names);
+
+    // Initialize the SafeHandle wrapper
+    out.push_str(&format!("        _safeHandle = new {class_name}SafeHandle(handle);\n"));
+
+    out.push_str("    }\n");
+
+    out
+}
+
 fn gen_opaque_factory_method(class_name: &str, exception_name: &str, ctor: &ClientConstructorConfig) -> String {
     let mut out = String::new();
 
@@ -379,6 +492,7 @@ fn gen_opaque_method(
         true_opaque_types,
         exception_name,
         types,
+        enum_names,
     );
 
     // The native method name is {TypeName}{MethodName} (same as gen_wrapper_method).
@@ -516,7 +630,7 @@ fn gen_opaque_method(
             true_opaque_types,
             &HashSet::new(), // Opaque handle methods rarely return other Named types
         );
-        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types);
+        emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
         emit_return_statement_indented(&mut out, &method.return_type, "            ");
         out.push_str("        });\n");
     } else {
@@ -597,7 +711,7 @@ fn gen_opaque_method(
             true_opaque_types,
             &HashSet::new(),
         );
-        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types);
+        emit_named_param_teardown(&mut out, &visible_params, true_opaque_types, enum_names);
         emit_return_statement(&mut out, &method.return_type);
     }
 
@@ -1048,6 +1162,7 @@ pub(super) fn gen_record_type(
         prefix,
         exception_class,
         true_opaque_types,
+        enum_names,
     );
 
     out.push_str("}\n");
@@ -1063,6 +1178,7 @@ pub(super) fn gen_record_type(
 /// Both patterns serialise the DTO to JSON, call the FFI shim via `NativeMethods`, then
 /// deserialise the returned JSON back to the record type — keeping the `IntPtr` entirely
 /// internal to this method body and invisible to callers.
+#[allow(clippy::too_many_arguments)]
 fn emit_record_methods(
     out: &mut String,
     typ: &TypeDef,
@@ -1071,6 +1187,7 @@ fn emit_record_methods(
     _prefix: &str,
     exception_class: &str,
     true_opaque_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
 ) {
     let native_type_prefix = class_name;
 
@@ -1144,6 +1261,7 @@ fn emit_record_methods(
                     true_opaque_types,
                     exception_class,
                     types,
+                    enum_names,
                 );
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
@@ -1164,7 +1282,7 @@ fn emit_record_methods(
                          }}\n\
                          finally\n        {{\n"
                 ));
-                emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
+                emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types, enum_names);
                 out.push_str(&format!(
                     "            NativeMethods.{native_type_prefix}Free(selfHandle);\n\
                                  }}\n"
@@ -1186,6 +1304,7 @@ fn emit_record_methods(
                         true_opaque_types,
                         exception_class,
                         types,
+                        enum_names,
                     );
                     out.push_str("        try\n        {\n");
                 }
@@ -1216,7 +1335,13 @@ fn emit_record_methods(
 
                 if needs_handle_params {
                     out.push_str("        }\n        finally\n        {\n");
-                    emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
+                    emit_named_param_teardown_indented(
+                        out,
+                        &method.params,
+                        "            ",
+                        true_opaque_types,
+                        enum_names,
+                    );
                     out.push_str("        }\n");
                 }
             }
@@ -1236,6 +1361,7 @@ fn emit_record_methods(
                     true_opaque_types,
                     exception_class,
                     types,
+                    enum_names,
                 );
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
@@ -1253,7 +1379,7 @@ fn emit_record_methods(
                          }}\n\
                          finally\n        {{\n"
                 ));
-                emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
+                emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types, enum_names);
                 out.push_str(&format!(
                     "            NativeMethods.{native_type_prefix}Free(selfHandle);\n\
                                  }}\n"
@@ -1275,6 +1401,7 @@ fn emit_record_methods(
                         true_opaque_types,
                         exception_class,
                         types,
+                        enum_names,
                     );
                     out.push_str("        try\n        {\n");
                 }
@@ -1304,7 +1431,13 @@ fn emit_record_methods(
 
                 if needs_handle_params {
                     out.push_str("        }\n        finally\n        {\n");
-                    emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types);
+                    emit_named_param_teardown_indented(
+                        out,
+                        &method.params,
+                        "            ",
+                        true_opaque_types,
+                        enum_names,
+                    );
                     out.push_str("        }\n");
                 }
             }

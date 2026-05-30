@@ -299,7 +299,13 @@ fn go_doc_block(doc: &str) -> String {
 }
 
 /// Generate a Go service struct with constructor, registration, and entrypoint methods.
-fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, ffi_prefix: &str, api_surface: &ApiSurface) {
+fn gen_service_struct(
+    out: &mut String,
+    service: &ServiceDef,
+    api: &ApiSurface,
+    ffi_prefix: &str,
+    api_surface: &ApiSurface,
+) {
     let service_name = &service.name;
     let service_snake = service_name.to_snake_case();
     let service_lower = ffi_prefix.to_lowercase();
@@ -544,7 +550,11 @@ fn gen_entrypoint_method(
     out.push_str("\t}\n\n");
 
     // Call the C entrypoint, capturing its return when it carries a value or status.
-    let capture = if opaque_return.is_some() || has_err { "ret := " } else { "" };
+    let capture = if opaque_return.is_some() || has_err {
+        "ret := "
+    } else {
+        ""
+    };
     out.push_str(&format!(
         "\t{capture}C.{}_{}_ep_{}(\n\
          \t\t(*C.{upper_prefix}{}Opaque)(s.owner),\n",

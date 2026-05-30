@@ -1,0 +1,19 @@
+    extern "Rust" {
+        type {{ service_name }};
+        #[swift_bridge(init)]
+        fn {{ service_snake }}_new() -> {{ service_name }};
+{%- for config in configurators %}
+        #[swift_bridge(swift_name = "{{ config.camel }}")]
+        fn {{ config.name }}(&mut self);
+{%- endfor %}
+{%- for ep in entrypoints %}
+        #[swift_bridge(swift_name = "{{ ep.camel }}")]
+        fn {{ ep.snake }}(
+            &mut self,
+{%- for param in ep.params %}
+            {{ param.name }}: {{ param.rust_type }},
+{%- endfor %}
+        ) -> {{ ep.return_type }};
+{%- endfor %}
+    }
+

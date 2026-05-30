@@ -64,6 +64,7 @@ pub(super) fn gen_function_wrapper(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     value_only_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -177,6 +178,7 @@ pub(super) fn gen_function_wrapper(
             can_return_error,
             ffi_prefix,
             opaque_names,
+            enum_names,
         ));
     }
 
@@ -964,7 +966,8 @@ mod tests {
         let bridge_names: HashSet<String> = HashSet::new();
         let bridge_aliases: HashSet<String> = HashSet::new();
         let value_only_types: HashSet<String> = HashSet::new();
-        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases, &value_only_types);
+        let enum_names: HashSet<String> = HashSet::new();
+        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases, &value_only_types, &enum_names);
         // Return type must be ([]byte, error)
         assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
         // Must declare out-param variables (outLen and outCap are declared together)
