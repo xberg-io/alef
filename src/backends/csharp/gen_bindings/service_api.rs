@@ -21,7 +21,7 @@ use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointDef, ServiceDef, TypeRef};
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
 /// Whether an entrypoint's return type can be represented over the C ABI.
@@ -228,6 +228,73 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         out.push_str("        }\n");
         out.push_str("        return result;\n");
         out.push_str("    }\n\n");
+
+        // Registration variants
+        for variant in &reg.variants {
+            let variant_method_name = variant.name.to_upper_camel_case();
+            let variant_fn_name = variant.name.to_snake_case();
+
+            out.push_str("    /// <summary>\n");
+            if let Some(doc) = &variant.doc {
+                out.push_str(&format!("    /// {}\n", doc));
+            } else {
+                out.push_str(&format!(
+                    "    /// Register a handler via the {} variant.\n",
+                    variant.name
+                ));
+            }
+            out.push_str("    /// </summary>\n");
+
+            out.push_str(&format!("    public int {}(", variant_method_name));
+
+            // Signature parameters from the variant
+            for (i, sig_param) in variant.signature_params.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                let ty = csharp_type_for_metadata(&sig_param.ty, api);
+                let name = sig_param.name.to_lower_camel_case();
+                out.push_str(&format!("{} {}", ty, name));
+            }
+            out.push_str(", Delegate handler) {\n");
+
+            out.push_str("        var handle = GCHandle.Alloc(handler, GCHandleType.Normal);\n");
+            out.push_str("        IntPtr ctx = GCHandle.ToIntPtr(handle);\n\n");
+
+            out.push_str(&format!(
+                "        int result = NativeMethods.{}_{}_{}(\n",
+                prefix.to_lowercase(),
+                service_snake,
+                variant_fn_name
+            ));
+            out.push_str("            _handle,\n");
+            out.push_str("            _handlerCallback,\n");
+            out.push_str("            ctx");
+
+            // Add signature arguments
+            for sig_param in &variant.signature_params {
+                let name = sig_param.name.to_lower_camel_case();
+                // Check if this is an opaque type — if so, extract .Handle
+                let arg = if matches!(&sig_param.ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque))
+                {
+                    format!("{}.Handle", name)
+                } else {
+                    name
+                };
+                out.push_str(&format!(",\n            {}", arg));
+            }
+
+            out.push_str("\n        );\n\n");
+            out.push_str("        if (result == 0) {\n");
+            out.push_str("            lock (_registeredCallbacks) {\n");
+            out.push_str("                _registeredCallbacks[ctx] = handle;\n");
+            out.push_str("            }\n");
+            out.push_str("        } else {\n");
+            out.push_str("            handle.Free();\n");
+            out.push_str("        }\n");
+            out.push_str("        return result;\n");
+            out.push_str("    }\n\n");
+        }
     }
 
     // Entrypoint methods
@@ -437,6 +504,54 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
             }
 
             out.push_str("\n    );\n\n");
+
+            // Variant P/Invoke declarations
+            for variant in &reg.variants {
+                let variant_fn_name = variant.name.to_snake_case();
+
+                out.push_str(&format!(
+                    "    [DllImport(\"{}_ffi\", CallingConvention = CallingConvention.Cdecl)]\n",
+                    prefix.to_lowercase()
+                ));
+                out.push_str(&format!(
+                    "    public static extern int {}_{}_{}(\n",
+                    prefix.to_lowercase(),
+                    service_snake,
+                    variant_fn_name
+                ));
+                out.push_str("        IntPtr owner,\n");
+                out.push_str("        HandlerCallback callback,\n");
+                out.push_str("        IntPtr ctx");
+
+                // Variant signature parameters
+                for sig_param in &variant.signature_params {
+                    let c_type = match &sig_param.ty {
+                        TypeRef::String | TypeRef::Char => "string",
+                        TypeRef::Primitive(p) => {
+                            use crate::core::ir::PrimitiveType;
+                            match p {
+                                PrimitiveType::Bool => "int",
+                                PrimitiveType::U8 => "byte",
+                                PrimitiveType::U16 => "ushort",
+                                PrimitiveType::U32 => "uint",
+                                PrimitiveType::U64 => "ulong",
+                                PrimitiveType::I8 => "sbyte",
+                                PrimitiveType::I16 => "short",
+                                PrimitiveType::I32 => "int",
+                                PrimitiveType::I64 => "long",
+                                PrimitiveType::F32 => "float",
+                                PrimitiveType::F64 => "double",
+                                PrimitiveType::Usize => "nuint",
+                                PrimitiveType::Isize => "nint",
+                            }
+                        }
+                        _ => "IntPtr",
+                    };
+                    out.push_str(&format!(",\n        {} {}", c_type, sig_param.name));
+                }
+
+                out.push_str("\n    );\n\n");
+            }
         }
 
         // Entrypoint functions
@@ -595,7 +710,34 @@ mod tests {
             return_type: TypeRef::Unit,
             error_type: Some("HandlerError".to_owned()),
             doc: "Register a request handler.".to_owned(),
-            variants: vec![],
+            variants: vec![
+                crate::core::ir::RegistrationVariant {
+                    name: "get".to_owned(),
+                    overrides: vec![],
+                    wrapper_call: None,
+                    signature_params: vec![ParamDef {
+                        name: "path".to_owned(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        ..ParamDef::default()
+                    }],
+                    doc: Some("Register a GET handler.".to_owned()),
+                },
+                crate::core::ir::RegistrationVariant {
+                    name: "post".to_owned(),
+                    overrides: vec![],
+                    wrapper_call: None,
+                    signature_params: vec![ParamDef {
+                        name: "path".to_owned(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        ..ParamDef::default()
+                    }],
+                    doc: None,
+                },
+            ],
         };
 
         let run_entrypoint = EntrypointDef {
@@ -808,5 +950,66 @@ mod tests {
 
         let files = generate(&api, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
+    }
+
+    #[test]
+    fn test_gen_service_cs_contains_variant_methods() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let cs = gen_service_cs(&api, service, "MyNamespace", "test");
+
+        // Test Get variant method
+        assert!(
+            cs.contains("public int Get("),
+            "expected Get variant method in service class"
+        );
+        assert!(
+            cs.contains("Register a GET handler"),
+            "expected Get variant documentation"
+        );
+
+        // Test Post variant method
+        assert!(
+            cs.contains("public int Post("),
+            "expected Post variant method in service class"
+        );
+        assert!(
+            cs.contains("Register a handler via the post variant"),
+            "expected Post variant auto-generated documentation"
+        );
+
+        // Test variant P/Invoke calls
+        assert!(
+            cs.contains("NativeMethods.test_test_service_get("),
+            "expected Get variant P/Invoke call"
+        );
+        assert!(
+            cs.contains("NativeMethods.test_test_service_post("),
+            "expected Post variant P/Invoke call"
+        );
+    }
+
+    #[test]
+    fn test_gen_native_methods_cs_contains_variant_pinvoke_decls() {
+        let api = make_fixture_surface();
+        let native = gen_native_methods_cs(&api, "MyNamespace", "test");
+
+        // Test Get variant P/Invoke declaration
+        assert!(
+            native.contains("public static extern int test_test_service_get("),
+            "expected Get variant P/Invoke declaration"
+        );
+
+        // Test Post variant P/Invoke declaration
+        assert!(
+            native.contains("public static extern int test_test_service_post("),
+            "expected Post variant P/Invoke declaration"
+        );
+
+        // Both should have the standard parameters
+        assert!(
+            native.contains("IntPtr owner,") && native.contains("HandlerCallback callback,"),
+            "expected variant P/Invoke to have owner and callback parameters"
+        );
     }
 }

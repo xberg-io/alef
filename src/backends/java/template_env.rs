@@ -396,6 +396,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "stream_method_catch_unchecked.jinja",
         include_str!("templates/stream_method_catch_unchecked.jinja"),
     ),
+    (
+        "registration_variant.java.jinja",
+        include_str!("templates/registration_variant.java.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

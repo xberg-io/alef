@@ -24,7 +24,9 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariant, ServiceDef, TypeRef,
+};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -326,6 +328,72 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, service: &Se
 
     out.push_str("  invisible(x)\n");
     out.push_str("}\n\n");
+
+    // Emit registration variants (shortcuts for common patterns)
+    for variant in &reg.variants {
+        gen_registration_variant(out, variant, reg, service, class_name, callback_param);
+    }
+}
+
+/// Emit a registration variant (shortcut method) for the given variant definition.
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &RegistrationVariant,
+    reg: &RegistrationDef,
+    _service: &ServiceDef,
+    class_name: &str,
+    callback_param: &str,
+) {
+    use crate::core::ir::WrapperConstructorArg;
+
+    let variant_name = &variant.name;
+    let base_method = &reg.method;
+
+    // Build wrapper constructor call expression if needed
+    let wrapper_expr = if let Some(wc) = &variant.wrapper_call {
+        let mut call_args = vec![];
+        // Process constructor args in order: Fixed args substitute values, Free args pull from variant signature
+        for arg in &wc.args {
+            match arg {
+                WrapperConstructorArg::Fixed { value_expr, .. } => {
+                    call_args.push(value_expr.clone());
+                }
+                WrapperConstructorArg::Free { param } => {
+                    call_args.push(param.name.clone());
+                }
+            }
+        }
+        Some(format!(
+            "{}::{}({})",
+            wc.wrapper_type_path,
+            wc.constructor_method,
+            call_args.join(", ")
+        ))
+    } else {
+        None
+    };
+
+    // Render the variant R method using the template
+    let rendered = crate::backends::extendr::template_env::render(
+        "registration_variant.rs.jinja",
+        minijinja::context! {
+            variant_name => variant_name,
+            class_name => class_name,
+            callback_param => callback_param,
+            base_method => base_method,
+            doc => variant.doc.as_deref().unwrap_or(""),
+            signature_params => variant.signature_params.iter().map(|p| minijinja::context! {
+                name => p.name.as_str(),
+                ty_annotation => r_type_annotation(&p.ty),
+            }).collect::<Vec<_>>(),
+            overrides => variant.overrides.iter().map(|o| minijinja::context! {
+                param_name => o.param_name.as_str(),
+                value_expr => o.value_expr.as_str(),
+            }).collect::<Vec<_>>(),
+            wrapper_expr => wrapper_expr.as_deref().unwrap_or(""),
+        },
+    );
+    out.push_str(&rendered);
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──

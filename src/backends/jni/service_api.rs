@@ -485,6 +485,173 @@ fn gen_register_jni_function(
         out.push_str("        Err(_) => 5, // Error: registration failed\n");
         out.push_str("    }\n");
         out.push_str("}\n\n");
+
+        // Emit registration variants
+        for variant in &reg.variants {
+            gen_register_variant_jni_function(
+                out,
+                service,
+                reg,
+                variant,
+                api,
+                core_import,
+                package,
+                service_bridge_class,
+            );
+        }
+    }
+}
+
+/// Emit a JNI function for a registration variant (shortcut with pinned metadata).
+///
+/// Builds the wrapper type if present and forwards to the base register method.
+#[allow(clippy::too_many_arguments)]
+fn gen_register_variant_jni_function(
+    out: &mut String,
+    service: &ServiceDef,
+    reg: &RegistrationDef,
+    variant: &crate::core::ir::RegistrationVariant,
+    api: &ApiSurface,
+    core_import: &str,
+    package: &str,
+    service_bridge_class: &str,
+) {
+    let service_pascal = service.name.to_upper_camel_case();
+    let variant_name = &variant.name;
+    let contract_name = &reg.callback_contract;
+
+    if let Some(contract) = find_contract(api, contract_name) {
+        let bridge_name = format!("Jni{}Bridge", contract_name.to_upper_camel_case());
+        let opaque_name = format!("{}Opaque", service.name);
+        let register_method = bridge_method_name(&service.name, &format!("register_{}_{}", reg.method, variant_name));
+        let symbol = jni_symbol(package, service_bridge_class, &register_method);
+        let dispatch_method_name = &contract.dispatch.name;
+
+        out.push_str(&format!(
+            "/// Register a Java handler for `{service_pascal}::{variant_name}` variant.\n\
+             ///\n\
+             /// Shortcut that builds the wrapper with fixed args and forwards to base registration.\n\
+             #[no_mangle]\n\
+             pub extern \"system\" fn {symbol}(\n        \
+                 env: EnvUnowned,\n        \
+                 _class: JClass,\n        \
+                 owner_handle: jlong,\n        \
+                 handler: JObject",
+        ));
+
+        // Add free parameters (non-pinned)
+        for param in &variant.signature_params {
+            let rust_type = typeref_to_jni_type(&param.ty, core_import);
+            out.push_str(&format!(",\n        {}: {}", param.name, rust_type));
+        }
+
+        out.push_str("\n    ) -> jint {\n");
+        out.push_str("    // Validate owner handle\n");
+        out.push_str("    if owner_handle == 0 {\n");
+        out.push_str("        return 1; // Error: null pointer\n");
+        out.push_str("    }\n\n");
+
+        // Get JavaVM from environment
+        out.push_str("    let jvm = match env.get_java_vm() {\n");
+        out.push_str("        Ok(vm) => vm,\n");
+        out.push_str("        Err(_) => return 2, // Error: failed to get JavaVM\n");
+        out.push_str("    };\n\n");
+
+        // Create GlobalRef from handler object
+        out.push_str("    let global_ref = match env.new_global_ref(&handler) {\n");
+        out.push_str("        Ok(g) => g,\n");
+        out.push_str("        Err(_) => return 3, // Error: failed to create global reference\n");
+        out.push_str("    };\n\n");
+
+        // Get the dispatch method ID
+        out.push_str("    let method_id = match env.get_method_id(\n");
+        out.push_str("        &handler,\n");
+        out.push_str(&format!("        \"{dispatch_method_name}\",\n"));
+        out.push_str("        \"(Ljava/lang/String;)Ljava/lang/String;\"\n");
+        out.push_str("    ) {\n");
+        out.push_str("        Ok(id) => id,\n");
+        out.push_str("        Err(_) => return 4, // Error: failed to find method\n");
+        out.push_str("    };\n\n");
+
+        // Create the bridge
+        out.push_str(&format!(
+            "    let bridge = {bridge_name} {{\n\
+             global_ref,\n\
+             jvm,\n\
+             method_id,\n\
+             }};\n\
+             let handler_arc: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n\n"
+        ));
+
+        // Build wrapper if wrapper_call is present
+        if let Some(wc) = &variant.wrapper_call {
+            out.push_str(&format!(
+                "    let {} = {}::{}(",
+                wc.metadata_param, wc.wrapper_type_path, wc.constructor_method
+            ));
+
+            let mut first = true;
+            for arg in &wc.args {
+                if !first {
+                    out.push_str(", ");
+                }
+                match arg {
+                    crate::core::ir::WrapperConstructorArg::Fixed {
+                        param_name: _,
+                        value_expr,
+                    } => {
+                        out.push_str(value_expr);
+                    }
+                    crate::core::ir::WrapperConstructorArg::Free { param } => {
+                        out.push_str(&param.name);
+                    }
+                }
+                first = false;
+            }
+            out.push_str(");\n\n");
+        }
+
+        // Build arguments for base register call
+        let mut base_call_args = Vec::new();
+
+        // Add wrapper param if present
+        if let Some(wc) = &variant.wrapper_call {
+            base_call_args.push(wc.metadata_param.clone());
+        }
+
+        // Add overridden metadata params
+        for override_ in &variant.overrides {
+            base_call_args.push(override_.value_expr.clone());
+        }
+
+        // SAFETY comment for owner dereference
+        out.push_str("    // SAFETY: owner_handle was returned by the service constructor and\n");
+        out.push_str("    // is valid until freed. The caller is responsible for ensuring no use-after-free.\n");
+        out.push_str("    match unsafe {\n");
+        out.push_str(&format!(
+            "        let owner_opaque = owner_handle as *mut {opaque_name};\n\
+             (*owner_opaque).inner.{}(",
+            reg.method
+        ));
+
+        // Add all arguments (wrapper + overrides + handler)
+        let mut first = true;
+        for arg in &base_call_args {
+            if !first {
+                out.push_str(", ");
+            }
+            out.push_str(arg);
+            first = false;
+        }
+        if !first {
+            out.push_str(", ");
+        }
+        out.push_str("handler_arc)\n");
+        out.push_str("    } {\n");
+        out.push_str("        Ok(_) => 0, // Success\n");
+        out.push_str("        Err(_) => 5, // Error: registration failed\n");
+        out.push_str("    }\n");
+        out.push_str("}\n\n");
     }
 }
 
@@ -771,6 +938,27 @@ mod tests {
         }
     }
 
+    /// Construct a fixture with registration variants for testing variant emission.
+    fn make_fixture_surface_with_variants() -> ApiSurface {
+        let mut surface = make_fixture_surface();
+        if let Some(service) = surface.services.first_mut() {
+            if let Some(reg) = service.registrations.first_mut() {
+                // Add a "get" variant
+                reg.variants.push(crate::core::ir::RegistrationVariant {
+                    name: "get".to_owned(),
+                    overrides: vec![crate::core::ir::RegistrationVariantOverride {
+                        param_name: "path".to_owned(),
+                        value_expr: "\"/api\"".to_owned(),
+                    }],
+                    wrapper_call: None,
+                    signature_params: vec![],
+                    doc: Some("Register a GET handler.".to_owned()),
+                });
+            }
+        }
+        surface
+    }
+
     /// `gen_service_rs` emits the JNI handler bridge struct.
     #[test]
     fn rust_output_contains_handler_bridge_struct() {
@@ -986,6 +1174,24 @@ mod tests {
         let config = make_test_config();
         let files = generate(&surface, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
+    }
+
+    /// `gen_service_rs` emits registration variant native functions when variants are present.
+    #[test]
+    fn rust_output_contains_registration_variants() {
+        let surface = make_fixture_surface_with_variants();
+        let config = make_test_config();
+        let output = gen_service_rs(&surface, &config);
+        // Verify the variant registration function is emitted
+        assert!(
+            output.contains("nativeTestServiceRegisterAddHandlerGet"),
+            "expected variant registration function nativeTestServiceRegisterAddHandlerGet:\n{output}"
+        );
+        // Verify it builds wrapper and calls base registration
+        assert!(
+            output.contains("inner.add_handler("),
+            "variant function must call the base registration method:\n{output}"
+        );
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

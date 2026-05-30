@@ -354,6 +354,60 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
             },
         ));
         out.push('\n');
+
+        // Emit registration variants
+        for variant in &reg.variants {
+            let signature_params: Vec<_> = variant
+                .signature_params
+                .iter()
+                .map(|p| {
+                    minijinja::context! {
+                        name => p.name.as_str(),
+                        rust_type => typeref_to_rust_type(&p.ty).as_str(),
+                    }
+                })
+                .collect();
+
+            let (wrapper_type_path, constructor_method, wrapper_args) = if let Some(wc) = &variant.wrapper_call {
+                let args: Vec<_> = wc
+                    .args
+                    .iter()
+                    .map(|arg| match arg {
+                        crate::core::ir::WrapperConstructorArg::Fixed {
+                            param_name: _,
+                            value_expr,
+                        } => minijinja::context! {
+                            kind => "fixed",
+                            value_expr => value_expr.as_str(),
+                        },
+                        crate::core::ir::WrapperConstructorArg::Free { param } => minijinja::context! {
+                            kind => "free",
+                            param => minijinja::context! {
+                                name => param.name.as_str(),
+                                rust_type => typeref_to_rust_type(&param.ty).as_str(),
+                            },
+                        },
+                    })
+                    .collect();
+                (wc.wrapper_type_path.clone(), wc.constructor_method.clone(), args)
+            } else {
+                (String::new(), String::new(), vec![])
+            };
+
+            out.push_str(&crate::backends::dart::template_env::render(
+                "service_api/registration_variant.rs.jinja",
+                minijinja::context! {
+                    variant_name => variant.name.as_str(),
+                    signature_params => signature_params,
+                    base_method_name => reg.method.as_str(),
+                    wrapper_call => variant.wrapper_call.is_some(),
+                    wrapper_type_path => wrapper_type_path.as_str(),
+                    constructor_method => constructor_method.as_str(),
+                    wrapper_args => wrapper_args,
+                },
+            ));
+            out.push('\n');
+        }
     }
 
     // Emit entrypoint methods
@@ -951,6 +1005,167 @@ mod tests {
         assert!(
             !rust.contains("match reg.method.as_str()"),
             "should not have method dispatch match in:\n{rust}"
+        );
+    }
+
+    #[test]
+    fn test_emit_registration_variants() {
+        use crate::core::ir::{RegistrationVariant, WrapperConstructorArg, WrapperConstructorCall};
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let variant_with_wrapper = RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![],
+            wrapper_call: Some(WrapperConstructorCall {
+                metadata_param: "builder".to_owned(),
+                wrapper_type_path: "my_crate::RouteBuilder".to_owned(),
+                wrapper_type_name: "RouteBuilder".to_owned(),
+                constructor_method: "new".to_owned(),
+                args: vec![
+                    WrapperConstructorArg::Fixed {
+                        param_name: "method".to_owned(),
+                        value_expr: "my_crate::Method::GET".to_owned(),
+                    },
+                    WrapperConstructorArg::Free {
+                        param: ParamDef {
+                            name: "path".to_owned(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            ..ParamDef::default()
+                        },
+                    },
+                ],
+            }),
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: Some("Register a GET handler.".to_owned()),
+        };
+
+        let registration = RegistrationDef {
+            method: "route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![ParamDef {
+                name: "builder".to_owned(),
+                ty: TypeRef::Named("RouteBuilder".to_owned()),
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: Some("HandlerError".to_owned()),
+            doc: "Register a handler with a route builder.".to_owned(),
+            variants: vec![variant_with_wrapper],
+        };
+
+        let handler_contract = HandlerContractDef {
+            trait_name: "RequestHandler".to_owned(),
+            rust_path: "my_crate::RequestHandler".to_owned(),
+            dispatch: MethodDef {
+                name: "handle".to_owned(),
+                params: vec![ParamDef {
+                    name: "req".to_owned(),
+                    ty: TypeRef::Named("RequestData".to_owned()),
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::Named("Response".to_owned()),
+                is_async: true,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            optional_methods: vec![],
+            wire_request_type: Some("RequestData".to_owned()),
+            wire_response_type: Some("Response".to_owned()),
+            dispatch_extra_params: vec![],
+            wire_param_name: None,
+            dispatch_return_type: None,
+            response_adapter: None,
+            doc: String::new(),
+        };
+
+        let api = ApiSurface {
+            crate_name: "test_crate".to_owned(),
+            version: "1.0.0".to_owned(),
+            services: vec![ServiceDef {
+                name: "TestService".to_owned(),
+                rust_path: "my_crate::TestService".to_owned(),
+                constructor,
+                configurators: vec![],
+                registrations: vec![registration],
+                entrypoints: vec![],
+                doc: String::new(),
+                cfg: None,
+            }],
+            handler_contracts: vec![handler_contract],
+            ..ApiSurface::default()
+        };
+
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rust = gen_service_rust(&api, &config);
+
+        // Verify variant method is emitted
+        assert!(
+            rust.contains("pub fn get("),
+            "expected registration variant 'get' method in:\n{rust}"
+        );
+
+        // Verify wrapper constructor is called
+        assert!(
+            rust.contains("my_crate::RouteBuilder::new("),
+            "expected wrapper constructor call in:\n{rust}"
+        );
+
+        // Verify fixed arg is substituted
+        assert!(
+            rust.contains("my_crate::Method::GET"),
+            "expected fixed wrapper arg in:\n{rust}"
+        );
+
+        // Verify calls back to base registration method
+        assert!(
+            rust.contains("self.route(builder"),
+            "expected call to base route method in:\n{rust}"
         );
     }
 }

@@ -15,7 +15,8 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::config::service::{HandlerContractConfig, RegistrationVariantSpec, ServiceConfig};
 use crate::core::ir::{
     ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef,
-    RegistrationVariant, RegistrationVariantOverride, ServiceDef, TypeRef, WrapperConstructorArg, WrapperConstructorCall,
+    RegistrationVariant, RegistrationVariantOverride, ServiceDef, TypeRef, WrapperConstructorArg,
+    WrapperConstructorCall,
 };
 
 /// Run the service extraction pass in-place on `surface`.
@@ -487,12 +488,7 @@ fn resolve_via_wrapper(
         if !ctor.params.iter().any(|p| &p.name == fixed_name) {
             return Err(format!(
                 "service `{}` registration `{}` variant `{}`: fixed param `{}` not found in wrapper `{}::{}` constructor params",
-                svc_cfg.owner_type,
-                reg_spec.method,
-                v_spec.name,
-                fixed_name,
-                wrapper_type.name,
-                ctor.name
+                svc_cfg.owner_type, reg_spec.method, v_spec.name, fixed_name, wrapper_type.name, ctor.name
             ));
         }
     }
@@ -881,9 +877,7 @@ pub trait IntoHandler {}
                 doc: None,
             },
         ];
-        cfg.services[0]
-            .entrypoints
-            .retain(|e| e.method != "into_router");
+        cfg.services[0].entrypoints.retain(|e| e.method != "into_router");
 
         let warnings = extract_services(&mut surface, &cfg);
         assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
@@ -946,12 +940,12 @@ pub trait IntoHandler {}
         cfg.services[0].registrations[0].method = "route".to_owned();
         cfg.services[0].registrations[0].variants = vec![RegistrationVariantSpec {
             name: "bogus".to_owned(),
-            fixed: [("method".to_owned(), "NotARealVariant".to_owned())].into_iter().collect(),
+            fixed: [("method".to_owned(), "NotARealVariant".to_owned())]
+                .into_iter()
+                .collect(),
             doc: None,
         }];
-        cfg.services[0]
-            .entrypoints
-            .retain(|e| e.method != "into_router");
+        cfg.services[0].entrypoints.retain(|e| e.method != "into_router");
         let warnings = extract_services(&mut surface, &cfg);
         assert!(
             warnings.iter().any(|w| w.contains("no variant `NotARealVariant`")),

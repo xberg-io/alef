@@ -1,0 +1,32 @@
+/// NIF shim for the `{{ variant_name }}` registration variant.
+///
+/// Pre-builds the `{{ wrapper_type_name }}` and delegates to the base `{{ base_method }}` NIF.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn {{ nif_name }}(app: rustler::ResourceArc<{{ app_type }}>{% for param in signature_params %}, {{ param.name }}: {{ param.rust_type }}{% endfor %}, handler: rustler::LocalPid) -> NifResult<()> {
+    {%- if wrapper_call %}
+    // Build {{ wrapper_type_name }} via its static constructor
+    let wrapper = {{ wrapper_type_path }}::{{ constructor_method }}(
+    {%- for arg in wrapper_constructor_args %}
+        {{ arg.expr }}{{ "," if not loop.last else "" }}
+    {%- endfor %}
+    );
+
+    // Call the base registration method with the constructed wrapper
+    owner.{{ base_method }}(
+    {%- if metadata_params_before_wrapper %}{{ metadata_params_before_wrapper }}, {% endif %}
+    wrapper
+    {%- if metadata_params_after_wrapper %}, {{ metadata_params_after_wrapper }}{% endif %},
+    std::sync::Arc::new(bridge)
+    );
+    {%- else %}
+    // Call the base registration method directly
+    let bridge = {{ bridge_type }}::new(handler);
+    owner.{{ base_method }}(
+    {%- for param in signature_params %}
+        {{ param.name }}{{ "," if not loop.last else "" }}
+    {%- endfor %}{{ "," if signature_params else "" }}
+    std::sync::Arc::new(bridge));
+    {%- endif %}
+
+    Ok(())
+}

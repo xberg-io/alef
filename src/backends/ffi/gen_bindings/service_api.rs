@@ -18,7 +18,10 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariant, ServiceDef, TypeRef,
+    WrapperConstructorArg,
+};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -554,9 +557,10 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 fn gen_service_functions(out: &mut String, service: &ServiceDef, api: &ApiSurface, core_import: &str, prefix: &str) {
     let opaque_name = format!("{}Opaque", service.name);
 
-    // Registration functions
+    // Registration functions + per-variant shortcut symbols
     for reg in &service.registrations {
         gen_registration_function(out, service, reg, api, core_import, prefix, &opaque_name);
+        gen_registration_variants(out, service, reg, api, core_import, prefix, &opaque_name);
     }
 
     // Entrypoint functions
@@ -650,6 +654,237 @@ fn gen_registration_function(
     out.push_str("> = Arc::new(bridge);\n\n");
 
     let meta_args: String = meta_bindings.iter().map(|b| format!("{}, ", b.arg)).collect();
+
+    out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
+    if reg.error_type.is_some() {
+        out.push_str("    match unsafe {\n");
+        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        out.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
+        out.push_str("    } {\n");
+        out.push_str("        Ok(_) => 0, // Success\n");
+        out.push_str("        Err(_) => 1, // Error\n");
+        out.push_str("    }\n");
+    } else {
+        out.push_str("    unsafe {\n");
+        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        out.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
+        out.push_str("    }\n");
+        out.push_str("    0\n");
+    }
+    out.push_str("}\n\n");
+}
+
+/// Emit one `#[no_mangle] pub extern "C" fn` per [`RegistrationVariant`] on `reg`.
+///
+/// Each variant symbol:
+/// - Takes the variant's `signature_params` (free constructor args, as C-ABI decls) plus the
+///   fixed `owner`/`callback`/`context` triple from the base registration.
+/// - Builds the metadata wrapper inline via `wrapper_type_path::constructor_method(args)`,
+///   substituting `Fixed.value_expr` verbatim and marshaling `Free` params via
+///   [`ffi_param_binding`].
+/// - Forwards to the same registration logic as the base `register_*` function.
+///
+/// Variants without a `wrapper_call` are skipped — they represent direct metadata-param
+/// overrides that only make sense for non-FFI backends.
+fn gen_registration_variants(
+    out: &mut String,
+    service: &ServiceDef,
+    reg: &RegistrationDef,
+    api: &ApiSurface,
+    core_import: &str,
+    prefix: &str,
+    opaque_name: &str,
+) {
+    if reg.variants.is_empty() {
+        return;
+    }
+
+    let service_snake = service.name.to_snake_case();
+    let base_fn_name = format!(
+        "{}_{}_register_{}",
+        prefix.to_lowercase(),
+        service_snake,
+        reg.method.to_snake_case()
+    );
+    let new_fn_name = format!("{}_{}_new", prefix.to_lowercase(), service_snake);
+
+    let contract = find_contract(api, &reg.callback_contract).expect("contract not found");
+    let bridge_name = format!("Ffi{}Bridge", contract.trait_name.to_upper_camel_case());
+
+    for variant in &reg.variants {
+        // Only emit variants that carry a wrapper constructor recipe; plain-override
+        // variants have no C-representable form without duplicating all metadata params.
+        let wrapper_call = match &variant.wrapper_call {
+            Some(wc) => wc,
+            None => continue,
+        };
+
+        gen_registration_variant(
+            out,
+            variant,
+            wrapper_call,
+            service,
+            reg,
+            api,
+            core_import,
+            prefix,
+            opaque_name,
+            &base_fn_name,
+            &new_fn_name,
+            &bridge_name,
+            contract,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &RegistrationVariant,
+    wrapper_call: &crate::core::ir::WrapperConstructorCall,
+    service: &ServiceDef,
+    reg: &RegistrationDef,
+    api: &ApiSurface,
+    core_import: &str,
+    prefix: &str,
+    opaque_name: &str,
+    base_fn_name: &str,
+    new_fn_name: &str,
+    bridge_name: &str,
+    contract: &HandlerContractDef,
+) {
+    let service_snake = service.name.to_snake_case();
+    let variant_fn_name = format!(
+        "{}_{}_{}",
+        prefix.to_lowercase(),
+        service_snake,
+        variant.name.to_snake_case()
+    );
+
+    // Build FFI param bindings for the free (variant-level) signature params only.
+    let sig_bindings: Vec<FfiParamBinding> = variant
+        .signature_params
+        .iter()
+        .map(|p| ffi_param_binding(p, core_import, api))
+        .collect();
+
+    // Safety doc + function signature
+    let default_doc = format!("Variant shortcut `{}` over `{}`.", variant.name, base_fn_name);
+    let doc = variant.doc.as_deref().unwrap_or(&default_doc);
+    out.push_str(&format!(
+        "/// {doc}\n\
+         ///\n\
+         /// # Safety\n\
+         /// - `owner` must be a valid pointer returned by `{new_fn_name}()` and not yet freed.\n\
+         /// - `callback` must be a valid function pointer that remains valid for the lifetime\n\
+         ///   of this service instance.\n\
+         /// - `context` is an opaque pointer passed to the callback on each invocation.\n\
+         ///   The caller is responsible for keeping it valid.\n\
+         /// Returns 0 on success, non-zero error code on failure.\n\
+         #[no_mangle]\n\
+         pub extern \"C\" fn {variant_fn_name}(\n    \
+             owner: *mut {opaque_name},\n    \
+             callback: extern \"C\" fn(*mut c_void, *const c_char) -> *mut c_char,\n    \
+             context: *mut c_void",
+    ));
+
+    for binding in &sig_bindings {
+        out.push_str(&format!(",\n    {}", binding.decl));
+    }
+    out.push_str("\n) -> i32 {\n");
+
+    // Null-check owner
+    out.push_str("    if owner.is_null() {\n");
+    out.push_str("        return 1; // Error: null pointer\n");
+    out.push_str("    }\n");
+
+    // Null-check pointer-typed free params
+    for (param, binding) in variant.signature_params.iter().zip(&sig_bindings) {
+        if binding.pointer {
+            out.push_str(&format!(
+                "    if {}.is_null() {{\n        return 1; // Error: null pointer\n    }}\n",
+                param.name
+            ));
+        }
+    }
+    out.push('\n');
+
+    // Marshal free params from C ABI to Rust
+    for binding in &sig_bindings {
+        out.push_str(&binding.conversion);
+    }
+    if sig_bindings.iter().any(|b| !b.conversion.is_empty()) {
+        out.push('\n');
+    }
+
+    // Build the wrapper value: `let <metadata_param> = <WrapperType>::<method>(<args>);`
+    out.push_str(&format!(
+        "    let {} = {}::{}(\n",
+        wrapper_call.metadata_param, wrapper_call.wrapper_type_path, wrapper_call.constructor_method
+    ));
+    for arg in &wrapper_call.args {
+        match arg {
+            WrapperConstructorArg::Fixed { value_expr, .. } => {
+                out.push_str(&format!("        {value_expr},\n"));
+            }
+            WrapperConstructorArg::Free { param } => {
+                // Use the marshaled binding arg expression (the owned Rust-typed value).
+                let binding = sig_bindings
+                    .iter()
+                    .find(|b| {
+                        // Match by checking decl starts with the param name
+                        b.decl.starts_with(&format!("{}: ", param.name)) || b.arg == param.name
+                    })
+                    .map(|b| b.arg.as_str())
+                    .unwrap_or(param.name.as_str());
+                out.push_str(&format!("        {binding},\n"));
+            }
+        }
+    }
+    out.push_str("    );\n\n");
+
+    // Build handler bridge and dispatch
+    out.push_str(&format!(
+        "    let bridge = {bridge_name} {{\n        callback,\n        context,\n    }};\n"
+    ));
+    out.push_str(&format!(
+        "    let handler: Arc<dyn {core_import}::{}> = Arc::new(bridge);\n\n",
+        contract.trait_name
+    ));
+
+    // Forward to base register method on owner (reusing the same `reg.method` call).
+    // The wrapper value is the first metadata arg; remaining base metadata params that
+    // are NOT overridden by this variant would need values — but by convention variants
+    // with wrapper_call pin ALL non-free metadata params, so only the wrapper itself is needed.
+    let meta_args: String = {
+        let mut args = format!("{}, ", wrapper_call.metadata_param);
+        // Any remaining non-pinned base metadata params that aren't the wrapper param
+        for meta_param in &reg.metadata_params {
+            if meta_param.name == wrapper_call.metadata_param {
+                continue;
+            }
+            // Check if this param is overridden by the variant
+            let is_overridden = variant.overrides.iter().any(|o| o.param_name == meta_param.name);
+            if is_overridden {
+                let override_expr = variant
+                    .overrides
+                    .iter()
+                    .find(|o| o.param_name == meta_param.name)
+                    .map(|o| o.value_expr.as_str())
+                    .unwrap_or("");
+                args.push_str(&format!("{override_expr}, "));
+            } else {
+                // Free param — use the marshaled binding
+                let binding_arg = sig_bindings
+                    .iter()
+                    .find(|b| b.arg == meta_param.name)
+                    .map(|b| b.arg.as_str())
+                    .unwrap_or(meta_param.name.as_str());
+                args.push_str(&format!("{binding_arg}, "));
+            }
+        }
+        args
+    };
 
     out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
     if reg.error_type.is_some() {
@@ -999,5 +1234,334 @@ mod tests {
         // Entrypoint function should be present
         assert!(rs.contains("test_crate_test_service_ep_run"));
         assert!(rs.contains("tokio::runtime::Runtime"));
+    }
+
+    // ── registration-variant tests ────────────────────────────────────────────
+
+    fn make_surface_with_variant() -> ApiSurface {
+        use crate::core::ir::{
+            ParamDef, RegistrationVariant, RegistrationVariantOverride, WrapperConstructorArg, WrapperConstructorCall,
+        };
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: "Create a new service owner.".to_owned(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let get_variant = RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![RegistrationVariantOverride {
+                param_name: "method".to_owned(),
+                value_expr: "my_crate::Method::GET".to_owned(),
+            }],
+            wrapper_call: Some(WrapperConstructorCall {
+                metadata_param: "builder".to_owned(),
+                wrapper_type_path: "my_crate::RouteBuilder".to_owned(),
+                wrapper_type_name: "RouteBuilder".to_owned(),
+                constructor_method: "new".to_owned(),
+                args: vec![
+                    WrapperConstructorArg::Fixed {
+                        param_name: "method".to_owned(),
+                        value_expr: "my_crate::Method::GET".to_owned(),
+                    },
+                    WrapperConstructorArg::Free {
+                        param: ParamDef {
+                            name: "path".to_owned(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            ..ParamDef::default()
+                        },
+                    },
+                ],
+            }),
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: Some("Register a GET handler.".to_owned()),
+        };
+
+        let registration = RegistrationDef {
+            method: "add_route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![ParamDef {
+                name: "builder".to_owned(),
+                ty: TypeRef::Named("RouteBuilder".to_owned()),
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: Some("HandlerError".to_owned()),
+            doc: "Register a route.".to_owned(),
+            variants: vec![get_variant],
+        };
+
+        let handler_contract = HandlerContractDef {
+            trait_name: "RequestHandler".to_owned(),
+            rust_path: "my_crate::RequestHandler".to_owned(),
+            dispatch: MethodDef {
+                name: "handle".to_owned(),
+                params: vec![ParamDef {
+                    name: "req".to_owned(),
+                    ty: TypeRef::Named("RequestData".to_owned()),
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::Named("Response".to_owned()),
+                is_async: true,
+                is_static: false,
+                error_type: None,
+                doc: "Handle a request.".to_owned(),
+                receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            optional_methods: vec![],
+            wire_request_type: Some("RequestData".to_owned()),
+            wire_response_type: Some("Response".to_owned()),
+            dispatch_extra_params: vec![],
+            wire_param_name: None,
+            dispatch_return_type: None,
+            response_adapter: None,
+            doc: "Handler contract.".to_owned(),
+        };
+
+        ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "1.0.0".to_owned(),
+            services: vec![ServiceDef {
+                name: "App".to_owned(),
+                rust_path: "my_crate::App".to_owned(),
+                constructor,
+                configurators: vec![],
+                registrations: vec![registration],
+                entrypoints: vec![],
+                doc: "App service.".to_owned(),
+                cfg: None,
+            }],
+            handler_contracts: vec![handler_contract],
+            ..ApiSurface::default()
+        }
+    }
+
+    #[test]
+    fn test_variant_fn_is_emitted() {
+        let api = make_surface_with_variant();
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rs = gen_service_rs(&api, &config);
+
+        assert!(
+            rs.contains("fn my_crate_app_get("),
+            "expected variant fn my_crate_app_get not found in:\n{rs}"
+        );
+    }
+
+    #[test]
+    fn test_variant_fn_has_no_mangle_and_extern_c() {
+        let api = make_surface_with_variant();
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rs = gen_service_rs(&api, &config);
+
+        let variant_start = rs.find("fn my_crate_app_get(").expect("variant fn not found");
+        let preamble = &rs[..variant_start];
+        let preamble_tail = preamble.rsplit("#[no_mangle]").next().unwrap_or(preamble);
+        assert!(
+            preamble.contains("#[no_mangle]"),
+            "#[no_mangle] must precede the variant fn"
+        );
+        assert!(
+            preamble_tail.trim().starts_with("pub extern") || preamble_tail.trim().starts_with("pub unsafe extern"),
+            "#[no_mangle] must directly precede the extern fn (intervening: `{preamble_tail}`)"
+        );
+    }
+
+    #[test]
+    fn test_variant_fn_has_free_param_and_wrapper_construction() {
+        let api = make_surface_with_variant();
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rs = gen_service_rs(&api, &config);
+
+        assert!(
+            rs.contains("path: *const c_char"),
+            "free param 'path' missing from variant signature"
+        );
+        assert!(
+            rs.contains("my_crate::Method::GET"),
+            "fixed arg my_crate::Method::GET missing from wrapper construction"
+        );
+        assert!(
+            rs.contains("my_crate::RouteBuilder::new("),
+            "wrapper constructor call not emitted"
+        );
+    }
+
+    #[test]
+    fn test_variant_fn_has_null_check_for_owner() {
+        let api = make_surface_with_variant();
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rs = gen_service_rs(&api, &config);
+
+        let start = rs.find("fn my_crate_app_get(").expect("variant fn not found");
+        let body = &rs[start..];
+        assert!(
+            body.contains("if owner.is_null()"),
+            "owner null check missing from variant fn"
+        );
+    }
+
+    #[test]
+    fn test_variant_without_wrapper_call_is_not_emitted() {
+        use crate::core::ir::{ParamDef, RegistrationVariant, RegistrationVariantOverride};
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let plain_variant = RegistrationVariant {
+            name: "plain".to_owned(),
+            overrides: vec![RegistrationVariantOverride {
+                param_name: "path".to_owned(),
+                value_expr: "\"/fixed\"".to_owned(),
+            }],
+            wrapper_call: None,
+            signature_params: vec![],
+            doc: None,
+        };
+
+        let registration = RegistrationDef {
+            method: "add_handler".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: None,
+            doc: String::new(),
+            variants: vec![plain_variant],
+        };
+
+        let handler_contract = HandlerContractDef {
+            trait_name: "RequestHandler".to_owned(),
+            rust_path: "my_crate::RequestHandler".to_owned(),
+            dispatch: MethodDef {
+                name: "handle".to_owned(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            optional_methods: vec![],
+            wire_request_type: None,
+            wire_response_type: None,
+            dispatch_extra_params: vec![],
+            wire_param_name: None,
+            dispatch_return_type: None,
+            response_adapter: None,
+            doc: String::new(),
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "1.0.0".to_owned(),
+            services: vec![ServiceDef {
+                name: "App".to_owned(),
+                rust_path: "my_crate::App".to_owned(),
+                constructor,
+                configurators: vec![],
+                registrations: vec![registration],
+                entrypoints: vec![],
+                doc: String::new(),
+                cfg: None,
+            }],
+            handler_contracts: vec![handler_contract],
+            ..ApiSurface::default()
+        };
+
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+        let rs = gen_service_rs(&api, &config);
+
+        assert!(
+            !rs.contains("fn my_crate_app_plain("),
+            "plain variant without wrapper_call must not emit a C symbol"
+        );
     }
 }

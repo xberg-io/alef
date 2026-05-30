@@ -1,0 +1,6 @@
+  @doc """
+  {{ doc }}
+  """
+  def {{ variant_name }}(app{% for param in signature_params %}, {{ param.name }}{% endfor %}, handler) do
+    Native.{{ nif_name }}(app{% for param in signature_params %}, {{ param.name }}{% endfor %}, handler)
+  end

@@ -279,6 +279,89 @@ fn gen_registration_method(
     ));
     out.push_str("    self\n");
     out.push_str("  end\n\n");
+
+    // Emit registration variants (shortcuts for common patterns)
+    for variant in &reg.variants {
+        gen_registration_variant(out, variant, reg);
+    }
+}
+
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+) {
+    let variant_name = &variant.name;
+    let _base_method = &base_reg.method;
+
+    // Build the free params (non-fixed) for the variant signature
+    let mut free_params_sig = Vec::new();
+    for param in &variant.signature_params {
+        let annotation = ruby_type_annotation(&param.ty);
+        if param.optional {
+            free_params_sig.push(format!("{}: {} | nil = nil", param.name, annotation));
+        } else {
+            free_params_sig.push(format!("{}: {}", param.name, annotation));
+        }
+    }
+
+    // Variant signature: variant_name(self, free_params..., &block) or variant_name(self, free_params..., handler_proc)
+    let param_sig = if free_params_sig.is_empty() {
+        "(&block)".to_owned()
+    } else {
+        format!("({}, &block)", free_params_sig.join(", "))
+    };
+
+    out.push_str(&format!("  def {variant_name}{param_sig}\n"));
+
+    // Documentation
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format_ruby_comment(doc, 4));
+    } else {
+        out.push_str(&format!("    # Register a handler for the {variant_name} variant.\n"));
+    }
+
+    // Build wrapper constructor call if present (for Rust side only, not used here)
+    // In Ruby, we just pass the fixed values via the registrations array
+
+    // Build metadata tuple to pass to base registration
+    // For variants with wrapper_call, include the wrapper param name and fixed values
+    let mut meta_items = Vec::new();
+    if let Some(wc) = &variant.wrapper_call {
+        // For wrapper variants, we include the fixed values in the metadata tuple
+        for arg in &wc.args {
+            match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
+                    // Include the fixed value expression
+                    meta_items.push(value_expr.clone());
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    // Include the free param by name
+                    meta_items.push(param.name.clone());
+                }
+            }
+        }
+    } else {
+        // For non-wrapper variants, add overridden values
+        for override_ in &variant.overrides {
+            meta_items.push(override_.value_expr.clone());
+        }
+    }
+
+    let meta_tuple = if meta_items.is_empty() {
+        "[]".to_owned()
+    } else {
+        format!("[{}]", meta_items.join(", "))
+    };
+
+    out.push_str(&format!(
+        "    @registrations.push([\"{variant_name}\", {meta_tuple}, block])\n"
+    ));
+    out.push_str("    self\n");
+    out.push_str("  end\n\n");
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
@@ -476,6 +559,108 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     ));
 }
 
+/// Emit a match arm for a registration variant shortcut (e.g., "get", "post").
+///
+/// The variant may have a wrapper constructor call (e.g., `RouteBuilder::new(method, path)`)
+/// with fixed and free arguments. Free arguments are extracted from the metadata array,
+/// fixed arguments are verbatim Rust expressions.
+fn gen_variant_match_arm(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+    contract_name: &str,
+    bridge_name: &str,
+    core_import: &str,
+) {
+    let variant_name = &variant.name;
+    let base_method = &base_reg.method;
+
+    out.push_str(&format!("                \"{variant_name}\" => {{\n"));
+    out.push_str(&format!(
+        "                    let bridge = {bridge_name}::new(Opaque::new(proc_value));\n"
+    ));
+    out.push_str(&format!(
+        "                    let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+    ));
+
+    // Extract metadata and build wrapper constructor call if needed
+    if let Some(wc) = &variant.wrapper_call {
+        // Extract free params from metadata array
+        let mut free_params = Vec::new();
+        for arg in &wc.args {
+            if let crate::core::ir::WrapperConstructorArg::Free { param } = arg {
+                free_params.push(param.clone());
+            }
+        }
+
+        if !free_params.is_empty() {
+            out.push_str("                    let meta_array = RArray::try_convert(entry_array.get::<Value>(1)\n");
+            out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
+            out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
+
+            for (i, param) in free_params.iter().enumerate() {
+                let rust_ty = typeref_to_rust_type(&param.ty, core_import);
+                let extract_ty = match &param.ty {
+                    TypeRef::String | TypeRef::Char => "String".to_owned(),
+                    TypeRef::Primitive(p) => {
+                        use crate::core::ir::PrimitiveType;
+                        match p {
+                            PrimitiveType::Bool => "bool".to_owned(),
+                            PrimitiveType::F32 | PrimitiveType::F64 => "f64".to_owned(),
+                            _ => "i64".to_owned(),
+                        }
+                    }
+                    _ => "Value".to_owned(),
+                };
+                out.push_str(&format!(
+                    "                    let {}: {} = meta_array.get::<{}>({})\n",
+                    param.name, rust_ty, extract_ty, i
+                ));
+                out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+            }
+        }
+
+        // Build constructor call with fixed and free args
+        let mut call_args = Vec::new();
+        for arg in &wc.args {
+            match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
+                    call_args.push(value_expr.clone());
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    call_args.push(param.name.clone());
+                }
+            }
+        }
+        let call_expr = format!("{}({})", wc.wrapper_type_path, call_args.join(", "));
+        out.push_str(&format!(
+            "                    let {}: {} = {};\n",
+            wc.metadata_param, wc.wrapper_type_path, call_expr
+        ));
+        out.push_str(&format!(
+            "                    owner.{base_method}({}, handler)",
+            wc.metadata_param
+        ));
+    } else {
+        // No wrapper call; use override values directly
+        // For now, just call the base method with handler only
+        out.push_str(&format!("                    owner.{base_method}(handler)"));
+    }
+
+    // Handle error if the registration is fallible
+    if base_reg.error_type.is_some() {
+        out.push_str(
+            "\n                        .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
+        );
+    } else {
+        out.push_str(";\n");
+    }
+    out.push_str("                }\n");
+}
+
 /// Emit the `#[magnus::function]` entry point for one service × entrypoint.
 ///
 /// The function:
@@ -596,6 +781,11 @@ fn gen_run_function(
                 out.push_str("                        ;\n");
             }
             out.push_str("                }\n");
+
+            // Emit match arms for variants
+            for variant in &reg.variants {
+                gen_variant_match_arm(&mut *out, variant, reg, contract_name, &bridge_name, core_import);
+            }
         }
     }
     out.push_str("                _ => {\n");
@@ -801,6 +991,8 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
+        use crate::core::ir::{RegistrationVariant, WrapperConstructorArg, WrapperConstructorCall};
+
         let registration = RegistrationDef {
             method: "add_handler".to_owned(),
             callback_param: "handler".to_owned(),
@@ -825,7 +1017,39 @@ mod tests {
             return_type: TypeRef::Unit,
             error_type: None,
             doc: "Register a request handler for a path and method.".to_owned(),
-            variants: vec![],
+            variants: vec![RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![],
+                wrapper_call: Some(WrapperConstructorCall {
+                    metadata_param: "builder".to_owned(),
+                    wrapper_type_path: "my_crate::RouteBuilder".to_owned(),
+                    wrapper_type_name: "RouteBuilder".to_owned(),
+                    constructor_method: "new".to_owned(),
+                    args: vec![
+                        WrapperConstructorArg::Fixed {
+                            param_name: "method".to_owned(),
+                            value_expr: "my_crate::Method::GET".to_owned(),
+                        },
+                        WrapperConstructorArg::Free {
+                            param: ParamDef {
+                                name: "path".to_owned(),
+                                ty: TypeRef::String,
+                                optional: false,
+                                default: None,
+                                ..ParamDef::default()
+                            },
+                        },
+                    ],
+                }),
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET handler for a path.".to_owned()),
+            }],
         };
 
         let run_ep = EntrypointDef {
@@ -973,6 +1197,25 @@ mod tests {
         );
     }
 
+    /// `gen_service_rb` emits registration variant shortcut methods.
+    #[test]
+    fn ruby_output_contains_registration_variant() {
+        let surface = make_fixture_surface();
+        let output = gen_service_rb(&surface, "MyCrate");
+        assert!(
+            output.contains("def get("),
+            "expected `def get(` variant method:\n{output}"
+        );
+        assert!(
+            output.contains("&block"),
+            "expected `&block` parameter in variant:\n{output}"
+        );
+        assert!(
+            output.contains("@registrations.push"),
+            "expected `@registrations.push` in variant:\n{output}"
+        );
+    }
+
     /// `gen_service_rb` emits the `run` entrypoint.
     #[test]
     fn ruby_output_contains_run_entrypoint() {
@@ -1054,6 +1297,22 @@ mod tests {
         assert!(
             output.contains("Arc<dyn my_crate::RequestHandler>"),
             "expected Arc wrapping of handler:\n{output}"
+        );
+    }
+
+    /// `gen_service_rs` emits variant match arms.
+    #[test]
+    fn rust_output_contains_variant_dispatch() {
+        let surface = make_fixture_surface();
+        let config = make_test_config();
+        let output = gen_service_rs(&surface, &config);
+        assert!(
+            output.contains("\"get\""),
+            "expected `\"get\"` variant match arm:\n{output}"
+        );
+        assert!(
+            output.contains("RouteBuilder::new"),
+            "expected `RouteBuilder::new` wrapper constructor:\n{output}"
         );
     }
 

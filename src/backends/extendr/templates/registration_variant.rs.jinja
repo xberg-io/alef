@@ -1,0 +1,29 @@
+#' Register a {{ variant_name }} callback
+#'
+#' @description
+{% if doc -%}
+#' {{ doc }}
+{% else -%}
+#' Register a handler for the {{ variant_name }} variant.
+{% endif -%}
+#'
+#' @param x An S3 object of class '{{ class_name }}'
+{% for param in signature_params -%}
+#' @param {{ param.name }} {{ param.ty_annotation }} Parameter
+{% endfor -%}
+#' @param {{ callback_param }} Callback function (closure)
+#'
+#' @return Updated S3 object (invisibly)
+#' @export
+{{ variant_name }}.{{ class_name }} <- function(x{% for param in signature_params %}, {{ param.name }}{% endfor %}, {{ callback_param }}) {
+{% if wrapper_expr -%}
+  wrapper_obj <- {{ wrapper_expr }}
+  meta_list <- list(wrapper_obj)
+{% else -%}
+  meta_list <- list({% for override in overrides -%}
+{{ override.param_name }} = {{ override.value_expr }}{{ ", " if not loop.last else "" }}
+{%- endfor %})
+{% endif -%}
+  x$.registrations[[length(x$.registrations) + 1]] <- list("{{ base_method }}", meta_list, {{ callback_param }})
+  invisible(x)
+}

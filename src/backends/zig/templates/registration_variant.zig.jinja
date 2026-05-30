@@ -1,0 +1,16 @@
+    /// {{ variant.doc if variant.doc else ("Register a handler for " + variant.name + ".") }}
+    pub fn {{ variant.name }}(
+        self: *{{ service_name }},
+        callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8,
+        context: *anyopaque{%- for param in variant.signature_params %},
+        {{ param.name }}: {{ param_type(param) }}{%- endfor %}
+    ) c_int {
+        const owner_ptr = self.owner orelse return 1;
+
+        return c.{{ prefix_lower }}_{{ service_snake }}_{{ variant.name }}(
+            @ptrCast(owner_ptr),
+            @ptrCast(callback),
+            context{%- for param in variant.signature_params %},
+            {{ param_arg(param) }}{%- endfor %}
+        );
+    }

@@ -17,9 +17,10 @@
 //! `{java_package}.kt` when the two coincide), mirroring `emit_client_type_file` so
 //! the kotlin coroutine surface and the JVM facade live side-by-side.
 
+use crate::backends::kotlin::template_env;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointDef, EntrypointKind, ParamDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, EntrypointDef, EntrypointKind, ParamDef, RegistrationVariant, ServiceDef, TypeRef};
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -76,6 +77,53 @@ fn kotlin_type_for_param(ty: &TypeRef, api: &ApiSurface) -> String {
 /// Same mapping for `Finalize` entrypoint return types.
 fn kotlin_return_type(ty: &TypeRef, api: &ApiSurface) -> String {
     kotlin_type_for_param(ty, api)
+}
+
+/// Emit a registration variant (shortcut method) for the given variant.
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &RegistrationVariant,
+    base_reg: &crate::core::ir::RegistrationDef,
+    _class_name: &str,
+) {
+    let variant_method_kt = variant.name.to_lower_camel_case();
+    let base_method_kt = base_reg.method.to_lower_camel_case();
+
+    // Build parameter list from signature_params
+    let params = variant
+        .signature_params
+        .iter()
+        .map(|p| {
+            format!(
+                "{}: {}",
+                p.name.to_lower_camel_case(),
+                kotlin_type_for_param(&p.ty, &ApiSurface::default())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // Build argument list: call base method with overridden and free params
+    let mut args = vec!["handler".to_owned()];
+    for ov in &variant.overrides {
+        args.push(ov.value_expr.clone());
+    }
+    for param in &variant.signature_params {
+        args.push(param.name.to_lower_camel_case());
+    }
+    let args_str = args.join(", ");
+
+    // Render via template
+    let ctx = minijinja::context! {
+        variant_method_kt => variant_method_kt,
+        params => params,
+        base_method_kt => base_method_kt,
+        args => args_str,
+        variant => variant,
+    };
+    let rendered = template_env::render("registration_variant.kt.jinja", ctx);
+    out.push_str(&rendered);
+    out.push('\n');
 }
 
 // ──────────────────────────────────────────────────────────────── Kotlin ──
@@ -158,6 +206,11 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
             params.join(", "),
             args.join(", ")
         ));
+
+        // Emit registration variants (shortcuts for common patterns)
+        for variant in &reg.variants {
+            gen_registration_variant(&mut out, variant, reg, &class_name);
+        }
     }
 
     // Entrypoints.
@@ -583,5 +636,33 @@ mod tests {
 
         let files = generate(&api, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
+    }
+
+    #[test]
+    fn coroutine_wrapper_emits_registration_variants() {
+        let mut api = make_fixture_surface();
+        // Add a variant to the first registration
+        api.services[0].registrations[0].variants.push(RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![crate::core::ir::RegistrationVariantOverride {
+                param_name: "method".to_owned(),
+                value_expr: "HttpMethod.GET".to_owned(),
+            }],
+            wrapper_call: None,
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: Some("Register a GET handler.".to_owned()),
+        });
+        let service = &api.services[0];
+        let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
+
+        assert!(kt.contains("fun get(path: String): Int"));
+        assert!(kt.contains("Register a GET handler."));
+        assert!(kt.contains("addHandler(handler, HttpMethod.GET, path)"));
     }
 }

@@ -284,6 +284,68 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         out.push_str("    return this;\n");
         out.push_str("  }\n\n");
     }
+
+    // Emit registration variants (shortcut methods)
+    for variant in &reg.variants {
+        gen_registration_variant_method_ts(out, variant, reg, service);
+    }
+}
+
+/// Emit a TypeScript shortcut method for one registration variant.
+fn gen_registration_variant_method_ts(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    reg: &RegistrationDef,
+    _service: &ServiceDef,
+) {
+    let variant_name = &variant.name;
+    let base_method = &reg.method;
+
+    // Build signature from variant's signature_params
+    let mut variant_params: Vec<String> = variant
+        .signature_params
+        .iter()
+        .map(|p| {
+            let ty = typescript_type_annotation(&p.ty);
+            if p.optional {
+                format!("{}: {} = undefined", p.name, ty)
+            } else {
+                format!("{}: {}", p.name, ty)
+            }
+        })
+        .collect();
+
+    // Add handler callback
+    variant_params.push("handler: (...args: any[]) => any".to_string());
+    let full_sig = variant_params.join(", ");
+
+    out.push_str("  /**\n");
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
+    } else {
+        out.push_str(&format!("   * Register a {} callback directly.\n", variant_name));
+    }
+    out.push_str("   */\n");
+
+    out.push_str(&format!("  {variant_name}({full_sig}): this {{\n"));
+
+    // Build metadata array from variant params + overrides
+    let mut metadata_values = Vec::new();
+    for param in &variant.signature_params {
+        metadata_values.push(param.name.clone());
+    }
+
+    let metadata_array = if metadata_values.is_empty() {
+        "[]".to_owned()
+    } else {
+        format!("[{}]", metadata_values.join(", "))
+    };
+
+    out.push_str(&format!(
+        "    this._registrations.push([\"{base_method}\", {metadata_array}, handler]);\n"
+    ));
+    out.push_str("    return this;\n");
+    out.push_str("  }\n\n");
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
@@ -328,6 +390,15 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_napi_function(&mut out, service, ep, api, &core_import);
+        }
+    }
+
+    // Emit one napi method per service registration variant
+    for service in &api.services {
+        for reg in &service.registrations {
+            for variant in &reg.variants {
+                gen_variant_napi_method(&mut out, service, reg, variant, api, &core_import);
+            }
         }
     }
 
@@ -601,6 +672,110 @@ fn build_ep_call_napi(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef
             format!("    owner.{ep_method}({args_str});\n")
         }
     }
+}
+
+/// Emit one `#[napi]` async shortcut method for a registration variant on the App class.
+///
+/// The method signature mirrors the variant's `signature_params` + a handler callback,
+/// builds the wrapper via the `WrapperConstructorCall` (if present), and delegates to
+/// the base registration method.
+fn gen_variant_napi_method(
+    out: &mut String,
+    _service: &ServiceDef,
+    reg: &RegistrationDef,
+    variant: &crate::core::ir::RegistrationVariant,
+    api: &ApiSurface,
+    core_import: &str,
+) {
+    let variant_name = &variant.name;
+    let base_method = &reg.method;
+    let contract_name = &reg.callback_contract;
+
+    // Build method signature from variant's signature_params
+    let mut rust_params = vec!["&mut self".to_owned()];
+    for p in &variant.signature_params {
+        let rust_ty = typeref_to_rust_type(&p.ty, core_import);
+        rust_params.push(format!("{}: {}", p.name, rust_ty));
+    }
+    rust_params.push(
+        "handler: napi::bindgen_prelude::ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Error>"
+            .to_string(),
+    );
+    let param_sig = rust_params.join(", ");
+
+    out.push_str(&format!(
+        "/// Register a handler via the `{variant_name}` variant shortcut.\n"
+    ));
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format!("///\n/// {}\n", doc.trim()));
+    }
+    out.push_str(&format!(
+        "#[napi]\npub fn {variant_name}({param_sig}) -> napi::Result<()> {{\n"
+    ));
+
+    // If there's a wrapper constructor call, build the wrapper first
+    if let Some(wrapper_call) = &variant.wrapper_call {
+        let wrapper_path = &wrapper_call.wrapper_type_path;
+        let constructor = &wrapper_call.constructor_method;
+
+        // Build the constructor args
+        let mut ctor_args = Vec::new();
+        for arg in &wrapper_call.args {
+            match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
+                    ctor_args.push(value_expr.clone());
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    ctor_args.push(param.name.clone());
+                }
+            }
+        }
+        let ctor_arg_str = ctor_args.join(", ");
+
+        out.push_str(&format!(
+            "    let {} = {}::{}({});\n",
+            wrapper_call.metadata_param, wrapper_path, constructor, ctor_arg_str
+        ));
+    }
+
+    // Build the metadata array for the base registration call
+    let mut metadata_names = Vec::new();
+    if let Some(wrapper_call) = &variant.wrapper_call {
+        metadata_names.push(wrapper_call.metadata_param.clone());
+    }
+    for p in &variant.signature_params {
+        metadata_names.push(p.name.clone());
+    }
+
+    // Create the handler bridge and call base registration
+    if let Some(contract) = find_contract(api, contract_name) {
+        let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
+        out.push_str(&format!("    let bridge = {bridge_name}::new(handler);\n"));
+        out.push_str(&format!(
+            "    let handler_arc: std::sync::Arc<dyn {core_import}::{contract_name}> = std::sync::Arc::new(bridge);\n"
+        ));
+    }
+
+    // Call the base registration method
+    let meta_args = metadata_names.join(", ");
+    if !metadata_names.is_empty() {
+        out.push_str(&format!("    self.{base_method}({meta_args}, handler_arc)\n"));
+    } else {
+        out.push_str(&format!("    self.{base_method}(handler_arc)\n"));
+    }
+
+    // Handle error if the registration is fallible
+    if reg.error_type.is_some() {
+        out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
+    } else {
+        out.push_str("        ;\n");
+    }
+
+    out.push_str("    Ok(())\n");
+    out.push_str("}\n\n");
 }
 
 /// Generate code to extract and convert a metadata parameter from a JsUnknown value.
@@ -1048,6 +1223,74 @@ mod tests {
         assert!(
             output.contains("_metadata.get("),
             "expected _metadata.get(...) access in output:\n{output}"
+        );
+    }
+
+    #[test]
+    fn registration_variants_emit_napi_methods() {
+        use crate::core::ir::{RegistrationVariant, WrapperConstructorArg, WrapperConstructorCall};
+
+        let mut surface = make_fixture_surface();
+
+        // Add a variant to the registration
+        if let Some(reg) = surface.services[0].registrations.first_mut() {
+            reg.variants.push(RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![],
+                wrapper_call: Some(WrapperConstructorCall {
+                    metadata_param: "builder".to_owned(),
+                    wrapper_type_path: "my_crate::RouteBuilder".to_owned(),
+                    wrapper_type_name: "RouteBuilder".to_owned(),
+                    constructor_method: "new".to_owned(),
+                    args: vec![
+                        WrapperConstructorArg::Fixed {
+                            param_name: "method".to_owned(),
+                            value_expr: "my_crate::Method::GET".to_owned(),
+                        },
+                        WrapperConstructorArg::Free {
+                            param: ParamDef {
+                                name: "path".to_owned(),
+                                ty: TypeRef::String,
+                                optional: false,
+                                default: None,
+                                ..ParamDef::default()
+                            },
+                        },
+                    ],
+                }),
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET handler.".to_owned()),
+            });
+        }
+
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+        let output = gen_service_rs(&surface, &config);
+
+        // Assert the variant method is emitted with #[napi]
+        assert!(
+            output.contains("#[napi]\npub fn get("),
+            "expected `#[napi] pub fn get(` in output:\n{output}"
+        );
+
+        // Assert the wrapper builder is constructed
+        assert!(
+            output.contains("my_crate::RouteBuilder::new("),
+            "expected wrapper constructor call in output:\n{output}"
+        );
+
+        // Assert the fixed arg is substituted
+        assert!(
+            output.contains("my_crate::Method::GET"),
+            "expected fixed arg substitution in output:\n{output}"
         );
     }
 }

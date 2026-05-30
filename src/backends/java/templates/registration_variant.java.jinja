@@ -1,0 +1,49 @@
+
+    /**
+     * {{ doc | default("Register a handler for " + variant_name_display + ".") }}
+     *
+     * Invokes C FFI: {{ ffi_symbol }}
+     *
+     * @param path route path
+     * @param handler functional interface receiving JSON request, returning JSON response
+     * @return 0 on success, non-zero error code on failure
+     */
+    public int {{ method_name }}(String path, Callable handler) {
+        try {
+            // Build upcall stub from handler
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            MethodHandle mh = lookup.findVirtual(Callable.class, "handle",
+                MethodType.methodType(String.class, String.class));
+            MethodHandle boundMh = mh.bindTo(handler);
+
+            // Build adapter: (context: ADDRESS, request: ADDRESS) -> ADDRESS
+            FunctionDescriptor upcallDesc = FunctionDescriptor.of(
+                ValueLayout.ADDRESS,  // return: *mut c_char
+                ValueLayout.ADDRESS,  // param 0: *mut c_void (context)
+                ValueLayout.ADDRESS   // param 1: *const c_char (request JSON)
+            );
+
+            MemorySegment upcallStub = LINKER.upcallStub(boundMh, upcallDesc, arena);
+
+            // Get variant registration downcall handle
+            MemorySegment varAddr = LOOKUP.find("{{ ffi_symbol }}").orElseThrow();
+
+            FunctionDescriptor varDesc = FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,  // return: int
+                ValueLayout.ADDRESS,   // owner: *mut opaque
+                ValueLayout.ADDRESS,   // callback: upcall stub
+                ValueLayout.ADDRESS    // path: *const c_char
+            );
+
+            MethodHandle varHandle = LINKER.downcallHandle(varAddr, varDesc);
+
+            Object[] args = new Object[] {
+                ownerHandle,     // owner
+                upcallStub,      // callback
+                path             // path
+            };
+            return (int) varHandle.invokeExact(args);
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to register {{ variant_name_display }} handler", e);
+        }
+    }

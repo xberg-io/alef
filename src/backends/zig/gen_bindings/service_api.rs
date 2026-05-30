@@ -14,7 +14,9 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariant, ServiceDef, TypeRef,
+};
 use heck::ToSnakeCase;
 use std::path::PathBuf;
 
@@ -204,6 +206,76 @@ fn gen_registration_method(
             }
             _ => {
                 out.push_str(&format!(",\n            {}", meta_param.name));
+            }
+        }
+    }
+
+    out.push_str("\n        );\n");
+    out.push_str("    }\n\n");
+
+    // Emit registration variants (shortcut methods)
+    for variant in &reg.variants {
+        gen_registration_variant_method(out, service, variant, reg, api, prefix_lower);
+    }
+}
+
+/// Emit a Zig registration variant shortcut method.
+fn gen_registration_variant_method(
+    out: &mut String,
+    service: &ServiceDef,
+    variant: &RegistrationVariant,
+    _reg: &RegistrationDef,
+    api: &ApiSurface,
+    prefix_lower: &str,
+) {
+    let service_name = &service.name;
+    let service_snake = service.name.to_snake_case();
+    let variant_name = &variant.name;
+
+    out.push_str(&format!(
+        "    /// {}.\n",
+        variant
+            .doc
+            .as_ref()
+            .unwrap_or(&format!("Register a handler for {}", variant_name))
+    ));
+
+    out.push_str(&format!(
+        "    pub fn {0}(\n        \
+             self: *{1},\n        \
+             callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8,\n        \
+             context: *anyopaque",
+        variant_name, service_name
+    ));
+
+    // Variant signature parameters
+    for param in &variant.signature_params {
+        let zig_type = match &param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
+            ty => typeref_to_zig_type(ty),
+        };
+        out.push_str(&format!(",\n        {}: {}", param.name, zig_type));
+    }
+
+    out.push_str(") c_int {\n");
+    out.push_str("        const owner_ptr = self.owner orelse return 1;\n\n");
+
+    out.push_str(&format!(
+        "        return c.{}_{}_{}(\n            \
+             @ptrCast(owner_ptr),\n            \
+             @ptrCast(callback),\n            \
+             context",
+        prefix_lower, service_snake, variant_name
+    ));
+
+    // Variant arguments: extract _handle from opaque Named params
+    for param in &variant.signature_params {
+        match &param.ty {
+            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
+                out.push_str(&format!(",\n            {0}._handle", param.name));
+            }
+            _ => {
+                out.push_str(&format!(",\n            {}", param.name));
             }
         }
     }
@@ -570,5 +642,56 @@ mod tests {
 
         let files = generate(&surface, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
+    }
+
+    #[test]
+    fn test_registration_variants_emit_shortcut_methods() {
+        let mut api = make_fixture_surface();
+
+        // Add variants to the registration
+        if let Some(reg) = api.services[0].registrations.get_mut(0) {
+            reg.variants.push(RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET handler.".to_owned()),
+            });
+            reg.variants.push(RegistrationVariant {
+                name: "post".to_owned(),
+                overrides: vec![],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a POST handler.".to_owned()),
+            });
+        }
+
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let zig = gen_service_zig(&api, &config);
+
+        // Verify that variant methods are emitted
+        assert!(zig.contains("pub fn get("), "Expected 'pub fn get(' in:\n{}", zig);
+        assert!(zig.contains("pub fn post("), "Expected 'pub fn post(' in:\n{}", zig);
+        assert!(zig.contains("Register a GET handler."));
+        assert!(zig.contains("Register a POST handler."));
+        // Verify that variant C symbols are called
+        assert!(zig.contains("c.test_crate_test_service_get("));
+        assert!(zig.contains("c.test_crate_test_service_post("));
     }
 }

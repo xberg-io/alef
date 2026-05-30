@@ -838,6 +838,14 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         "nif_tagged_enum_header.jinja",
         include_str!("templates/nif_tagged_enum_header.jinja"),
     ),
+    (
+        "registration_variant.rs.jinja",
+        include_str!("templates/registration_variant.rs.jinja"),
+    ),
+    (
+        "registration_variant.ex.jinja",
+        include_str!("templates/registration_variant.ex.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

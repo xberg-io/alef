@@ -114,6 +114,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "native_param_bytes_conversion.jinja",
         include_str!("templates/native_param_bytes_conversion.jinja"),
     ),
+    (
+        "registration_variant.kt.jinja",
+        include_str!("templates/registration_variant.kt.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
