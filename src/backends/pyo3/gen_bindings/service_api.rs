@@ -761,6 +761,9 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     let ep_method = &ep.method;
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
+    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
+    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
+    let bind = if matches!(ep.return_type, TypeRef::Unit) { "" } else { "let _ = " };
 
     if ep.is_async {
         // Drive the async entrypoint on the Tokio runtime that pyo3_async_runtimes
@@ -768,20 +771,18 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
         // long-running, blocking) entrypoint so host callbacks invoked from within it can
         // re-acquire the GIL — holding it here would deadlock any callback that needs it.
         format!(
-            "    _py.detach(|| {{\n        \
+            "    {bind}_py.detach(|| {{\n        \
              pyo3_async_runtimes::tokio::get_runtime().block_on(owner.{ep_method}({args_str}))\n    \
              }})\n        \
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )
+    } else if ep.error_type.is_some() {
+        format!(
+            "    {bind}owner.{ep_method}({args_str})\n        \
+             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
+        )
     } else {
-        if ep.error_type.is_some() {
-            format!(
-                "    owner.{ep_method}({args_str})\n        \
-                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
-            )
-        } else {
-            format!("    owner.{ep_method}({args_str});\n")
-        }
+        format!("    {bind}owner.{ep_method}({args_str});\n")
     }
 }
 
