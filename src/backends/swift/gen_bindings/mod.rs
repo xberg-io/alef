@@ -2996,9 +2996,12 @@ fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
 /// `{crate}-swift.swift`, and `RustBridgeC.h`) into the SwiftPM package layout.
 ///
 /// This is called from `generate_bindings` after the IR-based bindings and Rust crate
-/// have been emitted. When the cargo build output is not yet present (first run before
-/// `cargo build -p {crate}-swift`), the function returns `None` and the scaffold
-/// placeholders remain on disk untouched.
+/// have been emitted. When the cargo build output is present, emits the full concatenated
+/// C headers (`SwiftBridgeCore.h` + `{crate}-swift.h`) as an umbrella `RustBridgeC.h`.
+/// When build output is missing, emits a minimal placeholder header containing only the
+/// C struct typedefs needed for `SwiftBridgeCore.swift` to compile before cargo build
+/// has been run. The placeholder is always re-emitted (idempotent) when build output is
+/// missing, regardless of what existing header may be on disk.
 ///
 /// The two Swift files receive `import RustBridgeC\n` prepended so the SwiftPM
 /// `RustBridge` target can resolve the C types declared in the `RustBridgeC` target.
@@ -3012,60 +3015,55 @@ fn emit_swift_bridge_files(
     let out_dir = match find_swift_bridge_out_dir(binding_crate_name) {
         Some(d) => d,
         None => {
-            // No build output yet.  Upgrade the committed placeholder `RustBridgeC.h` to
-            // include C structs used by swift-bridge's generated `SwiftBridgeCore.swift`.
+            // No build output yet.  Emit a minimal placeholder `RustBridgeC.h` containing
+            // C structs used by swift-bridge's generated `SwiftBridgeCore.swift`.
             // Without these typedefs the Swift compiler reports "cannot find type" errors
             // for RustStr, __private__FfiSlice, and __private__OptionXX extensions
             // in the committed `SwiftBridgeCore.swift`.
+            //
+            // Always emit this placeholder (idempotent) when build output is missing,
+            // rather than attempting to preserve an existing header. A full header from
+            // a previous build contains the same typedefs, making it indistinguishable
+            // from a header that should be kept. Re-emitting the minimal placeholder is
+            // safe and idempotent. Once build output becomes available, the full header
+            // will overwrite this minimal placeholder.
             let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
             let header_path = sources_rust_bridge_c.join("RustBridgeC.h");
-            // Only emit the minimal placeholder when the existing header still matches the
-            // old form (no __private__FfiSlice typedef).  If the full header has already been
-            // written by a prior generate run with build output, leave it alone.
-            let needs_upgrade = header_path
-                .exists()
-                .then(|| std::fs::read_to_string(&header_path).ok())
-                .flatten()
-                .map(|content| !content.contains("__private__FfiSlice"))
-                .unwrap_or(false);
-            if needs_upgrade {
-                let minimal_header = format!(
-                    "#ifndef RUST_BRIDGE_C_H\n\
-                     #define RUST_BRIDGE_C_H\n\
-                     \n\
-                     // Placeholder header for the RustBridgeC SwiftPM target.\n\
-                     // Run `cargo build -p {binding_crate_name}` and re-run `alef generate` to populate.\n\
-                     // The typedefs below are the minimum required for SwiftBridgeCore.swift\n\
-                     // to compile before the full cargo build has been run.\n\
-                     \n\
-                     #include <stdint.h>\n\
-                     #include <stdbool.h>\n\
-                     \n\
-                     typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
-                     typedef struct __private__FfiSlice {{ void* const start; uintptr_t len; }} __private__FfiSlice;\n\
-                     typedef struct __private__OptionU8 {{ uint8_t val; bool is_some; }} __private__OptionU8;\n\
-                     typedef struct __private__OptionI8 {{ int8_t val; bool is_some; }} __private__OptionI8;\n\
-                     typedef struct __private__OptionU16 {{ uint16_t val; bool is_some; }} __private__OptionU16;\n\
-                     typedef struct __private__OptionI16 {{ int16_t val; bool is_some; }} __private__OptionI16;\n\
-                     typedef struct __private__OptionU32 {{ uint32_t val; bool is_some; }} __private__OptionU32;\n\
-                     typedef struct __private__OptionI32 {{ int32_t val; bool is_some; }} __private__OptionI32;\n\
-                     typedef struct __private__OptionU64 {{ uint64_t val; bool is_some; }} __private__OptionU64;\n\
-                     typedef struct __private__OptionI64 {{ int64_t val; bool is_some; }} __private__OptionI64;\n\
-                     typedef struct __private__OptionUsize {{ uintptr_t val; bool is_some; }} __private__OptionUsize;\n\
-                     typedef struct __private__OptionIsize {{ intptr_t val; bool is_some; }} __private__OptionIsize;\n\
-                     typedef struct __private__OptionF32 {{ float val; bool is_some; }} __private__OptionF32;\n\
-                     typedef struct __private__OptionF64 {{ double val; bool is_some; }} __private__OptionF64;\n\
-                     typedef struct __private__OptionBool {{ bool val; bool is_some; }} __private__OptionBool;\n\
-                     \n\
-                     #endif /* RUST_BRIDGE_C_H */\n"
-                );
-                return Ok(Some(vec![GeneratedFile {
-                    path: header_path,
-                    content: minimal_header,
-                    generated_header: false,
-                }]));
-            }
-            return Ok(None);
+            let minimal_header = format!(
+                "#ifndef RUST_BRIDGE_C_H\n\
+                 #define RUST_BRIDGE_C_H\n\
+                 \n\
+                 // Placeholder header for the RustBridgeC SwiftPM target.\n\
+                 // Run `cargo build -p {binding_crate_name}` and re-run `alef generate` to populate.\n\
+                 // The typedefs below are the minimum required for SwiftBridgeCore.swift\n\
+                 // to compile before the full cargo build has been run.\n\
+                 \n\
+                 #include <stdint.h>\n\
+                 #include <stdbool.h>\n\
+                 \n\
+                 typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
+                 typedef struct __private__FfiSlice {{ void* const start; uintptr_t len; }} __private__FfiSlice;\n\
+                 typedef struct __private__OptionU8 {{ uint8_t val; bool is_some; }} __private__OptionU8;\n\
+                 typedef struct __private__OptionI8 {{ int8_t val; bool is_some; }} __private__OptionI8;\n\
+                 typedef struct __private__OptionU16 {{ uint16_t val; bool is_some; }} __private__OptionU16;\n\
+                 typedef struct __private__OptionI16 {{ int16_t val; bool is_some; }} __private__OptionI16;\n\
+                 typedef struct __private__OptionU32 {{ uint32_t val; bool is_some; }} __private__OptionU32;\n\
+                 typedef struct __private__OptionI32 {{ int32_t val; bool is_some; }} __private__OptionI32;\n\
+                 typedef struct __private__OptionU64 {{ uint64_t val; bool is_some; }} __private__OptionU64;\n\
+                 typedef struct __private__OptionI64 {{ int64_t val; bool is_some; }} __private__OptionI64;\n\
+                 typedef struct __private__OptionUsize {{ uintptr_t val; bool is_some; }} __private__OptionUsize;\n\
+                 typedef struct __private__OptionIsize {{ intptr_t val; bool is_some; }} __private__OptionIsize;\n\
+                 typedef struct __private__OptionF32 {{ float val; bool is_some; }} __private__OptionF32;\n\
+                 typedef struct __private__OptionF64 {{ double val; bool is_some; }} __private__OptionF64;\n\
+                 typedef struct __private__OptionBool {{ bool val; bool is_some; }} __private__OptionBool;\n\
+                 \n\
+                 #endif /* RUST_BRIDGE_C_H */\n"
+            );
+            return Ok(Some(vec![GeneratedFile {
+                path: header_path,
+                content: minimal_header,
+                generated_header: false,
+            }]));
         }
     };
 
@@ -3411,11 +3409,21 @@ fn emit_free_function_forwarders(
     client_class_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
-    let exclude_functions: std::collections::HashSet<String> = config
+    let mut exclude_functions: std::collections::HashSet<String> = config
         .swift
         .as_ref()
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
+    // Mirror the gen_rust_crate exclusion: response-adapter fns referenced from
+    // `HandlerContractDef.response_adapter` are library-internal Result→HostType
+    // plumbing whose Rust signature the Swift userland wrapper cannot model.
+    for contract in &api.handler_contracts {
+        if let Some(adapter) = contract.response_adapter.as_deref() {
+            if let Some(short) = adapter.rsplit("::").next() {
+                exclude_functions.insert(short.to_string());
+            }
+        }
+    }
 
     let already = already_emitted_top_level_names(api);
 
