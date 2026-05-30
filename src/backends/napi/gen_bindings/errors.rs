@@ -295,7 +295,7 @@ pub(super) fn gen_dts(
             }
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
-                let params = dts_params(&func.params, no_prefix);
+                let params = dts_params_with_order(&func.params, no_prefix, !preserves_native_param_order(func));
                 // When the function returns a capsule type, use the ecosystem type name
                 // (e.g. `Language` from `tree-sitter`) instead of the Js-prefixed wrapper.
                 let ret = dts_return_type_capsule(
@@ -446,14 +446,7 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
         TypeRef::Duration => "number".to_string(),
         TypeRef::Unit => "void".to_string(),
         TypeRef::Optional(inner) => format!("{} | null", dts_type(inner, prefix)),
-        TypeRef::Vec(inner) => {
-            // Special case: Vec<u8> → Uint8Array | Buffer for Node.js compatibility
-            if matches!(inner.as_ref(), TypeRef::Bytes) {
-                "Uint8Array | Buffer".to_string()
-            } else {
-                format!("Array<{}>", dts_type(inner, prefix))
-            }
-        }
+        TypeRef::Vec(inner) => format!("Array<{}>", dts_type(inner, prefix)),
         TypeRef::Map(k, v) => format!("Record<{}, {}>", dts_type(k, prefix), dts_type(v, prefix)),
         TypeRef::Named(name) => format!("{prefix}{name}"),
     }
@@ -461,6 +454,18 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
 
 /// Render a list of parameters as a TypeScript parameter string for `.d.ts`.
 pub(super) fn dts_params(params: &[ParamDef], prefix: &str) -> String {
+    dts_params_with_order(params, prefix, true)
+}
+
+fn dts_params_with_order(params: &[ParamDef], prefix: &str, reorder_for_typescript: bool) -> String {
+    if !reorder_for_typescript {
+        return params
+            .iter()
+            .map(|p| dts_param(p, prefix))
+            .collect::<Vec<_>>()
+            .join(", ");
+    }
+
     // TypeScript requires optional parameters to come after all required parameters (TS1016).
     // If the Rust source has optional params followed by required params (e.g., `lang: Option<&str>`,
     // `code: &str`), we must reorder: required first, then optional, preserving relative order within
@@ -486,17 +491,23 @@ pub(super) fn dts_params(params: &[ParamDef], prefix: &str) -> String {
     };
     ordered
         .iter()
-        .map(|p| {
-            let js_name = to_node_name(&p.name);
-            let ts_ty = dts_type(&p.ty, prefix);
-            if p.optional {
-                format!("{js_name}?: {ts_ty} | undefined | null")
-            } else {
-                format!("{js_name}: {ts_ty}")
-            }
-        })
+        .map(|p| dts_param(p, prefix))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn dts_param(p: &ParamDef, prefix: &str) -> String {
+    let js_name = to_node_name(&p.name);
+    let ts_ty = dts_type(&p.ty, prefix);
+    if p.optional {
+        format!("{js_name}?: {ts_ty} | undefined | null")
+    } else {
+        format!("{js_name}: {ts_ty}")
+    }
+}
+
+fn preserves_native_param_order(func: &FunctionDef) -> bool {
+    matches!(func.name.as_str(), "extract_file" | "extract_file_sync")
 }
 
 /// Render the TypeScript return type for a function/method in `.d.ts`.

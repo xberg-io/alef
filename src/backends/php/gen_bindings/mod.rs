@@ -1586,7 +1586,7 @@ impl Backend for PhpBackend {
         // methods. The PHP facade (`{ClassName}`) delegates to `{ClassName}Api::method()`.
         // Using a class instead of global functions avoids the `inventory` crate registration
         // issue on macOS (cdylib builds do not collect `#[php_function]` entries there).
-        if !api.functions.is_empty() {
+        if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) {
             // Bridge params are hidden from the PHP-visible API in stubs too.
             let bridge_param_names_stubs: ahash::AHashSet<&str> = config
                 .trait_bridges

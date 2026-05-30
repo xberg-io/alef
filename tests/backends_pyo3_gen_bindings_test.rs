@@ -198,6 +198,88 @@ fn test_basic_generation() {
 }
 
 #[test]
+fn public_api_converters_accept_json_string_for_dict_coercion() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "StructuredExtraction".to_string(),
+            rust_path: "test_lib::StructuredExtraction".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("schema", TypeRef::Json, true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "extract_structured".to_string(),
+            rust_path: "test_lib::extract_structured".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Named("StructuredExtraction".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_public_api(&api, &make_config()).unwrap();
+    let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
+    assert!(
+        api_py.content.contains("import json"),
+        "api.py must import json:\n{}",
+        api_py.content
+    );
+    assert!(
+        api_py
+            .content
+            .contains("if isinstance(value, str):\n        value = json.loads(value)"),
+        "converter must parse JSON strings before dict/object coercion:\n{}",
+        api_py.content
+    );
+}
+
+#[test]
 fn test_type_mapping() {
     let backend = Pyo3Backend;
 

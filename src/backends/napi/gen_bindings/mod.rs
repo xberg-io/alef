@@ -983,8 +983,8 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         // Collect all exported names from the native module.
         // These are used to construct named re-exports that work with both CJS and ESM.
-        let mut type_names = vec![];
-        let mut function_names = vec![];
+        let mut value_names = std::collections::BTreeSet::new();
+        let mut type_names = std::collections::BTreeSet::new();
 
         // Collect struct and class types (skip traits and capsule types)
         let capsule_types: HashMap<String, NodeCapsuleTypeConfig> = config
@@ -994,36 +994,47 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .unwrap_or_default();
         for typ in api.types.iter() {
             if !typ.is_trait && !capsule_types.contains_key(&typ.name) {
-                type_names.push(typ.name.clone());
+                if typ.is_opaque {
+                    value_names.insert(typ.name.clone());
+                } else {
+                    type_names.insert(typ.name.clone());
+                }
             }
         }
 
         // Collect enums
         for enum_def in &api.enums {
-            type_names.push(enum_def.name.clone());
+            if enum_def.variants.iter().any(|v| !v.fields.is_empty()) {
+                type_names.insert(enum_def.name.clone());
+            } else {
+                value_names.insert(enum_def.name.clone());
+            }
         }
 
         // Collect functions (with snake_case → camelCase conversion for JS naming)
+        let exclude_functions: ahash::AHashSet<String> = config
+            .node
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
         for func in &api.functions {
-            function_names.push(to_node_name(&func.name));
+            if !exclude_functions.contains(&func.name) {
+                value_names.insert(to_node_name(&func.name));
+            }
         }
 
         // Include trait-bridge register/unregister/clear functions
         for bridge in &config.trait_bridges {
             if let Some(name) = bridge.register_fn.as_deref() {
-                function_names.push(to_node_name(name));
+                value_names.insert(to_node_name(name));
             }
             if let Some(name) = bridge.unregister_fn.as_deref() {
-                function_names.push(to_node_name(name));
+                value_names.insert(to_node_name(name));
             }
             if let Some(name) = bridge.clear_fn.as_deref() {
-                function_names.push(to_node_name(name));
+                value_names.insert(to_node_name(name));
             }
         }
-
-        // Sort for deterministic output
-        type_names.sort();
-        function_names.sort();
 
         // Generate TypeScript re-export file using explicit named re-exports.
         // This works with both CJS and ESM because we use `export { name } from 'module'`
@@ -1031,10 +1042,10 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         let package_name = config.node_package_name();
         let mut lines = vec![];
 
-        // Export functions as regular exports
-        if !function_names.is_empty() {
+        // Export runtime values (functions, classes, enums) as regular exports.
+        if !value_names.is_empty() {
             lines.push("export {".to_string());
-            for name in &function_names {
+            for name in &value_names {
                 lines.push(format!("  {name},"));
             }
             lines.push(format!("}} from '{}';", package_name));

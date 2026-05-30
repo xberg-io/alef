@@ -203,9 +203,6 @@ pub(crate) fn emit_function(
                     c_call => &c_call,
                 },
             ));
-            if let Some(len_call) = &c_len_call {
-                out.push_str(&format!("    const _result_len = {len_call};\n"));
-            }
         }
         out.push_str(&crate::backends::zig::template_env::render(
             "function_error_check.jinja",
@@ -220,6 +217,9 @@ pub(crate) fn emit_function(
             },
         ));
         out.push_str("    }\n");
+        if let Some(len_call) = &c_len_call {
+            out.push_str(&format!("    const _result_len = {len_call};\n"));
+        }
 
         // Free owned C strings after the error check.
         for p in &f.params {

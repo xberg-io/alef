@@ -2417,15 +2417,18 @@ fn gen_extendr_wrappers_r(
                 continue;
             }
             let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
-            let params_sig = params.join(", ");
+            let params_sig = if method.is_static {
+                params.join(", ")
+            } else if params.is_empty() {
+                "self".to_string()
+            } else {
+                format!("self, {}", params.join(", "))
+            };
             let mut call_args = vec![format!(
                 "\"wrap__{type_name}__{method_name}\"",
                 type_name = typ.name,
                 method_name = method.name,
             )];
-            // Instance methods: extendr's wrap__Type__method symbol takes self as the
-            // first argument. The class dispatch operator (`$.Type`) below captures
-            // `self` from the calling environment so callers write `instance$method(...)`.
             if !method.is_static {
                 call_args.push("self".to_string());
             }

@@ -1,7 +1,6 @@
         .name_fn = struct {
             fn thunk(user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.c) void {
                 _ = user_data;
-                _ = out_name;
-                unreachable; // override .name_fn in the returned vtable
+                if (out_name) |slot| slot.* = null;
             }
         }.thunk,

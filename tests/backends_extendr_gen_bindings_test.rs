@@ -641,6 +641,63 @@ fn make_ref_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> M
 }
 
 #[test]
+fn r_method_wrappers_bind_self_without_mutating_method_environment() {
+    let backend = ExtendrBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Document".to_string(),
+            rust_path: "test_lib::Document".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![make_ref_method("text", vec![], TypeRef::String)],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_public_api(&api, &make_config()).unwrap();
+    let wrappers = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+        .unwrap();
+    assert!(
+        wrappers
+            .content
+            .contains("Document$text <- function(self) .Call(\"wrap__Document__text\", self, PACKAGE = \"testlib\")"),
+        "instance wrapper must take self explicitly:\n{}",
+        wrappers.content
+    );
+    assert!(
+        wrappers
+            .content
+            .contains("if (identical(names(formals(func))[1], \"self\")) {\n    function(...) func(self, ...)"),
+        "$ dispatch must bind self via a closure instead of mutating the method environment:\n{}",
+        wrappers.content
+    );
+}
+
+#[test]
 fn test_opaque_type_generates_inner_field_and_delegates() {
     // Regression: opaque types (e.g. ConversionOptionsBuilder) must generate
     // `inner: Arc<CoreType>` and delegate methods — not emit empty structs with todo!() stubs.

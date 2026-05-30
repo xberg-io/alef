@@ -62,6 +62,24 @@ extension_name = "test_lib"
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
+fn make_config_with_php_excludes() -> ResolvedCrateConfig {
+    let toml = r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.php]
+extension_name = "test_lib"
+exclude_functions = ["hidden_function"]
+exclude_types = ["HiddenConfig"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
+}
+
 #[test]
 fn test_basic_generation() {
     let backend = PhpBackend;
@@ -217,6 +235,99 @@ fn test_basic_generation() {
 
     // Should contain ext_php_rs imports
     assert!(lib_rs.content.contains("ext_php_rs"), "Should import ext_php_rs");
+}
+
+#[test]
+fn type_stubs_honor_php_excludes_and_enum_wire_values() {
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "HiddenConfig".to_string(),
+            rust_path: "test_lib::HiddenConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("name", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "hidden_function".to_string(),
+            rust_path: "test_lib::hidden_function".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![EnumDef {
+            name: "OutputFormat".to_string(),
+            rust_path: "test_lib::OutputFormat".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "PlainText".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: Some("kebab-case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let content = backend
+        .generate_type_stubs(&api, &make_config_with_php_excludes())
+        .unwrap()[0]
+        .content
+        .clone();
+    assert!(
+        !content.contains("HiddenConfig"),
+        "excluded type leaked into stubs:\n{content}"
+    );
+    assert!(
+        !content.contains("hiddenFunction"),
+        "excluded function leaked into stubs:\n{content}"
+    );
+    assert!(
+        content.contains("case PlainText = 'plain-text';"),
+        "enum stub must use serde wire value:\n{content}"
+    );
 }
 
 #[test]

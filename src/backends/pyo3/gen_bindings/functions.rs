@@ -202,6 +202,9 @@ pub(super) fn gen_api_py(
         typing_parts.push("AsyncIterator");
         typing_parts.sort_unstable();
     }
+    if !needed_converters.is_empty() {
+        out.push_str("import json\n");
+    }
     out.push_str(&format!("from typing import {}\n\n", typing_parts.join(", ")));
     // third-party / package self-import (isort section 3)
     out.push_str(&crate::backends::pyo3::template_env::render(
@@ -418,6 +421,7 @@ pub(super) fn gen_api_py(
                 type_name => type_name,
             },
         ));
+        out.push_str("    if isinstance(value, str):\n        value = json.loads(value)\n");
 
         // Helper fn: extract the leaf Named type name from Named(n) or Optional(Named(n)).
         fn get_inner_name(ty: &TypeRef) -> Option<&str> {

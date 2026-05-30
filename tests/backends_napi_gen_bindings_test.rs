@@ -274,6 +274,254 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
 }
 
 #[test]
+fn dts_extract_file_preserves_native_argument_order() {
+    let backend = NapiBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "extract_file".to_string(),
+            rust_path: "test_lib::extract_file".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "path".to_string(),
+                    ty: TypeRef::Path,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                },
+                ParamDef {
+                    name: "mime_type".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                },
+                ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("Config".to_string()),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: true,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let dts = backend.generate_type_stubs(&api, &make_config()).unwrap()[0]
+        .content
+        .clone();
+    assert!(
+        dts.contains("extractFile(path: string, mimeType?: string | undefined | null, config: Config)"),
+        "extractFile declaration must preserve native binding argument order:\n{dts}"
+    );
+}
+
+#[test]
+fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
+    let backend = NapiBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Client".to_string(),
+                rust_path: "test_lib::Client".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "Config".to_string(),
+                rust_path: "test_lib::Config".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("name", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "run".to_string(),
+            rust_path: "test_lib::run".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![
+            EnumDef {
+                name: "Mode".to_string(),
+                rust_path: "test_lib::Mode".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![EnumVariant {
+                    name: "Fast".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                }],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            EnumDef {
+                name: "Payload".to_string(),
+                rust_path: "test_lib::Payload".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![EnumVariant {
+                    name: "Text".to_string(),
+                    fields: vec![make_field("value", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                }],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: false,
+                serde_tag: Some("type".to_string()),
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let content = backend.generate_public_api(&api, &make_config()).unwrap()[0]
+        .content
+        .clone();
+    assert!(
+        content.contains("  Client,\n  Mode,\n  run,"),
+        "runtime values missing from barrel:\n{content}"
+    );
+    assert!(
+        content.contains("export type {\n  Config,\n  Payload,"),
+        "type exports missing from barrel:\n{content}"
+    );
+    assert_eq!(
+        content.matches("  Config,").count(),
+        1,
+        "Config must not be duplicated:\n{content}"
+    );
+    assert_eq!(
+        content.matches("  Mode,").count(),
+        1,
+        "Mode must not be duplicated:\n{content}"
+    );
+}
+
+#[test]
 fn test_type_mapping() {
     let backend = NapiBackend;
 
