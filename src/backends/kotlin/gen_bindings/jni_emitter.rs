@@ -864,11 +864,7 @@ fn emit_constructor_jni_external_funs(
         .map(|t| t.name.as_str())
         .collect();
 
-    let enum_names: std::collections::HashSet<&str> = api
-        .enums
-        .iter()
-        .map(|e| e.name.as_str())
-        .collect();
+    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
 
     let mut sorted: Vec<(&str, &ClientConstructorConfig)> = config
         .client_constructors
@@ -922,11 +918,7 @@ fn emit_jni_client_factory(
 ) {
     let native_name = format!("nativeNew{}", to_pascal_case(class_name));
 
-    let enum_names: std::collections::HashSet<&str> = api
-        .enums
-        .iter()
-        .map(|e| e.name.as_str())
-        .collect();
+    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
 
     let params: Vec<String> = ctor
         .params

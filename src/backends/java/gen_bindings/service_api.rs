@@ -264,7 +264,10 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             let param_name = meta_param.name.to_lower_camel_case();
             if is_opaque_metadata(&meta_param.ty, api) {
                 // Opaque types pass the MemorySegment handle
-                out.push_str(&format!(",\n                {}.handle()    // opaque handle", param_name));
+                out.push_str(&format!(
+                    ",\n                {}.handle()    // opaque handle",
+                    param_name
+                ));
             } else {
                 // String/primitive/other types pass directly
                 out.push_str(&format!(",\n                {}    // metadata", param_name));

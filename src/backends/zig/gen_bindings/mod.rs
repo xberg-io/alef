@@ -188,11 +188,7 @@ impl Backend for ZigBackend {
             .collect();
         // Set of enum type names. Enum parameters are marshalled to i32 discriminants
         // using @intFromEnum() rather than being passed through JSON.
-        let enum_names: std::collections::HashSet<String> = api
-            .enums
-            .iter()
-            .map(|e| e.name.clone())
-            .collect();
+        let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
         // For opaque handle types (is_opaque = true or has_serde = false), find the
         // creator function in api.functions that returns that type. The map stores:
         //   opaque_type_name -> (creator_fn_name, config_type_snake_case)

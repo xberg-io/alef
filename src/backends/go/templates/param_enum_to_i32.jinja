@@ -1,0 +1,3 @@
+	{{ c_name }}Str := C.CString(string({{ go_param }}))
+	defer C.free(unsafe.Pointer({{ c_name }}Str))
+	{{ c_name }} := C.{{ ffi_prefix }}_{{ enum_snake }}_from_str({{ c_name }}Str)

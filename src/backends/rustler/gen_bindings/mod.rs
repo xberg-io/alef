@@ -62,8 +62,12 @@ impl Backend for RustlerBackend {
         // Service-owner types and handler-contract traits are marked binding_excluded
         // by the service extraction pass: they are emitted by the service-API codegen,
         // not the generic struct/trait/opaque codegen, so skip them in the generic loops too.
-        let binding_excluded_names: Vec<String> =
-            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let binding_excluded_names: Vec<String> = api
+            .types
+            .iter()
+            .filter(|t| t.binding_excluded)
+            .map(|t| t.name.clone())
+            .collect();
         let mut exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
             .unwrap_or_default();
@@ -616,8 +620,12 @@ impl Backend for RustlerBackend {
             .unwrap_or_default();
         // Skip binding-excluded types (service owners / handler-contract traits) — they are
         // emitted/exported by the service-API codegen, not the generic public-API listing.
-        let binding_excluded_names: Vec<String> =
-            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let binding_excluded_names: Vec<String> = api
+            .types
+            .iter()
+            .filter(|t| t.binding_excluded)
+            .map(|t| t.name.clone())
+            .collect();
         let mut exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
             .unwrap_or_default();

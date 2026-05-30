@@ -397,17 +397,22 @@ fn is_ffi_enum_type(name: &str, ffi_enum_names: &HashSet<String>) -> bool {
     ffi_enum_names.contains(name)
 }
 
-/// Returns true if a function references an enum type (from `api.enums`) as a parameter type
+/// Returns true if a function references a DATA enum type (from `api.enums`) as a parameter type
 /// or return type, for which the FFI header lacks `_from_json`/`_to_json`/`_free` helpers.
 ///
-/// Such functions cannot be generated correctly and must be skipped.
+/// Unit-variant enums (in `ffi_param_enum_names`) can be marshaled to/from i32 and do NOT cause
+/// skipping. Data enums without those helpers cannot be generated correctly and must be skipped.
 fn uses_ffi_enum_type(
     func_params: &[crate::core::ir::ParamDef],
     return_type: &TypeRef,
     ffi_enum_names: &HashSet<String>,
+    ffi_param_enum_names: &HashSet<String>,
     opaque_names: &std::collections::HashSet<&str>,
 ) -> bool {
-    let named_is_problem = |n: &str| is_ffi_enum_type(n, ffi_enum_names) && !opaque_names.contains(n);
+    let named_is_problem = |n: &str| {
+        // Only skip if it's an enum AND not a unit-variant param enum AND not opaque
+        is_ffi_enum_type(n, ffi_enum_names) && !ffi_param_enum_names.contains(n) && !opaque_names.contains(n)
+    };
     let return_uses = match return_type {
         TypeRef::Named(n) => named_is_problem(n),
         TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if named_is_problem(n)),
@@ -618,6 +623,19 @@ fn gen_go_file(
     // (unless the type also appears as an opaque type in api.types) and are excluded.
     let ffi_enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
+    // All UNIT-VARIANT enum names — used for FFI param-type emission (i32 discriminant) and the
+    // matching from_i32 body conversion. Only unit-variant enums can be round-tripped through a
+    // bare i32 discriminant: data-bearing variants (tuple or struct) carry field data that cannot
+    // be reconstructed from the discriminant alone. The is_copy flag is intentionally not checked
+    // here — a non-Copy unit-variant enum (e.g. one missing the Copy derive) can still be passed
+    // by value over the C boundary using the auto-generated from_i32_rs match helper.
+    let ffi_param_enum_names: HashSet<String> = api
+        .enums
+        .iter()
+        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty() && !v.is_tuple))
+        .map(|e| e.name.clone())
+        .collect();
+
     // Data enums (sealed interfaces): enums with named fields in at least one variant
     let data_enum_names: std::collections::HashSet<&str> = api
         .enums
@@ -700,7 +718,13 @@ fn gen_go_file(
     for func in api.functions.iter().filter(|f| {
         !ffi_exclude_functions.contains(&f.name)
             && !signature_references_excluded_type(&f.params, &f.return_type, exclude_types)
-            && !uses_ffi_enum_type(&f.params, &f.return_type, &ffi_enum_names, &opaque_names)
+            && !uses_ffi_enum_type(
+                &f.params,
+                &f.return_type,
+                &ffi_enum_names,
+                &ffi_param_enum_names,
+                &opaque_names,
+            )
             && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
     }) {
         // For the convert function with visitor support, wrap it with visitor-awareness logic
@@ -722,6 +746,7 @@ fn gen_go_file(
                 bridge_type_aliases,
                 value_only_types,
                 &ffi_enum_names,
+                &ffi_param_enum_names,
             ));
             out.push_str("\n\n");
         }
@@ -792,6 +817,7 @@ fn gen_go_file(
                     &opaque_names,
                     value_only_types,
                     &ffi_enum_names,
+                    &ffi_param_enum_names,
                 ));
                 out.push_str("\n\n");
                 continue;
@@ -802,7 +828,13 @@ fn gen_go_file(
             if signature_references_excluded_type(&method.params, &method.return_type, exclude_types) {
                 continue;
             }
-            if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {
+            if uses_ffi_enum_type(
+                &method.params,
+                &method.return_type,
+                &ffi_enum_names,
+                &ffi_param_enum_names,
+                &opaque_names,
+            ) {
                 continue;
             }
             out.push_str(&gen_method_wrapper(
@@ -812,6 +844,7 @@ fn gen_go_file(
                 &opaque_names,
                 value_only_types,
                 &ffi_enum_names,
+                &ffi_param_enum_names,
             ));
             out.push_str("\n\n");
         }

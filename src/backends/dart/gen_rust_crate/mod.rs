@@ -257,9 +257,9 @@ fn emit_lib_rs(
     // receive a `#[frb(mirror(TypeName))]` declaration above. These types are already
     // in scope under their short name; emitting a `use source_crate::TypeName;` for
     // them inside impl blocks would cause E0255 "defined multiple times" errors. The
-    // enum branch also avoids the orphan-rule trap where `use spikard::Method;` at
-    // module scope shadows the local mirror enum, causing `impl From<spikard::Method>
-    // for Method` to be interpreted as `impl … for spikard_http::Method` (both
+    // enum branch also avoids the orphan-rule trap where `use source_crate::Method;` at
+    // module scope shadows the local mirror enum, causing `impl From<source_crate::Method>
+    // for Method` to be interpreted as an impl for the source crate's `Method` (both
     // foreign → E0117).
     let mirror_type_names: HashSet<String> = api
         .types
@@ -289,11 +289,9 @@ fn emit_lib_rs(
     // contains `impl TypeName { #[frb] pub fn method(...) }` blocks. Without these
     // blocks FRB emits an empty `abstract class TypeName implements RustOpaqueInterface {}`
     // with no methods, causing method-not-found errors in Dart callers.
-    for ty in api
-        .types
-        .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && t.is_opaque && !t.binding_excluded && !t.methods.is_empty())
-    {
+    for ty in api.types.iter().filter(|t| {
+        !exclude_types.contains(&t.name) && !t.is_trait && t.is_opaque && !t.binding_excluded && !t.methods.is_empty()
+    }) {
         content.push('\n');
         emit_opaque_impl_block(
             &mut content,
@@ -324,7 +322,11 @@ fn emit_lib_rs(
         }
     }
 
-    for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded) {
+    for en in api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded)
+    {
         content.push('\n');
         emit_mirror_enum(&mut content, en);
     }
@@ -351,7 +353,11 @@ fn emit_lib_rs(
         content.push('\n');
         emit_from_impl_for_struct(&mut content, ty, source_crate_name);
     }
-    for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded) {
+    for en in api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded)
+    {
         content.push('\n');
         emit_from_impl_for_enum(&mut content, en, source_crate_name);
     }
@@ -424,7 +430,11 @@ fn emit_lib_rs(
     }
     // Emit From<MirrorEnum> for SourceEnum so that enum-typed struct fields
     // can use `.into()` in the mirror-to-core From impls above.
-    for en in api.enums.iter().filter(|e| types_needing_from_impl.contains(&e.name) && !e.binding_excluded) {
+    for en in api
+        .enums
+        .iter()
+        .filter(|e| types_needing_from_impl.contains(&e.name) && !e.binding_excluded)
+    {
         content.push('\n');
         emit_from_mirror_to_core_enum(&mut content, en, source_crate_name);
     }

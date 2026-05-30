@@ -11,7 +11,7 @@
 //!      per registration (C-callback shim)
 //!    - `extern "Rust" { fn <run>(...) -> Result<(), String>; }` per entrypoint (blocking, not async)
 //!
-//! 2. **Swift wrapper class** at `Sources/Spikard/<ServiceName>.swift`:
+//! 2. **Swift wrapper class** at `Sources/<ModuleName>/<ServiceName>.swift`:
 //!    - Public class wrapping the swift-bridge opaque type
 //!    - Idiomatic Swift methods for constructor, configurators, registration (with closure boxing), and entrypoints
 //!    - Handler boxes (reference type) to cross closures via C context pointers
@@ -228,12 +228,41 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
 
 /// Generate plain C functions for callback registration (OUTSIDE the bridge module).
 /// These are emitted after the `#[swift_bridge::bridge] mod ffi { ... }` block closes.
-fn gen_rust_callback_c_functions_for_service(service: &ServiceDef) -> String {
+fn gen_rust_callback_c_functions_for_service(api: &ApiSurface, service: &ServiceDef) -> String {
     let mut out = String::new();
+    let source_crate = api.crate_name.replace('-', "_");
     let service_snake = service.name.to_snake_case();
 
     for reg in &service.registrations {
         let reg_snake = reg.method.to_snake_case();
+        let contract = find_contract(api, &reg.callback_contract);
+        let trait_path = contract
+            .map(|c| {
+                if c.rust_path.is_empty() {
+                    format!("{source_crate}::{}", c.trait_name)
+                } else {
+                    c.rust_path.clone()
+                }
+            })
+            .unwrap_or_else(|| format!("{source_crate}::{}", reg.callback_contract));
+        let request_path = contract
+            .and_then(|c| c.wire_request_type.as_deref())
+            .map(|name| qualify_rust_type(name, &source_crate))
+            .unwrap_or_else(|| "serde_json::Value".to_string());
+        let response_path = contract
+            .and_then(|c| c.wire_response_type.as_deref())
+            .map(|name| qualify_rust_type(name, &source_crate))
+            .unwrap_or_else(|| "serde_json::Value".to_string());
+        let output_type = contract
+            .and_then(|c| c.dispatch_return_type.as_deref())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                format!("Result<{response_path}, Box<dyn std::error::Error + Send + Sync>>")
+            });
+        let response_adapter = contract
+            .and_then(|c| c.response_adapter.as_deref())
+            .map(|adapter| format!("{adapter}(outcome)"))
+            .unwrap_or_else(|| "outcome".to_string());
         let metadata_params: Vec<minijinja::Value> = reg
             .metadata_params
             .iter()
@@ -250,7 +279,14 @@ fn gen_rust_callback_c_functions_for_service(service: &ServiceDef) -> String {
             minijinja::context! {
                 service_snake => &service_snake,
                 reg_snake => &reg_snake,
+                method_name => &reg.method,
                 service_name => &service.name,
+                source_crate => &source_crate,
+                trait_path => &trait_path,
+                request_path => &request_path,
+                response_path => &response_path,
+                output_type => &output_type,
+                response_adapter => &response_adapter,
                 metadata_params => metadata_params,
             },
         ));
@@ -363,7 +399,9 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     // Entrypoint methods
     for ep in &service.entrypoints {
         // Skip finalize entrypoints whose return type can't be represented over the C ABI.
-        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, service, api) {
+        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize)
+            && !entrypoint_return_representable(ep, service, api)
+        {
             continue;
         }
         gen_entrypoint_method(&mut out, service, ep, &service_snake);
@@ -564,10 +602,18 @@ pub fn generate_rust_callback_c_functions(api: &ApiSurface) -> anyhow::Result<Ve
         if service.registrations.is_empty() {
             continue;
         }
-        funcs.push(gen_rust_callback_c_functions_for_service(service));
+        funcs.push(gen_rust_callback_c_functions_for_service(api, service));
     }
 
     Ok(funcs)
+}
+
+fn qualify_rust_type(type_name: &str, source_crate: &str) -> String {
+    if type_name.contains("::") {
+        type_name.to_string()
+    } else {
+        format!("{source_crate}::{type_name}")
+    }
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──

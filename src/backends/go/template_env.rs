@@ -429,6 +429,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/param_opaque_cast.jinja"),
     ),
     (
+        "param_enum_to_i32.jinja",
+        include_str!("templates/param_enum_to_i32.jinja"),
+    ),
+    (
         "param_named_type.jinja",
         include_str!("templates/param_named_type.jinja"),
     ),

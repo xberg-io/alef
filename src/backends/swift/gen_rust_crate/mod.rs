@@ -437,14 +437,13 @@ fn emit_lib_rs(
     // These declare opaque service types, constructors, configurators,
     // and entrypoints to swift-bridge. Callback registration functions are emitted
     // as plain C functions OUTSIDE the bridge module (see below).
-    let service_api_blocks = super::gen_bindings::service_api::generate_rust_extern_blocks(api)
-        .unwrap_or_default();
+    let service_api_blocks = super::gen_bindings::service_api::generate_rust_extern_blocks(api).unwrap_or_default();
     extern_blocks.extend(service_api_blocks);
 
     // Service-API callback registration functions (plain C, emitted outside the bridge module).
     // swift-bridge 0.1.59 cannot parse raw pointer types or `extern "C" fn` in extern "Rust" blocks.
-    let service_api_callback_funcs: Vec<String> = super::gen_bindings::service_api::generate_rust_callback_c_functions(api)
-        .unwrap_or_default();
+    let service_api_callback_funcs: Vec<String> =
+        super::gen_bindings::service_api::generate_rust_callback_c_functions(api).unwrap_or_default();
 
     // Collect serde-enabled non-opaque types that appear as method parameters.
     // These need their own `{type_snake}_from_json` free-function shims so Swift
@@ -565,7 +564,7 @@ fn emit_lib_rs(
         .copied()
         .collect();
     if !json_fallback_enums_filtered.is_empty() {
-        out.push_str("    extern \"Rust\" {\n\n");
+        out.push_str("    extern \"Rust\" {\n");
         for en in &json_fallback_enums_filtered {
             let enum_snake = AsSnakeCase(en.name.as_str()).to_string();
             let enum_name = &en.name;
@@ -577,7 +576,7 @@ fn emit_lib_rs(
 
     // Emit service App wrapper structs and impls (must be emitted BEFORE callback functions so
     // the C functions can reference the App type and its methods).
-    out.push_str(&service_app_wrappers::emit_service_app_wrappers(api));
+    out.push_str(&service_app_wrappers::emit_service_app_wrappers(api, &source_crate));
     out.push('\n');
 
     // Emit service-API callback registration functions (plain C, outside the bridge module).

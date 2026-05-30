@@ -57,6 +57,7 @@ pub(super) fn is_bytes_result_method(method: &MethodDef) -> bool {
 }
 
 /// Generate a wrapper function for a free function.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_function_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
@@ -65,6 +66,7 @@ pub(super) fn gen_function_wrapper(
     bridge_type_aliases: &HashSet<String>,
     value_only_types: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -179,6 +181,7 @@ pub(super) fn gen_function_wrapper(
             ffi_prefix,
             opaque_names,
             enum_names,
+            ffi_param_enum_names,
         ));
     }
 
@@ -967,7 +970,17 @@ mod tests {
         let bridge_aliases: HashSet<String> = HashSet::new();
         let value_only_types: HashSet<String> = HashSet::new();
         let enum_names: HashSet<String> = HashSet::new();
-        let out = gen_function_wrapper(&func, "krz", &opaque, &bridge_names, &bridge_aliases, &value_only_types, &enum_names);
+        let ffi_param_enum_names: HashSet<String> = HashSet::new();
+        let out = gen_function_wrapper(
+            &func,
+            "krz",
+            &opaque,
+            &bridge_names,
+            &bridge_aliases,
+            &value_only_types,
+            &enum_names,
+            &ffi_param_enum_names,
+        );
         // Return type must be ([]byte, error)
         assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
         // Must declare out-param variables (outLen and outCap are declared together)

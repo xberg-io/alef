@@ -84,15 +84,16 @@ fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &Ap
 /// - A handler registry map keyed by context index.
 /// - A cgo trampoline function matching the C callback typedef signature.
 /// - A Go struct mirroring the service (constructor, registration methods, entrypoints).
-fn gen_service_go(api: &ApiSurface, _config: &ResolvedCrateConfig, pkg_name: &str, ffi_prefix: &str) -> String {
+fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str, ffi_prefix: &str) -> String {
     let mut out = String::new();
+    let ffi_header = config.ffi_header_name();
 
     out.push_str(&format!("package {pkg_name}\n\n"));
 
     // cgo preamble with C headers and forward-declared exported function
     out.push_str("/*\n");
     out.push_str("#include <string.h>\n");
-    out.push_str("#include \"spikard.h\"\n");
+    out.push_str(&format!("#include \"{ffi_header}\"\n"));
     // Forward declaration matching cgo's generated prototype for the //export trampoline
     // (cgo maps the Go `*C.char` parameter to a non-const `char*`). A static adapter then
     // supplies the `const char*` callback signature the C registration function expects.
@@ -762,7 +763,7 @@ mod tests {
         assert!(go.contains("service_handler_callback"));
         // Verify cgo preamble
         assert!(go.contains("/*\n#include <string.h>"));
-        assert!(go.contains("#include \"spikard.h\""));
+        assert!(go.contains("#include \"test_crate.h\""));
         assert!(go.contains("extern char* service_handler_callback(void* ctx, char* req);"));
         assert!(go.contains("static char* service_handler_trampoline(void* ctx, const char* req) {"));
         assert!(go.contains("import \"C\""));

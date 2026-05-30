@@ -422,7 +422,9 @@ mod tests {
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
-        assert!(kt.contains("class TestService internal constructor(internal val inner: com.example.TestService) : AutoCloseable"));
+        assert!(kt.contains(
+            "class TestService internal constructor(internal val inner: com.example.TestService) : AutoCloseable"
+        ));
         assert!(kt.contains("constructor() : this(com.example.TestService())"));
     }
 

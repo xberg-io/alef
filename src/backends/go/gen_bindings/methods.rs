@@ -21,6 +21,7 @@ pub(super) fn gen_streaming_method_wrapper(
     opaque_names: &std::collections::HashSet<&str>,
     _value_only_types: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -83,6 +84,7 @@ pub(super) fn gen_streaming_method_wrapper(
             ffi_prefix,
             opaque_names,
             enum_names,
+            ffi_param_enum_names,
         ));
     }
 
@@ -148,6 +150,7 @@ pub(super) fn gen_method_wrapper(
     opaque_names: &std::collections::HashSet<&str>,
     value_only_types: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -276,6 +279,7 @@ pub(super) fn gen_method_wrapper(
                 ffi_prefix,
                 opaque_names,
                 enum_names,
+                ffi_param_enum_names,
             ));
         }
 
@@ -596,6 +600,7 @@ pub(super) fn gen_param_to_c(
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
     enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(512);
     // Go param names must be lowerCamelCase (no underscores), and internal C-side
@@ -672,10 +677,24 @@ pub(super) fn gen_param_to_c(
                     },
                 ));
                 out.push('\n');
+            } else if ffi_param_enum_names.contains(name) {
+                // Unit-variant enums: the go-side type is a string alias (e.g.
+                // `type Method string`), so convert via the existing C helper
+                // `{prefix}_{enum}_from_str(*c_char) -> i32` rather than direct
+                // `C.int32_t(...)` which would fail to compile on a string-typed value.
+                let enum_snake = name.to_snake_case();
+                out.push_str(&crate::backends::go::template_env::render(
+                    "param_enum_to_i32.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                        ffi_prefix => ffi_prefix,
+                        enum_snake => &enum_snake,
+                    },
+                ));
+                out.push('\n');
             } else if enum_names.contains(name) {
-                // Enum types: marshal to JSON, create a handle via _from_json.
-                // Note: This is a workaround because FFI doesn't yet emit enum params as i32 discriminants.
-                // When FFI is fixed, this should be replaced with direct i32 conversion.
+                // Data enums: marshal to JSON, create a handle via _from_json.
                 let type_snake = name.to_snake_case();
                 let err_action = if can_return_error {
                     format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
@@ -978,7 +997,16 @@ mod tests {
         let opaque: std::collections::HashSet<&str> = ["Client"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
         let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types, &enum_names);
+        let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(
+            &typ,
+            &method,
+            "krz",
+            &opaque,
+            &value_only_types,
+            &enum_names,
+            &ffi_param_enum_names,
+        );
         // The function signature may span multiple lines (method_receiver_instance + params + method_return).
         // Check for the receiver and name components rather than the full single-line form.
         assert!(
@@ -993,7 +1021,8 @@ mod tests {
         let param = simple_param("name", TypeRef::String);
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names);
+        let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
         assert!(out.contains("C.CString("));
         assert!(out.contains("defer C.free("));
     }
@@ -1003,7 +1032,8 @@ mod tests {
         let param = simple_param("count", TypeRef::Primitive(PrimitiveType::U64));
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names);
+        let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
         assert!(out.contains("C.uint64_t("));
     }
 
@@ -1016,7 +1046,16 @@ mod tests {
         let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
         let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types, &enum_names);
+        let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(
+            &typ,
+            &method,
+            "krz",
+            &opaque,
+            &value_only_types,
+            &enum_names,
+            &ffi_param_enum_names,
+        );
         // Static methods become package-level functions (no receiver)
         assert!(out.contains("func Config"));
     }
@@ -1032,7 +1071,16 @@ mod tests {
         let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
         let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "sample_router", &opaque, &value_only_types, &enum_names);
+        let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(
+            &typ,
+            &method,
+            "sample_router",
+            &opaque,
+            &value_only_types,
+            &enum_names,
+            &ffi_param_enum_names,
+        );
         // Signature must be *string for Optional<String>.
         assert!(out.contains(") *string {"), "expected *string return in:\n{out}");
         // Body must include nil check and take-address pattern, NOT a bare C.GoString(ptr).
@@ -1089,7 +1137,16 @@ mod tests {
         let opaque: std::collections::HashSet<&str> = ["Renderer"].into();
         let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
         let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let out = gen_method_wrapper(&typ, &method, "krz", &opaque, &value_only_types, &enum_names);
+        let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let out = gen_method_wrapper(
+            &typ,
+            &method,
+            "krz",
+            &opaque,
+            &value_only_types,
+            &enum_names,
+            &ffi_param_enum_names,
+        );
         // Return type must be ([]byte, error).
         assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
         // Must declare out-param variables.

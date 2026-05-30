@@ -104,10 +104,7 @@ pub fn gen_service_rust(api: &ApiSurface, config: &ResolvedCrateConfig) -> Strin
             .flat_map(|s| s.registrations.iter())
             .map(|r| r.callback_contract.as_str())
             .collect();
-        names
-            .iter()
-            .filter_map(|n| find_contract(api, n))
-            .collect()
+        names.iter().filter_map(|n| find_contract(api, n)).collect()
     };
 
     for contract in &referenced_contracts {
@@ -161,14 +158,8 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     out.push_str("\n\n");
 
     // Determine wire types — derive from the contract definition
-    let req_type = contract
-        .wire_request_type
-        .as_deref()
-        .unwrap_or("serde_json::Value");
-    let resp_type = contract
-        .wire_response_type
-        .as_deref()
-        .unwrap_or("serde_json::Value");
+    let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
+    let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
     // Build the request and response type paths
     let req_path = if req_type.contains("::") {
@@ -232,12 +223,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 /// - `registrations`: `tokio::sync::Mutex<Vec<DartRegistration>>` — pending registrations
 ///
 /// Methods include constructor, configurators, registration, and entrypoints.
-fn gen_service_owner(
-    out: &mut String,
-    service: &ServiceDef,
-    api: &ApiSurface,
-    _core_import: &str,
-) {
+fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _core_import: &str) {
     let service_name = &service.name;
     let owner_path = &service.rust_path;
 
@@ -478,7 +464,6 @@ fn format_method_params(method: &crate::core::ir::MethodDef) -> String {
     }
     out
 }
-
 
 /// Convert a TypeRef to a Rust type annotation.
 fn typeref_to_rust_type(ty: &TypeRef) -> String {
@@ -738,14 +723,8 @@ mod tests {
         // Verify NO dart:ffi symbols
         assert!(!rust.contains("dart:ffi"), "should not contain dart:ffi");
         assert!(!rust.contains("NativeCallable"), "should not contain NativeCallable");
-        assert!(
-            !rust.contains("lookupFunction"),
-            "should not contain lookupFunction"
-        );
-        assert!(
-            !rust.contains("ffi.Pointer"),
-            "should not contain ffi.Pointer"
-        );
+        assert!(!rust.contains("lookupFunction"), "should not contain lookupFunction");
+        assert!(!rust.contains("ffi.Pointer"), "should not contain ffi.Pointer");
     }
 
     #[test]

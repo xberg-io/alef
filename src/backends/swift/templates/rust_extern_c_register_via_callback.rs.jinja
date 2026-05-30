@@ -23,8 +23,8 @@ pub extern "C" fn {{ service_snake }}_{{ reg_snake }}_via_callback(
 
     // Call the service's route registration method with the handler.
     app.inner.blocking_lock().as_mut().map_or(-1, |service| {
-        service.route(
-            spikard::RouteBuilder::default()
+        service.{{ method_name }}(
+            {{ source_crate }}::RouteBuilder::default()
 {%- for meta_param in metadata_params %}
                 .{{ meta_param.name }}({{ meta_param.name }})
 {%- endfor %},
@@ -34,7 +34,7 @@ pub extern "C" fn {{ service_snake }}_{{ reg_snake }}_via_callback(
     })
 }
 
-// Internal handler wrapper that adapts a raw C callback to the spikard Handler trait.
+// Internal handler wrapper that adapts a raw C callback to the configured handler trait.
 struct SwiftCCallbackHandler {
     ctx: *mut std::ffi::c_void,
     callback: extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8,
@@ -43,12 +43,12 @@ struct SwiftCCallbackHandler {
 unsafe impl Send for SwiftCCallbackHandler {}
 unsafe impl Sync for SwiftCCallbackHandler {}
 
-impl spikard::Handler for SwiftCCallbackHandler {
+impl {{ trait_path }} for SwiftCCallbackHandler {
     fn call(
         &self,
-        _request: spikard::Request<spikard::Body>,
-        request_data: spikard::RequestData,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = spikard::HandlerResult> + Send + '_>> {
+        _request: {{ source_crate }}::Request<{{ source_crate }}::Body>,
+        request_data: {{ request_path }},
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
         Box::pin(async move {
             let req_json = match serde_json::to_string(&request_data) {
                 Ok(s) => s,
@@ -67,10 +67,10 @@ impl spikard::Handler for SwiftCCallbackHandler {
                 s
             };
 
-            let resp: spikard::Response = serde_json::from_str(&resp_str)
-                .unwrap_or_else(|_| spikard::Response::default());
-            spikard::handler_result_from_response(Ok(resp))
+            let resp: {{ response_path }} = serde_json::from_str(&resp_str)
+                .unwrap_or_else(|_| {{ response_path }}::default());
+            let outcome = Ok(resp);
+            {{ response_adapter }}
         })
     }
 }
-

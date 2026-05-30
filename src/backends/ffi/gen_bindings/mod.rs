@@ -23,8 +23,8 @@ use helpers::{
     gen_version,
 };
 use types::{
-    gen_enum_free, gen_enum_from_i32, gen_enum_from_i32_rs_helper, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json,
-    gen_enum_to_string, gen_field_accessor, gen_opaque_static_constructor, gen_opaque_struct_def, gen_type_free,
+    gen_enum_free, gen_enum_from_i32, gen_enum_from_i32_rs_helper, gen_enum_from_json, gen_enum_to_i32,
+    gen_enum_to_json, gen_enum_to_string, gen_field_accessor, gen_opaque_static_constructor, gen_type_free,
     gen_type_from_json, gen_type_new, gen_type_to_json, is_static_constructor,
 };
 
@@ -174,11 +174,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     let ffi_param_enums: ahash::AHashSet<String> = api
         .enums
         .iter()
-        .filter(|e| {
-            e.variants
-                .iter()
-                .all(|v| v.fields.is_empty() && !v.is_tuple)
-        })
+        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty() && !v.is_tuple))
         .map(|e| e.name.clone())
         .collect();
     // Clone-but-not-Copy named types (structs + data-bearing enums). Callers emit `.clone()`.
@@ -403,11 +399,8 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
 
         // Opaque static constructors — emit opaque struct + extern "C" fn for static `new` methods
         if typ.is_opaque {
-            // Emit the `{TypeName}Opaque` struct definition once per opaque type.
-            // This must appear before the constructor and method wrappers that reference it.
-            if typ.methods.iter().any(|m| is_static_constructor(m, &typ.name)) {
-                builder.add_item(&gen_opaque_struct_def(typ, &core_import));
-            }
+            // The static constructor returns `*mut {qualified}` to match the legacy
+            // `_free()` signature — no separate `{TypeName}Opaque` wrapper is emitted.
             for method in &typ.methods {
                 if is_static_constructor(method, &typ.name) {
                     builder.add_item(&gen_opaque_static_constructor(
@@ -664,11 +657,23 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         if has_options_field_bridge && func.name == "convert" {
             continue;
         }
-        builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &ffi_param_enums));
+        builder.add_item(&gen_free_function(
+            func,
+            prefix,
+            &core_import,
+            &path_map,
+            &ffi_param_enums,
+        ));
         // Emit a _len() companion for every function whose return type maps to *mut c_char
         // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.
         if returns_c_char(&func.return_type) {
-            builder.add_item(&gen_free_function_len_companion(func, prefix, &core_import, &path_map, &ffi_param_enums));
+            builder.add_item(&gen_free_function_len_companion(
+                func,
+                prefix,
+                &core_import,
+                &path_map,
+                &ffi_param_enums,
+            ));
         }
     }
 
@@ -3143,56 +3148,54 @@ type = "*const std::ffi::c_char"
                 rust_path: "my_lib::App".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
-                methods: vec![
-                    MethodDef {
-                        name: "route".to_string(),
-                        params: vec![
-                            ParamDef {
-                                name: "builder".to_string(),
-                                ty: TypeRef::Named("RouteBuilder".to_string()),
-                                optional: false,
-                                default: None,
-                                sanitized: false,
-                                typed_default: None,
-                                is_ref: false,
-                                is_mut: false,
-                                newtype_wrapper: None,
-                                original_type: None,
-                                map_is_ahash: false,
-                                map_key_is_cow: false,
-                            },
-                            ParamDef {
-                                name: "handler".to_string(),
-                                // This is a generic type parameter H that won't be in path_map
-                                ty: TypeRef::Named("H".to_string()),
-                                optional: false,
-                                default: None,
-                                sanitized: false,
-                                typed_default: None,
-                                is_ref: false,
-                                is_mut: false,
-                                newtype_wrapper: None,
-                                original_type: None,
-                                map_is_ahash: false,
-                                map_key_is_cow: false,
-                            },
-                        ],
-                        return_type: TypeRef::Named("App".to_string()),
-                        is_async: false,
-                        is_static: false,
-                        error_type: None,
-                        doc: "Register a handler.".to_string(),
-                        receiver: Some(ReceiverKind::Owned),
-                        sanitized: false,
-                        trait_source: None,
-                        returns_ref: true,
-                        returns_cow: false,
-                        return_newtype_wrapper: None,
-                        has_default_impl: false,
-                        binding_excluded: false,
-                        binding_exclusion_reason: None,
-                    },
-                ],
+                methods: vec![MethodDef {
+                    name: "route".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "builder".to_string(),
+                            ty: TypeRef::Named("RouteBuilder".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
+                        },
+                        ParamDef {
+                            name: "handler".to_string(),
+                            // This is a generic type parameter H that won't be in path_map
+                            ty: TypeRef::Named("H".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
+                        },
+                    ],
+                    return_type: TypeRef::Named("App".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Register a handler.".to_string(),
+                    receiver: Some(ReceiverKind::Owned),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: true,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
                 is_opaque: false,
                 is_clone: true,
                 is_copy: false,
@@ -3244,42 +3247,38 @@ type = "*const std::ffi::c_char"
                 rust_path: "my_lib::Builder".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
-                methods: vec![
-                    MethodDef {
-                        name: "with_option".to_string(),
-                        params: vec![
-                            ParamDef {
-                                name: "value".to_string(),
-                                ty: TypeRef::String,
-                                optional: false,
-                                default: None,
-                                sanitized: false,
-                                typed_default: None,
-                                is_ref: true,
-                                is_mut: false,
-                                newtype_wrapper: None,
-                                original_type: None,
-                                map_is_ahash: false,
-                                map_key_is_cow: false,
-                            },
-                        ],
-                        // This method returns &mut Self (a reference to the receiver)
-                        return_type: TypeRef::Named("Builder".to_string()),
-                        is_async: false,
-                        is_static: false,
-                        error_type: None,
-                        doc: "Set an option (builder style).".to_string(),
-                        receiver: Some(ReceiverKind::RefMut),
+                methods: vec![MethodDef {
+                    name: "with_option".to_string(),
+                    params: vec![ParamDef {
+                        name: "value".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
                         sanitized: false,
-                        trait_source: None,
-                        returns_ref: true, // Marks that it returns a reference
-                        returns_cow: false,
-                        return_newtype_wrapper: None,
-                        has_default_impl: false,
-                        binding_excluded: false,
-                        binding_exclusion_reason: None,
-                    },
-                ],
+                        typed_default: None,
+                        is_ref: true,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
+                    }],
+                    // This method returns &mut Self (a reference to the receiver)
+                    return_type: TypeRef::Named("Builder".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: "Set an option (builder style).".to_string(),
+                    receiver: Some(ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: true, // Marks that it returns a reference
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
                 is_opaque: false,
                 is_clone: true,
                 is_copy: false,
@@ -3469,7 +3468,8 @@ type = "*const std::ffi::c_char"
 
         // Check that the extern "C" fn symbol is emitted
         assert!(
-            lib.content.contains("pub unsafe extern \"C\" fn my_lib_route_builder_new("),
+            lib.content
+                .contains("pub unsafe extern \"C\" fn my_lib_route_builder_new("),
             "expected opaque constructor symbol my_lib_route_builder_new, got:\n{}",
             lib.content
         );
@@ -3522,10 +3522,16 @@ type = "*const std::ffi::c_char"
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-        // Check return type is *mut RouteBuilderOpaque
+        // Constructor returns *mut to the inner type (matching the legacy `_free()`
+        // signature) — no separate wrapper struct is emitted. The fixture's crate
+        // name varies; just check for a `-> *mut <something>RouteBuilder {` body.
+        let has_mut_return = lib.content.lines().any(|line| {
+            line.contains("-> *mut") && line.contains("RouteBuilder") && !line.contains("RouteBuilderOpaque")
+        });
         assert!(
-            lib.content.contains("-> *mut RouteBuilderOpaque"),
-            "constructor should return *mut RouteBuilderOpaque"
+            has_mut_return,
+            "constructor should return *mut <core>::RouteBuilder (not a wrapper); got:\n{}",
+            lib.content
         );
     }
 

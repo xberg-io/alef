@@ -78,8 +78,12 @@ impl Backend for MagnusBackend {
         // Service-owner types and handler-contract traits are marked binding_excluded
         // by the service extraction pass: they are emitted by the service-API codegen,
         // not the generic struct/trait codegen, so skip them in the generic loop too.
-        let binding_excluded_names: Vec<String> =
-            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let binding_excluded_names: Vec<String> = api
+            .types
+            .iter()
+            .filter(|t| t.binding_excluded)
+            .map(|t| t.name.clone())
+            .collect();
         let mut exclude_types: std::collections::HashSet<&str> = config
             .ruby
             .as_ref()
@@ -639,8 +643,12 @@ impl Backend for MagnusBackend {
         // Build explicit re-export lists: filter out excluded types and Update/Builder types.
         // Also skip binding-excluded types (service owners / handler-contract traits) — they
         // are exported by the service-API codegen, not the generic struct re-export list.
-        let binding_excluded_names: Vec<String> =
-            api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()).collect();
+        let binding_excluded_names: Vec<String> = api
+            .types
+            .iter()
+            .filter(|t| t.binding_excluded)
+            .map(|t| t.name.clone())
+            .collect();
         let mut exclude_types: std::collections::HashSet<&str> = config
             .ruby
             .as_ref()

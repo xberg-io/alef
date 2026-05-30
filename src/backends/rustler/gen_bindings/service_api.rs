@@ -614,11 +614,7 @@ fn gen_run_nif(
                 .map(|p| {
                     // Opaque types are passed as ResourceArc<T>, not the core type.
                     if let TypeRef::Named(n) = &p.ty {
-                        if api
-                            .types
-                            .iter()
-                            .any(|t| &t.name == n && !t.is_trait && t.is_opaque)
-                        {
+                        if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
                             return format!("rustler::ResourceArc<{}>", n);
                         }
                     }
@@ -637,9 +633,7 @@ fn gen_run_nif(
             // Decode and bind opaque metadata params to locals for later use
             for meta_param in reg.metadata_params.iter() {
                 let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
-                    api.types
-                        .iter()
-                        .any(|t| &t.name == n && !t.is_trait && t.is_opaque)
+                    api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
                 } else {
                     false
                 };

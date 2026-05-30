@@ -572,38 +572,6 @@ pub(super) fn gen_type_new(
     )
 }
 
-/// Generate an opaque handle struct for a type marked `is_opaque = true`.
-///
-/// Emits:
-/// ```rust
-/// #[repr(C)]
-/// pub struct {TypeName}Opaque {
-///     pub(crate) inner: {qualified},
-/// }
-/// ```
-///
-/// This struct is the heap-allocated opaque handle returned by `{prefix}_{type_snake}_new()`
-/// and accepted by every method wrapper. It must be defined once before all constructor and
-/// method functions that reference `{TypeName}Opaque` are emitted.
-pub(super) fn gen_opaque_struct_def(typ: &TypeDef, core_import: &str) -> String {
-    let type_name = &typ.name;
-    let type_snake = typ.name.to_snake_case();
-    let qualified = core_type_path(typ, core_import);
-    format!(
-        "/// Opaque heap-allocated handle to a `{type_name}` instance.\n\
-         /// Allocated by `{type_snake}_new()` and freed by `{type_snake}_free()`.\n\
-         /// The inner field is accessible only within this crate.\n\
-         ///\n\
-         /// # Safety\n\
-         /// The pointer returned by the constructor must be freed exactly once via\n\
-         /// the matching `_free()` function. Never access the pointer after freeing it.\n\
-         #[repr(C)]\n\
-         pub struct {type_name}Opaque {{\n    \
-             pub(crate) inner: {qualified},\n\
-         }}\n"
-    )
-}
-
 /// Generate an opaque static constructor from a method definition.
 ///
 /// For an opaque type with a static `new` method that returns `Self`,
@@ -639,12 +607,8 @@ pub(super) fn gen_opaque_static_constructor(
         } else {
             p.name.clone()
         };
-        let c_type = crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
-            &p.ty,
-            core_import,
-            path_map,
-            enum_names,
-        );
+        let c_type =
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(&p.ty, core_import, path_map, enum_names);
         ffi_params.push(format!("    {}: {}", param_name, c_type));
 
         if matches!(p.ty, TypeRef::Bytes) {
@@ -665,7 +629,7 @@ pub(super) fn gen_opaque_static_constructor(
     };
 
     out.push_str(&format!(
-        "{}#[no_mangle]\npub unsafe extern \"C\" fn {}(\n{}\n) -> *mut {type_name}Opaque {{\n",
+        "{}#[no_mangle]\npub unsafe extern \"C\" fn {}(\n{}\n) -> *mut {qualified} {{\n",
         allow_clippy,
         ffi_fn_name,
         ffi_params.join(",\n")
@@ -708,17 +672,11 @@ pub(super) fn gen_opaque_static_constructor(
                 ));
             }
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
-                out.push_str(&format!(
-                    "    let {0}_rs = {0} != 0;\n",
-                    p.name
-                ));
+                out.push_str(&format!("    let {0}_rs = {0} != 0;\n", p.name));
             }
             _ => {
                 // Pass through or use basic bindings for other types
-                out.push_str(&format!(
-                    "    let {0}_rs = {0};\n",
-                    p.name
-                ));
+                out.push_str(&format!("    let {0}_rs = {0};\n", p.name));
             }
         }
     }
@@ -737,16 +695,17 @@ pub(super) fn gen_opaque_static_constructor(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Call the core constructor and wrap in opaque
+    // Call the core constructor and return a heap-allocated pointer to the inner type.
+    // We deliberately return `*mut {qualified}` (not a wrapped `{type_name}Opaque`) so the
+    // pointer matches the signature of the legacy `_free()` emitter, which takes
+    // `*mut {qualified}`. cbindgen sees `{qualified}` as a forward-declared C type, so the
+    // host sees `struct <PREFIX><Type> *` — a true opaque handle.
+    let _ = type_name; // {type_name} is retained for doc/clarity in the doc comment above.
     out.push_str(&format!(
         "    let result = {qualified}::{}({});\n",
         method.name, call_args
     ));
-    out.push_str(&format!(
-        "    Box::into_raw(Box::new({type_name}Opaque {{\n        \
-         inner: result,\n    \
-         }}))\n"
-    ));
+    out.push_str("    Box::into_raw(Box::new(result))\n");
     out.push_str("}\n");
 
     out
@@ -761,10 +720,7 @@ pub(super) fn gen_opaque_static_constructor(
 ///
 /// Methods like `default()` are explicitly excluded because they would collide with
 /// the `_new` symbol produced for the actual `new()` method.
-pub(super) fn is_static_constructor(
-    method: &crate::core::ir::MethodDef,
-    type_name: &str,
-) -> bool {
+pub(super) fn is_static_constructor(method: &crate::core::ir::MethodDef, type_name: &str) -> bool {
     if method.name != "new" {
         return false;
     }

@@ -125,9 +125,7 @@ fn method_sanitized_recoverable(method: &MethodDef) -> bool {
     !method.sanitized || any_param_sanitized
 }
 
-use crate::backends::ffi::type_map::{
-    c_return_type_with_paths, is_passthrough_return, is_void_return,
-};
+use crate::backends::ffi::type_map::{c_return_type_with_paths, is_passthrough_return, is_void_return};
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
@@ -576,12 +574,7 @@ pub(super) fn gen_method_wrapper(
         params.push(format!(
             "    {}: {}",
             param_name,
-            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
-                &p.ty,
-                core_import,
-                path_map,
-                enum_names,
-            )
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(&p.ty, core_import, path_map, enum_names,)
         ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
@@ -1029,12 +1022,7 @@ pub(super) fn gen_free_function(
         params.push(format!(
             "    {}: {}",
             param_name,
-            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
-                &p.ty,
-                core_import,
-                path_map,
-                enum_names,
-            )
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(&p.ty, core_import, path_map, enum_names,)
         ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {

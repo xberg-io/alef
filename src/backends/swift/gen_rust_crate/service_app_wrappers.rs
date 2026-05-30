@@ -1,7 +1,7 @@
 //! Emits service App struct wrappers for the swift-bridge crate.
 //!
 //! Each service with registrations gets a wrapper struct that exposes:
-//! - `App { inner: tokio::sync::Mutex<Option<spikard::App>> }`
+//! - `App { inner: tokio::sync::Mutex<Option<source_crate::App>> }`
 //! - `pub fn new() -> Self`
 //! - `pub fn config(&mut self) -> ()`
 //! - `pub fn run(self) -> Result<(), String>`
@@ -9,7 +9,7 @@
 use crate::core::ir::ApiSurface;
 
 /// Generate App wrapper struct and impl for all services with registrations.
-pub fn emit_service_app_wrappers(api: &ApiSurface) -> String {
+pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String {
     let mut out = String::new();
 
     if api.services.is_empty() {
@@ -22,6 +22,12 @@ pub fn emit_service_app_wrappers(api: &ApiSurface) -> String {
         }
 
         let service_name = &service.name;
+        let service_path = if service.rust_path.is_empty() {
+            format!("{source_crate}::{service_name}")
+        } else {
+            service.rust_path.clone()
+        };
+        let constructor = &service.constructor.name;
 
         out.push_str(&format!(
             "/// Wrapper for {service_name} service instance.\n\
@@ -29,7 +35,7 @@ pub fn emit_service_app_wrappers(api: &ApiSurface) -> String {
              mutable access\n\
              /// across FFI boundaries.\n\
              pub struct {service_name} {{\n\
-             \x20\x20\x20\x20pub inner: tokio::sync::Mutex<Option<spikard::App>>,\n\
+             \x20\x20\x20\x20pub inner: tokio::sync::Mutex<Option<{service_path}>>,\n\
              }}\n\n"
         ));
 
@@ -38,7 +44,7 @@ pub fn emit_service_app_wrappers(api: &ApiSurface) -> String {
              \x20\x20\x20\x20/// Create a new service instance.\n\
              \x20\x20\x20\x20pub fn new() -> Self {{\n\
              \x20\x20\x20\x20\x20\x20\x20\x20Self {{\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20inner: tokio::sync::Mutex::new(Some(spikard::App::new())),\n\
+             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20inner: tokio::sync::Mutex::new(Some({service_path}::{constructor}())),\n\
              \x20\x20\x20\x20\x20\x20\x20\x20}}\n\
              \x20\x20\x20\x20}}\n\n"
         ));

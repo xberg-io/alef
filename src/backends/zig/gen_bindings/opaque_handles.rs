@@ -178,15 +178,7 @@ pub(crate) fn emit_opaque_handle(
 
     // Emit static methods (constructors) at the top level, before the struct definition.
     for method in ty.methods.iter().filter(|m| m.is_static) {
-        emit_opaque_static_method(
-            method,
-            ty,
-            prefix,
-            declared_errors,
-            struct_names,
-            enum_names,
-            out,
-        );
+        emit_opaque_static_method(method, ty, prefix, declared_errors, struct_names, enum_names, out);
         let _ = writeln!(out);
     }
 
@@ -220,7 +212,7 @@ pub(crate) fn emit_opaque_handle(
 
 /// Emit a static method (constructor) on an opaque handle type.
 ///
-/// The FFI backend emits static constructors like `spikard_route_builder_new(method: i32, path: *const c_char)`
+/// The FFI backend emits static constructors like `{prefix}_route_builder_new(method: i32, path: *const c_char)`
 /// where enum parameters are passed as i32 discriminants. This function emits the Zig wrapper as a top-level
 /// function that marshals enum parameters to i32 using `@intFromEnum()` and calls the C FFI symbol.
 fn emit_opaque_static_method(
@@ -261,11 +253,7 @@ fn emit_opaque_static_method(
         ty.name.clone()
     };
 
-    let _ = writeln!(
-        out,
-        "pub fn {}({}) {} {{",
-        method.name, params_str, return_ty,
-    );
+    let _ = writeln!(out, "pub fn {}({}) {} {{", method.name, params_str, return_ty,);
 
     // Emit param conversions (string dupeZ, enum intFromEnum, struct JSON handles).
     for p in &method.params {
@@ -291,7 +279,6 @@ fn emit_opaque_static_method(
     );
     let _ = writeln!(out, "}}");
 }
-
 
 /// Zig type for a method parameter, including enum marshalling (for static methods).
 fn param_zig_type_with_enums(
@@ -337,14 +324,8 @@ fn emit_static_method_param_conversion(
     }
 
     // String/Path: dupeZ to NUL-terminated pointer
-    if matches!(
-        &p.ty,
-        TypeRef::String | TypeRef::Path
-    ) {
-        let _ = writeln!(
-            out,
-            "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
-        );
+    if matches!(&p.ty, TypeRef::String | TypeRef::Path) {
+        let _ = writeln!(out, "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});");
         let _ = writeln!(out, "    defer std.heap.c_allocator.free({name}_z);");
         return;
     }
@@ -369,10 +350,7 @@ fn emit_static_method_param_conversion(
     if let TypeRef::Named(n) = &p.ty {
         if struct_names.contains(n) {
             let snake = AsSnakeCase(n).to_string();
-            let _ = writeln!(
-                out,
-                "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
-            );
+            let _ = writeln!(out, "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});");
             let _ = writeln!(out, "    defer std.heap.c_allocator.free({name}_z);");
             let _ = writeln!(
                 out,

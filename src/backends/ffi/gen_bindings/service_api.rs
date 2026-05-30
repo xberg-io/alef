@@ -172,7 +172,7 @@ fn typeref_to_c_type(ty: &TypeRef) -> String {
         TypeRef::Bytes => "const uint8_t*".to_owned(),
         TypeRef::Unit => "void".to_owned(),
         TypeRef::Named(_) => "int32_t".to_owned(), // Enums are passed as int32_t discriminant
-        _ => "void*".to_owned(), // Json, Vec, Map, etc. go through JSON serialization
+        _ => "void*".to_owned(),                   // Json, Vec, Map, etc. go through JSON serialization
     }
 }
 
@@ -712,7 +712,11 @@ fn gen_entrypoint_function(
         service_snake
     ));
 
-    let param_bindings: Vec<FfiParamBinding> = ep.params.iter().map(|p| ffi_param_binding(p, core_import, api)).collect();
+    let param_bindings: Vec<FfiParamBinding> = ep
+        .params
+        .iter()
+        .map(|p| ffi_param_binding(p, core_import, api))
+        .collect();
     for binding in &param_bindings {
         out.push_str(&format!(",\n    {}", binding.decl));
     }
@@ -738,7 +742,11 @@ fn gen_entrypoint_function(
     out.push_str("    let owner = unsafe { Box::from_raw(owner) };\n");
     out.push_str("    let inner = *owner.inner;\n");
 
-    let call_args: String = param_bindings.iter().map(|b| b.arg.clone()).collect::<Vec<_>>().join(", ");
+    let call_args: String = param_bindings
+        .iter()
+        .map(|b| b.arg.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
     if ep.is_async {
         out.push_str("    let rt = tokio::runtime::Runtime::new().expect(\"failed to create tokio runtime\");\n");
     }
@@ -757,7 +765,9 @@ fn gen_entrypoint_function(
             out.push_str(&format!("    Box::into_raw(Box::new({call}))\n"));
         }
     } else if ep.error_type.is_some() {
-        out.push_str(&format!("    match {call} {{\n        Ok(_) => 0,\n        Err(_) => 1,\n    }}\n"));
+        out.push_str(&format!(
+            "    match {call} {{\n        Ok(_) => 0,\n        Err(_) => 1,\n    }}\n"
+        ));
     } else {
         out.push_str(&format!("    {call};\n    0\n"));
     }

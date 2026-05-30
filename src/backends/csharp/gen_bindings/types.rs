@@ -188,7 +188,7 @@ fn is_static_constructor(method: &MethodDef, type_name: &str) -> bool {
 /// Generate a public C# constructor for a static `new` FFI method on an opaque type.
 ///
 /// For a method like `RouteBuilder::new(method: Method, path: &str) -> Self`,
-/// the FFI backend generates `spikard_route_builder_new(method: i32, path: *const c_char) -> *mut RouteBuilderOpaque`.
+/// the FFI backend generates `{prefix}_route_builder_new(method: i32, path: *const c_char) -> *mut RouteBuilderOpaque`.
 /// This emits a public C# constructor that marshals parameters and calls the FFI function.
 #[allow(clippy::too_many_arguments)]
 fn gen_opaque_static_constructor(

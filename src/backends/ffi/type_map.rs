@@ -252,9 +252,10 @@ pub fn c_param_type_with_paths_and_enums(
             if enum_names.contains(name.as_str()) {
                 Cow::Borrowed("i32")
             } else {
-                let full_path = path_map.get(name.as_str()).cloned().unwrap_or_else(|| {
-                    format!("{core_import}::{name}")
-                });
+                let full_path = path_map
+                    .get(name.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| format!("{core_import}::{name}"));
                 Cow::Owned(format!("*const {full_path}"))
             }
         }
@@ -264,9 +265,10 @@ pub fn c_param_type_with_paths_and_enums(
                 if enum_names.contains(name.as_str()) {
                     Cow::Borrowed("i32")
                 } else {
-                    let inner_type = path_map.get(name.as_str()).cloned().unwrap_or_else(|| {
-                        format!("{core_import}::{name}")
-                    });
+                    let inner_type = path_map
+                        .get(name.as_str())
+                        .cloned()
+                        .unwrap_or_else(|| format!("{core_import}::{name}"));
                     Cow::Owned(format!("*const {inner_type}"))
                 }
             } else {
@@ -458,12 +460,7 @@ mod tests {
         enum_names.insert("Method".to_string());
         let path_map = ahash::AHashMap::new();
         assert_eq!(
-            c_param_type_with_paths_and_enums(
-                &TypeRef::Named("Method".to_string()),
-                CORE,
-                &path_map,
-                &enum_names
-            ),
+            c_param_type_with_paths_and_enums(&TypeRef::Named("Method".to_string()), CORE, &path_map, &enum_names),
             "i32"
         );
     }

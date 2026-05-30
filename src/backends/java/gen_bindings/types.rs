@@ -1065,7 +1065,15 @@ pub(crate) fn gen_opaque_handle_class(
     // `DownloadManager.create(version)` API without exposing the raw FFI handle.
     if has_static_factories {
         for method in &static_factory_methods {
-            gen_static_factory_method(&mut body, method, class_name, prefix, &type_snake, main_class, enum_names);
+            gen_static_factory_method(
+                &mut body,
+                method,
+                class_name,
+                prefix,
+                &type_snake,
+                main_class,
+                enum_names,
+            );
         }
     }
 
@@ -1579,9 +1587,7 @@ fn gen_static_factory_method(
                             "            var {cname} = {pname} != null ? {pname}.ordinal() : -1;\n"
                         ));
                     } else {
-                        out.push_str(&format!(
-                            "            var {cname} = {pname}.ordinal();\n"
-                        ));
+                        out.push_str(&format!("            var {cname} = {pname}.ordinal();\n"));
                     }
                     call_args.push(cname);
                 } else {
