@@ -6,7 +6,11 @@
 // SAFETY: The opaque pointer (app) is the swift-bridge-wrapped handle from the
 // bridge module. swift-bridge emits it as #[repr(transparent)] around the service,
 // so reconstituting via &mut *app is safe given the caller's guarantee of validity.
-#[unsafe(no_mangle)]
+// NB: `#[no_mangle]` (not `#[unsafe(no_mangle)]`) — swift-bridge 0.1.59
+// pins syn 1.x, which rejects the 2024-edition `#[unsafe(...)]` attribute
+// form. The crate root allows `unsafe_attr_outside_unsafe` so this still
+// compiles cleanly on edition 2024.
+#[no_mangle]
 pub extern "C" fn {{ service_snake }}_{{ reg_snake }}_via_callback(
     app: *mut {{ service_name }},
 {%- for meta_param in metadata_params %}

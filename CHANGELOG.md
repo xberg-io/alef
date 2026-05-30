@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift: keep service callback exports parseable by swift-bridge 0.1.59 on Rust 2024.** Service callback registration shims now emit plain `#[no_mangle]` and allow the Rust 2024 `unsafe_attr_outside_unsafe` lint at the generated bridge crate root, because swift-bridge 0.1.59 still uses syn 1.x and cannot parse `#[unsafe(no_mangle)]`. The JVM service integration test now asserts the current Java/Panama + Kotlin coroutine-wrapper layering instead of stale JNI extern declarations. (`src/backends/swift/gen_rust_crate/mod.rs`, `src/backends/swift/templates/rust_extern_c_register_via_callback.rs.jinja`, `tests/service_api_jvm_symbol_consistency.rs`)
+
 - **ffi: drop the `{Type}Opaque` wrapper struct from static constructors.** Static constructors now return `*mut {qualified}` directly, matching the legacy `_free` signature and avoiding cbindgen headers with incomplete struct fields. Constructor bodies allocate the inner opaque type with `Box::into_raw(Box::new({qualified}::new(...)))`, so host bindings can free the pointer with the existing generated `_free` function. (`src/backends/ffi/gen_bindings/{mod,types}.rs`)
 
 - **go: convert string-typed enum params to i32 via `{prefix}_{enum}_from_str` instead of direct `C.int32_t(...)`.** Go represents named enums as `type <Enum> string` aliases, so direct conversion to `int32_t` does not compile. The new template CString-allocates enum params, calls the generated FFI helper, and defers the allocation free before invoking the C symbol. (`src/backends/go/gen_bindings/methods.rs`, `src/backends/go/templates/param_enum_to_i32.jinja`)

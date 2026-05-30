@@ -1,10 +1,9 @@
-//! Integration test: Verify JNI service Rust symbols match Kotlin external fun declarations.
+//! Integration test: verify JVM service API layering stays consistent.
 //!
-//! This test ensures that the jni and kotlin service-API backends emit symbols that link correctly.
-//! For each kotlin `external fun`, the corresponding Rust JNI symbol is computed and verified
-//! to exist in the jni output.
+//! The JVM Kotlin service backend is a coroutine-friendly wrapper over the Java/Panama
+//! facade. It must not emit JNI `external fun`s; Java owns the native C FFI calls.
 
-use alef::backends::jni::JniBackend;
+use alef::backends::java::JavaBackend;
 use alef::backends::kotlin::KotlinBackend;
 use alef::core::backend::Backend;
 use alef::core::config::ResolvedCrateConfig;
@@ -12,7 +11,6 @@ use alef::core::ir::{
     ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, PrimitiveType, RegistrationDef,
     ServiceDef, TypeRef,
 };
-use alef::core::jni::{jni_package, jni_symbol, service_bridge_class_name};
 
 /// Build a synthetic [`ApiSurface`] with one service: one constructor, one registration
 /// with metadata, one Run entrypoint, and a corresponding handler contract.
@@ -141,21 +139,23 @@ fn make_test_surface() -> ApiSurface {
     }
 }
 
-/// Make a test config with kotlin_android package set.
+/// Make a test config with explicit Java and Kotlin JVM packages.
 fn make_test_config() -> ResolvedCrateConfig {
     use alef::core::config::NewAlefConfig;
 
     let toml_str = r#"
 [workspace]
-languages = ["kotlin_android", "jni"]
+languages = ["java", "kotlin"]
 
 [[crates]]
 name = "test-crate"
 sources = ["src/lib.rs"]
 
-[crates.kotlin_android]
+[crates.java]
 package = "dev.sample_crate"
-namespace = "dev.sample_crate"
+
+[crates.kotlin]
+package = "dev.sample_crate.kt"
 "#;
 
     let raw: NewAlefConfig = toml::from_str(toml_str).expect("failed to parse test config");
@@ -168,90 +168,48 @@ fn service_api_jvm_symbol_consistency() {
     let api = make_test_surface();
     let config = make_test_config();
 
-    // Generate jni service Rust code via the public Backend hook.
-    let jni_files = JniBackend
+    let java_files = JavaBackend
         .generate_service_api(&api, &config)
-        .expect("jni generate_service_api should succeed");
-    assert!(!jni_files.is_empty(), "jni should generate service.rs");
-    let jni_content = jni_files[0].content.clone();
+        .expect("java generate_service_api should succeed");
+    assert!(!java_files.is_empty(), "java should generate service files");
+    let java_content = java_files
+        .iter()
+        .find(|file| file.path.ends_with("ApiSurface.java"))
+        .expect("java should generate ApiSurface.java")
+        .content
+        .clone();
 
-    // Generate kotlin service Kotlin code via the public Backend hook.
     let kotlin_files = KotlinBackend
         .generate_service_api(&api, &config)
         .expect("kotlin generate_service_api should succeed");
     assert!(!kotlin_files.is_empty(), "kotlin should generate service file");
     let kotlin_content = kotlin_files[0].content.clone();
 
-    // Resolve package and the per-service bridge class exactly as jni and kotlin do.
-    let package = jni_package(&config);
-    assert_eq!(package, "dev.sample_crate", "package should come from kotlin_android");
-
-    // The class hosting the external funs is the per-service bridge object — both jni
-    // (symbol class) and kotlin (object name) must use this identical string.
-    let bridge_class = service_bridge_class_name(&api.services[0].name);
-    assert_eq!(bridge_class, "ApiSurfaceServiceBridge");
-
-    // Extract Kotlin external fun names from the bridge object
-    // Simple string search for "external fun <name>("
-    let mut kotlin_external_names = Vec::new();
-    let mut remaining: &str = kotlin_content.as_str();
-    while let Some(pos) = remaining.find("external fun ") {
-        remaining = &remaining[pos + 13..];
-        if let Some(paren) = remaining.find('(') {
-            let method_name = remaining[..paren].trim();
-            kotlin_external_names.push(method_name.to_owned());
-            remaining = &remaining[paren..];
-        }
-    }
-
+    assert!(java_content.contains("package dev.sample_crate;"));
+    assert!(java_content.contains("LOOKUP.find(\"test_crate_api_surface_new\")"));
     assert!(
-        !kotlin_external_names.is_empty(),
-        "kotlin should declare external funs:\n{kotlin_content}"
+        java_content
+            .matches("test_crate_api_surface_register_on_request")
+            .count()
+            >= 2,
+        "java should document and look up the registration C symbol:\n{java_content}"
     );
+    assert!(java_content.contains("public int registerApiSurfaceOnRequest(Callable handler, String pattern)"));
+    assert!(java_content.contains("public void run(String addr)"));
+    assert!(java_content.contains("public long shutdown()"));
 
-    // For each kotlin external fun, compute the expected jni symbol
-    let expected_jni_symbols: Vec<String> = kotlin_external_names
-        .iter()
-        .map(|method_name| jni_symbol(&package, &bridge_class, method_name))
-        .collect();
-
-    // Verify each symbol appears in the jni Rust code
-    for symbol in &expected_jni_symbols {
-        assert!(
-            jni_content.contains(&format!("pub extern \"system\" fn {symbol}("))
-                || jni_content.contains(&format!("pub extern \"system\" fn {symbol} ("))
-                || jni_content.contains(&format!("pub extern \"system\" fn {symbol}\n")),
-            "jni should emit symbol {symbol}:\n{jni_content}"
-        );
-    }
-
-    // Count expected symbols: 1 constructor + 1 destructor + 1 register + 2 entrypoints = 5
-    assert_eq!(
-        kotlin_external_names.len(),
-        5,
-        "should have 5 external funs (constructor, destructor, register, run, finalize)"
+    assert!(kotlin_content.contains("package dev.sample_crate.kt"));
+    assert!(kotlin_content.contains("internal val inner: dev.sample_crate.ApiSurface"));
+    assert!(kotlin_content.contains("constructor() : this(dev.sample_crate.ApiSurface())"));
+    assert!(kotlin_content.contains("import dev.sample_crate.Callable"));
+    assert!(kotlin_content.contains("fun onRequest(handler: (String) -> String, pattern: String): Int"));
+    assert!(
+        kotlin_content.contains("inner.registerApiSurfaceOnRequest(Callable { request -> handler(request) }, pattern)")
     );
-
-    // Verify specific method names match the pattern (based on bridge_method_name scheme)
-    let has_new = kotlin_external_names.iter().any(|n| n.contains("New"));
-    let has_free = kotlin_external_names.iter().any(|n| n.contains("Free"));
-    let has_register = kotlin_external_names
-        .iter()
-        .any(|n| n.contains("Register") && n.contains("OnRequest"));
-    let has_run = kotlin_external_names.iter().any(|n| n.contains("Run"));
-    let has_finalize = kotlin_external_names
-        .iter()
-        .any(|n| n.contains("Shutdown") || n.contains("Finalize"));
-
-    assert!(has_new, "should have constructor (New) method");
-    assert!(has_free, "should have destructor (Free) method");
-    assert!(has_register, "should have register method");
-    assert!(has_run, "should have run entrypoint");
-    assert!(has_finalize, "should have finalize entrypoint");
-
-    println!("✓ JVM service-API symbol consistency verified");
-    println!("  Package: {}", package);
-    println!("  Bridge class: {}", bridge_class);
-    println!("  External funs: {:?}", kotlin_external_names);
-    println!("  JNI symbols: {:?}", expected_jni_symbols);
+    assert!(kotlin_content.contains("suspend fun run(addr: String) = withContext(Dispatchers.IO) { inner.run(addr) }"));
+    assert!(kotlin_content.contains("fun shutdown(): Int = inner.shutdown()"));
+    assert!(
+        !kotlin_content.contains("external fun"),
+        "kotlin JVM service wrapper should delegate to Java/Panama, not declare JNI externs:\n{kotlin_content}"
+    );
 }
