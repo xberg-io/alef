@@ -415,6 +415,19 @@ fn emit_client_type_file(
         "class {class_name} internal constructor(internal val inner: {java_fqn}) : AutoCloseable {{\n"
     ));
 
+    // When any wrapped method takes a raw-JSON (`Any`) param, the body serializes
+    // it to the JSON `String` the Java facade expects via a shared Jackson mapper.
+    let needs_mapper = ty
+        .methods
+        .iter()
+        .filter(|m| !m.sanitized && !m.is_static && !method_references_excluded(m, exclude_types))
+        .any(|m| m.params.iter().any(|p| matches!(p.ty, TypeRef::Json)));
+    if needs_mapper {
+        content.push_str("    private companion object {\n");
+        content.push_str("        private val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()\n");
+        content.push_str("    }\n\n");
+    }
+
     let mut method_imports: BTreeSet<String> = BTreeSet::new();
     for method in ty
         .methods
@@ -464,10 +477,20 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
     let async_kw = if m.is_async { "suspend " } else { "" };
 
     let params_with_types: Vec<String> = m.params.iter().map(|p| format_param_pub(p, imports)).collect();
+    // Raw-JSON params map to `Any` in the Kotlin wrapper for ergonomics, but the
+    // Java facade method accepts the serialized JSON `String`. Serialize such
+    // params via the shared Jackson `MAPPER` before delegating.
     let call_args: String = m
         .params
         .iter()
-        .map(|p| to_lower_camel(&p.name))
+        .map(|p| {
+            let name = to_lower_camel(&p.name);
+            if matches!(p.ty, TypeRef::Json) {
+                format!("MAPPER.writeValueAsString({name})")
+            } else {
+                name
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
