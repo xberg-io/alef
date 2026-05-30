@@ -1599,13 +1599,15 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = super::emit_test_backend("kotlin", trait_bridge, &methods, fixture);
+                    let lang = if kotlin_android_style { "kotlin_android" } else { "kotlin" };
+                    let emission = super::emit_test_backend(lang, trait_bridge, &methods, fixture);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
                 }
             }
-            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("kotlin");
+            let lang = if kotlin_android_style { "kotlin_android" } else { "kotlin" };
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented(lang);
             setup_lines.push(format!("// {}", emission.arg_expr));
             parts.push("null".to_string());
             continue;
