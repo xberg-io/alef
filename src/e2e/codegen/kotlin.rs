@@ -1102,7 +1102,7 @@ fn render_test_method(
     );
     let field_resolver = &call_field_resolver;
     let enum_fields = e2e_config.effective_fields_enum(call_config);
-    let lang = "kotlin";
+    let lang = if kotlin_android_style { "kotlin_android" } else { "kotlin" };
     let call_overrides = call_config.overrides.get(lang);
 
     // Check for client_factory — when set, use instance-method call style.
