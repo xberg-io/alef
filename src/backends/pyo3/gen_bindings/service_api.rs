@@ -18,7 +18,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
-use heck::{ToSnakeCase, ToUpperCamelCase};
+use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -338,14 +338,16 @@ fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant
                 param_name: _,
                 value_expr,
             } => {
-                // Convert a Rust enum path like `my_crate::Method::GET` into the
-                // Python form `Method.GET` by taking the last two `::` segments
-                // (the enum type name and the variant name). Non-`::` values
-                // pass through verbatim — the library author owns them.
+                // Convert a Rust enum path like `my_crate::Method::Get` into the
+                // Python form `Method.GET`: take the last two `::` segments
+                // (the enum type name and the variant name) and apply the same
+                // SHOUTY_SNAKE_CASE rename the pyclass codegen emits via
+                // `#[pyo3(name = "…")]`. Non-`::` values pass through verbatim
+                // — the library author owns them.
                 let segments: Vec<&str> = value_expr.split("::").collect();
                 if segments.len() >= 2 {
                     let class = segments[segments.len() - 2];
-                    let variant_name = segments[segments.len() - 1];
+                    let variant_name = segments[segments.len() - 1].to_shouty_snake_case();
                     call_args.push(format!("{class}.{variant_name}"));
                 } else {
                     call_args.push(value_expr.clone());
