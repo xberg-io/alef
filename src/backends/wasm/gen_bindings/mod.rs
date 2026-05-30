@@ -694,7 +694,7 @@ impl Backend for WasmBackend {
             if exclude_types.contains(&error.name) {
                 continue;
             }
-            builder.add_item(&gen_error_converter(error, &core_import));
+            builder.add_item(&gen_error_converter(error, &core_import, &source_remaps_borrowed));
             let methods_block = gen_error_methods(error, &core_import, &prefix);
             if !methods_block.is_empty() {
                 builder.add_item(&methods_block);

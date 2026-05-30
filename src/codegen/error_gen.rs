@@ -266,12 +266,21 @@ pub fn napi_converter_fn_name(error: &ErrorDef) -> String {
 /// Generate a converter function that maps a core error to a `JsValue` object
 /// with `code` (string) and `message` (string) fields, plus a private
 /// `error_code` helper that returns the variant code string.
-pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str) -> String {
-    let rust_path = if error.rust_path.is_empty() {
+pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_remaps: &[(&str, &str)]) -> String {
+    let mut rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
     } else {
         error.rust_path.replace('-', "_")
     };
+
+    // Apply source_crate_remaps: if the path starts with a crate that's in the remap list,
+    // replace it with the core_import
+    for (orig_crate, target_crate) in source_remaps {
+        if rust_path.starts_with(&format!("{orig_crate}::")) {
+            rust_path = rust_path.replacen(&format!("{orig_crate}::"), &format!("{target_crate}::"), 1);
+            break;
+        }
+    }
 
     let fn_name = format!("{}_to_js_value", to_snake_case(&error.name));
     let code_fn_name = format!("{}_error_code", to_snake_case(&error.name));
@@ -1910,7 +1919,7 @@ mod tests {
     #[test]
     fn test_gen_wasm_error_converter() {
         let error = sample_error();
-        let output = gen_wasm_error_converter(&error, "sample_markdown_rs");
+        let output = gen_wasm_error_converter(&error, "sample_markdown_rs", &[]);
         // Main converter function signature
         assert!(output.contains(
             "fn conversion_error_to_js_value(e: sample_markdown_rs::ConversionError) -> wasm_bindgen::JsValue {"

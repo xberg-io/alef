@@ -7,8 +7,8 @@
 /// Generate a WASM error converter for a single error type.
 ///
 /// Delegates to `crate::codegen::error_gen::gen_wasm_error_converter`.
-pub(super) fn gen_error_converter(error: &crate::core::ir::ErrorDef, core_import: &str) -> String {
-    crate::codegen::error_gen::gen_wasm_error_converter(error, core_import)
+pub(super) fn gen_error_converter(error: &crate::core::ir::ErrorDef, core_import: &str, source_remaps: &[(&str, &str)]) -> String {
+    crate::codegen::error_gen::gen_wasm_error_converter(error, core_import, source_remaps)
 }
 
 /// Generate an opaque WASM struct + `#[wasm_bindgen] impl` block for the
