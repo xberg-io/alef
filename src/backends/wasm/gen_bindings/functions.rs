@@ -1553,7 +1553,7 @@ mod tests {
 
         let type_def = crate::core::ir::TypeDef {
             name: "ExtractionConfig".to_string(),
-            rust_path: "kreuzberg::ExtractionConfig".to_string(),
+            rust_path: "mylib::ExtractionConfig".to_string(),
             original_rust_path: String::new(),
             fields: vec![
                 // Always-enabled field
@@ -1589,10 +1589,10 @@ mod tests {
         // Generate without the "layout" feature enabled
         let (code_no_layout, _) = gen_input_dto_for_type_with_cfg(
             "ExtractionConfig",
-            "kreuzberg",
+            "mylib",
             &type_def,
-            &[],                           // No excluded types
-            &["streaming".to_string()],    // Only "streaming" is enabled, NOT "layout"
+            &[],                        // No excluded types
+            &["streaming".to_string()], // Only "streaming" is enabled, NOT "layout"
         );
 
         // The layout_config field should have a cfg guard since "layout" is not enabled
@@ -1611,10 +1611,10 @@ mod tests {
         // Generate WITH the "layout" feature enabled
         let (code_with_layout, _) = gen_input_dto_for_type_with_cfg(
             "ExtractionConfig",
-            "kreuzberg",
+            "mylib",
             &type_def,
-            &[],                           // No excluded types
-            &["layout".to_string()],       // "layout" IS enabled
+            &[],                     // No excluded types
+            &["layout".to_string()], // "layout" IS enabled
         );
 
         // Now the layout_config field should NOT be skipped (cfg is satisfied)

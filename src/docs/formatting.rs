@@ -764,12 +764,7 @@ mod tests {
     fn test_format_default_multiline_raw_string_collapsed() {
         let api = empty_api();
         // Create a field with a multiline raw default
-        let mut field = make_field(
-            "config",
-            TypeRef::String,
-            false,
-            None,
-        );
+        let mut field = make_field("config", TypeRef::String, false, None);
         field.default = Some("line1\nline2\nline3".to_string());
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
         assert_eq!(result, "`line1 line2 line3`", "multiline defaults must be collapsed");
@@ -779,12 +774,7 @@ mod tests {
     #[test]
     fn test_format_default_raw_string_with_extra_spaces_collapsed() {
         let api = empty_api();
-        let mut field = make_field(
-            "config",
-            TypeRef::String,
-            false,
-            None,
-        );
+        let mut field = make_field("config", TypeRef::String, false, None);
         // Simulate a string with internal double-spaces (e.g., from serde attributes)
         field.default = Some("value   with    spaces".to_string());
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);

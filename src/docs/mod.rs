@@ -1473,16 +1473,14 @@ exclude_types = ["FfiHidden"]
             name: "OutputFormat".into(),
             rust_path: "test::OutputFormat".into(),
             original_rust_path: String::new(),
-            variants: vec![
-                EnumVariant {
-                    name: "Markdown".into(),
-                    fields: vec![],
-                    doc: String::new(),
-                    is_default: true,
-                    serde_rename: None,
-                    is_tuple: false,
-                },
-            ],
+            variants: vec![EnumVariant {
+                name: "Markdown".into(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                is_tuple: false,
+            }],
             // Doc-comment contains an internal heading that should be demoted
             doc: "Output format specification.\n\n## Variants\n\nDetailed variant info.".into(),
             cfg: None,
@@ -1498,7 +1496,10 @@ exclude_types = ["FfiHidden"]
         // The internal heading ## should become #### (demoted by 2 levels).
         // `contains("## Variants")` would false-match against `#### Variants`, so check
         // for the exact heading line at start-of-line instead.
-        assert!(out.contains("#### Variants"), "internal heading must be demoted to #### (was ##): {out}");
+        assert!(
+            out.contains("#### Variants"),
+            "internal heading must be demoted to #### (was ##): {out}"
+        );
         assert!(
             !out.lines().any(|l| l == "## Variants"),
             "raw ## heading must not remain: {out}"

@@ -1144,15 +1144,24 @@ mod tests {
         let doc = "Parent:\n* Item 1\n  * Nested item";
         let normalized = normalize_list_markers(doc);
         assert!(normalized.contains("- Item 1"));
-        assert!(normalized.contains("- Nested item"), "indented asterisk must also convert");
+        assert!(
+            normalized.contains("- Nested item"),
+            "indented asterisk must also convert"
+        );
     }
 
     #[test]
     fn test_normalize_list_markers_skips_code_blocks() {
         let doc = "Text:\n\n```markdown\n* Item in code block\n```\n\n* Real list item";
         let normalized = normalize_list_markers(doc);
-        assert!(normalized.contains("* Item in code block"), "code block content must be preserved");
-        assert!(normalized.contains("- Real list item"), "real list items must be converted");
+        assert!(
+            normalized.contains("* Item in code block"),
+            "code block content must be preserved"
+        );
+        assert!(
+            normalized.contains("- Real list item"),
+            "real list items must be converted"
+        );
     }
 
     #[test]
@@ -1175,7 +1184,10 @@ mod tests {
         let s = "Text   with    multiple     spaces";
         let collapsed = collapse_whitespace(s);
         // split_whitespace handles multiple spaces
-        assert!(collapsed.contains("Text with multiple spaces") || collapsed.contains("Text  with"), "extra spaces should be normalized");
+        assert!(
+            collapsed.contains("Text with multiple spaces") || collapsed.contains("Text  with"),
+            "extra spaces should be normalized"
+        );
     }
 
     #[test]
@@ -1200,8 +1212,14 @@ mod tests {
     fn test_clean_doc_normalizes_asterisk_list_markers_to_dash() {
         let doc = "Summary.\n\n* First item\n* Second item";
         let cleaned = clean_doc(doc, Language::Python);
-        assert!(cleaned.contains("- First item"), "asterisk lists should be normalized to dash: {cleaned}");
-        assert!(!cleaned.contains("* First"), "raw asterisk list markers should not remain");
+        assert!(
+            cleaned.contains("- First item"),
+            "asterisk lists should be normalized to dash: {cleaned}"
+        );
+        assert!(
+            !cleaned.contains("* First"),
+            "raw asterisk list markers should not remain"
+        );
     }
 }
 

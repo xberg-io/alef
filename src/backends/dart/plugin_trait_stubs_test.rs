@@ -39,12 +39,7 @@ mod plugin_trait_stub_generation {
     }
 
     /// Helper to create a test method with specified async-ness and return type.
-    fn make_method(
-        name: &str,
-        is_async: bool,
-        return_type: TypeRef,
-        params: Vec<ParamDef>,
-    ) -> MethodDef {
+    fn make_method(name: &str, is_async: bool, return_type: TypeRef, params: Vec<ParamDef>) -> MethodDef {
         MethodDef {
             name: name.to_string(),
             params,
@@ -107,8 +102,8 @@ mod plugin_trait_stub_generation {
 
         // The async method should be emitted as `async` with `Future<ExtractionResult>`
         assert!(
-            emission.setup_block.contains("Future<ExtractionResult> process(") ||
-            emission.setup_block.contains("Future< ExtractionResult > process("),
+            emission.setup_block.contains("Future<ExtractionResult> process(")
+                || emission.setup_block.contains("Future< ExtractionResult > process("),
             "async method must have Future<T> return type, got:\n{}",
             emission.setup_block
         );
@@ -135,13 +130,13 @@ mod plugin_trait_stub_generation {
 
         // Sync method should NOT have async keyword or Future wrapper
         assert!(
-            emission.setup_block.contains("bool validate()") ||
-            emission.setup_block.contains("bool validate(  )"),
+            emission.setup_block.contains("bool validate()") || emission.setup_block.contains("bool validate(  )"),
             "sync method must have plain return type, got:\n{}",
             emission.setup_block
         );
         // Make sure there's no `Future<bool>` or `async =>` for this method
-        let validate_section = emission.setup_block
+        let validate_section = emission
+            .setup_block
             .lines()
             .filter(|l| l.contains("validate"))
             .collect::<Vec<_>>()
@@ -162,12 +157,7 @@ mod plugin_trait_stub_generation {
     fn internal_document_type_maps_to_extraction_result() {
         let bridge = make_trait_bridge("TestExtractor", Some("Plugin"));
         // Simulate a method that returns InternalDocument (which should be mapped to ExtractionResult)
-        let method_with_internal = make_method(
-            "extract",
-            true,
-            TypeRef::Named("InternalDocument".to_string()),
-            vec![],
-        );
+        let method_with_internal = make_method("extract", true, TypeRef::Named("InternalDocument".to_string()), vec![]);
         let methods = [&method_with_internal];
         let fixture = make_fixture("extract_test", Some("test-extractor"));
 
@@ -175,8 +165,8 @@ mod plugin_trait_stub_generation {
 
         // InternalDocument should be mapped to ExtractionResult
         assert!(
-            emission.setup_block.contains("Future<ExtractionResult>") ||
-            emission.setup_block.contains("Future< ExtractionResult >"),
+            emission.setup_block.contains("Future<ExtractionResult>")
+                || emission.setup_block.contains("Future< ExtractionResult >"),
             "InternalDocument return type must be mapped to ExtractionResult, got:\n{}",
             emission.setup_block
         );
@@ -214,12 +204,7 @@ mod plugin_trait_stub_generation {
     fn method_callbacks_provided_for_all_methods() {
         let bridge = make_trait_bridge("MultiMethod", Some("Plugin"));
         let method1 = make_method("doFirst", true, TypeRef::Primitive(PrimitiveType::Bool), vec![]);
-        let method2 = make_method(
-            "doSecond",
-            true,
-            TypeRef::Named("String".to_string()),
-            vec![],
-        );
+        let method2 = make_method("doSecond", true, TypeRef::Named("String".to_string()), vec![]);
         let methods = [&method1, &method2];
         let fixture = make_fixture("multi_test", Some("test-multi"));
 
@@ -266,7 +251,9 @@ mod plugin_trait_stub_generation {
 
         // Class name should be TestStub{PascalCaseId}
         assert!(
-            emission.setup_block.contains("class TestStubCustomFixtureId extends Backend"),
+            emission
+                .setup_block
+                .contains("class TestStubCustomFixtureId extends Backend"),
             "class name must be derived from fixture id in PascalCase, got:\n{}",
             emission.setup_block
         );
@@ -280,12 +267,7 @@ mod plugin_trait_stub_generation {
         param.ty = TypeRef::Named("String".to_string());
         param.optional = false;
 
-        let method = make_method(
-            "process",
-            true,
-            TypeRef::Named("Result".to_string()),
-            vec![param],
-        );
+        let method = make_method("process", true, TypeRef::Named("Result".to_string()), vec![param]);
         let methods = [&method];
         let fixture = make_fixture("typed_params_test", Some("test-backend"));
 
@@ -293,8 +275,7 @@ mod plugin_trait_stub_generation {
 
         // Method signature should include typed parameters, not dynamic
         assert!(
-            emission.setup_block.contains("String input") ||
-            emission.setup_block.contains("String  input"),
+            emission.setup_block.contains("String input") || emission.setup_block.contains("String  input"),
             "parameters must be typed, not dynamic, got:\n{}",
             emission.setup_block
         );
