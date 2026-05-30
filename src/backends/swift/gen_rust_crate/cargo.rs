@@ -86,10 +86,11 @@ pub(crate) fn emit_cargo_toml(
     );
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
     // Order: ahash, async-trait, futures-util?, <core-crate>,
-    // serde, serde_json, swift-bridge, tokio.
+    // libc, serde, serde_json, swift-bridge, tokio.
     let mut dep_entries: Vec<String> = vec![
         "ahash = \"0.8\"".to_string(),
         "async-trait = \"0.1\"".to_string(),
+        "libc = \"0.2\"".to_string(),
         "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
         "serde_json = \"1\"".to_string(),
         format!("swift-bridge = \"{swift_bridge_ver}\""),
@@ -120,17 +121,18 @@ version = "{version}"
 edition = "2024"
 license = "{license}"
 
-# `ahash`, `async-trait`, `serde`, `serde_json`, and `tokio` are all
+# `ahash`, `async-trait`, `libc`, `serde`, `serde_json`, and `tokio` are all
 # conditionally referenced by alef-emitted code: `ahash` only when the
 # umbrella crate exposes `AHashMap<Cow<str>, _>` parameters (the conditional
 # `__*_ahash` shim rebuilds), `async-trait` and `tokio` only when the API
-# surface includes async streaming adapters and runtime spawn, `serde` and
+# surface includes async streaming adapters and runtime spawn, `libc` only
+# when service API C callback functions are emitted, `serde` and
 # `serde_json` only when JSON DTO conversions are emitted. They are listed
 # unconditionally in `[dependencies]` so the manifest is stable across
 # regens, and ignored here so cargo-machete does not flag downstream crates
 # whose API surface does not trigger those paths as unused.
 [package.metadata.cargo-machete]
-ignored = ["ahash", "async-trait", "serde", "serde_json", "tokio"]
+ignored = ["ahash", "async-trait", "libc", "serde", "serde_json", "tokio"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]

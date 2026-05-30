@@ -53,7 +53,21 @@ fn format_swift_comment(text: &str, indent: usize) -> String {
 ///
 /// Unit/primitive/string/bytes map to a status code or scalar; a `Named` type is representable only
 /// when this surface wraps it (so it can cross as an opaque handle). Anything else is not representable.
-fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+///
+/// Also rejects entrypoints whose source method was sanitized — the IR sanitizer maps unknown
+/// foreign return types (e.g. `axum::Router`) to `TypeRef::String`, which would otherwise pass
+/// the surface check but produce a bridge signature that doesn't match the real Rust method.
+fn entrypoint_return_representable(
+    ep: &crate::core::ir::EntrypointDef,
+    service: &ServiceDef,
+    api: &ApiSurface,
+) -> bool {
+    if let Some(svc_type) = api.types.iter().find(|t| t.name == service.name)
+        && let Some(method) = svc_type.methods.iter().find(|m| m.name == ep.method)
+        && method.sanitized
+    {
+        return false;
+    }
     match &ep.return_type {
         TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
         TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
@@ -96,7 +110,7 @@ fn typeref_to_swift_type(ty: &TypeRef) -> String {
 /// Map TypeRef to a Rust FFI type string.
 fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
     match ty {
-        TypeRef::String => "RustString".to_owned(),
+        TypeRef::String => "String".to_owned(),
         TypeRef::Primitive(p) => {
             use crate::core::ir::PrimitiveType;
             match p {
@@ -116,12 +130,13 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
             }
         }
         TypeRef::Named(n) => n.clone(),
-        _ => "RustString".to_owned(),
+        _ => "String".to_owned(),
     }
 }
 
-/// Generate Rust extern "Rust" declarations for a service.
+/// Generate Rust extern "Rust" declarations for a service (INSIDE the bridge module).
 /// These are appended to the `#[swift_bridge::bridge] mod ffi { ... }` block in lib.rs.
+/// Registration callbacks are excluded — they go outside the bridge via `generate_rust_callback_c_functions`.
 fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> String {
     let mut out = String::new();
     let service_snake = service.name.to_snake_case();
@@ -158,37 +173,15 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
         ));
     }
 
-    // Registration methods — C-callback-based
-    for reg in &service.registrations {
-        let reg_snake = reg.method.to_snake_case();
-        let reg_camel = reg_snake.to_lower_camel_case();
-        let metadata_params: Vec<minijinja::Value> = reg
-            .metadata_params
-            .iter()
-            .map(|mp| {
-                minijinja::context! {
-                    name => &mp.name,
-                    rust_type => typeref_to_rust_ffi_type(&mp.ty),
-                }
-            })
-            .collect();
-
-        out.push_str(&crate::backends::swift::template_env::render(
-            "rust_extern_register_via_callback.rs.jinja",
-            minijinja::context! {
-                service_snake => &service_snake,
-                reg_snake => &reg_snake,
-                reg_camel => &reg_camel,
-                service_name => &service.name,
-                metadata_params => metadata_params,
-            },
-        ));
-    }
+    // NOTE: Registration methods (callback-based) are EXCLUDED from here.
+    // They are emitted as plain C functions OUTSIDE the bridge module via
+    // `generate_rust_callback_c_functions`, since swift-bridge 0.1.59 cannot parse
+    // raw pointer types or `extern "C" fn` function pointers inside `extern "Rust"` blocks.
 
     // Entrypoint methods
     for ep in &service.entrypoints {
         // Skip finalize entrypoints whose return type can't be represented over the C ABI.
-        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, _api) {
+        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, service, _api) {
             continue;
         }
 
@@ -205,27 +198,32 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
             })
             .collect();
 
-        // Return type
+        // Return type. swift-bridge 0.1.59 cannot parse `Result<T, E>` in extern blocks,
+        // so error-returning functions return a JSON envelope string instead:
+        // `{"ok": <value>}` on success or `{"err": "<message>"}` on failure.
         let return_type = match &ep.return_type {
             TypeRef::Unit => {
                 if ep.error_type.is_some() {
-                    "Result<(), RustString>".to_owned()
+                    // Error case: return JSON envelope as String
+                    "String".to_owned()
                 } else {
                     "()".to_owned()
                 }
             }
             TypeRef::String => {
                 if ep.error_type.is_some() {
-                    "Result<RustString, RustString>".to_owned()
+                    // Error case: return JSON envelope as String
+                    "String".to_owned()
                 } else {
-                    "RustString".to_owned()
+                    "String".to_owned()
                 }
             }
             _ => {
                 if ep.error_type.is_some() {
-                    "Result<RustString, RustString>".to_owned()
+                    // Error case: return JSON envelope as String
+                    "String".to_owned()
                 } else {
-                    "RustString".to_owned()
+                    "String".to_owned()
                 }
             }
         };
@@ -239,6 +237,39 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
                 service_name => &service.name,
                 params => params,
                 return_type => return_type,
+            },
+        ));
+    }
+
+    out
+}
+
+/// Generate plain C functions for callback registration (OUTSIDE the bridge module).
+/// These are emitted after the `#[swift_bridge::bridge] mod ffi { ... }` block closes.
+fn gen_rust_callback_c_functions_for_service(service: &ServiceDef) -> String {
+    let mut out = String::new();
+    let service_snake = service.name.to_snake_case();
+
+    for reg in &service.registrations {
+        let reg_snake = reg.method.to_snake_case();
+        let metadata_params: Vec<minijinja::Value> = reg
+            .metadata_params
+            .iter()
+            .map(|mp| {
+                minijinja::context! {
+                    name => &mp.name,
+                    rust_type => typeref_to_rust_ffi_type(&mp.ty),
+                }
+            })
+            .collect();
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_extern_c_register_via_callback.rs.jinja",
+            minijinja::context! {
+                service_snake => &service_snake,
+                reg_snake => &reg_snake,
+                service_name => &service.name,
+                metadata_params => metadata_params,
             },
         ));
     }
@@ -267,6 +298,30 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
         "swift_file_header.swift.jinja",
         minijinja::Value::from(()),
     ));
+
+    // Emit @_silgen_name declarations for callback registration functions (defined outside the bridge module).
+    for reg in &service.registrations {
+        let reg_snake = reg.method.to_snake_case();
+        let metadata_params: Vec<minijinja::Value> = reg
+            .metadata_params
+            .iter()
+            .map(|mp| {
+                minijinja::context! {
+                    name => &mp.name,
+                    swift_type => typeref_to_swift_type(&mp.ty),
+                }
+            })
+            .collect();
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_silgen_callback.swift.jinja",
+            minijinja::context! {
+                service_snake => &service_snake,
+                reg_snake => &reg_snake,
+                metadata_params => metadata_params,
+            },
+        ));
+    }
 
     // Class header with doc comment
     let doc = if !service.doc.is_empty() {
@@ -326,7 +381,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     // Entrypoint methods
     for ep in &service.entrypoints {
         // Skip finalize entrypoints whose return type can't be represented over the C ABI.
-        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, service, api) {
             continue;
         }
         gen_entrypoint_method(&mut out, service, ep, &service_snake);
@@ -516,6 +571,21 @@ pub fn generate_rust_extern_blocks(api: &ApiSurface) -> anyhow::Result<Vec<Strin
     }
 
     Ok(blocks)
+}
+
+/// Generate plain C functions for callback registration (OUTSIDE the bridge module).
+/// These are emitted after the `#[swift_bridge::bridge] mod ffi { ... }` block closes in lib.rs.
+pub fn generate_rust_callback_c_functions(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
+    let mut funcs = Vec::new();
+
+    for service in &api.services {
+        if service.registrations.is_empty() {
+            continue;
+        }
+        funcs.push(gen_rust_callback_c_functions_for_service(service));
+    }
+
+    Ok(funcs)
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
@@ -757,18 +827,44 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_rust_extern_blocks_contains_callback_signature() {
+    fn test_gen_rust_extern_blocks_excludes_callback_registration() {
         let api = make_fixture_surface();
         let service = &api.services[0];
         let output = gen_service_rust_extern_blocks(service, &api);
 
+        // Callback registration should NOT be in the bridge module
         assert!(
-            output.contains("extern \"C\" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8"),
-            "expected C-callback signature:\n{output}"
+            !output.contains("extern \"C\" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8"),
+            "expected raw pointer callback signature to be EXCLUDED from bridge module:\n{output}"
+        );
+        assert!(
+            !output.contains("_via_callback"),
+            "expected callback-shim registration method to be EXCLUDED from bridge module:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_generate_rust_callback_c_functions_contains_callback_signature() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_rust_callback_c_functions_for_service(service);
+
+        // Callback registration SHOULD be in the C function output
+        assert!(
+            output.contains("extern \"C\" fn"),
+            "expected extern \"C\" fn in callback C function:\n{output}"
         );
         assert!(
             output.contains("_via_callback"),
-            "expected callback-shim registration method:\n{output}"
+            "expected callback-shim function name:\n{output}"
+        );
+        assert!(
+            output.contains("*mut std::ffi::c_void"),
+            "expected raw c_void pointer in callback:\n{output}"
+        );
+        assert!(
+            output.contains("#[unsafe(no_mangle)]") || output.contains("#[no_mangle]"),
+            "expected #[unsafe(no_mangle)] or #[no_mangle] on extern \"C\" function:\n{output}"
         );
     }
 
@@ -778,9 +874,11 @@ mod tests {
         let service = &api.services[0];
         let output = gen_service_rust_extern_blocks(service, &api);
 
+        // Fallible entrypoints return a JSON envelope string (swift-bridge 0.1.59
+        // cannot parse Result<T, E> in extern blocks).
         assert!(
-            output.contains("Result<(), RustString>"),
-            "expected fallible entrypoint return type:\n{output}"
+            output.contains("-> String") || output.contains("-> Result<(), String>"),
+            "expected entrypoint return type (JSON envelope or unit):\n{output}"
         );
     }
 
@@ -895,19 +993,36 @@ mod tests {
     }
 
     #[test]
-    fn test_instance_method_calls_not_rustbridge() {
+    fn test_swift_uses_silgen_not_bridge_method() {
         let api = make_fixture_surface();
         let service = &api.services[0];
         let output = gen_service_swift(&api, service);
 
-        // Should use inner.run() not RustBridge.test_service_run(...)
+        // Should use @_silgen_name'd C function, NOT inner.addHandlerViaCallback()
         assert!(
-            output.contains("inner.run("),
-            "expected instance method call to inner.run():\n{output}"
+            !output.contains("inner.addHandlerViaCallback("),
+            "expected callback to use @_silgen_name C function, NOT swift-bridge method:\n{output}"
         );
         assert!(
-            output.contains("inner.addHandlerViaCallback("),
-            "expected instance method call to inner.addHandlerViaCallback():\n{output}"
+            output.contains("_test_service_add_handler_via_callback("),
+            "expected call to @_silgen_name'd C function:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_swift_contains_silgen_declaration() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        // Should have @_silgen_name declaration at module scope
+        assert!(
+            output.contains("@_silgen_name(\"test_service_add_handler_via_callback\")"),
+            "expected @_silgen_name declaration for callback C function:\n{output}"
+        );
+        assert!(
+            output.contains("private func _test_service_add_handler_via_callback("),
+            "expected private func declaration for silgen'd C function:\n{output}"
         );
     }
 

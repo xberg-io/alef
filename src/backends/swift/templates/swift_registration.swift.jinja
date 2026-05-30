@@ -29,7 +29,15 @@
 
         guard var inner = inner else { throw ServiceError.invalidHandle }
 
-        let result = inner.{{ method_camel }}ViaCallback({% for meta_param in metadata_params %}{{ meta_param.name }}: {{ meta_param.name }}, {% endfor %}ctx: contextPtr, callback: trampolineFunc)
+        // Call the C function via @_silgen_name. The callback registration is defined
+        // OUTSIDE the swift-bridge module as a plain extern "C" function.
+        var innerPtr = inner.inner
+        let result = _{{ service_snake }}_{{ method_name }}_via_callback(
+            &innerPtr,
+            {% for meta_param in metadata_params %}{{ meta_param.name }},
+            {% endfor %}contextPtr,
+            trampolineFunc
+        )
         self.inner = inner
         guard result == 0 else { throw ServiceError.registrationFailed }
     }

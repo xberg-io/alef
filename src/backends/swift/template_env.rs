@@ -462,8 +462,8 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_extern_configurator.rs.jinja"),
     ),
     (
-        "rust_extern_register_via_callback.rs.jinja",
-        include_str!("templates/rust_extern_register_via_callback.rs.jinja"),
+        "rust_extern_c_register_via_callback.rs.jinja",
+        include_str!("templates/rust_extern_c_register_via_callback.rs.jinja"),
     ),
     (
         "rust_extern_entrypoint.rs.jinja",
@@ -492,6 +492,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_registration.swift.jinja",
         include_str!("templates/swift_registration.swift.jinja"),
+    ),
+    (
+        "swift_silgen_callback.swift.jinja",
+        include_str!("templates/swift_silgen_callback.swift.jinja"),
     ),
     (
         "swift_entrypoint.swift.jinja",

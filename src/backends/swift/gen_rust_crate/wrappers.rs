@@ -893,6 +893,11 @@ pub(crate) fn emit_type_method_shims(
             .iter()
             .map(|p| {
                 let name = p.name.to_snake_case();
+                // Special case: TypeRef::Json params are bridged as String but the
+                // core method expects serde_json::Value. Convert here.
+                if matches!(&p.ty, TypeRef::Json) {
+                    return format!("serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or(serde_json::Value::Null)");
+                }
                 if needs_json_bridge(&p.ty) {
                     let native_ty = swift_bridge_rust_type(&p.ty);
                     return format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");

@@ -1,7 +1,8 @@
     extern "Rust" {
+        type {{ service_name }};
         #[swift_bridge(swift_name = "{{ ep_camel }}")]
-        fn {{ service_snake }}_{{ ep_snake }}(
-            self: {{ service_name }},
+        fn {{ ep_snake }}(
+            &mut self,
 {%- for param in params %}
             {{ param.name }}: {{ param.rust_type }},
 {%- endfor %}

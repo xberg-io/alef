@@ -1,0 +1,13 @@
+// C function pointer for {{ service_snake }}.{{ reg_snake }} callback registration
+// This function is defined as a plain extern "C" in the Rust crate (outside the swift-bridge module).
+// Swift calls it via this @_silgen_name import at module scope.
+@_silgen_name("{{ service_snake }}_{{ reg_snake }}_via_callback")
+private func _{{ service_snake }}_{{ reg_snake }}_via_callback(
+    _ app: UnsafeMutablePointer<OpaquePointer>,
+    {%- for meta_param in metadata_params %}
+    _ {{ meta_param.name }}: {{ meta_param.swift_type }},
+    {%- endfor %}
+    _ ctx: UnsafeMutableRawPointer?,
+    _ callback: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<UInt8>?
+) -> Int32
+

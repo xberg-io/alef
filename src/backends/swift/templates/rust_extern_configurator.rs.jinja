@@ -1,5 +1,6 @@
     extern "Rust" {
+        type {{ service_name }};
         #[swift_bridge(swift_name = "{{ config_camel }}")]
-        fn {{ service_snake }}_{{ config_name }}(self: &mut {{ service_name }}) -> ();
+        fn {{ config_name }}(&mut self);
     }
 

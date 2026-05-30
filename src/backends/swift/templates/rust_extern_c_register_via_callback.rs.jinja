@@ -1,0 +1,76 @@
+// Callback registration for {{ service_name }}::{{ reg_snake }}
+// This function is called from Swift via @_silgen_name("{{ service_snake }}_{{ reg_snake }}_via_callback").
+// It is defined OUTSIDE the swift-bridge bridge module because swift-bridge 0.1.59
+// cannot parse raw pointer types or extern "C" fn function pointers in extern "Rust" blocks.
+//
+// SAFETY: The opaque pointer (app) is the swift-bridge-wrapped handle from the
+// bridge module. swift-bridge emits it as #[repr(transparent)] around the service,
+// so reconstituting via &mut *app is safe given the caller's guarantee of validity.
+#[unsafe(no_mangle)]
+pub extern "C" fn {{ service_snake }}_{{ reg_snake }}_via_callback(
+    app: *mut {{ service_name }},
+{%- for meta_param in metadata_params %}
+    {{ meta_param.name }}: {{ meta_param.rust_type }},
+{%- endfor %}
+    ctx: *mut std::ffi::c_void,
+    callback: extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8,
+) -> i32 {
+    // SAFETY: The caller guarantees a valid, live pointer to the service instance.
+    let app = unsafe { &mut *app };
+
+    // Wrap the raw C callback function as an Arc<dyn Handler>.
+    let handler = std::sync::Arc::new(SwiftCCallbackHandler { ctx, callback });
+
+    // Call the service's route registration method with the handler.
+    app.inner.blocking_lock().as_mut().map_or(-1, |service| {
+        service.route(
+            spikard::RouteBuilder::default()
+{%- for meta_param in metadata_params %}
+                .{{ meta_param.name }}({{ meta_param.name }})
+{%- endfor %},
+            handler
+        );
+        0
+    })
+}
+
+// Internal handler wrapper that adapts a raw C callback to the spikard Handler trait.
+struct SwiftCCallbackHandler {
+    ctx: *mut std::ffi::c_void,
+    callback: extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8,
+}
+
+unsafe impl Send for SwiftCCallbackHandler {}
+unsafe impl Sync for SwiftCCallbackHandler {}
+
+impl spikard::Handler for SwiftCCallbackHandler {
+    fn call(
+        &self,
+        _request: spikard::Request<spikard::Body>,
+        request_data: spikard::RequestData,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = spikard::HandlerResult> + Send + '_>> {
+        Box::pin(async move {
+            let req_json = match serde_json::to_string(&request_data) {
+                Ok(s) => s,
+                Err(e) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+            };
+            let req_bytes = req_json.as_bytes();
+            let resp_ptr = (self.callback)(self.ctx, req_bytes.as_ptr(), req_bytes.len());
+
+            // SAFETY: callback returns heap-allocated C string per contract; we must free it.
+            let resp_str = if resp_ptr.is_null() {
+                "{}".to_string()
+            } else {
+                let c_str = unsafe { std::ffi::CStr::from_ptr(resp_ptr as *const _) };
+                let s = c_str.to_string_lossy().into_owned();
+                unsafe { libc::free(resp_ptr as *mut _); }
+                s
+            };
+
+            let resp: spikard::Response = serde_json::from_str(&resp_str)
+                .unwrap_or_else(|_| spikard::Response::default());
+            spikard::handler_result_from_response(Ok(resp))
+        })
+    }
+}
+

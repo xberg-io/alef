@@ -19,8 +19,9 @@ use std::collections::{HashMap, HashSet};
 /// Returns true when a function can be fully bridged without emitting `unimplemented!()`.
 ///
 /// A function is unbridgeable when any parameter is an enum bridge wrapper (no reverse From),
-/// any tuple-vec parameter has an unbridgeable inner type (e.g. `Vec<u8>,`), or when the
-/// return type requires JSON bridging but the inner Named type lacks serde.
+/// any tuple-vec parameter has an unbridgeable inner type (e.g. `Vec<u8>,`), when the
+/// return type requires JSON bridging but the inner Named type lacks serde, or when any
+/// parameter is a Result type (Result types cannot be represented across the C FFI).
 pub(crate) fn is_bridgeable_fn(
     f: &FunctionDef,
     enum_names: &std::collections::HashSet<&str>,
@@ -30,6 +31,10 @@ pub(crate) fn is_bridgeable_fn(
     handle_returned_types: &HashSet<String>,
 ) -> bool {
     for p in &f.params {
+        // Skip functions with Result parameters — Results cannot be represented in C FFI.
+        if matches!(&p.ty, TypeRef::Named(n) if n.starts_with("Result") || n == "Result") {
+            return false;
+        }
         match &p.ty {
             TypeRef::Named(n)
                 if enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) =>

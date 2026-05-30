@@ -10,6 +10,7 @@ pub(crate) mod default_construction;
 pub(crate) mod enums;
 pub(crate) mod extern_block;
 pub(crate) mod plugin_inbound;
+pub(crate) mod service_app_wrappers;
 pub(crate) mod shims;
 pub mod trait_bridge;
 pub(crate) mod type_bridge;
@@ -433,11 +434,17 @@ fn emit_lib_rs(
     }
 
     // Service-API extern "Rust" blocks (bridge-based via C-callback shims).
-    // These declare opaque service types, constructors, configurators, registrations,
-    // and entrypoints to swift-bridge.
+    // These declare opaque service types, constructors, configurators,
+    // and entrypoints to swift-bridge. Callback registration functions are emitted
+    // as plain C functions OUTSIDE the bridge module (see below).
     let service_api_blocks = super::gen_bindings::service_api::generate_rust_extern_blocks(api)
         .unwrap_or_default();
     extern_blocks.extend(service_api_blocks);
+
+    // Service-API callback registration functions (plain C, emitted outside the bridge module).
+    // swift-bridge 0.1.59 cannot parse raw pointer types or `extern "C" fn` in extern "Rust" blocks.
+    let service_api_callback_funcs: Vec<String> = super::gen_bindings::service_api::generate_rust_callback_c_functions(api)
+        .unwrap_or_default();
 
     // Collect serde-enabled non-opaque types that appear as method parameters.
     // These need their own `{type_snake}_from_json` free-function shims so Swift
@@ -567,6 +574,17 @@ fn emit_lib_rs(
         out.push_str("    }\n");
     }
     out.push_str("}\n\n");
+
+    // Emit service App wrapper structs and impls (must be emitted BEFORE callback functions so
+    // the C functions can reference the App type and its methods).
+    out.push_str(&service_app_wrappers::emit_service_app_wrappers(api));
+    out.push('\n');
+
+    // Emit service-API callback registration functions (plain C, outside the bridge module).
+    for func_block in &service_api_callback_funcs {
+        out.push_str(func_block);
+        out.push('\n');
+    }
 
     for ty in &visible_types {
         out.push_str(&wrappers::emit_type_wrapper(
