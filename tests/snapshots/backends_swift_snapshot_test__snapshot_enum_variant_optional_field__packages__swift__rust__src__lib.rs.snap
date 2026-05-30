@@ -51,16 +51,15 @@ mod ffi {
     }
 
     extern "Rust" {
-
         #[swift_bridge(swift_name = "chunkFromJson")]
         fn chunk_from_json(json: String) -> Result<Chunk, String>;
     }
     extern "Rust" {
-
         #[swift_bridge(swift_name = "streamEventFromJson")]
         fn stream_event_from_json(json: String) -> Result<StreamEvent, String>;
     }
 }
+
 
 pub struct Chunk(pub demo::Chunk);
 impl Chunk {
