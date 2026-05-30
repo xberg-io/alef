@@ -23,9 +23,9 @@ use helpers::{
     gen_version,
 };
 use types::{
-    gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_enum_to_string,
-    gen_field_accessor, gen_opaque_static_constructor, gen_type_free, gen_type_from_json, gen_type_new, gen_type_to_json,
-    is_static_constructor,
+    gen_enum_free, gen_enum_from_i32, gen_enum_from_i32_rs_helper, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json,
+    gen_enum_to_string, gen_field_accessor, gen_opaque_static_constructor, gen_opaque_struct_def, gen_type_free,
+    gen_type_from_json, gen_type_new, gen_type_to_json, is_static_constructor,
 };
 
 pub struct FfiBackend;
@@ -165,6 +165,22 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 .map(|t| t.name.clone()),
         )
         .collect();
+    // All UNIT-VARIANT enum names — used for FFI param-type emission (i32 discriminant) and the
+    // matching from_i32 body conversion. Only unit-variant enums can be round-tripped through a
+    // bare i32 discriminant: data-bearing variants (tuple or struct) carry field data that cannot
+    // be reconstructed from the discriminant alone. The is_copy flag is intentionally not checked
+    // here — a non-Copy unit-variant enum (e.g. one missing the Copy derive) can still be passed
+    // by value over the C boundary using the auto-generated from_i32_rs match helper.
+    let ffi_param_enums: ahash::AHashSet<String> = api
+        .enums
+        .iter()
+        .filter(|e| {
+            e.variants
+                .iter()
+                .all(|v| v.fields.is_empty() && !v.is_tuple)
+        })
+        .map(|e| e.name.clone())
+        .collect();
     // Clone-but-not-Copy named types (structs + data-bearing enums). Callers emit `.clone()`.
     let clone_names: ahash::AHashSet<String> = api
         .types
@@ -289,6 +305,19 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         }
     }
 
+    // Private Rust helpers: for every enum that may be passed as an `i32` discriminant param,
+    // emit a `fn {enum_snake}_from_i32_rs(v: i32) -> Option<{qualified}>` helper. These are
+    // used by constructor and method/function bodies so they don't reference a non-existent
+    // `{core_import}::{enum_snake}_from_i32` Rust function (that would be the exported C ABI
+    // helper, not a Rust-level conversion function).
+    for enum_def in &api.enums {
+        if ffi_param_enums.contains(&enum_def.name)
+            && crate::codegen::conversions::can_generate_enum_conversion(enum_def)
+        {
+            builder.add_item(&gen_enum_from_i32_rs_helper(enum_def, &core_import));
+        }
+    }
+
     // Collect the set of type names excluded via [ffi] exclude_types, plus service-owner and
     // handler-contract types flagged `binding_excluded` by the service extraction pass. Those are
     // emitted through the service-API path (service.rs); also wrapping them as plain opaques here
@@ -372,8 +401,13 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             }
         }
 
-        // Opaque static constructors — emit extern "C" fn for static `new` methods on opaque types
+        // Opaque static constructors — emit opaque struct + extern "C" fn for static `new` methods
         if typ.is_opaque {
+            // Emit the `{TypeName}Opaque` struct definition once per opaque type.
+            // This must appear before the constructor and method wrappers that reference it.
+            if typ.methods.iter().any(|m| is_static_constructor(m, &typ.name)) {
+                builder.add_item(&gen_opaque_struct_def(typ, &core_import));
+            }
             for method in &typ.methods {
                 if is_static_constructor(method, &typ.name) {
                     builder.add_item(&gen_opaque_static_constructor(
@@ -382,7 +416,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                         prefix,
                         &core_import,
                         &path_map,
-                        &enum_names,
+                        &ffi_param_enums,
                     ));
                 }
             }
@@ -414,7 +448,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 prefix,
                 &core_import,
                 &path_map,
-                &enum_names,
+                &ffi_param_enums,
             ));
         }
     }
@@ -630,11 +664,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         if has_options_field_bridge && func.name == "convert" {
             continue;
         }
-        builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
+        builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &ffi_param_enums));
         // Emit a _len() companion for every function whose return type maps to *mut c_char
         // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.
         if returns_c_char(&func.return_type) {
-            builder.add_item(&gen_free_function_len_companion(func, prefix, &core_import, &path_map, &enum_names));
+            builder.add_item(&gen_free_function_len_companion(func, prefix, &core_import, &path_map, &ffi_param_enums));
         }
     }
 
