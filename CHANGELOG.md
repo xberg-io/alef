@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **php: remove unnecessary `unsafe` block in bridge constructor.** The PHP bridge `new()` constructor wraps `php_obj.inc_count()` in an `unsafe { ... }` block, but ext-php-rs's `ZendObject::inc_count()` method is safe. Removing the redundant unsafe wrapper eliminates rustc warnings about unnecessary unsafe blocks when kreuzberg-php bindings are compiled. (`src/backends/php/templates/bridge_constructor.jinja`)
+
 - **magnus: variant wrapper constructor calls go through the constructor method instead of as a tuple-struct call.** The Ruby/magnus `gen_variant_match_arm` emitter was building the wrapper constructor expression as `{{ wrapper_type_path }}({{ args }})`, ignoring `WrapperConstructorCall::constructor_method`. For a fixture with `wrapper_type_path = "my_crate::RouteBuilder"` and `constructor_method = "new"`, this produced `my_crate::RouteBuilder(method, path)`, which only compiles for tuple structs and panics on any wrapper whose constructor is a named method. The emitter now produces `my_crate::RouteBuilder::new(method, path)`, matching the FFI and dart backends. (`src/backends/magnus/gen_bindings/service_api.rs`)
 
 - **dart variant test expectation aligned with the local-newtype emitter.** `test_emit_registration_variants` still asserted the pre-`135ded123` behavior `self.route(builder, ...)`, even though the dart variant emitter now wraps the constructed inner in the bridge newtype and calls `self.route(RouteBuilder { inner }, handler)` (matching the dart-binding method signature). Updated the assertion to match the current, correct emitter output. (`src/backends/dart/gen_bindings/service_api.rs`)
