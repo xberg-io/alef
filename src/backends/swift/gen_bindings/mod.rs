@@ -2630,11 +2630,6 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
             continue; // Already emitted an overload for this function at this param index
         }
 
-        // Skip async functions—JSON-string overloads are for sync paths only.
-        if func.is_async {
-            continue;
-        }
-
         // Generate the function signature.
         let swift_func_name = swift_ident(&func.name.to_lower_camel_case());
         let config_type_snake = AsSnakeCase(config_type_name).to_string();
@@ -2645,8 +2640,8 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
             if i == config_param_idx {
-                // Config param becomes a String.
-                param_strs.push(format!("_ {param_name}: String"));
+                // Config param becomes a String, named configJson to avoid shadowing the local variable.
+                param_strs.push(format!("_ configJson: String"));
             } else {
                 let ty_str = if param.optional {
                     format!("{}?", swift_type_name(&param.ty))
@@ -2667,6 +2662,7 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
             if i == config_param_idx {
+                // Pass the decoded config, not the JSON string parameter
                 call_args.push("config: config".to_string());
             } else {
                 call_args.push(format!("{param_name}: {param_name}"));
@@ -2674,13 +2670,11 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         }
         let call_args_str = call_args.join(", ");
 
-        // Emit the overload function.
+        // Emit the overload function (both async and sync variants).
         out.push_str(&format!(
             "public func {swift_func_name}({params_sig}){throws_clause} -> {return_ty} {{\n"
         ));
-        out.push_str(&format!(
-            "    let config = try {config_from_json_name}({config_type_snake})\n"
-        ));
+        out.push_str(&format!("    let config = try {config_from_json_name}(configJson)\n"));
         out.push_str(&format!(
             "    return try {swift_func_name}({call_args_str}){return_suffix}\n"
         ));
