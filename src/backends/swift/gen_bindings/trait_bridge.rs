@@ -15,7 +15,7 @@
 use crate::backends::swift::naming::bridge_protocol_name;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{TypeDef, TypeRef};
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::{ToKebabCase, ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
 /// Generate Swift trait bridge protocol and adapter for outbound plugins.
@@ -520,9 +520,9 @@ pub fn gen_bridge_registration_overloads_file(
     content.push_str("// Adapter stub names (returned by name() method):\n");
     for (trait_name, _, _) in &trait_bridges {
         let pascal_name = to_pascal_case(trait_name);
-        let snake_name = trait_name.to_snake_case();
+        let stub_name = derive_short_stub_name(trait_name);
         content.push_str(&format!(
-            "// - _{pascal_name}BridgeAdapter → \"swift-bridge-{snake_name}-stub\"\n"
+            "// - _{pascal_name}BridgeAdapter → \"swift-bridge-{stub_name}-stub\"\n"
         ));
     }
     content.push_str("//\n");
@@ -535,7 +535,7 @@ pub fn gen_bridge_registration_overloads_file(
     // Emit adapter classes
     for (trait_name, _, trait_def) in &trait_bridges {
         let pascal_name = to_pascal_case(trait_name);
-        let snake_name = trait_name.to_snake_case();
+        let stub_name = derive_short_stub_name(trait_name);
 
         content.push_str(&format!(
             "private final class _{pascal_name}BridgeAdapter: {pascal_name} {{\n\
@@ -545,7 +545,7 @@ pub fn gen_bridge_registration_overloads_file(
 
         // Emit default implementations of all trait methods
         content.push_str(&format!(
-            "    func name() -> String {{ \"swift-bridge-{snake_name}-stub\" }}\n"
+            "    func name() -> String {{ \"swift-bridge-{stub_name}-stub\" }}\n"
         ));
 
         // Generate default implementations for all methods
@@ -599,6 +599,15 @@ pub fn gen_bridge_registration_overloads_file(
     }
 
     Some(("BridgeRegistrationOverloads.swift".to_string(), content))
+}
+
+/// Derive the short kebab-cased stub-name suffix used in adapter `name()`.
+/// Kebab-case the trait name, then strip a trailing `-backend` so plugin
+/// traits like `OcrBackend` map to `ocr` — matching the established e2e
+/// fixture cleanup names that consumers rely on.
+fn derive_short_stub_name(trait_name: &str) -> String {
+    let kebab = trait_name.to_kebab_case();
+    kebab.strip_suffix("-backend").map(str::to_string).unwrap_or(kebab)
 }
 
 /// Convert a snake_case or kebab-case identifier to PascalCase.
