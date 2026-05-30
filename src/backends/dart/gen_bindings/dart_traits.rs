@@ -125,7 +125,7 @@ fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTre
     }
 
     let method_camel = method.name.to_lower_camel_case();
-    let inner_ret = dart_return_type_str(&method.return_type, imports);
+    let inner_ret = substitute_internal_document(&dart_return_type_str(&method.return_type, imports));
 
     // All trait methods are bridged as async from the Dart side — they always
     // use DartFnFuture on the Rust side, so we always emit `Future<T>`.
@@ -139,11 +139,9 @@ fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTre
         .params
         .iter()
         .map(|p| {
-            let ty = if p.optional {
-                format!("{}?", render_type(&p.ty, imports))
-            } else {
-                render_type(&p.ty, imports)
-            };
+            let rendered = render_type(&p.ty, imports);
+            let mapped = substitute_internal_document(&rendered);
+            let ty = if p.optional { format!("{mapped}?") } else { mapped };
             format!("{ty} {}", p.name.to_lower_camel_case())
         })
         .collect();
@@ -168,10 +166,24 @@ fn dart_return_type_str(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String 
     }
 }
 
+/// Substitute the internal Rust type `InternalDocument` with the binding-facing
+/// type `ExtractionResult`. The Rust trait signatures (e.g.
+/// `DocumentExtractor::extract_bytes -> Result<InternalDocument>`,
+/// `Renderer::render(&InternalDocument)`) reference an internal type, but the
+/// public Dart binding surfaces this as `ExtractionResult` — so the trait
+/// declarations and the test-stub overrides must agree on the public name.
+/// Other backends (gleam, go, zig) handle this via explicit excluded-types
+/// substitution; dart applies it directly to the rendered type string.
+fn substitute_internal_document(rendered: &str) -> String {
+    rendered.replace("InternalDocument", "ExtractionResult")
+}
+
 /// Emit trait bridge stub types required by e2e test fixtures.
 ///
-/// These types (OcrBackendType, ProcessingStage, InternalDocument, SyncExtractor)
-/// are used by test stub implementations to satisfy trait method signatures.
+/// These types (OcrBackendType, ProcessingStage, SyncExtractor) are used by
+/// test stub implementations to satisfy trait method signatures. `InternalDocument`
+/// is intentionally not emitted as a placeholder — the trait emitter substitutes
+/// it with `ExtractionResult` so the public binding surface is consistent.
 fn emit_trait_stub_types(out: &mut String) {
     out.push('\n');
     out.push_str("/// OCR backend type identifier — used by e2e test plugin_api stubs.\n");
@@ -179,9 +191,6 @@ fn emit_trait_stub_types(out: &mut String) {
     out.push('\n');
     out.push_str("/// Processing stage for post-processors — used by e2e test plugin_api stubs.\n");
     out.push_str("enum ProcessingStage { preProcessing, processing, postProcessing }\n");
-    out.push('\n');
-    out.push_str("/// Internal document representation — used by e2e test plugin_api stubs.\n");
-    out.push_str("class InternalDocument {}\n");
     out.push('\n');
     out.push_str("/// Synchronous extractor trait stub — used by e2e test plugin_api stubs.\n");
     out.push_str("abstract class SyncExtractor {}\n");
