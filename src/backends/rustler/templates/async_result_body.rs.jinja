@@ -1,10 +1,16 @@
-{{ preamble }}std::thread::Builder::new()
-        .stack_size(32 * 1024 * 1024)
-        .spawn(move || {
-            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-            let result = rt.block_on(async { {{ core_call }}.await }).map_err(|e| e.to_string())?;
-            Ok({{ result_wrap }})
-        })
-        .map_err(|e| e.to_string())?
-        .join()
-        .map_err(|_| "thread panicked".to_string())?
+{{ preamble }}let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+                let result = rt.block_on(async { {{ core_call }}.await }).map_err(|e| e.to_string())?;
+                Ok({{ result_wrap }})
+            })
+            .map_err(|e| e.to_string())?
+            .join()
+            .map_err(|_| "thread panicked".to_string())
+    }));
+    match result {
+        Ok(inner_result) => inner_result,
+        Err(_) => Err("thread panic during async operation".to_string()),
+    }
