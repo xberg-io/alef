@@ -24,6 +24,7 @@ pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSu
     if let Some(raw) = &field.default {
         if !raw.is_empty() {
             // Collapse multi-line and multi-space strings into a single line
+            // This prevents MD038 (spaces inside code spans) and MD056 (table cell count issues)
             let collapsed = crate::docs::doc_cleaning::collapse_whitespace(raw);
             return format!("`{collapsed}`");
         }
@@ -65,7 +66,11 @@ pub(crate) fn format_typed_default(
             Language::Python => format!("`{}`", if *b { "True" } else { "False" }),
             _ => format!("`{b}`"),
         },
-        DefaultValue::StringLiteral(s) => format!("`\"{s}\"`"),
+        DefaultValue::StringLiteral(s) => {
+            // Collapse newlines and normalize multiple spaces to prevent MD038/MD056 violations
+            let normalized = crate::docs::doc_cleaning::collapse_whitespace(s);
+            format!("`\"{normalized}\"`")
+        }
         DefaultValue::IntLiteral(n) => {
             // Duration fields store defaults as milliseconds; show with unit label
             if matches!(field_ty, TypeRef::Duration)
@@ -781,5 +786,60 @@ mod tests {
         // collapse_whitespace uses split_whitespace which normalizes consecutive spaces
         assert!(result.contains("value"), "default should be wrapped");
         assert!(!result.contains("   "), "extra spaces should be normalized");
+    }
+
+    // MD038/MD055/MD056: default values with newlines and pipes must be normalized
+    #[test]
+    fn test_format_default_string_literal_with_newlines_collapsed() {
+        let api = empty_api();
+        let field = make_field(
+            "marker_format",
+            TypeRef::String,
+            false,
+            Some(DefaultValue::StringLiteral("line1\nline2\nline3".to_string())),
+        );
+        let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
+        // Should collapse to single line with spaces
+        assert_eq!(result, "`\"line1 line2 line3\"`");
+        assert!(!result.contains('\n'), "newlines must be removed");
+    }
+
+    #[test]
+    fn test_format_default_string_literal_with_pipes_and_newlines() {
+        let api = empty_api();
+        let field = make_field(
+            "marker_format",
+            TypeRef::String,
+            false,
+            Some(DefaultValue::StringLiteral(
+                "\n\n<!-- PAGE {page_num} -->\n\n".to_string(),
+            )),
+        );
+        let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
+        // Should be single-line; escape_table_cell will handle any pipes
+        assert!(!result.contains('\n'), "newlines must be collapsed");
+        // The result should have normalized spaces
+        let without_backticks = result.trim_matches('`').trim_matches('"');
+        assert!(
+            without_backticks.starts_with("PAGE"),
+            "normalized: {}",
+            without_backticks
+        );
+    }
+
+    #[test]
+    fn test_format_default_string_literal_with_extra_spaces() {
+        let api = empty_api();
+        let field = make_field(
+            "options",
+            TypeRef::String,
+            false,
+            Some(DefaultValue::StringLiteral(
+                "option1  option2   option3".to_string(),
+            )),
+        );
+        let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
+        // Multiple spaces should be normalized
+        assert!(!result.contains("  "), "multiple spaces must be normalized: {}", result);
     }
 }
