@@ -719,7 +719,9 @@ fn emit_module_kt(
         body.push_str("    /// matching how Rust serde encodes Vec<u8> on the wire.\n");
         body.push_str("    /// Jackson's default writes ByteArray as a Base64 string, which Rust serde rejects\n");
         body.push_str("    /// with \"invalid type: string, expected a sequence\".\n");
-        body.push_str("    private val byteArrayModule = com.fasterxml.jackson.databind.module.SimpleModule().apply {\n");
+        body.push_str(
+            "    private val byteArrayModule = com.fasterxml.jackson.databind.module.SimpleModule().apply {\n",
+        );
         body.push_str("        addSerializer(\n");
         body.push_str("            ByteArray::class.java,\n");
         body.push_str("            object : com.fasterxml.jackson.databind.ser.std.StdSerializer<ByteArray>(ByteArray::class.java) {\n");
@@ -741,10 +743,16 @@ fn emit_module_kt(
         body.push_str("                    parser: com.fasterxml.jackson.core.JsonParser,\n");
         body.push_str("                    ctx: com.fasterxml.jackson.databind.DeserializationContext,\n");
         body.push_str("                ): ByteArray {\n");
-        body.push_str("                    val node = parser.codec.readTree<com.fasterxml.jackson.databind.JsonNode>(parser)\n");
+        body.push_str(
+            "                    val node = parser.codec.readTree<com.fasterxml.jackson.databind.JsonNode>(parser)\n",
+        );
         body.push_str("                    return when {\n");
-        body.push_str("                        node.isArray -> ByteArray(node.size()) { i -> node.get(i).asInt().toByte() }\n");
-        body.push_str("                        node.isTextual -> java.util.Base64.getDecoder().decode(node.asText())\n");
+        body.push_str(
+            "                        node.isArray -> ByteArray(node.size()) { i -> node.get(i).asInt().toByte() }\n",
+        );
+        body.push_str(
+            "                        node.isTextual -> java.util.Base64.getDecoder().decode(node.asText())\n",
+        );
         body.push_str("                        else -> ByteArray(0)\n");
         body.push_str("                    }\n");
         body.push_str("                }\n");
@@ -756,13 +764,19 @@ fn emit_module_kt(
         body.push_str("        .registerModule(byteArrayModule)\n");
         body.push_str("        .registerModule(\n");
         body.push_str("            com.fasterxml.jackson.module.kotlin.KotlinModule.Builder()\n");
-        body.push_str("                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullIsSameAsDefault, true)\n");
+        body.push_str(
+            "                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullIsSameAsDefault, true)\n",
+        );
         body.push_str("                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullToEmptyCollection, true)\n");
-        body.push_str("                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullToEmptyMap, true)\n");
+        body.push_str(
+            "                .configure(com.fasterxml.jackson.module.kotlin.KotlinFeature.NullToEmptyMap, true)\n",
+        );
         body.push_str("                .build(),\n");
         body.push_str("        )\n");
         body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n");
-        body.push_str("        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)\n");
+        body.push_str(
+            "        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)\n",
+        );
         body.push_str("        .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)\n\n");
     }
 

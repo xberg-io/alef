@@ -662,7 +662,9 @@ fn gen_wrapper_function(
 
     // Check if this function has Bytes/GCHandle or Vec/HGlobal parameters that need cleanup
     let has_gchandle_param = visible_params.iter().any(|p| matches!(p.ty, TypeRef::Bytes));
-    let has_hglobal_param = visible_params.iter().any(|p| matches!(p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
+    let has_hglobal_param = visible_params
+        .iter()
+        .any(|p| matches!(p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
     let needs_outer_try = has_gchandle_param || has_hglobal_param;
 
     if func.is_async {
@@ -749,14 +751,26 @@ fn gen_wrapper_function(
             true_opaque_types,
             handle_returned_types,
         );
-        emit_named_param_teardown_indented(&mut out, &visible_params, "                ", true_opaque_types, enum_names);
+        emit_named_param_teardown_indented(
+            &mut out,
+            &visible_params,
+            "                ",
+            true_opaque_types,
+            enum_names,
+        );
         emit_return_statement_indented(&mut out, &func.return_type, "                ");
         out.push_str("            });\n");
 
         // Close outer try-finally if needed
         if needs_outer_try {
             out.push_str("        }\n        finally\n        {\n");
-            emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
+            emit_named_param_teardown_indented(
+                &mut out,
+                &visible_params,
+                "            ",
+                true_opaque_types,
+                enum_names,
+            );
             out.push_str("        }\n");
         }
     } else {
@@ -839,7 +853,13 @@ fn gen_wrapper_function(
             emit_named_param_teardown_indented(&mut out, &visible_params, body_indent, true_opaque_types, enum_names);
             emit_return_statement_indented(&mut out, &func.return_type, body_indent);
             out.push_str("        }\n        finally\n        {\n");
-            emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
+            emit_named_param_teardown_indented(
+                &mut out,
+                &visible_params,
+                "            ",
+                true_opaque_types,
+                enum_names,
+            );
             out.push_str("        }\n");
         } else {
             emit_named_param_teardown(&mut out, &visible_params, true_opaque_types, enum_names);

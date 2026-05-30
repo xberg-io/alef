@@ -763,7 +763,11 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     let args_str = ep_args.join(", ");
     // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
     // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
-    let bind = if matches!(ep.return_type, TypeRef::Unit) { "" } else { "let _ = " };
+    let bind = if matches!(ep.return_type, TypeRef::Unit) {
+        ""
+    } else {
+        "let _ = "
+    };
 
     if ep.is_async {
         // Drive the async entrypoint on the Tokio runtime that pyo3_async_runtimes

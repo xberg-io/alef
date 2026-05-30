@@ -182,8 +182,7 @@ pub fn gen_trait_bridges_file(
     // Generate handle registry type and instances for all trait bridges.
     // Each trait needs a registry to track cgo.Handles by name for cleanup on unregister.
     let has_trait_bridges = config.trait_bridges.iter().any(|cfg| {
-        !cfg.exclude_languages.iter().any(|lang| lang == "go")
-            && api.types.iter().any(|t| t.name == cfg.trait_name)
+        !cfg.exclude_languages.iter().any(|lang| lang == "go") && api.types.iter().any(|t| t.name == cfg.trait_name)
     });
 
     if has_trait_bridges {
@@ -198,13 +197,13 @@ pub fn gen_trait_bridges_file(
 
         out.push_str("var (\n");
         for bridge_cfg in &config.trait_bridges {
-            if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go") {
-                if api.types.iter().any(|t| t.name == bridge_cfg.trait_name) {
-                    let trait_snake = heck::AsSnakeCase(&bridge_cfg.trait_name).to_string();
-                    out.push_str(&format!(
-                        "\t{trait_snake}Registry = &handleRegistry{{handles: make(map[string]cgo.Handle)}}\n"
-                    ));
-                }
+            if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go")
+                && api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
+            {
+                let trait_snake = heck::AsSnakeCase(&bridge_cfg.trait_name).to_string();
+                out.push_str(&format!(
+                    "\t{trait_snake}Registry = &handleRegistry{{handles: make(map[string]cgo.Handle)}}\n"
+                ));
             }
         }
         out.push_str(")\n");
@@ -274,8 +273,7 @@ fn gen_trait_bridge(
     ffi_prefix: &str,
     crate_name: &str,
     excluded_named_types: &HashSet<&str>,
-    #[allow(unused_variables)]
-    trait_snake: &str,
+    #[allow(unused_variables)] trait_snake: &str,
 ) {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
