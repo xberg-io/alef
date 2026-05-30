@@ -506,6 +506,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_registration.swift.jinja"),
     ),
     (
+        "swift_registration_variant.swift.jinja",
+        include_str!("templates/swift_registration_variant.swift.jinja"),
+    ),
+    (
         "swift_silgen_callback.swift.jinja",
         include_str!("templates/swift_silgen_callback.swift.jinja"),
     ),
