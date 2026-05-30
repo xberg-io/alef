@@ -1,0 +1,25 @@
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_params }},
+        {{ wire_param_name }}: {{ req_path }},
+    ) -> Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
+
+        let handler_clone = self.handler.clone();
+        Box::pin(async move {
+            let outcome: {{ wire_output }} = async move {
+
+                let req_json = serde_json::to_string(&{{ wire_param_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                let response_json = (handler_clone)(req_json).await;
+
+                let response: {{ resp_path }} = serde_json::from_str(&response_json)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                Ok(response)
+            }
+            .await;
+
+            {{ tail }}
+        })
+    }
+}

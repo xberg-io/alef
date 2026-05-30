@@ -1,0 +1,5 @@
+#[frb(opaque)]
+pub struct {{ service_name }} {
+    inner: tokio::sync::Mutex<Option<{{ owner_path }}>>,
+    registrations: tokio::sync::Mutex<Vec<DartRegistration>>,
+}

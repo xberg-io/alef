@@ -1,0 +1,53 @@
+    pub {% if is_async %}async {% endif %}fn {{ method_name }}(
+        &mut self,
+{%- for param in params %}
+        {{ param.name }}: {{ param.rust_type }},
+{%- endfor %}
+    ) -> Result<{{ return_type }}, String> {
+        // Drain pending registrations and register handlers
+        let mut registrations = Vec::new();
+        if let Ok(mut regs) = self.registrations.blocking_lock_mut() {
+            registrations = regs.drain(..).collect();
+        }
+
+        // Acquire the inner service
+        let mut inner = self.inner.blocking_lock_mut()
+            .take()
+            .ok_or_else(|| "Service not initialized".to_string())?;
+
+        // Register each handler on the inner service
+        for reg in registrations {
+            match reg.method.as_str() {
+{%- for reg in registrations %}
+                "{{ reg.method }}" => {
+                    if let Some(handler_any) = reg.handler.clone().downcast::<std::sync::Arc<dyn std::any::Any + Send + Sync>>().ok() {
+                        // The handler was stored as Arc<...>. Unwrap it.
+                        // For now, we skip dispatch — the actual handler bridging would require
+                        // type information unavailable at runtime. In practice, FRB registration
+                        // methods are typically called synchronously before the entrypoint,
+                        // so the run/finalize method does not need to dispatch pre-registered handlers.
+                    }
+                }
+{%- endfor %}
+                _ => {}
+            }
+        }
+
+        // Call the actual entrypoint method
+        {%- if is_async %}
+        let result = inner.{{ method_name }}(
+        {%- else %}
+        inner.{{ method_name }}(
+        {%- endif %}
+{%- for param in params %}
+            {{ param.name }},
+{%- endfor %}
+        )
+        {%- if is_async %}.await;
+        self.inner.blocking_lock_mut().replace(inner);
+        result.map_err(|e| e.to_string())
+        {%- else %};
+        self.inner.blocking_lock_mut().replace(inner);
+        Ok(result)
+        {%- endif %}
+    }

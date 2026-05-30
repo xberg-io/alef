@@ -1,0 +1,9 @@
+impl {{ service_name }} {
+    #[frb(sync)]
+    pub fn new({{ ctor_params }}) -> Self {
+        let inner = {{ owner_path }}{{ ctor_call }};
+        Self {
+            inner: tokio::sync::Mutex::new(Some(inner)),
+            registrations: tokio::sync::Mutex::new(Vec::new()),
+        }
+    }

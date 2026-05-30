@@ -1,23 +1,21 @@
-//! Service-API codegen for the Swift backend.
+//! Service-API codegen for the Swift backend (bridge-based via swift-bridge 0.1.59).
 //!
-//! Generates one output per [`ServiceDef`] with non-empty registrations:
+//! Generates two outputs per [`ServiceDef`] with non-empty registrations:
 //!
-//! **`Service.swift`** — An idiomatic Swift service class that wraps the C FFI contract,
-//! providing typed registration methods and a run method that delegates to the C symbols.
+//! 1. **Rust extern "Rust" declarations** — added to the `#[swift_bridge::bridge] mod ffi`
+//!    block in `packages/swift/rust/src/lib.rs`:
+//!    - `extern "Rust" { type <ServiceName>; }` — opaque type declaration
+//!    - `extern "Rust" { #[swift_bridge(init)] fn new(...) -> <ServiceName>; }`
+//!    - `extern "Rust" { fn <configurator>(...); }` per configurator
+//!    - `extern "Rust" { fn <register>_via_callback(..., ctx: *mut c_void, callback: extern "C" fn(...) -> *mut u8) -> i32; }`
+//!      per registration (C-callback shim)
+//!    - `extern "Rust" { fn <run>(...) -> Result<(), String>; }` per entrypoint (blocking, not async)
 //!
-//! The generated Swift service:
-//! - Wraps an opaque C handle (returned by C `_new` / freed by `_free`)
-//! - Exposes registration methods that accept Swift closures
-//! - Wraps each Swift closure as a C callback via a trampoline + context recovery
-//! - Calls the C `_register_<method>` symbols with the C-compatible function pointer
-//! - Calls the C `_run` / `_finalize` entrypoint symbols via `_ep_<name>`
-//!
-//! The C FFI contract is emitted by the `ffi` backend in `service.rs` and declares:
-//! - `extern "C" fn {prefix}_{service}_new() -> *mut {Service}Opaque`
-//! - `extern "C" fn {prefix}_{service}_free(*mut {Service}Opaque)`
-//! - `extern "C" fn {prefix}_{service}_register_<method>(owner, callback, ctx, metadata...)`
-//! - `extern "C" fn {prefix}_{service}_ep_<entrypoint>(owner, params...)`
-//! - Callback typedef: `fn(*mut c_void, *const c_char) -> *mut c_char`
+//! 2. **Swift wrapper class** at `Sources/Spikard/<ServiceName>.swift`:
+//!    - Public class wrapping the swift-bridge opaque type
+//!    - Idiomatic Swift methods for constructor, configurators, registration (with closure boxing), and entrypoints
+//!    - Handler boxes (reference type) to cross closures via C context pointers
+//!    - @convention(c) trampolines for C callback interop
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
@@ -92,63 +90,225 @@ fn typeref_to_swift_type(ty: &TypeRef) -> String {
     }
 }
 
-// ──────────────────────────────────────────────────────── Swift output ──
+// ────────────────────────────────────────────────── Rust extern "Rust" output ──
+
+/// Map TypeRef to a Rust FFI type string.
+fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String => "RustString".to_owned(),
+        TypeRef::Primitive(p) => {
+            use crate::core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "bool".to_owned(),
+                PrimitiveType::U8 => "u8".to_owned(),
+                PrimitiveType::U16 => "u16".to_owned(),
+                PrimitiveType::U32 => "u32".to_owned(),
+                PrimitiveType::U64 => "u64".to_owned(),
+                PrimitiveType::I8 => "i8".to_owned(),
+                PrimitiveType::I16 => "i16".to_owned(),
+                PrimitiveType::I32 => "i32".to_owned(),
+                PrimitiveType::I64 => "i64".to_owned(),
+                PrimitiveType::F32 => "f32".to_owned(),
+                PrimitiveType::F64 => "f64".to_owned(),
+                PrimitiveType::Usize => "usize".to_owned(),
+                PrimitiveType::Isize => "isize".to_owned(),
+            }
+        }
+        _ => "RustString".to_owned(),
+    }
+}
+
+/// Generate Rust extern "Rust" declarations for a service.
+/// These are appended to the `#[swift_bridge::bridge] mod ffi { ... }` block in lib.rs.
+fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> String {
+    let mut out = String::new();
+    let service_snake = service.name.to_snake_case();
+
+    // Opaque type declaration
+    out.push_str(&crate::backends::swift::template_env::render(
+        "rust_extern_opaque_type.rs.jinja",
+        minijinja::context! {
+            service_name => &service.name,
+        },
+    ));
+
+    // Constructor
+    out.push_str(&crate::backends::swift::template_env::render(
+        "rust_extern_init.rs.jinja",
+        minijinja::context! {
+            service_snake => &service_snake,
+            service_name => &service.name,
+        },
+    ));
+
+    // Configurator methods (mutating, return unit for now; swift-bridge chains via Swift wrapper)
+    for config in &service.configurators {
+        let config_snake = config.name.to_snake_case();
+        let config_camel = config_snake.to_lower_camel_case();
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_extern_configurator.rs.jinja",
+            minijinja::context! {
+                service_snake => &service_snake,
+                config_name => &config_snake,
+                config_camel => &config_camel,
+                service_name => &service.name,
+            },
+        ));
+    }
+
+    // Registration methods — C-callback-based
+    for reg in &service.registrations {
+        let reg_snake = reg.method.to_snake_case();
+        let metadata_params: Vec<minijinja::Value> = reg
+            .metadata_params
+            .iter()
+            .map(|mp| {
+                minijinja::context! {
+                    name => &mp.name,
+                    rust_type => typeref_to_rust_ffi_type(&mp.ty),
+                }
+            })
+            .collect();
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_extern_register_via_callback.rs.jinja",
+            minijinja::context! {
+                service_snake => &service_snake,
+                reg_snake => &reg_snake,
+                service_name => &service.name,
+                metadata_params => metadata_params,
+            },
+        ));
+    }
+
+    // Entrypoint methods
+    for ep in &service.entrypoints {
+        // Skip finalize entrypoints whose return type can't be represented over the C ABI.
+        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize) && !entrypoint_return_representable(ep, _api) {
+            continue;
+        }
+
+        let ep_snake = ep.method.to_snake_case();
+        let params: Vec<minijinja::Value> = ep
+            .params
+            .iter()
+            .map(|p| {
+                minijinja::context! {
+                    name => &p.name,
+                    rust_type => typeref_to_rust_ffi_type(&p.ty),
+                }
+            })
+            .collect();
+
+        // Return type
+        let return_type = match &ep.return_type {
+            TypeRef::Unit => {
+                if ep.error_type.is_some() {
+                    "Result<(), RustString>".to_owned()
+                } else {
+                    "()".to_owned()
+                }
+            }
+            TypeRef::String => {
+                if ep.error_type.is_some() {
+                    "Result<RustString, RustString>".to_owned()
+                } else {
+                    "RustString".to_owned()
+                }
+            }
+            _ => {
+                if ep.error_type.is_some() {
+                    "Result<RustString, RustString>".to_owned()
+                } else {
+                    "RustString".to_owned()
+                }
+            }
+        };
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_extern_entrypoint.rs.jinja",
+            minijinja::context! {
+                service_snake => &service_snake,
+                ep_snake => &ep_snake,
+                service_name => &service.name,
+                params => params,
+                return_type => return_type,
+            },
+        ));
+    }
+
+    out
+}
+
+// ──────────────────────────────────────────────────────────── Swift output ──
 
 /// Generate the idiomatic Swift service class (`Service.swift`).
 ///
-/// Produces a Swift class that wraps the C FFI contract and exposes:
-/// - A constructor that calls the C `_new` symbol and retains the opaque handle.
-/// - A deinit that frees the opaque handle via the C `_free` symbol.
-/// - Registration methods that accept Swift closures and wrap them as C callbacks.
-/// - A `run(...)` method that calls the C `_run` entrypoint.
+/// Produces a Swift class that wraps the swift-bridge opaque type and exposes:
+/// - A constructor that calls the swift-bridge `_new` function
+/// - Configurator methods that chain (return self)
+/// - Registration methods that accept Swift closures and wrap them via @convention(c) trampolines
+/// - A `run(...)` method that calls the swift-bridge entrypoint
 pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> String {
     let mut out = String::new();
 
     let class_name = &service.name;
     let service_snake = class_name.to_snake_case();
 
-    // Class definition with documentation
-    if !service.doc.is_empty() {
-        out.push_str(&format_swift_comment(&service.doc, 0));
-    }
-    out.push_str(&format!("public final class {class_name} {{\n\n"));
+    // File header with Foundation import
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_file_header.swift.jinja",
+        minijinja::Value::from(()),
+    ));
 
-    // Opaque handle field
-    out.push_str("    private var opaqueHandle: OpaquePointer?\n\n");
-
-    // Retained handler boxes; the trampoline context is a pointer to one of these.
-    out.push_str("    /// Retained handler boxes. Each box is passed to the C layer as the\n");
-    out.push_str("    /// trampoline context pointer and released in `deinit` to avoid leaks.\n");
-    out.push_str("    private var handlerBoxes: [UnsafeMutableRawPointer] = []\n\n");
-
-    // Reference-type box so a closure can cross the C FFI boundary via an opaque pointer.
-    out.push_str("    /// Boxes a handler closure so it can travel through a C context pointer.\n");
-    out.push_str("    private final class HandlerBox {\n");
-    out.push_str("        let handler: (String) -> String\n");
-    out.push_str("        init(_ handler: @escaping (String) -> String) { self.handler = handler }\n");
-    out.push_str("    }\n\n");
+    // Class header with doc comment
+    let doc = if !service.doc.is_empty() {
+        format_swift_comment(&service.doc, 0)
+    } else {
+        String::new()
+    };
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_class_header.swift.jinja",
+        minijinja::context! {
+            class_name => class_name,
+            doc => &doc,
+        },
+    ));
 
     // Constructor
-    out.push_str("    /// Create a new service instance.\n");
-    out.push_str("    public init() {\n");
-    out.push_str(&format!(
-        "        self.opaqueHandle = RustBridge.{service_snake}New()\n"
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_init.swift.jinja",
+        minijinja::context! {
+            service_snake => &service_snake,
+        },
     ));
-    out.push_str("    }\n\n");
 
     // Destructor
-    out.push_str("    /// Free the service instance.\n");
-    out.push_str("    deinit {\n");
-    out.push_str("        if let handle = opaqueHandle {\n");
-    out.push_str(&format!("            RustBridge.{service_snake}Free(handle)\n"));
-    out.push_str("            opaqueHandle = nil\n");
-    out.push_str("        }\n");
-    out.push_str("        // Release every retained handler box.\n");
-    out.push_str("        for boxPtr in handlerBoxes {\n");
-    out.push_str("            Unmanaged<HandlerBox>.fromOpaque(boxPtr).release()\n");
-    out.push_str("        }\n");
-    out.push_str("        handlerBoxes.removeAll()\n");
-    out.push_str("    }\n\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_deinit.swift.jinja",
+        minijinja::Value::from(()),
+    ));
+
+    // Configurator methods (chaining)
+    for config in &service.configurators {
+        let config_name = &config.name;
+        let config_camel = config_name.to_lower_camel_case();
+        let doc = if !config.doc.is_empty() {
+            format_swift_comment(&config.doc, 4)
+        } else {
+            String::new()
+        };
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_configurator.swift.jinja",
+            minijinja::context! {
+                service_snake => &service_snake,
+                config_name => config_name,
+                config_camel => &config_camel,
+                doc => &doc,
+            },
+        ));
+    }
 
     // Registration methods
     for reg in &service.registrations {
@@ -164,7 +324,12 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
         gen_entrypoint_method(&mut out, service, ep, &service_snake);
     }
 
-    out.push_str("}\n");
+    // Class footer
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_class_footer.swift.jinja",
+        minijinja::Value::from(()),
+    ));
+
     out
 }
 
@@ -172,7 +337,7 @@ fn gen_registration_method(
     out: &mut String,
     _service: &ServiceDef,
     reg: &RegistrationDef,
-    api: &ApiSurface,
+    _api: &ApiSurface,
     service_snake: &str,
 ) {
     let method_name = &reg.method;
@@ -194,73 +359,33 @@ fn gen_registration_method(
         format!(", {}", meta_params.join(", "))
     };
 
-    if !reg.doc.is_empty() {
-        out.push_str(&format_swift_comment(&reg.doc, 4));
-    }
+    let doc = if !reg.doc.is_empty() {
+        format_swift_comment(&reg.doc, 4)
+    } else {
+        String::new()
+    };
 
-    // Handler closure parameter: (String) -> String
-    out.push_str(&format!(
-        "    public func {method_camel}(_ handler: @escaping (String) -> String{meta_sig}) {{\n"
-    ));
-
-    // Box the handler and retain it; the box pointer is the trampoline context.
-    out.push_str("        // Box the handler and retain it; the box pointer is passed to the\n");
-    out.push_str("        // C layer as the trampoline context and released in deinit.\n");
-    out.push_str("        let handlerBox = HandlerBox(handler)\n");
-    out.push_str("        let contextPtr = Unmanaged.passRetained(handlerBox).toOpaque()\n");
-    out.push_str("        handlerBoxes.append(contextPtr)\n\n");
-
-    // Emit C-compatible trampoline that recovers the boxed handler and invokes it.
-    out.push_str("        // Create a C-compatible callback wrapper\n");
-    out.push_str("        let trampolineFunc: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? = { contextPtr, requestPtr in\n");
-    out.push_str("            guard let contextPtr = contextPtr else { return nil }\n");
-    out.push_str("            guard let requestPtr = requestPtr else { return nil }\n\n");
-
-    // Recover the boxed handler from the context pointer.
-    out.push_str("            // Recover the boxed handler closure from the context pointer\n");
-    out.push_str("            let handlerBox = Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()\n");
-    out.push_str("            let requestJSON = String(cString: requestPtr)\n");
-    out.push_str("            let responseJSON = handlerBox.handler(requestJSON)\n\n");
-
-    // Allocate and return response (caller frees).
-    out.push_str("            // Allocate response string on C heap (caller must free)\n");
-    out.push_str("            let responseBytes = responseJSON.utf8CString\n");
-    out.push_str("            let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n");
-    out.push_str("            responsePtr.initialize(from: responseBytes, count: responseBytes.count)\n");
-    out.push_str("            return responsePtr\n");
-    out.push_str("        }\n\n");
-
-    // Call C registration function with metadata
-    out.push_str("        guard let handle = opaqueHandle else { return }\n\n");
-    let method_camel_upper = format!(
-        "{}{}",
-        method_camel.chars().next().unwrap().to_uppercase(),
-        &method_camel[1..]
-    );
-    out.push_str(&format!(
-        "        RustBridge.{service_snake}Register{method_camel_upper}(\n            handle,\n            trampolineFunc,\n            contextPtr"
-    ));
-
-    // Add metadata parameters, marshaling opaque handles appropriately.
-    // For Named types that are in the API surface, pass the underlying opaque handle.
-    // For everything else (primitives, strings), pass the value as-is.
-    for meta_param in &reg.metadata_params {
-        match &meta_param.ty {
-            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
-                // Opaque handle: pass the underlying pointer via Unsafe methods.
-                // The parameter is a RustBridge.{Name}Ref or RustBridge.{Name}.
-                // We extract the opaque pointer for FFI passing.
-                out.push_str(&format!(",\n            {}.unsafelyUnwrapped", meta_param.name));
+    let metadata_params: Vec<minijinja::Value> = reg
+        .metadata_params
+        .iter()
+        .map(|mp| {
+            minijinja::context! {
+                name => &mp.name,
             }
-            _ => {
-                // Primitive or string: pass as-is.
-                out.push_str(&format!(",\n            {}", meta_param.name));
-            }
-        }
-    }
+        })
+        .collect();
 
-    out.push_str("\n        )\n");
-    out.push_str("    }\n\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_registration.swift.jinja",
+        minijinja::context! {
+            doc => &doc,
+            method_camel => &method_camel,
+            meta_params => &meta_sig,
+            service_snake => service_snake,
+            method_name => method_name,
+            metadata_params => metadata_params,
+        },
+    ));
 }
 
 fn gen_entrypoint_method(
@@ -272,9 +397,11 @@ fn gen_entrypoint_method(
     let ep_method = &ep.method;
     let ep_camel = ep_method.to_lower_camel_case();
 
-    if !ep.doc.is_empty() {
-        out.push_str(&format_swift_comment(&ep.doc, 4));
-    }
+    let doc = if !ep.doc.is_empty() {
+        format_swift_comment(&ep.doc, 4)
+    } else {
+        String::new()
+    };
 
     // Build parameter signature
     let params: Vec<String> = ep
@@ -286,11 +413,11 @@ fn gen_entrypoint_method(
         })
         .collect();
 
-    let param_sig = params.join(", ");
-
-    // Determine if async
-    let async_kw = if ep.is_async { " async" } else { "" };
-    let throws_kw = if ep.error_type.is_some() { " throws" } else { "" };
+    let param_sig = if params.is_empty() {
+        String::new()
+    } else {
+        params.join(", ")
+    };
 
     // Return type
     let return_type = if ep.return_type == TypeRef::Unit {
@@ -299,45 +426,36 @@ fn gen_entrypoint_method(
         typeref_to_swift_type(&ep.return_type)
     };
 
-    out.push_str(&format!(
-        "    public func {ep_camel}({param_sig}){async_kw}{throws_kw} -> {return_type} {{\n"
+    let throws_kw = if ep.error_type.is_some() { " throws" } else { "" };
+
+    let ep_params: Vec<minijinja::Value> = ep
+        .params
+        .iter()
+        .map(|p| {
+            minijinja::context! {
+                name => &p.name,
+            }
+        })
+        .collect();
+
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_entrypoint.swift.jinja",
+        minijinja::context! {
+            doc => &doc,
+            ep_camel => &ep_camel,
+            param_sig => &param_sig,
+            throws_kw => throws_kw,
+            return_type => &return_type,
+            service_snake => service_snake,
+            ep_method => ep_method,
+            params => ep_params,
+            has_error => ep.error_type.is_some(),
+            has_return_value => ep.return_type != TypeRef::Unit,
+        },
     ));
-
-    // Call C entrypoint function
-    out.push_str("        guard let handle = opaqueHandle else { throw ServiceError.invalidHandle }\n\n");
-
-    let ep_camel_upper = format!("{}{}", ep_camel.chars().next().unwrap().to_uppercase(), &ep_camel[1..]);
-
-    if ep.is_async {
-        out.push_str(&format!(
-            "        return try await withUnsafeThrowingContinuation {{ continuation in\n\
-             \x20\x20\x20\x20Task {{\n\
-             \x20\x20\x20\x20\x20\x20RustBridge.{service_snake}Ep{ep_camel_upper}(\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20handle"
-        ));
-    } else {
-        out.push_str(&format!(
-            "        RustBridge.{service_snake}Ep{ep_camel_upper}(\n            handle"
-        ));
-    }
-
-    // Add entrypoint parameters
-    for ep_param in &ep.params {
-        out.push_str(&format!(",\n            {}", ep_param.name));
-    }
-
-    out.push_str("\n        ");
-
-    if ep.is_async {
-        out.push_str(")\n        }\n        }\n");
-    } else {
-        out.push_str(")\n");
-    }
-
-    out.push_str("    }\n\n");
 }
 
-// ──────────────────────────────────────────────────────── public entry point ──
+// ─────────────────────────────────────────────────── public entry points ──
 
 /// Generate all service-API files for the Swift backend.
 ///
@@ -379,6 +497,21 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     }
 
     Ok(files)
+}
+
+/// Generate Rust extern "Rust" blocks for service-API declarations.
+/// These are inserted into the swift-bridge bridge module in the rust crate.
+pub fn generate_rust_extern_blocks(api: &ApiSurface) -> anyhow::Result<Vec<String>> {
+    let mut blocks = Vec::new();
+
+    for service in &api.services {
+        if service.registrations.is_empty() {
+            continue;
+        }
+        blocks.push(gen_service_rust_extern_blocks(service, api));
+    }
+
+    Ok(blocks)
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
@@ -430,7 +563,7 @@ mod tests {
         let run_entrypoint = EntrypointDef {
             method: "run".to_owned(),
             kind: EntrypointKind::Run,
-            is_async: true,
+            is_async: false,
             params: vec![ParamDef {
                 name: "addr".to_owned(),
                 ty: TypeRef::String,
@@ -522,8 +655,8 @@ mod tests {
         );
         assert!(output.contains("deinit"), "expected `deinit` in output:\n{output}");
         assert!(
-            output.contains("RustBridge.test_serviceFree"),
-            "expected C free call in deinit:\n{output}"
+            output.contains("handlerBoxes.removeAll()"),
+            "expected handler box cleanup in deinit:\n{output}"
         );
     }
 
@@ -546,17 +679,8 @@ mod tests {
             "expected the handler box to be retained as the context pointer:\n{output}"
         );
         assert!(
-            output.contains("Unmanaged<HandlerBox>.fromOpaque(boxPtr).release()"),
+            output.contains("Unmanaged<HandlerBox>.fromOpaque(contextPtr).release()"),
             "expected boxes to be released in deinit:\n{output}"
-        );
-        // The broken dual-meaning context model must be gone.
-        assert!(
-            !output.contains("handlerRegistry"),
-            "stale handlerRegistry field should be removed:\n{output}"
-        );
-        assert!(
-            !output.contains("Int(bitPattern: contextPtr)"),
-            "broken bitPattern-as-index lookup should be removed:\n{output}"
         );
     }
 
@@ -607,33 +731,52 @@ mod tests {
             "expected `run` entrypoint method:\n{output}"
         );
         assert!(
-            output.contains("async"),
-            "expected async keyword for async entrypoint:\n{output}"
-        );
-        assert!(
-            output.contains("RustBridge.test_serviceEpRun"),
+            output.contains("RustBridge.test_service_run"),
             "expected C run symbol call:\n{output}"
         );
     }
 
     #[test]
-    fn test_gen_service_swift_contains_c_ffi_symbols() {
+    fn test_gen_rust_extern_blocks_contains_type_decl() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let output = gen_service_rust_extern_blocks(service, &api);
 
-        // C symbols from FFI contract
         assert!(
-            output.contains("RustBridge.test_serviceNew"),
-            "expected C new symbol:\n{output}"
+            output.contains("type TestService;"),
+            "expected opaque type declaration:\n{output}"
         );
         assert!(
-            output.contains("RustBridge.test_serviceFree"),
-            "expected C free symbol:\n{output}"
+            output.contains("extern \"Rust\""),
+            "expected extern \"Rust\" block:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_gen_rust_extern_blocks_contains_callback_signature() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_rust_extern_blocks(service, &api);
+
+        assert!(
+            output.contains("extern \"C\" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8"),
+            "expected C-callback signature:\n{output}"
         );
         assert!(
-            output.contains("RustBridge.test_serviceRegisterAddHandler"),
-            "expected C register symbol:\n{output}"
+            output.contains("_via_callback"),
+            "expected callback-shim registration method:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_gen_rust_extern_blocks_contains_result_return() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_rust_extern_blocks(service, &api);
+
+        assert!(
+            output.contains("Result<(), RustString>"),
+            "expected fallible entrypoint return type:\n{output}"
         );
     }
 
@@ -682,5 +825,38 @@ mod tests {
 
         let files = generate(&api, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for service without registrations");
+    }
+
+    #[test]
+    fn test_swift_wrapper_no_dlsym_or_dlopen() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        assert!(
+            !output.contains("dlsym"),
+            "expected no dlsym (swift-bridge-based, not raw C lookup):\n{output}"
+        );
+        assert!(
+            !output.contains("dlopen"),
+            "expected no dlopen (swift-bridge-based, not raw C lookup):\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_rust_extern_blocks_no_raw_symbol_hardcode() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_rust_extern_blocks(service, &api);
+
+        // No hardcoded HTTP/framework names — everything from IR
+        assert!(
+            !output.contains("\"http\""),
+            "expected no hardcoded HTTP references:\n{output}"
+        );
+        assert!(
+            !output.contains("\"handler\""),
+            "expected no hardcoded handler-trait names:\n{output}"
+        );
     }
 }

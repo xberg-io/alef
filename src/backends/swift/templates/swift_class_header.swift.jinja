@@ -1,0 +1,16 @@
+{%- if doc %}
+{{ doc }}{%- endif %}
+public final class {{ class_name }} {
+
+    private var inner: RustBridge.{{ class_name }}?
+
+    /// Retained handler boxes. Each box is passed to the C layer as the
+    /// trampoline context pointer and released in `deinit` to avoid leaks.
+    private var handlerBoxes: [UnsafeMutableRawPointer] = []
+
+    /// Boxes a handler closure so it can travel through a C context pointer.
+    private final class HandlerBox {
+        let handler: (String) -> String
+        init(_ handler: @escaping (String) -> String) { self.handler = handler }
+    }
+

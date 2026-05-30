@@ -1,0 +1,3 @@
+pub struct {{ bridge_name }} {
+    handler: std::sync::Arc<dyn Fn(String) -> DartFnFuture<String> + Send + Sync>,
+}

@@ -1,0 +1,10 @@
+{%- if doc %}
+{{ doc }}{%- endif %}
+    @discardableResult
+    public func {{ config_camel }}() -> Self {
+        guard var inner = inner else { return self }
+        RustBridge.{{ service_snake }}_{{ config_name }}(inner: &inner)
+        self.inner = inner
+        return self
+    }
+

@@ -1,0 +1,25 @@
+    #[frb(sync)]
+    pub fn {{ method_name }}(
+        &mut self,
+{%- for param in metadata_params %}
+        {{ param.name }}: {{ param.rust_type }},
+{%- endfor %}
+        {{ callback_param }}: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
+    ) -> i32 {
+        let metadata = serde_json::json!({
+{%- for param in metadata_params %}
+            "{{ param.name }}": {{ param.name }},
+{%- endfor %}
+        });
+
+        if let Ok(mut regs) = self.registrations.blocking_lock_mut() {
+            regs.push(DartRegistration {
+                method: "{{ method_name }}".to_string(),
+                metadata_json: metadata.to_string(),
+                handler: std::sync::Arc::new({{ callback_param }}),
+            });
+            0
+        } else {
+            -1
+        }
+    }

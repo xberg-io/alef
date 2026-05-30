@@ -2,7 +2,7 @@ mod dart_traits;
 mod errors;
 mod functions;
 mod render_type;
-mod service_api;
+pub(super) mod service_api;
 mod trait_bridge;
 mod types;
 

@@ -1,0 +1,41 @@
+{%- if doc %}
+{{ doc }}{%- endif %}
+    public func {{ method_camel }}(_ handler: @escaping (String) -> String{%- if meta_params %}, {{ meta_params }}{% endif %}) throws {
+        // Box the handler and retain it; the box pointer is passed to the
+        // C layer as the trampoline context and released in deinit.
+        let handlerBox = HandlerBox(handler)
+        let contextPtr = Unmanaged.passRetained(handlerBox).toOpaque()
+        handlerBoxes.append(contextPtr)
+
+        // Create a C-compatible callback wrapper
+        let trampolineFunc: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<UInt8>? = { contextPtr, requestPtr, requestLen in
+            guard let contextPtr = contextPtr else { return nil }
+            guard let requestPtr = requestPtr else { return nil }
+
+            // Recover the boxed handler closure from the context pointer
+            let handlerBox = Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()
+            let requestData = Data(bytes: requestPtr, count: requestLen)
+            let requestJSON = String(data: requestData, encoding: .utf8) ?? ""
+            let responseJSON = handlerBox.handler(requestJSON)
+
+            // Allocate response string on heap (Rust side frees via extern "C" { fn free })
+            let responseBytes = responseJSON.utf8CString
+            let responsePtr = UnsafeMutablePointer<UInt8>.allocate(capacity: responseBytes.count)
+            for (i, byte) in responseBytes.enumerated() {
+                responsePtr[i] = UInt8(bitPattern: byte)
+            }
+            return responsePtr
+        }
+
+        guard var inner = inner else { throw ServiceError.invalidHandle }
+
+        let result = RustBridge.{{ service_snake }}_{{ method_name }}_via_callback(
+            inner: &inner,
+{% for meta_param in metadata_params %}            {{ meta_param.name }}: {{ meta_param.name }},
+{% endfor %}            ctx: contextPtr,
+            callback: trampolineFunc
+        )
+        self.inner = inner
+        guard result == 0 else { throw ServiceError.registrationFailed }
+    }
+

@@ -1,0 +1,11 @@
+    extern "Rust" {
+        fn {{ service_snake }}_{{ reg_snake }}_via_callback(
+            self: &mut {{ service_name }},
+{%- for meta_param in metadata_params %}
+            {{ meta_param.name }}: {{ meta_param.rust_type }},
+{%- endfor %}
+            ctx: *mut std::ffi::c_void,
+            callback: extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8,
+        ) -> i32;
+    }
+

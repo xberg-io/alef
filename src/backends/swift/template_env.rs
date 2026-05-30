@@ -449,6 +449,58 @@ static TEMPLATES: &[(&str, &str)] = &[
         "inbound_method_value_call.rs.jinja",
         include_str!("templates/inbound_method_value_call.rs.jinja"),
     ),
+    (
+        "rust_extern_opaque_type.rs.jinja",
+        include_str!("templates/rust_extern_opaque_type.rs.jinja"),
+    ),
+    (
+        "rust_extern_init.rs.jinja",
+        include_str!("templates/rust_extern_init.rs.jinja"),
+    ),
+    (
+        "rust_extern_configurator.rs.jinja",
+        include_str!("templates/rust_extern_configurator.rs.jinja"),
+    ),
+    (
+        "rust_extern_register_via_callback.rs.jinja",
+        include_str!("templates/rust_extern_register_via_callback.rs.jinja"),
+    ),
+    (
+        "rust_extern_entrypoint.rs.jinja",
+        include_str!("templates/rust_extern_entrypoint.rs.jinja"),
+    ),
+    (
+        "swift_file_header.swift.jinja",
+        include_str!("templates/swift_file_header.swift.jinja"),
+    ),
+    (
+        "swift_class_header.swift.jinja",
+        include_str!("templates/swift_class_header.swift.jinja"),
+    ),
+    (
+        "swift_init.swift.jinja",
+        include_str!("templates/swift_init.swift.jinja"),
+    ),
+    (
+        "swift_deinit.swift.jinja",
+        include_str!("templates/swift_deinit.swift.jinja"),
+    ),
+    (
+        "swift_configurator.swift.jinja",
+        include_str!("templates/swift_configurator.swift.jinja"),
+    ),
+    (
+        "swift_registration.swift.jinja",
+        include_str!("templates/swift_registration.swift.jinja"),
+    ),
+    (
+        "swift_entrypoint.swift.jinja",
+        include_str!("templates/swift_entrypoint.swift.jinja"),
+    ),
+    (
+        "swift_class_footer.swift.jinja",
+        include_str!("templates/swift_class_footer.swift.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

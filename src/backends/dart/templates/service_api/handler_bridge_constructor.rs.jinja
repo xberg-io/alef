@@ -1,0 +1,10 @@
+impl {{ bridge_name }} {
+    /// Create a bridge from a Dart callable.
+    pub fn new(
+        handler: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            handler: std::sync::Arc::new(handler),
+        }
+    }
+}

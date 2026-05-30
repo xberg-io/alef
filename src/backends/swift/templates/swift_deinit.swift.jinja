@@ -1,0 +1,10 @@
+    /// Free the service instance.
+    deinit {
+        inner = nil
+        // Release every retained handler box.
+        for contextPtr in handlerBoxes {
+            Unmanaged<HandlerBox>.fromOpaque(contextPtr).release()
+        }
+        handlerBoxes.removeAll()
+    }
+

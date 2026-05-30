@@ -595,6 +595,59 @@ static TEMPLATES: &[(&str, &str)] = &[
         "dart_streaming_method.jinja",
         include_str!("templates/dart_streaming_method.jinja"),
     ),
+    // Service API templates (Rust FRB-opaque service owners and handler bridges)
+    (
+        "service_api/file_header.rs.jinja",
+        include_str!("templates/service_api/file_header.rs.jinja"),
+    ),
+    (
+        "service_api/handler_bridge_doc.rs.jinja",
+        include_str!("templates/service_api/handler_bridge_doc.rs.jinja"),
+    ),
+    (
+        "service_api/handler_bridge_struct.rs.jinja",
+        include_str!("templates/service_api/handler_bridge_struct.rs.jinja"),
+    ),
+    (
+        "service_api/handler_bridge_constructor.rs.jinja",
+        include_str!("templates/service_api/handler_bridge_constructor.rs.jinja"),
+    ),
+    (
+        "service_api/handler_bridge_impl_open.rs.jinja",
+        include_str!("templates/service_api/handler_bridge_impl_open.rs.jinja"),
+    ),
+    (
+        "service_api/dart_registration_struct.rs.jinja",
+        include_str!("templates/service_api/dart_registration_struct.rs.jinja"),
+    ),
+    (
+        "service_api/service_owner_doc.rs.jinja",
+        include_str!("templates/service_api/service_owner_doc.rs.jinja"),
+    ),
+    (
+        "service_api/service_owner_struct.rs.jinja",
+        include_str!("templates/service_api/service_owner_struct.rs.jinja"),
+    ),
+    (
+        "service_api/service_owner_impl_open.rs.jinja",
+        include_str!("templates/service_api/service_owner_impl_open.rs.jinja"),
+    ),
+    (
+        "service_api/configurator_method.rs.jinja",
+        include_str!("templates/service_api/configurator_method.rs.jinja"),
+    ),
+    (
+        "service_api/registration_method.rs.jinja",
+        include_str!("templates/service_api/registration_method.rs.jinja"),
+    ),
+    (
+        "service_api/entrypoint_method.rs.jinja",
+        include_str!("templates/service_api/entrypoint_method.rs.jinja"),
+    ),
+    (
+        "service_api/service_owner_impl_close.rs.jinja",
+        include_str!("templates/service_api/service_owner_impl_close.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

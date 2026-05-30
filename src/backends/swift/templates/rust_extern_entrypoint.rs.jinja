@@ -1,0 +1,9 @@
+    extern "Rust" {
+        fn {{ service_snake }}_{{ ep_snake }}(
+            self: {{ service_name }},
+{%- for param in params %}
+            {{ param.name }}: {{ param.rust_type }},
+{%- endfor %}
+        ) -> {{ return_type }};
+    }
+

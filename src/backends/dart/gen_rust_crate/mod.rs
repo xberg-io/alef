@@ -517,6 +517,13 @@ fn emit_lib_rs(
         }
     }
 
+    // Emit service-API FRB opaque owners and handler bridges.
+    let service_api_rust = super::gen_bindings::service_api::gen_service_rust(api, config);
+    if !service_api_rust.is_empty() {
+        content.push('\n');
+        content.push_str(&service_api_rust);
+    }
+
     GeneratedFile {
         path: std::path::PathBuf::from(format!("{rust_dir}/src/lib.rs")),
         content,

@@ -423,6 +423,13 @@ fn emit_lib_rs(
         extern_blocks.push(streaming_block);
     }
 
+    // Service-API extern "Rust" blocks (bridge-based via C-callback shims).
+    // These declare opaque service types, constructors, configurators, registrations,
+    // and entrypoints to swift-bridge.
+    let service_api_blocks = super::gen_bindings::service_api::generate_rust_extern_blocks(api)
+        .unwrap_or_default();
+    extern_blocks.extend(service_api_blocks);
+
     // Collect serde-enabled non-opaque types that appear as method parameters.
     // These need their own `{type_snake}_from_json` free-function shims so Swift
     // e2e tests can deserialise fixture JSON into the strongly-typed request

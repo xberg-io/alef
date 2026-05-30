@@ -1,0 +1,27 @@
+{%- if doc %}
+{{ doc }}{%- endif %}
+    public func {{ ep_camel }}({{ param_sig }}){{ throws_kw }} -> {{ return_type }} {
+        guard let inner = inner else { throw ServiceError.invalidHandle }
+
+        let result = RustBridge.{{ service_snake }}_{{ ep_method }}(
+            inner,
+{% for ep_param in params %}            {{ ep_param.name }}: {{ ep_param.name }},
+{% endfor %}        )
+
+{%- if has_error %}
+        switch result {
+{%- if has_return_value %}
+        case .success(let value):
+            return value
+{%- else %}
+        case .success:
+            break
+{%- endif %}
+        case .failure(let error):
+            throw ServiceError.runtime(error)
+        }
+{%- elif has_return_value %}
+        return result
+{%- endif %}
+    }
+
