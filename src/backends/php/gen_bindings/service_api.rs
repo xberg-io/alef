@@ -52,6 +52,36 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
+/// Format a Rust doc comment as a PHP docblock at the given column indent.
+/// Single-line docs render as `// text`; multi-line docs render as a `/** ...
+/// */` block with every line prefixed by ` * `. Blank doc lines become bare
+/// ` *` separators so paragraph breaks survive.
+fn format_php_comment(text: &str, indent: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let pad = " ".repeat(indent);
+    if !trimmed.contains('\n') {
+        return format!("{pad}// {trimmed}\n");
+    }
+    let mut out = format!("{pad}/**\n");
+    for line in trimmed.lines() {
+        if line.trim().is_empty() {
+            out.push_str(&pad);
+            out.push_str(" *\n");
+        } else {
+            out.push_str(&pad);
+            out.push_str(" * ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str(&pad);
+    out.push_str(" */\n");
+    out
+}
+
 // ─────────────────────────────────────────────────────────────── PHP output ──
 
 /// Generate the idiomatic PHP service class (`service.php`).
@@ -81,7 +111,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
 
     // Class declaration with docblock
     if !service.doc.is_empty() {
-        out.push_str(&format!("/**\n * {}\n */\n", service.doc.trim().replace('\n', "\n * ")));
+        out.push_str(&format_php_comment(&service.doc, 0));
     }
     out.push_str(&format!("class {class_name} {{\n"));
 
@@ -106,9 +136,11 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         }
 
         let param_sig = ctor_params.join(", ");
-        out.push_str(&format!("    public function __construct({param_sig}): void {{\n"));
+        // PHP constructors cannot declare a return type — emitting `: void`
+        // is a parse error. The return type is implicit.
+        out.push_str(&format!("    public function __construct({param_sig}) {{\n"));
         if !ctor.doc.is_empty() {
-            out.push_str(&format!("        // {}\n", ctor.doc.trim()));
+            out.push_str(&format_php_comment(&ctor.doc, 8));
         }
 
         // Store constructor args as instance properties
@@ -133,12 +165,12 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         let method_name = &method.name;
         out.push_str(&format!("    public function {method_name}({param_sig}): self {{\n"));
         if !method.doc.is_empty() {
-            out.push_str(&format!("        // {}\n", method.doc.trim()));
+            out.push_str(&format_php_comment(&method.doc, 8));
         }
 
         // Store each configurator param as instance property
         for p in &method.params {
-            out.push_str(&format!("        $this->_{} = ${}\n", p.name, p.name));
+            out.push_str(&format!("        $this->_{} = ${};\n", p.name, p.name));
         }
         out.push_str("        return $this;\n");
         out.push_str("    }\n\n");
@@ -167,7 +199,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
             EntrypointKind::Run => {
                 out.push_str(&format!("    public function {ep_name}({param_sig}): void {{\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("        // {}\n", ep.doc.trim()));
+                    out.push_str(&format_php_comment(&ep.doc, 8));
                 }
 
                 // Build the call to the native run function
@@ -187,7 +219,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
                     "    public function {ep_name}({param_sig}): {return_annotation} {{\n"
                 ));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("        // {}\n", ep.doc.trim()));
+                    out.push_str(&format_php_comment(&ep.doc, 8));
                 }
 
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
@@ -238,7 +270,7 @@ fn gen_registration_method(
     // Decorator factory form: returns a closure
     out.push_str(&format!("    public function {method_name}({meta_sig}): callable {{\n"));
     if !reg.doc.is_empty() {
-        out.push_str(&format!("        // {}\n", reg.doc.trim()));
+        out.push_str(&format_php_comment(&reg.doc, 8));
     }
 
     // Build the metadata tuple for storage

@@ -53,6 +53,30 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
+/// Format a multi-line Rust doc comment as a Ruby block comment indented at
+/// `indent` spaces. Every non-blank line is prefixed with `# `; blank lines
+/// stay blank (so paragraph breaks survive). Trailing newline is included.
+fn format_ruby_comment(text: &str, indent: usize) -> String {
+    let trimmed = text.trim();
+    let pad = " ".repeat(indent);
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    for line in trimmed.lines() {
+        if line.trim().is_empty() {
+            out.push_str(&pad);
+            out.push_str("#\n");
+        } else {
+            out.push_str(&pad);
+            out.push_str("# ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 // ─────────────────────────────────────────────────────────── Ruby output ──
 
 /// Generate the idiomatic Ruby service class (`service.rb`).
@@ -80,7 +104,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
     // Class comment
     if !service.doc.is_empty() {
-        out.push_str(&format!("# {}\n", service.doc.trim()));
+        out.push_str(&format_ruby_comment(&service.doc, 0));
     }
     out.push_str(&format!("class {class_name}\n"));
 
@@ -108,7 +132,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
         out.push_str(&format!("  def initialize{param_sig}\n"));
         if !ctor.doc.is_empty() {
-            out.push_str(&format!("    # {}\n", ctor.doc.trim()));
+            out.push_str(&format_ruby_comment(&ctor.doc, 4));
         }
         out.push_str("    @registrations = []\n");
 
@@ -140,7 +164,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
         out.push_str(&format!("  def {method_name}{param_sig}\n"));
         if !method.doc.is_empty() {
-            out.push_str(&format!("    # {}\n", method.doc.trim()));
+            out.push_str(&format_ruby_comment(&method.doc, 4));
         }
 
         // Store each configurator param as instance state
@@ -178,7 +202,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
             EntrypointKind::Run => {
                 out.push_str(&format!("  def {ep_name}{param_sig}\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("    # {}\n", ep.doc.trim()));
+                    out.push_str(&format_ruby_comment(&ep.doc, 4));
                 }
                 // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
@@ -192,7 +216,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
             EntrypointKind::Finalize => {
                 out.push_str(&format!("  def {ep_name}{param_sig}\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("    # {}\n", ep.doc.trim()));
+                    out.push_str(&format_ruby_comment(&ep.doc, 4));
                 }
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
                 out.push_str(&format!("    {native_module_name}.{native_fn}(@registrations"));
@@ -239,7 +263,7 @@ fn gen_registration_method(
 
     out.push_str(&format!("  def {method_name}{param_sig}\n"));
     if !reg.doc.is_empty() {
-        out.push_str(&format!("    # {}\n", reg.doc.trim()));
+        out.push_str(&format_ruby_comment(&reg.doc, 4));
     }
 
     // Collect metadata param names for the tuple
