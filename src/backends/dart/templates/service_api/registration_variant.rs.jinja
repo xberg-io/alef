@@ -7,7 +7,7 @@
         handler: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
     ) -> i32 {
 {%- if wrapper_call %}
-        let builder = {{ wrapper_type_path }}::{{ constructor_method }}(
+        let inner = {{ wrapper_type_path }}::{{ constructor_method }}(
 {%- for arg in wrapper_args %}
 {%- if arg.kind == "fixed" %}
             {{ arg.value_expr }},
@@ -16,7 +16,7 @@
 {%- endif %}
 {%- endfor %}
         );
-        self.{{ base_method_name }}(builder, {{ signature_params | map(attribute='name') | join(', ') }}, handler)
+        self.{{ base_method_name }}({{ wrapper_local_type }} { inner }, handler)
 {%- else %}
         self.{{ base_method_name }}({{ signature_params | map(attribute='name') | join(', ') }}, handler)
 {%- endif %}

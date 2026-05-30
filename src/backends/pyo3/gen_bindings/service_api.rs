@@ -91,6 +91,31 @@ fn collect_service_named_types(service: &ServiceDef, out: &mut BTreeSet<String>)
     }
 }
 
+/// Collect runtime-referenced type names from registration variants. Variants
+/// reference enum classes (e.g. `Method.Get`) inside the wrapper construction,
+/// which must be imported at runtime — TYPE_CHECKING is not sufficient.
+fn collect_variant_runtime_types(service: &ServiceDef, out: &mut BTreeSet<String>) {
+    for r in &service.registrations {
+        for variant in &r.variants {
+            if let Some(wc) = &variant.wrapper_call {
+                // The wrapper type itself is constructed at runtime.
+                out.insert(wc.wrapper_type_name.clone());
+                // Each Fixed arg's value_expr like `crate::Method::Get` resolves to
+                // `Method.Get` in Python — the bare `Method` class needs a runtime
+                // import. Take the second-to-last `::` segment as the enum class.
+                for arg in &wc.args {
+                    if let crate::core::ir::WrapperConstructorArg::Fixed { value_expr, .. } = arg {
+                        let segments: Vec<&str> = value_expr.split("::").collect();
+                        if segments.len() >= 2 {
+                            out.insert(segments[segments.len() - 2].to_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Emit a Python docstring at the given column indent. Single-line if `text`
 /// has no newline; otherwise multi-line with the closing `"""` on its own line
 /// and every body line re-indented to match the opening, so the output passes
@@ -135,8 +160,14 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     // Aggregate every `Named` type referenced across services' user-facing
     // surface so we can emit a single TYPE_CHECKING import block.
     let mut named_types: BTreeSet<String> = BTreeSet::new();
+    let mut runtime_types: BTreeSet<String> = BTreeSet::new();
     for service in &api.services {
         collect_service_named_types(service, &mut named_types);
+        collect_variant_runtime_types(service, &mut runtime_types);
+    }
+    // Runtime types take precedence — drop them from the TYPE_CHECKING-only set.
+    for n in &runtime_types {
+        named_types.remove(n);
     }
     let any_registrations = api.services.iter().any(|s| !s.registrations.is_empty());
 
@@ -145,6 +176,13 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     // The native extension is a submodule of the package (e.g. `pkg._pkg`), so import it
     // relatively — a bare `import _pkg` would not resolve at runtime.
     out.push_str(&format!("from . import {module_name}\n"));
+
+    // Variant constructors reference runtime types (e.g. RouteBuilder, Method),
+    // so emit those as a normal import — TYPE_CHECKING is not enough.
+    if !runtime_types.is_empty() {
+        let joined = runtime_types.iter().cloned().collect::<Vec<_>>().join(", ");
+        out.push_str(&format!("from .{module_name} import {joined}\n"));
+    }
 
     // Emit a TYPE_CHECKING block for annotation-only imports so the file
     // passes ruff `F821`, `TC003`, and import-sort checks without paying the
@@ -368,18 +406,27 @@ fn gen_registration_variant(
         out.push_str(&format!("        {}\n", wrapper_expr));
     }
 
-    // Build metadata tuple to pass to base registration
-    let mut meta_items = Vec::new();
+    // Build metadata tuple to pass to base registration. The wrapper consumes
+    // the fixed overrides at construction time, so we only forward the wrapper's
+    // metadata_param (the built wrapper) plus any base metadata params not
+    // consumed by the wrapper construction.
+    let wrapper_consumed: BTreeSet<&str> = if let Some(wc) = &variant.wrapper_call {
+        let mut s = BTreeSet::new();
+        s.insert(wc.metadata_param.as_str());
+        s
+    } else {
+        BTreeSet::new()
+    };
+    let overridden: BTreeSet<&str> = variant.overrides.iter().map(|o| o.param_name.as_str()).collect();
+    let mut meta_items: Vec<String> = Vec::new();
     if let Some(wc) = &variant.wrapper_call {
-        // Include the wrapper param by its name
         meta_items.push(wc.metadata_param.clone());
     }
-    // Add any non-overridden base metadata params
-    for override_ in &variant.overrides {
-        // Skip if already in meta_items (shouldn't happen but safeguard)
-        if !meta_items.contains(&override_.param_name) {
-            meta_items.push(override_.param_name.clone());
+    for p in &base_reg.metadata_params {
+        if wrapper_consumed.contains(p.name.as_str()) || overridden.contains(p.name.as_str()) {
+            continue;
         }
+        meta_items.push(p.name.clone());
     }
 
     let meta_tuple = if meta_items.is_empty() {

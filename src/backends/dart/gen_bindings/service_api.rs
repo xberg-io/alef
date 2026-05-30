@@ -368,7 +368,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                 })
                 .collect();
 
-            let (wrapper_type_path, constructor_method, wrapper_args) = if let Some(wc) = &variant.wrapper_call {
+            let (wrapper_type_path, wrapper_local_type, constructor_method, wrapper_args) = if let Some(wc) = &variant.wrapper_call {
                 let args: Vec<_> = wc
                     .args
                     .iter()
@@ -389,9 +389,14 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                         },
                     })
                     .collect();
-                (wc.wrapper_type_path.clone(), wc.constructor_method.clone(), args)
+                (
+                    wc.wrapper_type_path.clone(),
+                    wc.wrapper_type_name.clone(),
+                    wc.constructor_method.clone(),
+                    args,
+                )
             } else {
-                (String::new(), String::new(), vec![])
+                (String::new(), String::new(), String::new(), vec![])
             };
 
             out.push_str(&crate::backends::dart::template_env::render(
@@ -402,6 +407,7 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                     base_method_name => reg.method.as_str(),
                     wrapper_call => variant.wrapper_call.is_some(),
                     wrapper_type_path => wrapper_type_path.as_str(),
+                    wrapper_local_type => wrapper_local_type.as_str(),
                     constructor_method => constructor_method.as_str(),
                     wrapper_args => wrapper_args,
                 },
