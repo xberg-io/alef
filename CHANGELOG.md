@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart e2e: skip binding-excluded trait methods when emitting factory call arguments.** Dart plugin test stub factory calls now filter out trait methods marked with `#[doc(hidden)]` or similar binding-exclusion attributes. This prevents passing factory arguments for methods not present in the FRB-generated wrapper (e.g., `asSyncExtractor` which cannot be serialized across the FFI boundary). The stub class still declares all trait methods inherited from the base trait, but the factory call only passes callbacks for methods that the FRB wrapper accepts. (`src/e2e/codegen/dart.rs`)
+
 - **dart e2e: omit binding-excluded trait methods from generated test backends.** Dart plugin test stubs now pass only methods present in the FRB-generated factory, avoiding callback arguments for APIs intentionally stripped from the binding surface. (`src/e2e/codegen/dart.rs`)
 
 - **kotlin_android: trait bridge test backend emission uses correct language parameter.** The Kotlin JVM e2e codegen was hardcoding `"kotlin"` when calling `emit_test_backend` for trait bridges, instead of using `"kotlin_android"` when in `kotlin_android_style` mode. This produced invalid Kotlin syntax like `Kreuzberg.(/* ... */)` in generated trait bridge test stubs. Now uses the language-appropriate parameter so `kotlin_android::emit_test_backend` generates proper test backend classes with suspend methods and correct registration patterns. Fixes test compilation errors in plugin_api and trait-bridge fixtures. (`src/e2e/codegen/kotlin.rs`)
