@@ -171,6 +171,7 @@ fn typeref_to_c_type(ty: &TypeRef) -> String {
         }
         TypeRef::Bytes => "const uint8_t*".to_owned(),
         TypeRef::Unit => "void".to_owned(),
+        TypeRef::Named(_) => "int32_t".to_owned(), // Enums are passed as int32_t discriminant
         _ => "void*".to_owned(), // Json, Vec, Map, etc. go through JSON serialization
     }
 }
@@ -201,6 +202,8 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef, core_import: &str) -> String {
         TypeRef::Bytes => "*const u8".to_owned(),
         TypeRef::Unit => "()".to_owned(),
         TypeRef::Named(n) => {
+            // Enums will be handled specially by ffi_param_binding
+            // but if this is called directly, emit the core path
             if core_import.is_empty() {
                 n.clone()
             } else {
@@ -226,6 +229,7 @@ struct FfiParamBinding {
 /// Bind a non-callback parameter to its C-ABI form.
 ///
 /// - `String` crosses as `*const c_char` and is rebound to an owned `String`.
+/// - An enum crosses as `i32` discriminant and is reconstructed via `from_i32`.
 /// - A `Named` type this surface wraps crosses as a `*mut {core}::{name}` opaque pointer and is
 ///   reconstructed (consumed) via `Box::from_raw`.
 /// - Everything else crosses by value via [`typeref_to_rust_ffi_type`].
@@ -245,6 +249,20 @@ fn ffi_param_binding(p: &crate::core::ir::ParamDef, core_import: &str, api: &Api
             arg: p.name.clone(),
             pointer: true,
         },
+        TypeRef::Named(n) if api.enums.iter().any(|e| e.name == *n) => {
+            // Enum: passed as i32 discriminant, reconstructed via from_i32
+            let enum_snake = heck::ToSnakeCase::to_snake_case(n.as_str());
+            FfiParamBinding {
+                decl: format!("{}: i32", p.name),
+                conversion: format!(
+                    "    let {0} = {1}::{0}_from_i32({0})\n        \
+                     .ok_or_else(|| \"invalid discriminant for {2}\")?;\n",
+                    enum_snake, core_import, n
+                ),
+                arg: enum_snake,
+                pointer: false,
+            }
+        }
         TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => FfiParamBinding {
             decl: format!("{}: *mut {core_import}::{n}", p.name),
             conversion: format!(

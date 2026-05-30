@@ -546,3 +546,159 @@ pub(super) fn gen_type_new(
         },
     )
 }
+
+/// Generate an opaque static constructor from a method definition.
+///
+/// For an opaque type with a static `new` method that returns `Self`,
+/// emits an `#[no_mangle] pub unsafe extern "C" fn {prefix}_{type_snake}_new(...) -> *mut {TypeOpaque}`
+/// that wraps the core `new` call and returns a heap-allocated opaque handle.
+///
+/// Parameters are marshalled from FFI types (enum params as i32, strings as *const c_char, etc.)
+/// to core types via param conversion helpers. If the method signature is sanitized,
+/// an unimplemented stub is generated instead.
+pub(super) fn gen_opaque_static_constructor(
+    typ: &TypeDef,
+    method: &crate::core::ir::MethodDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &ahash::AHashMap<String, String>,
+    enum_names: &ahash::AHashSet<String>,
+) -> String {
+    use crate::core::ir::TypeRef;
+
+    let type_snake = typ.name.to_snake_case();
+    let type_name = &typ.name;
+    let qualified = core_type_path(typ, core_import);
+    let ffi_fn_name = format!("{prefix}_{type_snake}_new");
+    let will_be_unimplemented = method.sanitized;
+
+    let mut out = String::with_capacity(4096);
+
+    // Build FFI parameter list
+    let mut ffi_params = Vec::new();
+    for p in &method.params {
+        let param_name = if will_be_unimplemented {
+            format!("_{}", p.name)
+        } else {
+            p.name.clone()
+        };
+        let c_type = crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
+            &p.ty,
+            core_import,
+            path_map,
+            enum_names,
+        );
+        ffi_params.push(format!("    {}: {}", param_name, c_type));
+
+        if matches!(p.ty, TypeRef::Bytes) {
+            let len_param_name = if will_be_unimplemented {
+                format!("_{}_len", p.name)
+            } else {
+                format!("{}_len", p.name)
+            };
+            ffi_params.push(format!("    {}: usize", len_param_name));
+        }
+    }
+
+    // Function signature
+    let allow_clippy = if ffi_params.len() > 7 {
+        "#[allow(clippy::too_many_arguments)]\n"
+    } else {
+        ""
+    };
+
+    out.push_str(&format!(
+        "{}#[no_mangle]\npub unsafe extern \"C\" fn {}(\n{}\n) -> *mut {type_name}Opaque {{\n",
+        allow_clippy,
+        ffi_fn_name,
+        ffi_params.join(",\n")
+    ));
+
+    // Unimplemented stub if sanitized
+    if will_be_unimplemented {
+        out.push_str("    panic!(\"Sanitized method {type_name}::new cannot be called from C\");\n");
+        out.push_str("}\n");
+        return out;
+    }
+
+    // Marshal parameters (inline simple conversion logic for each param type)
+    for p in &method.params {
+        match &p.ty {
+            TypeRef::String => {
+                out.push_str(&format!(
+                    "    let {0}_rs = if {0}.is_null() {{\n        \
+                     String::new()\n    \
+                     }} else {{\n        \
+                     std::ffi::CStr::from_ptr({0}).to_string_lossy().into_owned()\n    \
+                     }};\n",
+                    p.name
+                ));
+            }
+            TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
+                let enum_snake = heck::ToSnakeCase::to_snake_case(n.as_str());
+                out.push_str(&format!(
+                    "    let {0}_rs = {1}::{0}_from_i32({0}).ok_or_else(|| {{\n        \
+                     set_last_error(\"invalid discriminant for {2}\");\n        \
+                     return std::ptr::null_mut();\n    \
+                     }})?;\n",
+                    enum_snake, core_import, n
+                ));
+            }
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
+                out.push_str(&format!(
+                    "    let {0}_rs = {0} != 0;\n",
+                    p.name
+                ));
+            }
+            _ => {
+                // Pass through or use basic bindings for other types
+                out.push_str(&format!(
+                    "    let {0}_rs = {0};\n",
+                    p.name
+                ));
+            }
+        }
+    }
+
+    // Build call arguments
+    let call_args = method
+        .params
+        .iter()
+        .map(|p| {
+            if p.is_ref {
+                format!("&{}_rs", p.name)
+            } else {
+                format!("{}_rs", p.name)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // Call the core constructor and wrap in opaque
+    out.push_str(&format!(
+        "    let result = {qualified}::{}({});\n",
+        method.name, call_args
+    ));
+    out.push_str(&format!(
+        "    Box::into_raw(Box::new({type_name}Opaque {{\n        \
+         inner: result,\n    \
+         }}))\n"
+    ));
+    out.push_str("}\n");
+
+    out
+}
+
+/// Check if a method is a static constructor (is_static=true, returns the owner type by name).
+pub(super) fn is_static_constructor(
+    method: &crate::core::ir::MethodDef,
+    type_name: &str,
+) -> bool {
+    if !method.is_static {
+        return false;
+    }
+    match &method.return_type {
+        crate::core::ir::TypeRef::Named(n) => n == type_name,
+        _ => false,
+    }
+}

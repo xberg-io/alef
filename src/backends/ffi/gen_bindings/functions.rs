@@ -10,6 +10,7 @@ use minijinja::context;
 /// Methods are skipped if they:
 /// 1. Have generic type parameters (detected by parameters with Named types not in the path_map)
 /// 2. Return a reference to the receiver type (builder-style methods returning `&mut Self` or `&Self`)
+/// 3. Are static constructors on opaque types (handled via gen_opaque_static_constructor instead)
 ///
 /// Such methods are handled through the service-API registration path instead of as
 /// standalone C function wrappers.
@@ -32,6 +33,16 @@ pub(super) fn should_skip_method_wrapper(
     // C handles. They're meant to be accessed through service API instead.
     if method.returns_ref {
         // Check if the return type (a reference) points back to the receiver type
+        if let TypeRef::Named(name) = &method.return_type {
+            if name == &typ.name {
+                return true;
+            }
+        }
+    }
+
+    // Skip static constructors on opaque types — they are handled specially via
+    // gen_opaque_static_constructor to emit proper enum-by-value marshalling.
+    if typ.is_opaque && method.is_static {
         if let TypeRef::Named(name) = &method.return_type {
             if name == &typ.name {
                 return true;
@@ -176,6 +187,7 @@ pub(super) fn gen_free_function_len_companion(
     prefix: &str,
     core_import: &str,
     path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
 ) -> String {
     let fn_name_snake = func.name.to_snake_case();
     let ffi_name = format!("{prefix}_{fn_name_snake}_len");
@@ -208,7 +220,7 @@ pub(super) fn gen_free_function_len_companion(
         params.push(format!(
             "    {}: {}",
             param_name,
-            c_param_type_with_paths(&p.ty, core_import, path_map)
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(&p.ty, core_import, path_map, enum_names)
         ));
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {
@@ -1079,7 +1091,7 @@ pub(super) fn gen_free_function(
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
             context! {
-                content => gen_param_conversion(p, has_error, is_bytes_result, &func.return_type, core_import),
+                content => gen_param_conversion_with_enums(p, has_error, is_bytes_result, &func.return_type, core_import, enum_names),
             },
         ));
     }
@@ -1363,6 +1375,24 @@ pub(super) fn gen_param_conversion(
     return_type: &TypeRef,
     core_import: &str,
 ) -> String {
+    gen_param_conversion_with_enums(
+        param,
+        has_error,
+        is_bytes_result,
+        return_type,
+        core_import,
+        &Default::default(),
+    )
+}
+
+pub(super) fn gen_param_conversion_with_enums(
+    param: &ParamDef,
+    has_error: bool,
+    is_bytes_result: bool,
+    return_type: &TypeRef,
+    core_import: &str,
+    enum_names: &AHashSet<String>,
+) -> String {
     let name = &param.name;
     let rs_name = format!("{name}_rs");
     let mut out = String::with_capacity(2048);
@@ -1421,6 +1451,18 @@ pub(super) fn gen_param_conversion(
                         fail_ret => fail_ret.to_string(),
                         turbofish => String::new(),
                     },
+                ));
+            }
+            TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
+                // Optional enum passed as i32 sentinel: i32::MAX or similar indicates None
+                // For now, treat like non-optional and convert via from_i32
+                let enum_snake = type_name.to_snake_case();
+                out.push_str(&format!(
+                    "    let {0}_rs = {1}::{0}_from_i32({0}).ok_or_else(|| {{\n        \
+                     set_last_error(\"invalid enum discriminant for {2}\");\n        \
+                     {3}\n    \
+                     }})?;\n",
+                    enum_snake, core_import, type_name, fail_ret
                 ));
             }
             TypeRef::Named(_type_name) => {
@@ -1575,6 +1617,17 @@ pub(super) fn gen_param_conversion(
                     }
                 }
             },
+            TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
+                // Enum passed as i32: reconstruct using the from_i32 helper
+                let enum_snake = type_name.to_snake_case();
+                out.push_str(&format!(
+                    "    let {0}_rs = {1}::{0}_from_i32({0}).ok_or_else(|| {{\n        \
+                     set_last_error(\"invalid enum discriminant for {2}\");\n        \
+                     {3}\n    \
+                     }})?;\n",
+                    enum_snake, core_import, type_name, fail_ret
+                ));
+            }
             TypeRef::Named(_type_name) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_named_conversion.jinja",

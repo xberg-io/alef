@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{PrimitiveType, TypeRef};
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 
 /// TypeMapper for C FFI bindings — parameter position (input, `*const`).
 ///
@@ -246,21 +246,38 @@ pub fn c_param_type_with_paths(
     core_import: &str,
     path_map: &AHashMap<String, String>,
 ) -> Cow<'static, str> {
+    c_param_type_with_paths_and_enums(ty, core_import, path_map, &Default::default())
+}
+
+pub fn c_param_type_with_paths_and_enums(
+    ty: &TypeRef,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
+) -> Cow<'static, str> {
     match ty {
         TypeRef::Named(name) => {
-            let full_path = path_map
-                .get(name.as_str())
-                .map(|s| s.as_str())
-                .unwrap_or_else(|| name.as_str());
-            Cow::Owned(format!("*const {full_path}"))
+            // If this is an enum, emit as i32 (discriminant type)
+            if enum_names.contains(name.as_str()) {
+                Cow::Borrowed("i32")
+            } else {
+                let full_path = path_map.get(name.as_str()).cloned().unwrap_or_else(|| {
+                    format!("{core_import}::{name}")
+                });
+                Cow::Owned(format!("*const {full_path}"))
+            }
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Named(name) = inner.as_ref() {
-                let inner_type = path_map
-                    .get(name.as_str())
-                    .map(|s| s.as_str())
-                    .unwrap_or_else(|| name.as_str());
-                Cow::Owned(format!("*const {inner_type}"))
+                // Optional enum: still emit as i32 (sentinel value -1 for None)
+                if enum_names.contains(name.as_str()) {
+                    Cow::Borrowed("i32")
+                } else {
+                    let inner_type = path_map.get(name.as_str()).cloned().unwrap_or_else(|| {
+                        format!("{core_import}::{name}")
+                    });
+                    Cow::Owned(format!("*const {inner_type}"))
+                }
             } else {
                 c_param_type(ty, core_import)
             }
@@ -441,6 +458,53 @@ mod tests {
         assert_eq!(
             c_return_type(&TypeRef::Optional(Box::new(TypeRef::Named("Foo".to_string()))), CORE),
             "*mut my_crate::Foo"
+        );
+    }
+
+    #[test]
+    fn test_param_enum_by_value_as_i32() {
+        let mut enum_names = ahash::AHashSet::new();
+        enum_names.insert("Method".to_string());
+        let path_map = ahash::AHashMap::new();
+        assert_eq!(
+            c_param_type_with_paths_and_enums(
+                &TypeRef::Named("Method".to_string()),
+                CORE,
+                &path_map,
+                &enum_names
+            ),
+            "i32"
+        );
+    }
+
+    #[test]
+    fn test_param_optional_enum_by_value_as_i32() {
+        let mut enum_names = ahash::AHashSet::new();
+        enum_names.insert("Status".to_string());
+        let path_map = ahash::AHashMap::new();
+        assert_eq!(
+            c_param_type_with_paths_and_enums(
+                &TypeRef::Optional(Box::new(TypeRef::Named("Status".to_string()))),
+                CORE,
+                &path_map,
+                &enum_names
+            ),
+            "i32"
+        );
+    }
+
+    #[test]
+    fn test_param_named_type_as_pointer_when_not_enum() {
+        let enum_names = ahash::AHashSet::new();
+        let path_map = ahash::AHashMap::new();
+        assert_eq!(
+            c_param_type_with_paths_and_enums(
+                &TypeRef::Named("RouteBuilder".to_string()),
+                CORE,
+                &path_map,
+                &enum_names
+            ),
+            "*const my_crate::RouteBuilder"
         );
     }
 }

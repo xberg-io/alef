@@ -24,7 +24,8 @@ use helpers::{
 };
 use types::{
     gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_enum_to_string,
-    gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_new, gen_type_to_json,
+    gen_field_accessor, gen_opaque_static_constructor, gen_type_free, gen_type_from_json, gen_type_new, gen_type_to_json,
+    is_static_constructor,
 };
 
 pub struct FfiBackend;
@@ -371,6 +372,22 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             }
         }
 
+        // Opaque static constructors — emit extern "C" fn for static `new` methods on opaque types
+        if typ.is_opaque {
+            for method in &typ.methods {
+                if is_static_constructor(method, &typ.name) {
+                    builder.add_item(&gen_opaque_static_constructor(
+                        typ,
+                        method,
+                        prefix,
+                        &core_import,
+                        &path_map,
+                        &enum_names,
+                    ));
+                }
+            }
+        }
+
         // Method wrappers — streaming adapters get a dedicated callback-based wrapper.
         for method in &typ.methods {
             // Skip methods with generic type parameters or builder-style returns.
@@ -617,7 +634,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // Emit a _len() companion for every function whose return type maps to *mut c_char
         // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.
         if returns_c_char(&func.return_type) {
-            builder.add_item(&gen_free_function_len_companion(func, prefix, &core_import, &path_map));
+            builder.add_item(&gen_free_function_len_companion(func, prefix, &core_import, &path_map, &enum_names));
         }
     }
 
@@ -3262,6 +3279,237 @@ type = "*const std::ffi::c_char"
         assert!(
             !lib.content.contains("my_lib_builder_with_option"),
             "builder-style method returning &mut Self should NOT be wrapped as C function"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests for opaque static constructor emission (Part B)
+    // -----------------------------------------------------------------------
+
+    /// Build an ApiSurface with an opaque type that has a static `new` constructor.
+    fn opaque_with_constructor_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![
+                // Enum used as parameter in the constructor
+                TypeDef {
+                    name: "Method".to_string(),
+                    rust_path: "my_lib::Method".to_string(),
+                    original_rust_path: String::new(),
+                    fields: vec![],
+                    methods: vec![],
+                    is_opaque: false,
+                    is_clone: true,
+                    is_copy: false,
+                    is_trait: false,
+                    has_default: false,
+                    has_stripped_cfg_fields: false,
+                    is_return_type: false,
+                    serde_rename_all: None,
+                    has_serde: false,
+                    super_traits: vec![],
+                    doc: "HTTP method enum.".to_string(),
+                    cfg: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                // Opaque RouteBuilder with static new constructor
+                TypeDef {
+                    name: "RouteBuilder".to_string(),
+                    rust_path: "my_lib::RouteBuilder".to_string(),
+                    original_rust_path: String::new(),
+                    fields: vec![],
+                    methods: vec![MethodDef {
+                        name: "new".to_string(),
+                        params: vec![
+                            ParamDef {
+                                name: "method".to_string(),
+                                ty: TypeRef::Named("Method".to_string()),
+                                optional: false,
+                                default: None,
+                                sanitized: false,
+                                typed_default: None,
+                                is_ref: false,
+                                is_mut: false,
+                                newtype_wrapper: None,
+                                original_type: None,
+                                map_is_ahash: false,
+                                map_key_is_cow: false,
+                            },
+                            ParamDef {
+                                name: "path".to_string(),
+                                ty: TypeRef::String,
+                                optional: false,
+                                default: None,
+                                sanitized: false,
+                                typed_default: None,
+                                is_ref: false,
+                                is_mut: false,
+                                newtype_wrapper: None,
+                                original_type: None,
+                                map_is_ahash: false,
+                                map_key_is_cow: false,
+                            },
+                        ],
+                        return_type: TypeRef::Named("RouteBuilder".to_string()),
+                        is_async: false,
+                        is_static: true,
+                        error_type: None,
+                        doc: "Create a new route builder.".to_string(),
+                        receiver: None,
+                        sanitized: false,
+                        trait_source: None,
+                        returns_ref: false,
+                        returns_cow: false,
+                        return_newtype_wrapper: None,
+                        has_default_impl: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_opaque: true,
+                    is_clone: false,
+                    is_copy: false,
+                    is_trait: false,
+                    has_default: false,
+                    has_stripped_cfg_fields: false,
+                    is_return_type: false,
+                    serde_rename_all: None,
+                    has_serde: false,
+                    super_traits: vec![],
+                    doc: "Opaque route builder.".to_string(),
+                    cfg: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            functions: vec![],
+            enums: vec![EnumDef {
+                name: "Method".to_string(),
+                rust_path: "my_lib::Method".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Get".to_string(),
+                        fields: vec![],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                    EnumVariant {
+                        name: "Post".to_string(),
+                        fields: vec![],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                ],
+                doc: "HTTP method.".to_string(),
+                cfg: None,
+                is_copy: true,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        }
+    }
+
+    #[test]
+    fn test_emits_opaque_static_constructor_as_c_symbol() {
+        let api = opaque_with_constructor_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Check that the extern "C" fn symbol is emitted
+        assert!(
+            lib.content.contains("pub unsafe extern \"C\" fn my_lib_route_builder_new("),
+            "expected opaque constructor symbol my_lib_route_builder_new, got:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_opaque_constructor_signature_has_enum_by_value_as_i32() {
+        let api = opaque_with_constructor_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Check that enum parameter is passed as i32, not *const
+        assert!(
+            lib.content.contains("method: i32"),
+            "expected enum parameter 'method: i32', got:\n{}",
+            lib.content
+        );
+        // Verify it's NOT emitted as a pointer
+        assert!(
+            !lib.content.contains("method: *const my_lib::Method"),
+            "enum parameter should not be passed as pointer"
+        );
+    }
+
+    #[test]
+    fn test_opaque_constructor_marshals_enum_from_i32() {
+        let api = opaque_with_constructor_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Check that the constructor body reconstructs the enum using from_i32
+        assert!(
+            lib.content.contains("method_from_i32"),
+            "constructor should use method_from_i32 to reconstruct enum from discriminant"
+        );
+    }
+
+    #[test]
+    fn test_opaque_constructor_returns_mut_opaque_pointer() {
+        let api = opaque_with_constructor_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Check return type is *mut RouteBuilderOpaque
+        assert!(
+            lib.content.contains("-> *mut RouteBuilderOpaque"),
+            "constructor should return *mut RouteBuilderOpaque"
+        );
+    }
+
+    #[test]
+    fn test_opaque_constructor_only_for_opaque_types() {
+        let api = opaque_with_constructor_api();
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The Method type is NOT opaque, so its constructor should NOT be emitted
+        // (if it had one). Only RouteBuilder's constructor should be in the output.
+        // Should have RouteBuilder's _new, but not Method's
+        assert!(
+            lib.content.contains("my_lib_route_builder_new"),
+            "RouteBuilder (opaque) should have _new constructor"
         );
     }
 }
