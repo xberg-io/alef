@@ -1495,9 +1495,14 @@ exclude_types = ["FfiHidden"]
             binding_exclusion_reason: None,
         };
         let out = render_enum_for_shared_doc(&en);
-        // The internal heading ## should become #### (demoted by 2 levels)
+        // The internal heading ## should become #### (demoted by 2 levels).
+        // `contains("## Variants")` would false-match against `#### Variants`, so check
+        // for the exact heading line at start-of-line instead.
         assert!(out.contains("#### Variants"), "internal heading must be demoted to #### (was ##): {out}");
-        assert!(!out.contains("## Variants"), "raw ## heading must not remain");
+        assert!(
+            !out.lines().any(|l| l == "## Variants"),
+            "raw ## heading must not remain: {out}"
+        );
         assert!(out.contains("Output format specification."));
     }
 

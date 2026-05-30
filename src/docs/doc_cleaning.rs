@@ -299,11 +299,7 @@ pub(crate) fn normalize_list_markers(doc: &str) -> String {
 ///
 /// Useful for field defaults that may contain embedded newlines or multiple consecutive spaces.
 pub(crate) fn collapse_whitespace(s: &str) -> String {
-    s.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Replace Rust-centric terminology with language-neutral equivalents.
