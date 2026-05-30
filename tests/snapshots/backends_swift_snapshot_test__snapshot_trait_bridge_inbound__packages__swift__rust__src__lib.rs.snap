@@ -77,16 +77,15 @@ mod ffi {
     }
 
     extern "Rust" {
-
         #[swift_bridge(swift_name = "ocrConfigFromJson")]
         fn ocr_config_from_json(json: String) -> Result<OcrConfig, String>;
     }
     extern "Rust" {
-
         #[swift_bridge(swift_name = "extractionResultFromJson")]
         fn extraction_result_from_json(json: String) -> Result<ExtractionResult, String>;
     }
 }
+
 
 pub struct OcrConfig(pub demo::OcrConfig);
 impl OcrConfig {

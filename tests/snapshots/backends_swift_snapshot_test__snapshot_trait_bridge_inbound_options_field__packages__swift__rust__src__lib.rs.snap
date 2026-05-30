@@ -76,11 +76,11 @@ mod ffi {
     }
 
     extern "Rust" {
-
         #[swift_bridge(swift_name = "conversionOptionsFromJson")]
         fn conversion_options_from_json(json: String) -> Result<ConversionOptions, String>;
     }
 }
+
 
 pub struct VisitorHandle(pub demo::visitor::VisitorHandle);
 

@@ -52,6 +52,7 @@ mod ffi {
 
 }
 
+
 pub struct Data(pub demo::Data);
 impl Data {
     pub fn new(value: i32) -> Data {

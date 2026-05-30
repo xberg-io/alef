@@ -62,6 +62,7 @@ mod ffi {
 
 }
 
+
 pub struct DefaultClient(pub demo::DefaultClient);
 
 pub fn create_default_client(api_key: String, base_url: Option<String>) -> Result<DefaultClient, String> {
