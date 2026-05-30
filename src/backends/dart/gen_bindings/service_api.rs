@@ -19,6 +19,30 @@ use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
+/// Format a multi-line Rust doc as a Dart `///` block at the given column
+/// indent. Every non-blank line is prefixed with `/// `; blank lines stay as
+/// bare `///` so paragraph breaks survive. Includes the trailing newline.
+fn format_dart_comment(text: &str, indent: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let pad = " ".repeat(indent);
+    let mut out = String::new();
+    for line in trimmed.lines() {
+        if line.trim().is_empty() {
+            out.push_str(&pad);
+            out.push_str("///\n");
+        } else {
+            out.push_str(&pad);
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 // ──────────────────────────────────────────────────── Dart service generator ──
 
 /// Whether an entrypoint's return type can be represented over the C ABI as a function return.
@@ -95,7 +119,8 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, p
 
     out.push_str(&format!("/// Service class for {}.\n", class_name));
     if !service.doc.is_empty() {
-        out.push_str(&format!("///\n/// {}\n", service.doc.trim()));
+        out.push_str("///\n");
+        out.push_str(&format_dart_comment(&service.doc, 0));
     }
     out.push_str(&format!("class {class_name} {{\n"));
 
@@ -167,7 +192,8 @@ fn gen_registration_method(
 
     out.push_str(&format!("  /// Register a handler callback for '{}'.\n", method_name));
     if !reg.doc.is_empty() {
-        out.push_str(&format!("  ///\n  /// {}\n", reg.doc.trim()));
+        out.push_str("  ///\n");
+        out.push_str(&format_dart_comment(&reg.doc, 2));
     }
     out.push_str(&format!("  void {method_name}({param_sig}) {{\n"));
     out.push_str("    if (handler == null) return;\n\n");
@@ -262,7 +288,8 @@ fn gen_entrypoint_method(out: &mut String, service: &ServiceDef, ep: &crate::cor
         }
     ));
     if !ep.doc.is_empty() {
-        out.push_str(&format!("  ///\n  /// {}\n", ep.doc.trim()));
+        out.push_str("  ///\n");
+        out.push_str(&format_dart_comment(&ep.doc, 2));
     }
 
     if ep.is_async {

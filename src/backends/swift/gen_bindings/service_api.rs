@@ -27,6 +27,30 @@ use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
+/// Format a multi-line Rust doc as a Swift `///` block at the given column
+/// indent. Every non-blank line is prefixed with `/// `; blank lines stay as
+/// bare `///` so paragraph breaks survive. Includes the trailing newline.
+fn format_swift_comment(text: &str, indent: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let pad = " ".repeat(indent);
+    let mut out = String::new();
+    for line in trimmed.lines() {
+        if line.trim().is_empty() {
+            out.push_str(&pad);
+            out.push_str("///\n");
+        } else {
+            out.push_str(&pad);
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// Whether an entrypoint's return type can be represented over the C ABI as a function return.
 ///
 /// Unit/primitive/string/bytes map to a status code or scalar; a `Named` type is representable only
@@ -85,7 +109,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
 
     // Class definition with documentation
     if !service.doc.is_empty() {
-        out.push_str(&format!("/// {}\n", service.doc.trim()));
+        out.push_str(&format_swift_comment(&service.doc, 0));
     }
     out.push_str(&format!("public final class {class_name} {{\n\n"));
 
@@ -171,7 +195,7 @@ fn gen_registration_method(
     };
 
     if !reg.doc.is_empty() {
-        out.push_str(&format!("    /// {}\n", reg.doc.trim()));
+        out.push_str(&format_swift_comment(&reg.doc, 4));
     }
 
     // Handler closure parameter: (String) -> String
@@ -249,7 +273,7 @@ fn gen_entrypoint_method(
     let ep_camel = ep_method.to_lower_camel_case();
 
     if !ep.doc.is_empty() {
-        out.push_str(&format!("    /// {}\n", ep.doc.trim()));
+        out.push_str(&format_swift_comment(&ep.doc, 4));
     }
 
     // Build parameter signature

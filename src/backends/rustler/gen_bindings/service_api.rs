@@ -83,19 +83,44 @@ pub(super) fn gen_service_ex(api: &ApiSurface, _module_name: &str) -> String {
     out
 }
 
+/// Format a Rust doc as an Elixir heredoc body at the given column indent.
+/// Returns just the lines between `"""` markers (does not emit the markers
+/// themselves). Each non-blank source line is indented to `indent` spaces so
+/// the closing `"""` at the same column strips that prefix from the heredoc
+/// at compile time; blank lines stay bare.
+fn elixir_heredoc_body(text: &str, indent: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let pad = " ".repeat(indent);
+    let mut out = String::new();
+    for line in trimmed.lines() {
+        if line.trim().is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&pad);
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) {
     let module_name = &service.name;
     let module_snake = service.name.to_snake_case();
 
-    // Module docstring
+    // Module declaration + @moduledoc.
+    //
+    // Module names are already implicitly under the `Elixir.` namespace; the
+    // `defmodule Elixir.<Name>` form prepends a redundant `Elixir.` so the
+    // compiled module ends up as `Elixir.Elixir.<Name>`. Emit the bare name.
+    out.push_str(&format!("defmodule {module_name} do\n"));
     if !service.doc.is_empty() {
-        out.push_str(&format!(
-            "defmodule Elixir.{} do\n  @moduledoc \"\"\"\n  {}\n  \"\"\"\n\n",
-            module_name,
-            service.doc.trim()
-        ));
-    } else {
-        out.push_str(&format!("defmodule Elixir.{} do\n", module_name));
+        out.push_str("  @moduledoc \"\"\"\n");
+        out.push_str(&elixir_heredoc_body(&service.doc, 2));
+        out.push_str("  \"\"\"\n\n");
     }
 
     // Struct definition
@@ -125,10 +150,12 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) 
             }
         }
 
-        out.push_str(&format!("  def new({}) do\n", params.join(", ")));
         if !ctor.doc.is_empty() {
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", ctor.doc.trim()));
+            out.push_str("  @doc \"\"\"\n");
+            out.push_str(&elixir_heredoc_body(&ctor.doc, 2));
+            out.push_str("  \"\"\"\n");
         }
+        out.push_str(&format!("  def new({}) do\n", params.join(", ")));
         out.push_str("    %__MODULE__{\n");
         for init in field_inits {
             out.push_str(&format!("      {},\n", init));
@@ -149,10 +176,12 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) 
             }
         }
 
-        out.push_str(&format!("  def {}({}) do\n", method_name, params.join(", ")));
         if !method.doc.is_empty() {
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", method.doc.trim()));
+            out.push_str("  @doc \"\"\"\n");
+            out.push_str(&elixir_heredoc_body(&method.doc, 2));
+            out.push_str("  \"\"\"\n");
         }
+        out.push_str(&format!("  def {}({}) do\n", method_name, params.join(", ")));
         for p in &method.params {
             out.push_str(&format!("    self = %__MODULE__{{self | {}: {}}}\n", p.name, p.name));
         }
@@ -182,10 +211,12 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) 
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("  def {}({}) do\n", ep_name, params.join(", ")));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("    \"\"\"{}\"\"\"\n", ep.doc.trim()));
+                    out.push_str("  @doc \"\"\"\n");
+                    out.push_str(&elixir_heredoc_body(&ep.doc, 2));
+                    out.push_str("  \"\"\"\n");
                 }
+                out.push_str(&format!("  def {}({}) do\n", ep_name, params.join(", ")));
                 let native_fn = format!("{}_{}", module_snake, ep_name);
                 out.push_str(&format!("    Native.{}(self.registrations", native_fn));
                 for p in &ep.params {
@@ -195,10 +226,12 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) 
                 out.push_str("  end\n\n");
             }
             EntrypointKind::Finalize => {
-                out.push_str(&format!("  def {}({}) do\n", ep_name, params.join(", ")));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("    \"\"\"{}\"\"\"\n", ep.doc.trim()));
+                    out.push_str("  @doc \"\"\"\n");
+                    out.push_str(&elixir_heredoc_body(&ep.doc, 2));
+                    out.push_str("  \"\"\"\n");
                 }
+                out.push_str(&format!("  def {}({}) do\n", ep_name, params.join(", ")));
                 let native_fn = format!("{}_{}", module_snake, ep_name);
                 out.push_str(&format!("    Native.{}(self.registrations", native_fn));
                 for p in &ep.params {
@@ -216,6 +249,11 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) 
 fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &ServiceDef, _api: &ApiSurface) {
     let method_name = &reg.method;
 
+    if !reg.doc.is_empty() {
+        out.push_str("  @doc \"\"\"\n");
+        out.push_str(&elixir_heredoc_body(&reg.doc, 2));
+        out.push_str("  \"\"\"\n");
+    }
     out.push_str(&format!("  def {}(self", method_name));
     for p in &reg.metadata_params {
         if p.optional {
@@ -225,10 +263,6 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &S
         }
     }
     out.push_str(", handler) do\n");
-
-    if !reg.doc.is_empty() {
-        out.push_str(&format!("    \"\"\"{}\"\"\"\n", reg.doc.trim()));
-    }
 
     // Build metadata tuple
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
@@ -943,9 +977,12 @@ mod tests {
     fn elixir_output_contains_service_module() {
         let surface = make_fixture_surface();
         let output = gen_service_ex(&surface, "");
+        // The compiled namespace is implicitly `Elixir.<Name>`, so the emitted
+        // source must NOT re-prefix it (`defmodule Elixir.<Name>` compiles to
+        // `Elixir.Elixir.<Name>`).
         assert!(
-            output.contains("defmodule Elixir.TestService do"),
-            "expected `defmodule Elixir.TestService do` in output:\n{output}"
+            output.contains("defmodule TestService do"),
+            "expected `defmodule TestService do` in output:\n{output}"
         );
     }
 
