@@ -15,7 +15,7 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::config::service::{HandlerContractConfig, RegistrationVariantSpec, ServiceConfig};
 use crate::core::ir::{
     ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef,
-    RegistrationVariant, RegistrationVariantOverride, ServiceDef, TypeRef,
+    RegistrationVariant, RegistrationVariantOverride, ServiceDef, TypeRef, WrapperConstructorArg, WrapperConstructorCall,
 };
 
 /// Run the service extraction pass in-place on `surface`.
@@ -371,42 +371,169 @@ fn parse_entrypoint_kind(s: &str) -> Option<EntrypointKind> {
     }
 }
 
-/// Resolve the [`RegistrationVariantSpec`] entries declared in `alef.toml` against
-/// the base registration's metadata params.
+/// Resolve the [`RegistrationVariantSpec`] entries declared in `alef.toml` into
+/// [`RegistrationVariant`]s with pre-built call recipes.
 ///
-/// For each variant:
-/// - Every `fixed` entry's param name must match a base metadata param; otherwise
-///   the resolution fails with a validation error.
-/// - When the matched param's type is an opaque [`TypeRef::Named`] resolving to an
-///   `EnumDef`, the supplied value must be a known variant name; the override's
-///   `value_expr` is set to the fully-qualified Rust path (`<rust_path>::<Variant>`).
-/// - Otherwise the supplied value is preserved verbatim and emitted at the call
-///   site as-is — the library author owns the expression's validity.
+/// Two resolution modes:
+///
+/// 1. **Wrapper mode (preferred when applicable):** if exactly one metadata
+///    param's type names a [`TypeDef`](crate::core::ir::TypeDef) with a static
+///    `new` constructor, the variant's `fixed` keys are matched against that
+///    constructor's params; the extractor builds a
+///    [`WrapperConstructorCall`] recipe that backends render at the call site,
+///    and the variant's `signature_params` is the constructor's *non-fixed*
+///    params plus any *other* base metadata params.
+///
+/// 2. **Direct mode (fallback):** `fixed` keys are matched against the base
+///    [`RegistrationDef::metadata_params`] directly; `wrapper_call` is `None`
+///    and `signature_params` is the non-overridden subset of base metadata.
+///
+/// In both modes, enum-typed pins are validated against the param type's
+/// [`EnumDef`] variants and resolved to fully-qualified Rust paths
+/// (`<rust_path>::<Variant>`); non-enum pins pass through verbatim.
 fn resolve_variants(
     surface: &ApiSurface,
     svc_cfg: &ServiceConfig,
     reg_spec: &crate::core::config::service::RegistrationSpec,
     metadata_params: &[ParamDef],
 ) -> Result<Vec<RegistrationVariant>, String> {
+    let wrapper = find_wrapper_constructor(surface, metadata_params);
     let mut out = Vec::with_capacity(reg_spec.variants.len());
     for v_spec in &reg_spec.variants {
-        let overrides = resolve_variant_overrides(surface, svc_cfg, reg_spec, v_spec, metadata_params)?;
-        out.push(RegistrationVariant {
-            name: v_spec.name.clone(),
-            overrides,
-            doc: v_spec.doc.clone(),
-        });
+        let resolved = if let Some(w) = &wrapper {
+            resolve_via_wrapper(surface, svc_cfg, reg_spec, v_spec, metadata_params, w)?
+        } else {
+            resolve_via_direct(surface, svc_cfg, reg_spec, v_spec, metadata_params)?
+        };
+        out.push(resolved);
     }
     Ok(out)
 }
 
-fn resolve_variant_overrides(
+/// Identifies the single metadata param whose type is a [`TypeDef`] carrying a
+/// static `new` constructor (returns `Self`/the wrapper type), and returns the
+/// pair so [`resolve_via_wrapper`] can use it.
+fn find_wrapper_constructor<'a>(
+    surface: &'a ApiSurface,
+    metadata_params: &'a [ParamDef],
+) -> Option<(&'a ParamDef, &'a crate::core::ir::TypeDef, &'a MethodDef)> {
+    let mut found: Option<(&ParamDef, &crate::core::ir::TypeDef, &MethodDef)> = None;
+    for param in metadata_params {
+        let TypeRef::Named(type_name) = &param.ty else { continue };
+        let Some(type_def) = surface.types.iter().find(|t| &t.name == type_name && !t.is_trait) else {
+            continue;
+        };
+        let Some(ctor) = type_def
+            .methods
+            .iter()
+            .find(|m| m.name == "new" && m.receiver.is_none() && !m.params.is_empty())
+        else {
+            continue;
+        };
+        if found.is_some() {
+            // Multiple wrapper-typed metadata params with a static `new` — too ambiguous
+            // to pick automatically. Fall back to direct mode (callers will get a
+            // direct-mode validation error if `fixed` keys don't match base metadata).
+            return None;
+        }
+        found = Some((param, type_def, ctor));
+    }
+    found
+}
+
+fn resolve_via_wrapper(
     surface: &ApiSurface,
     svc_cfg: &ServiceConfig,
     reg_spec: &crate::core::config::service::RegistrationSpec,
     v_spec: &RegistrationVariantSpec,
     metadata_params: &[ParamDef],
-) -> Result<Vec<RegistrationVariantOverride>, String> {
+    wrapper: &(&ParamDef, &crate::core::ir::TypeDef, &MethodDef),
+) -> Result<RegistrationVariant, String> {
+    let (wrapper_param, wrapper_type, ctor) = *wrapper;
+    let mut overrides = Vec::with_capacity(v_spec.fixed.len());
+    let mut args = Vec::with_capacity(ctor.params.len());
+    let mut free_params = Vec::new();
+
+    for ctor_param in &ctor.params {
+        if let Some(raw_value) = v_spec.fixed.get(&ctor_param.name) {
+            let value_expr = match resolve_enum_override(surface, &ctor_param.ty, raw_value) {
+                EnumResolution::Resolved(path) => path,
+                EnumResolution::NotAnEnum => raw_value.clone(),
+                EnumResolution::UnknownVariant(enum_name) => {
+                    return Err(format!(
+                        "service `{}` registration `{}` variant `{}`: wrapper-constructor param `{}` of enum `{}` has no variant `{}`",
+                        svc_cfg.owner_type, reg_spec.method, v_spec.name, ctor_param.name, enum_name, raw_value
+                    ));
+                }
+            };
+            overrides.push(RegistrationVariantOverride {
+                param_name: ctor_param.name.clone(),
+                value_expr: value_expr.clone(),
+            });
+            args.push(WrapperConstructorArg::Fixed {
+                param_name: ctor_param.name.clone(),
+                value_expr,
+            });
+        } else {
+            args.push(WrapperConstructorArg::Free {
+                param: ctor_param.clone(),
+            });
+            free_params.push(ctor_param.clone());
+        }
+    }
+
+    // Any `fixed` key that doesn't name a constructor param is an error.
+    for fixed_name in v_spec.fixed.keys() {
+        if !ctor.params.iter().any(|p| &p.name == fixed_name) {
+            return Err(format!(
+                "service `{}` registration `{}` variant `{}`: fixed param `{}` not found in wrapper `{}::{}` constructor params",
+                svc_cfg.owner_type,
+                reg_spec.method,
+                v_spec.name,
+                fixed_name,
+                wrapper_type.name,
+                ctor.name
+            ));
+        }
+    }
+
+    // signature_params = free constructor params + any non-wrapper base metadata params,
+    // preserving declared order.
+    let mut signature_params = free_params;
+    for mp in metadata_params {
+        if mp.name != wrapper_param.name {
+            signature_params.push(mp.clone());
+        }
+    }
+
+    let wrapper_type_path = if wrapper_type.rust_path.is_empty() {
+        wrapper_type.name.clone()
+    } else {
+        wrapper_type.rust_path.clone()
+    };
+
+    Ok(RegistrationVariant {
+        name: v_spec.name.clone(),
+        overrides,
+        wrapper_call: Some(WrapperConstructorCall {
+            metadata_param: wrapper_param.name.clone(),
+            wrapper_type_path,
+            wrapper_type_name: wrapper_type.name.clone(),
+            constructor_method: ctor.name.clone(),
+            args,
+        }),
+        signature_params,
+        doc: v_spec.doc.clone(),
+    })
+}
+
+fn resolve_via_direct(
+    surface: &ApiSurface,
+    svc_cfg: &ServiceConfig,
+    reg_spec: &crate::core::config::service::RegistrationSpec,
+    v_spec: &RegistrationVariantSpec,
+    metadata_params: &[ParamDef],
+) -> Result<RegistrationVariant, String> {
     let mut overrides = Vec::with_capacity(v_spec.fixed.len());
     for (param_name, raw_value) in &v_spec.fixed {
         let param = metadata_params.iter().find(|p| &p.name == param_name).ok_or_else(|| {
@@ -432,7 +559,20 @@ fn resolve_variant_overrides(
             value_expr,
         });
     }
-    Ok(overrides)
+
+    let signature_params: Vec<ParamDef> = metadata_params
+        .iter()
+        .filter(|p| !v_spec.fixed.contains_key(&p.name))
+        .cloned()
+        .collect();
+
+    Ok(RegistrationVariant {
+        name: v_spec.name.clone(),
+        overrides,
+        wrapper_call: None,
+        signature_params,
+        doc: v_spec.doc.clone(),
+    })
 }
 
 enum EnumResolution {
@@ -698,6 +838,125 @@ pub trait IntoHandler {}
             "missing owner type must produce a warning, got none"
         );
         assert!(surface.services.is_empty(), "no ServiceDef must be pushed on failure");
+    }
+
+    #[test]
+    fn registration_variants_resolve_via_wrapper_constructor() {
+        use crate::core::config::service::RegistrationVariantSpec;
+        let src = r#"
+pub struct App {}
+impl App {
+    pub fn new() -> Self { todo!() }
+    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { todo!() }
+    pub async fn run(self) -> Result<(), String> { todo!() }
+}
+
+pub struct RouteBuilder {}
+impl RouteBuilder {
+    pub fn new(method: Method, path: String) -> Self { todo!() }
+}
+
+pub enum Method { Get, Post, Put }
+
+pub trait Handler {
+    async fn call(&self, req: RequestData) -> ResponseData;
+}
+pub struct RequestData {}
+pub struct ResponseData {}
+pub trait IntoHandler {}
+"#;
+        let (_dir, file_path, mut surface) = extract_source_persistent(src);
+        let mut cfg = make_resolved_config_with_service();
+        cfg.sources = vec![file_path];
+        cfg.services[0].registrations[0].method = "route".to_owned();
+        cfg.services[0].registrations[0].variants = vec![
+            RegistrationVariantSpec {
+                name: "get".to_owned(),
+                fixed: [("method".to_owned(), "Get".to_owned())].into_iter().collect(),
+                doc: None,
+            },
+            RegistrationVariantSpec {
+                name: "post".to_owned(),
+                fixed: [("method".to_owned(), "Post".to_owned())].into_iter().collect(),
+                doc: None,
+            },
+        ];
+        cfg.services[0]
+            .entrypoints
+            .retain(|e| e.method != "into_router");
+
+        let warnings = extract_services(&mut surface, &cfg);
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+        let svc = &surface.services[0];
+        let reg = &svc.registrations[0];
+        assert_eq!(reg.variants.len(), 2);
+
+        let get = reg.variants.iter().find(|v| v.name == "get").expect("get variant");
+        let wrapper = get.wrapper_call.as_ref().expect("wrapper_call resolved");
+        assert_eq!(wrapper.metadata_param, "builder");
+        assert_eq!(wrapper.wrapper_type_name, "RouteBuilder");
+        assert_eq!(wrapper.constructor_method, "new");
+        assert_eq!(wrapper.args.len(), 2);
+        let method_arg = &wrapper.args[0];
+        match method_arg {
+            crate::core::ir::WrapperConstructorArg::Fixed { param_name, value_expr } => {
+                assert_eq!(param_name, "method");
+                assert!(
+                    value_expr.ends_with("Method::Get"),
+                    "expected resolved enum path ending in Method::Get, got `{value_expr}`"
+                );
+            }
+            other => panic!("expected Fixed for method, got {other:?}"),
+        }
+        let path_arg = &wrapper.args[1];
+        match path_arg {
+            crate::core::ir::WrapperConstructorArg::Free { param } => {
+                assert_eq!(param.name, "path");
+            }
+            other => panic!("expected Free for path, got {other:?}"),
+        }
+        assert_eq!(get.signature_params.len(), 1);
+        assert_eq!(get.signature_params[0].name, "path");
+    }
+
+    #[test]
+    fn registration_variant_unknown_enum_variant_returns_error() {
+        use crate::core::config::service::RegistrationVariantSpec;
+        let src = r#"
+pub struct App {}
+impl App {
+    pub fn new() -> Self { todo!() }
+    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { todo!() }
+    pub async fn run(self) -> Result<(), String> { todo!() }
+}
+pub struct RouteBuilder {}
+impl RouteBuilder {
+    pub fn new(method: Method, path: String) -> Self { todo!() }
+}
+pub enum Method { Get, Post }
+pub trait Handler { async fn call(&self, r: R) -> S; }
+pub struct R {}
+pub struct S {}
+pub trait IntoHandler {}
+"#;
+        let (_dir, file_path, mut surface) = extract_source_persistent(src);
+        let mut cfg = make_resolved_config_with_service();
+        cfg.sources = vec![file_path];
+        cfg.services[0].registrations[0].method = "route".to_owned();
+        cfg.services[0].registrations[0].variants = vec![RegistrationVariantSpec {
+            name: "bogus".to_owned(),
+            fixed: [("method".to_owned(), "NotARealVariant".to_owned())].into_iter().collect(),
+            doc: None,
+        }];
+        cfg.services[0]
+            .entrypoints
+            .retain(|e| e.method != "into_router");
+        let warnings = extract_services(&mut surface, &cfg);
+        assert!(
+            warnings.iter().any(|w| w.contains("no variant `NotARealVariant`")),
+            "expected unknown-variant warning, got {warnings:?}"
+        );
     }
 
     #[test]
