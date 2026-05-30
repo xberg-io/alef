@@ -641,6 +641,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_api/registration_method.rs.jinja"),
     ),
     (
+        "service_api/registration_variant.rs.jinja",
+        include_str!("templates/service_api/registration_variant.rs.jinja"),
+    ),
+    (
         "service_api/entrypoint_method.rs.jinja",
         include_str!("templates/service_api/entrypoint_method.rs.jinja"),
     ),

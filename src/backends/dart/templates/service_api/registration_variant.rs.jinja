@@ -1,0 +1,23 @@
+    #[frb(sync)]
+    pub fn {{ variant_name }}(
+        &mut self,
+{%- for param in signature_params %}
+        {{ param.name }}: {{ param.rust_type }},
+{%- endfor %}
+        handler: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
+    ) -> i32 {
+{%- if wrapper_call %}
+        let builder = {{ wrapper_type_path }}::{{ constructor_method }}(
+{%- for arg in wrapper_args %}
+{%- if arg.kind == "fixed" %}
+            {{ arg.value_expr }},
+{%- else %}
+            {{ arg.param.name }},
+{%- endif %}
+{%- endfor %}
+        );
+        self.{{ base_method_name }}(builder, {{ signature_params | map(attribute='name') | join(', ') }}, handler)
+{%- else %}
+        self.{{ base_method_name }}({{ signature_params | map(attribute='name') | join(', ') }}, handler)
+{%- endif %}
+    }

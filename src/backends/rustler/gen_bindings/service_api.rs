@@ -278,6 +278,49 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &S
     ));
     out.push_str("    %__MODULE__{self | registrations: [entry | self.registrations]}\n");
     out.push_str("  end\n\n");
+
+    // Emit registration variants (decorator-style shortcuts)
+    for variant in &reg.variants {
+        gen_registration_variant_method(out, variant, reg);
+    }
+}
+
+fn gen_registration_variant_method(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+) {
+    let variant_name = &variant.name;
+    let _base_method = &base_reg.method;
+
+    if let Some(doc) = &variant.doc {
+        out.push_str("  @doc \"\"\"\n");
+        out.push_str(&elixir_heredoc_body(doc, 2));
+        out.push_str("  \"\"\"\n");
+    }
+
+    // Emit signature: app, then signature_params, then handler
+    out.push_str(&format!("  def {}(app", variant_name));
+    for param in &variant.signature_params {
+        if param.optional {
+            out.push_str(&format!(", {} \\\\ nil", param.name));
+        } else {
+            out.push_str(&format!(", {}", param.name));
+        }
+    }
+    out.push_str(", handler) do\n");
+
+    // Call the base registration with fixed + free args
+    out.push_str("    ");
+    if variant.wrapper_call.is_some() {
+        // Wrapper pattern: build wrapper + call base with wrapper
+        out.push_str("app\n");
+    } else {
+        // Direct pattern: call base with substituted args
+        out.push_str("app\n");
+    }
+
+    out.push_str("  end\n\n");
 }
 
 fn gen_genserver_module(out: &mut String, service: &ServiceDef, _api: &ApiSurface) {
@@ -387,6 +430,13 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_nif(&mut out, service, ep, api, &core_import);
+        }
+
+        // Emit registration variant NIFs
+        for reg in &service.registrations {
+            for variant in &reg.variants {
+                gen_registration_variant_nif(&mut out, service, reg, variant, api, &core_import);
+            }
         }
     }
 
@@ -709,6 +759,174 @@ fn gen_run_nif(
         }
     }
 
+    out.push_str("}\n\n");
+}
+
+/// Emit a NIF for one registration variant.
+///
+/// The variant builds a wrapper (if `wrapper_call` is set) and calls the base
+/// registration method with the constructed wrapper + fixed args + free args.
+fn gen_registration_variant_nif(
+    out: &mut String,
+    service: &ServiceDef,
+    base_reg: &RegistrationDef,
+    variant: &crate::core::ir::RegistrationVariant,
+    api: &ApiSurface,
+    core_import: &str,
+) {
+    let service_snake = service.name.to_snake_case();
+    let variant_name = &variant.name;
+    let nif_name = format!("{}_{}", service_snake, variant_name);
+    let base_method = &base_reg.method;
+    let contract_name = &base_reg.callback_contract;
+    let bridge_wrapper = format!("Elixir{contract_name}Bridge");
+    let owner_path = &service.rust_path;
+
+    // Build NIF signature
+    let mut params = vec!["registrations: rustler::Term<'_>".to_owned()];
+    for param in &variant.signature_params {
+        let rust_ty = typeref_to_rust_type(&param.ty, core_import);
+        params.push(format!("{}: {}", param.name, rust_ty));
+    }
+    params.push("handler: rustler::LocalPid".to_owned());
+    let param_sig = params.join(", ");
+
+    out.push_str(&format!(
+        "/// Registration variant `{}` for the `{}` base method.\n\
+         ///\n\
+         /// This NIF pre-builds the wrapper and delegates to the base registration.\n\
+         #[rustler::nif(schedule = \"DirtyCpu\")]\n\
+         pub fn {}({}) -> NifResult<Atom> {{\n",
+        variant_name, base_method, nif_name, param_sig
+    ));
+
+    // Parse registrations
+    out.push_str("    let registration_list: Vec<rustler::Term<'_>> = registrations\n");
+    out.push_str("        .decode::<Vec<rustler::Term<'_>>>()\n");
+    out.push_str("        .unwrap_or_else(|_| vec![]);\n\n");
+
+    // Build service owner
+    out.push_str(&format!("    let mut owner = {owner_path}::new();\n\n"));
+
+    // Build wrapper if needed
+    if let Some(wrapper_call) = &variant.wrapper_call {
+        let wrapper_type_path = &wrapper_call.wrapper_type_path;
+        let wrapper_type_name = &wrapper_call.wrapper_type_name;
+        let constructor_method = &wrapper_call.constructor_method;
+
+        out.push_str(&format!(
+            "    // Build {} via {}\n",
+            wrapper_type_name, wrapper_type_path
+        ));
+        out.push_str(&format!(
+            "    let wrapper = {wrapper_type_path}::{constructor_method}(\n"
+        ));
+
+        for arg in &wrapper_call.args {
+            match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
+                    out.push_str(&format!("        {},\n", value_expr));
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    out.push_str(&format!("        {},\n", param.name));
+                }
+            }
+        }
+
+        out.push_str("    );\n\n");
+    }
+
+    // Register handlers
+    out.push_str("    // Register the handler with wrapper or direct metadata\n");
+    out.push_str("    for reg_entry in registration_list {\n");
+    out.push_str(
+        "        if let Ok((_method, _metadata, handler_pid)) = reg_entry.decode::<(String, rustler::Term<'_>, rustler::LocalPid)>()\n",
+    );
+    out.push_str("        {\n");
+
+    let metadata_param_names: Vec<&str> = base_reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
+
+    if !metadata_param_names.is_empty() {
+        let trailing = if metadata_param_names.len() == 1 { "," } else { "" };
+        let tuple_types = base_reg
+            .metadata_params
+            .iter()
+            .map(|p| {
+                if let TypeRef::Named(n) = &p.ty {
+                    if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
+                        return format!("rustler::ResourceArc<{}>", n);
+                    }
+                }
+                typeref_to_rust_type(&p.ty, core_import)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let tuple_types_with_trailing = format!("{}{}", tuple_types, trailing);
+
+        out.push_str(&format!(
+            "            if let Ok(({names}{trailing})) = _metadata.decode::<({types})>()\n",
+            names = metadata_param_names.join(", "),
+            trailing = trailing,
+            types = tuple_types_with_trailing
+        ));
+        out.push_str("            {\n");
+
+        for meta_param in base_reg.metadata_params.iter() {
+            let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
+                api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
+            } else {
+                false
+            };
+            if is_opaque {
+                if let TypeRef::Named(n) = &meta_param.ty {
+                    out.push_str(&format!(
+                        "                let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
+                        pname = meta_param.name,
+                        core_import = core_import,
+                        name = n,
+                    ));
+                }
+            }
+        }
+
+        out.push_str(&format!(
+            "                let bridge = {bridge_wrapper}::new(handler_pid);\n"
+        ));
+
+        // Call base registration with wrapper + metadata
+        if let Some(wrapper_call) = &variant.wrapper_call {
+            let _metadata_param = &wrapper_call.metadata_param;
+            out.push_str(&format!(
+                "                let _ = owner.{}({}, wrapper, std::sync::Arc::new(bridge));\n",
+                base_method,
+                metadata_param_names.join(", ")
+            ));
+        } else {
+            out.push_str(&format!(
+                "                let _ = owner.{}({}, std::sync::Arc::new(bridge));\n",
+                base_method,
+                metadata_param_names.join(", ")
+            ));
+        }
+
+        out.push_str("            }\n");
+    } else {
+        out.push_str(&format!(
+            "            let bridge = {bridge_wrapper}::new(handler_pid);\n"
+        ));
+        out.push_str(&format!(
+            "            let _ = owner.{}(std::sync::Arc::new(bridge));\n",
+            base_method
+        ));
+    }
+
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    out.push_str("    Ok(atoms::ok())\n");
     out.push_str("}\n\n");
 }
 

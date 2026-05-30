@@ -1,0 +1,48 @@
+/// Variant shortcut `{{ variant_name }}` over `{{ base_fn_name }}`.
+///
+/// Convenience C symbol that pre-fills the `{{ wrapper_type_name }}` constructor
+/// with all `Fixed` arguments and accepts only the remaining free parameters.
+///
+/// # Safety
+/// - `owner` must be a valid pointer returned by `{{ new_fn_name }}()` and not yet freed.
+/// - `callback` must be a valid function pointer that remains valid for the lifetime
+///   of this service instance.
+/// - `context` is an opaque pointer passed to the callback on each invocation.
+///   The caller is responsible for keeping it valid.
+/// - All `*const c_char` parameters must point to valid null-terminated UTF-8 strings,
+///   or may be null (in which case an empty string is substituted).
+/// Returns 0 on success, non-zero error code on failure.
+#[no_mangle]
+pub extern "C" fn {{ variant_fn_name }}(
+    owner: *mut {{ opaque_name }},
+    callback: extern "C" fn(*mut c_void, *const c_char) -> *mut c_char,
+    context: *mut c_void,
+{% for param_decl in signature_param_decls %}
+    {{ param_decl }},
+{% endfor %}
+) -> i32 {
+    if owner.is_null() {
+        return 1; // Error: null pointer
+    }
+{% for null_check in null_checks %}
+    {{ null_check }}
+{% endfor %}
+
+{% for conversion in conversions %}
+    {{ conversion }}
+{% endfor %}
+    let {{ metadata_param_name }} = {{ wrapper_type_path }}::{{ constructor_method }}(
+{% for ctor_arg in ctor_args %}
+        {{ ctor_arg }},
+{% endfor %}
+    );
+
+    let bridge = {{ bridge_name }} {
+        callback,
+        context,
+    };
+    let handler: Arc<dyn {{ core_import }}::{{ trait_name }}> = Arc::new(bridge);
+
+    // SAFETY: owner was allocated by _new() and is valid until freed.
+    {{ forward_call }}
+}

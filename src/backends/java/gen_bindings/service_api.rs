@@ -13,10 +13,12 @@
 //! - `Arena` for managing lifetime of callback stubs + context pointers
 //! - String marshalling via `MemorySegment` + `getString()` / `CLinker.C_CHAR.byteSize()`
 
+use crate::backends::java::template_env;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, ServiceDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use minijinja::context;
 use std::path::PathBuf;
 
 // ────────────────────────────────────────────────────────── helpers ──
@@ -282,6 +284,33 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         out.push_str("    }\n\n");
     }
 
+    // Registration variant methods
+    for reg in &service.registrations {
+        let reg_method_snake = reg.method.to_snake_case();
+        for variant in &reg.variants {
+            let variant_method_name = variant.name.to_lower_camel_case();
+            let ffi_symbol = format!(
+                "{}_{}_register_{}_{}",
+                ffi_prefix,
+                service_snake,
+                reg_method_snake,
+                variant.name.to_snake_case()
+            );
+            let doc = variant.doc.clone();
+
+            let ctx = context! {
+                method_name => variant_method_name.clone(),
+                variant_name_display => variant.name.to_lower_camel_case(),
+                ffi_symbol => ffi_symbol.clone(),
+                doc => doc,
+            };
+
+            let rendered = template_env::render("registration_variant.java.jinja", ctx);
+            out.push_str(&rendered);
+            out.push_str("\n\n");
+        }
+    }
+
     // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_method = &ep.method;
@@ -541,7 +570,22 @@ mod tests {
             return_type: TypeRef::Unit,
             error_type: None,
             doc: "Register a request handler.".to_owned(),
-            variants: vec![],
+            variants: vec![
+                crate::core::ir::RegistrationVariant {
+                    name: "get".to_owned(),
+                    overrides: vec![],
+                    wrapper_call: None,
+                    signature_params: vec![],
+                    doc: Some("Register a GET handler.".to_owned()),
+                },
+                crate::core::ir::RegistrationVariant {
+                    name: "post".to_owned(),
+                    overrides: vec![],
+                    wrapper_call: None,
+                    signature_params: vec![],
+                    doc: Some("Register a POST handler.".to_owned()),
+                },
+            ],
         };
 
         let run_ep = EntrypointDef {
@@ -813,6 +857,47 @@ mod tests {
         assert!(
             java.contains("ValueLayout.ADDRESS") || java.contains("ValueLayout.JAVA_INT"),
             "registration should build FunctionDescriptor with metadata param layouts"
+        );
+    }
+
+    #[test]
+    fn java_class_emits_registration_variants() {
+        let surface = make_fixture_surface();
+        let config = make_test_config();
+        let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
+
+        // Verify variant methods are emitted
+        assert!(
+            java.contains("public int get(String path, Callable handler)"),
+            "should emit get variant method"
+        );
+        assert!(
+            java.contains("public int post(String path, Callable handler)"),
+            "should emit post variant method"
+        );
+
+        // Verify variant C symbols are correctly formed
+        assert!(
+            java.contains("test_crate_test_service_register_add_handler_get"),
+            "should bind get variant to correct C symbol"
+        );
+        assert!(
+            java.contains("test_crate_test_service_register_add_handler_post"),
+            "should bind post variant to correct C symbol"
+        );
+
+        // Verify variant methods use Panama FFM
+        assert!(
+            java.contains("LINKER.downcallHandle"),
+            "variant methods should use Panama downcalls"
+        );
+        assert!(
+            java.contains("LINKER.upcallStub"),
+            "variant methods should create upcall stubs"
+        );
+        assert!(
+            java.contains("FunctionDescriptor.of"),
+            "variant methods should build function descriptors"
         );
     }
 }

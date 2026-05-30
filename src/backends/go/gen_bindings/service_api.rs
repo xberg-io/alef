@@ -360,6 +360,13 @@ fn gen_service_struct(
         gen_registration_method(out, service, reg, api, ffi_prefix);
     }
 
+    // Registration variant methods (e.g., Get, Post shortcuts)
+    for reg in &service.registrations {
+        for variant in &reg.variants {
+            gen_registration_variant(out, service, reg, variant, ffi_prefix);
+        }
+    }
+
     // Entrypoint methods
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api_surface, ffi_prefix);
@@ -456,6 +463,119 @@ fn gen_registration_method(
                 // Primitive or other type: pass directly (cast via C type)
                 let c_type = typeref_to_c_type(&meta_param.ty);
                 out.push_str(&format!("\t\t{c_type}({}),\n", meta_param.name));
+            }
+        }
+    }
+    out.push_str("\t)\n\n");
+
+    if reg.error_type.is_some() {
+        out.push_str("\tif ret != 0 {\n");
+        out.push_str("\t\tunregisterHandler(ctxID)\n");
+        out.push_str("\t\treturn fmt.Errorf(\"registration failed: error code %d\", ret)\n");
+        out.push_str("\t}\n");
+        out.push_str("\treturn nil\n");
+    } else {
+        out.push_str("\tif ret != 0 {\n");
+        out.push_str("\t\tunregisterHandler(ctxID)\n");
+        out.push_str("\t\tpanic(fmt.Sprintf(\"registration failed: error code %d\", ret))\n");
+        out.push_str("\t}\n");
+    }
+
+    out.push_str("}\n\n");
+}
+
+/// Generate a registration variant method for one variant shortcut (e.g., Get, Post).
+fn gen_registration_variant(
+    out: &mut String,
+    service: &ServiceDef,
+    reg: &RegistrationDef,
+    variant: &crate::core::ir::RegistrationVariant,
+    ffi_prefix: &str,
+) {
+    let service_name = &service.name;
+    let service_snake = service_name.to_snake_case();
+    let service_lower = ffi_prefix.to_lowercase();
+    let variant_name_pascal = variant.name.to_upper_camel_case();
+    let variant_name_snake = variant.name.to_snake_case();
+    let reg_method_snake = reg.method.to_snake_case();
+
+    // Build method signature with variant's signature_params + handler
+    let mut params = vec!["handler HandlerFunc".to_owned()];
+    for sig_param in &variant.signature_params {
+        let go_type = typeref_to_go_type(&sig_param.ty);
+        params.push(format!("{} {}", sig_param.name, go_type));
+    }
+    let param_sig = params.join(", ");
+
+    out.push_str(&format!(
+        "// {}() registers a handler via the {} variant.\n",
+        variant_name_pascal, variant.name
+    ));
+    if let Some(doc) = &variant.doc {
+        out.push_str(&go_doc_block(doc));
+    }
+
+    let return_type = if reg.error_type.is_some() {
+        "error".to_owned()
+    } else {
+        "".to_owned()
+    };
+    let return_sig = if !return_type.is_empty() {
+        format!(" {}", return_type)
+    } else {
+        String::new()
+    };
+
+    out.push_str(&format!(
+        "func (s *{}) {}({}) {} {{\n",
+        service_name, variant_name_pascal, param_sig, return_sig
+    ));
+    out.push_str("\ts.mu.Lock()\n");
+    out.push_str("\tdefer s.mu.Unlock()\n");
+    out.push_str("\tif s.owner == nil {\n");
+    if reg.error_type.is_some() {
+        out.push_str("\t\treturn errors.New(\"service is closed\")\n");
+    } else {
+        out.push_str("\t\tpanic(\"service is closed\")\n");
+    }
+    out.push_str("\t}\n\n");
+
+    // Register the handler in Go's registry
+    out.push_str("\tctxID := registerHandler(handler)\n");
+
+    // Call the C variant function with fixed overrides + free args
+    let upper_prefix = ffi_prefix.to_uppercase();
+    out.push_str(&format!(
+        "\tret := C.{}_{}_{}_{} (\n\
+         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
+         \t\t(*[0]byte)(C.service_handler_trampoline),\n\
+         \t\tunsafe.Pointer(ctxID),\n",
+        service_lower, service_snake, reg_method_snake, variant_name_snake
+    ));
+
+    // Emit fixed overrides + free args, marshaling each
+    for base_param in &reg.metadata_params {
+        if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
+            // Fixed: use the value expression verbatim (assumes it's already in Go form)
+            out.push_str(&format!("\t\t{},\n", override_.value_expr));
+        } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
+            // Free: marshal from variant signature
+            match &sig_param.ty {
+                TypeRef::String => {
+                    out.push_str(&format!("\t\tC.CString({}),\n", sig_param.name));
+                }
+                TypeRef::Named(type_name) => {
+                    // Opaque type
+                    out.push_str(&format!(
+                        "\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr)),\n",
+                        sig_param.name
+                    ));
+                }
+                _ => {
+                    // Primitive
+                    let c_type = typeref_to_c_type(&sig_param.ty);
+                    out.push_str(&format!("\t\t{c_type}({}),\n", sig_param.name));
+                }
             }
         }
     }
@@ -654,22 +774,48 @@ mod tests {
             binding_exclusion_reason: None,
         };
 
-        let registration = RegistrationDef {
-            method: "add_handler".to_owned(),
-            callback_param: "handler".to_owned(),
-            callback_contract: "RequestHandler".to_owned(),
-            metadata_params: vec![ParamDef {
+        let get_variant = crate::core::ir::RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![crate::core::ir::RegistrationVariantOverride {
+                param_name: "method".to_owned(),
+                value_expr: "\"GET\"".to_owned(),
+            }],
+            wrapper_call: None,
+            signature_params: vec![ParamDef {
                 name: "path".to_owned(),
                 ty: TypeRef::String,
                 optional: false,
                 default: None,
                 ..ParamDef::default()
             }],
+            doc: Some("Register a GET handler.".to_owned()),
+        };
+
+        let registration = RegistrationDef {
+            method: "add_handler".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![
+                ParamDef {
+                    name: "method".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+            ],
             receiver: Some(crate::core::ir::ReceiverKind::RefMut),
             return_type: TypeRef::Unit,
             error_type: Some("HandlerError".to_owned()),
             doc: "Register a request handler.".to_owned(),
-            variants: vec![],
+            variants: vec![get_variant],
         };
 
         let run_entrypoint = EntrypointDef {
@@ -873,5 +1019,23 @@ mod tests {
         assert!(go.contains("test_crate_test_service_new"));
         assert!(go.contains("test_crate_test_service_free"));
         assert!(go.contains("test_crate_test_service_register_add_handler"));
+    }
+
+    #[test]
+    fn test_registration_variant_method_exists() {
+        let api = make_fixture_surface();
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let go = gen_service_go(&api, &config, "binding", "test_crate");
+
+        // Variant method should be present with TitleCase name
+        assert!(go.contains("func (s *TestService) Get("));
+        assert!(go.contains("handler HandlerFunc"));
+        assert!(go.contains("path string"));
+        // Verify it calls the variant C function with C symbol naming (no reg_method_snake in variant symbol)
+        assert!(go.contains("C.test_crate_test_service_add_handler_get"));
     }
 }

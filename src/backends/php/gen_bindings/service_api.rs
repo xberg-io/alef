@@ -304,6 +304,11 @@ fn gen_registration_method(
         out.push_str("        return $this;\n");
         out.push_str("    }\n\n");
     }
+
+    // Emit verb-decorator variants (e.g., $app->get(), $app->post())
+    for variant in &reg.variants {
+        gen_registration_variant(out, variant, reg, method_name);
+    }
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
@@ -691,6 +696,70 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     }
 }
 
+/// Emit a verb-decorator variant method (e.g., `public function get(path, handler)`).
+///
+/// For each registered variant, emits a shortcut method named after the verb
+/// (lowercase) that directly calls the base registration method with fixed args
+/// (from overrides) and accepts free args as parameters.
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    reg: &RegistrationDef,
+    base_method: &str,
+) {
+    let variant_name = variant.name.to_lowercase();
+
+    // Build the variant's parameter list from signature_params + callback
+    let mut variant_params: Vec<String> = variant
+        .signature_params
+        .iter()
+        .map(|p| {
+            let annotation = php_type_annotation(&p.ty);
+            if p.optional {
+                format!("?{} ${} = null", annotation, p.name)
+            } else {
+                format!("{} ${}", annotation, p.name)
+            }
+        })
+        .collect();
+    variant_params.push(format!("callable ${}", reg.callback_param));
+
+    let variant_sig = variant_params.join(", ");
+
+    out.push_str(&format!(
+        "    public function {variant_name}({variant_sig}): callable {{\n"
+    ));
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format_php_comment(doc, 8));
+    }
+
+    // Call base registration method with fixed overrides + free args
+    let mut call_args: Vec<String> = Vec::new();
+
+    // First, emit fixed overrides in the order they appear in the base metadata_params
+    for base_param in &reg.metadata_params {
+        if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
+            // Fixed: use the value expression verbatim
+            call_args.push(override_.value_expr.clone());
+        } else {
+            // Check if this param is in the free signature_params
+            if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
+                call_args.push(format!("${}", sig_param.name));
+            }
+        }
+    }
+
+    let call_sig = call_args.join(", ");
+    let callback_param = &reg.callback_param;
+
+    out.push_str(&format!(
+        "        return function (callable ${callback_param}) {{\n            \
+         return $this->{base_method}({call_sig})(${callback_param});\n        \
+         }};\n",
+    ));
+    out.push_str("    }\n\n");
+}
+
 /// Map a `TypeRef` to a Rust type string for use in generated function signatures.
 fn typeref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     match ty {
@@ -1006,6 +1075,102 @@ mod tests {
         assert!(
             output.contains("$this->registrations[]"),
             "expected `$this->registrations[]` append in registration:\n{output}"
+        );
+    }
+
+    /// `gen_service_php` emits verb-decorator variant methods when variants are present.
+    #[test]
+    fn php_output_contains_registration_variants() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantOverride};
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let registration = RegistrationDef {
+            method: "route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![
+                ParamDef {
+                    name: "method".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+            ],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: None,
+            doc: String::new(),
+            variants: vec![RegistrationVariant {
+                name: "GET".to_owned(),
+                overrides: vec![RegistrationVariantOverride {
+                    param_name: "method".to_owned(),
+                    value_expr: "\"GET\"".to_owned(),
+                }],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET route.".to_owned()),
+            }],
+        };
+
+        let service = ServiceDef {
+            name: "Router".to_owned(),
+            rust_path: "my_crate::Router".to_owned(),
+            constructor,
+            configurators: vec![],
+            registrations: vec![registration],
+            entrypoints: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "0.1.0".to_owned(),
+            services: vec![service],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+
+        let output = gen_service_php(&api, "my_crate");
+        assert!(
+            output.contains("public function get("),
+            "expected `get` variant method (lowercase):\n{output}"
+        );
+        assert!(
+            output.contains("\"GET\""),
+            "expected fixed override `\"GET\"` in variant:\n{output}"
         );
     }
 

@@ -189,6 +189,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "async_param_clone_value.jinja",
         include_str!("templates/async_param_clone_value.jinja"),
     ),
+    (
+        "registration_variant.rs.jinja",
+        include_str!("templates/registration_variant.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

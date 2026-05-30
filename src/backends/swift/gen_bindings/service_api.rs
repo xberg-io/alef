@@ -513,6 +513,93 @@ fn gen_registration_method(
             metadata_params => metadata_params,
         },
     ));
+
+    // Emit variant methods
+    for variant in &reg.variants {
+        gen_registration_variant(out, service_snake, reg, variant);
+    }
+}
+
+fn gen_registration_variant(
+    out: &mut String,
+    service_snake: &str,
+    reg: &RegistrationDef,
+    variant: &crate::core::ir::RegistrationVariant,
+) {
+    use crate::core::ir::WrapperConstructorArg;
+
+    let variant_name = &variant.name;
+    let service_camel = service_snake.to_lower_camel_case();
+
+    // Build signature params with Swift types
+    let signature_params: Vec<minijinja::Value> = variant
+        .signature_params
+        .iter()
+        .map(|p| {
+            let swift_type = match &p.ty {
+                TypeRef::Named(n) => format!("RustBridge.{n}"),
+                _ => typeref_to_swift_type(&p.ty),
+            };
+            minijinja::context! {
+                name => &p.name,
+                swift_type => swift_type,
+            }
+        })
+        .collect();
+
+    // Build wrapper call args from the variant's wrapper_call recipe
+    let wrapper_call_args: Vec<String> = if let Some(wrapper_call) = &variant.wrapper_call {
+        wrapper_call
+            .args
+            .iter()
+            .map(|arg| match arg {
+                WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
+                    // value_expr is e.g. "spikard::Method::GET". Convert the
+                    // Rust enum path to swift-bridge's mirrored access:
+                    // "spikard::Method::GET" → "RustBridge.Method.get".
+                    if let Some(last_colon) = value_expr.rfind("::") {
+                        let enum_variant = &value_expr[last_colon + 2..];
+                        let swift_variant = enum_variant.to_lowercase();
+                        if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
+                            let type_name = &value_expr[second_colon + 2..last_colon];
+                            format!("RustBridge.{type_name}.{swift_variant}")
+                        } else {
+                            format!("RustBridge.{swift_variant}")
+                        }
+                    } else {
+                        value_expr.clone()
+                    }
+                }
+                WrapperConstructorArg::Free { param } => param.name.clone(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let doc = if let Some(doc_str) = &variant.doc {
+        format_swift_comment(doc_str, 4)
+    } else {
+        // Default doc referencing the base registration
+        let default_doc = format!("Shortcut for `{}`.", reg.method);
+        format_swift_comment(&default_doc, 4)
+    };
+
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_registration_variant.swift.jinja",
+        minijinja::context! {
+            doc => &doc,
+            variant_name => variant_name,
+            signature_params => signature_params,
+            service_snake => service_snake,
+            service_camel => &service_camel,
+            base_method_name => &reg.method,
+            wrapper_call_args => wrapper_call_args,
+        },
+    ));
 }
 
 fn gen_entrypoint_method(

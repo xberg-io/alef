@@ -287,6 +287,149 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
     }
 }
 
+/// Generate a wrapper constructor call for a variant if wrapper_call is present.
+/// Returns the Python code to construct the wrapper (e.g., "builder = RouteBuilder(Method.GET, path)")
+/// or None if no wrapper_call exists.
+fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant) -> Option<String> {
+    let wc = variant.wrapper_call.as_ref()?;
+    let mut call_args = Vec::new();
+
+    for arg in &wc.args {
+        match arg {
+            crate::core::ir::WrapperConstructorArg::Fixed {
+                param_name: _,
+                value_expr,
+            } => {
+                // Convert a Rust enum path like `my_crate::Method::GET` into the
+                // Python form `Method.GET` by taking the last two `::` segments
+                // (the enum type name and the variant name). Non-`::` values
+                // pass through verbatim — the library author owns them.
+                let segments: Vec<&str> = value_expr.split("::").collect();
+                if segments.len() >= 2 {
+                    let class = segments[segments.len() - 2];
+                    let variant_name = segments[segments.len() - 1];
+                    call_args.push(format!("{class}.{variant_name}"));
+                } else {
+                    call_args.push(value_expr.clone());
+                }
+            }
+            crate::core::ir::WrapperConstructorArg::Free { param } => {
+                call_args.push(param.name.clone());
+            }
+        }
+    }
+
+    let call_expr = format!("{}({})", wc.wrapper_type_name, call_args.join(", "));
+    Some(format!("{} = {}", wc.metadata_param, call_expr))
+}
+
+/// Emit a registration variant (shortcut method) for the given variant definition.
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+    _service: &ServiceDef,
+    class_name: &str,
+) {
+    let variant_name = &variant.name;
+    let base_method = &base_reg.method;
+
+    // Build the free params (non-fixed) for the variant signature
+    let mut free_params_sig = Vec::new();
+    for param in &variant.signature_params {
+        let annotation = python_type_annotation(&param.ty);
+        if param.optional {
+            free_params_sig.push(format!("{}: {} | None = None", param.name, annotation));
+        } else {
+            free_params_sig.push(format!("{}: {}", param.name, annotation));
+        }
+    }
+
+    // Variant signature: variant_name(self, free_params..., handler)
+    let params_sig = if free_params_sig.is_empty() {
+        "self, handler: Callable[..., Any]".to_owned()
+    } else {
+        format!("self, {}, handler: Callable[..., Any]", free_params_sig.join(", "))
+    };
+
+    out.push_str(&format!("    def {variant_name}({params_sig}) -> {class_name}:\n"));
+
+    // Documentation
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format_docstring(doc, 8));
+    } else {
+        out.push_str(&format!(
+            "        \"\"\"Register a handler for the {variant_name} variant.\"\"\"\n"
+        ));
+    }
+
+    // Build wrapper constructor call if present
+    if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
+        out.push_str(&format!("        {}\n", wrapper_expr));
+    }
+
+    // Build metadata tuple to pass to base registration
+    let mut meta_items = Vec::new();
+    if let Some(wc) = &variant.wrapper_call {
+        // Include the wrapper param by its name
+        meta_items.push(wc.metadata_param.clone());
+    }
+    // Add any non-overridden base metadata params
+    for override_ in &variant.overrides {
+        // Skip if already in meta_items (shouldn't happen but safeguard)
+        if !meta_items.contains(&override_.param_name) {
+            meta_items.push(override_.param_name.clone());
+        }
+    }
+
+    let meta_tuple = if meta_items.is_empty() {
+        "()".to_owned()
+    } else if meta_items.len() == 1 {
+        format!("({},)", meta_items[0])
+    } else {
+        format!("({})", meta_items.join(", "))
+    };
+
+    out.push_str(&format!(
+        "        self._registrations.append((\"{base_method}\", {meta_tuple}, handler))\n"
+    ));
+    out.push_str("        return self\n\n");
+
+    // Emit decorator form: variant_name(self, free_params...)  -> decorator
+    let decorator_name = format!("{variant_name}_decorator");
+    let params_sig_no_handler = if free_params_sig.is_empty() {
+        "self".to_owned()
+    } else {
+        format!("self, {}", free_params_sig.join(", "))
+    };
+
+    out.push_str(&format!(
+        "    def {decorator_name}({params_sig_no_handler}) -> Callable[[Callable[..., Any]], Callable[..., Any]]:\n"
+    ));
+    if let Some(doc) = &variant.doc {
+        let decorator_doc = format!("Decorator form for {}", doc.trim_start());
+        out.push_str(&format_docstring(&decorator_doc, 8));
+    } else {
+        out.push_str(&format!(
+            "        \"\"\"Decorator form for the {variant_name} variant.\"\"\"\n"
+        ));
+    }
+
+    // Build wrapper constructor call if present
+    if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
+        out.push_str(&format!("        {}\n", wrapper_expr));
+    }
+
+    out.push('\n');
+    out.push_str("        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:\n");
+    out.push_str(&format!(
+        "            self._registrations.append((\"{base_method}\", {meta_tuple}, fn))\n"
+    ));
+    out.push_str("            return fn\n");
+    out.push('\n');
+    out.push_str("        return _decorator\n\n");
+}
+
 fn gen_registration_method(
     out: &mut String,
     reg: &RegistrationDef,
@@ -366,6 +509,11 @@ fn gen_registration_method(
             reg.callback_param,
         ));
         out.push_str("        return self\n\n");
+    }
+
+    // Emit registration variants (shortcuts for common patterns)
+    for variant in &reg.variants {
+        gen_registration_variant(out, variant, reg, service, class_name);
     }
 }
 
@@ -1119,6 +1267,64 @@ mod tests {
         assert!(
             output.contains("_my_crate.test_service_run("),
             "expected native call `_my_crate.test_service_run(` in run:\n{output}"
+        );
+    }
+
+    /// `gen_service_py` emits registration variants with both method and decorator forms.
+    #[test]
+    fn python_output_contains_registration_variants() {
+        let mut surface = make_fixture_surface();
+        // Add a variant to the registration
+        let variant = crate::core::ir::RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![],
+            wrapper_call: Some(crate::core::ir::WrapperConstructorCall {
+                metadata_param: "builder".to_owned(),
+                wrapper_type_path: "spikard::RouteBuilder".to_owned(),
+                wrapper_type_name: "RouteBuilder".to_owned(),
+                constructor_method: "new".to_owned(),
+                args: vec![
+                    crate::core::ir::WrapperConstructorArg::Fixed {
+                        param_name: "method".to_owned(),
+                        value_expr: "spikard::Method::GET".to_owned(),
+                    },
+                    crate::core::ir::WrapperConstructorArg::Free {
+                        param: ParamDef {
+                            name: "path".to_owned(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            ..ParamDef::default()
+                        },
+                    },
+                ],
+            }),
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: Some("Register a GET handler.".to_owned()),
+        };
+        surface.services[0].registrations[0].variants.push(variant);
+
+        let output = gen_service_py(&surface, "_my_crate");
+        // Check for variant method form
+        assert!(
+            output.contains("def get(self, path: str, handler: Callable[..., Any])"),
+            "expected `def get(self, path: str, handler)` method form:\n{output}"
+        );
+        // Check for variant decorator form
+        assert!(
+            output.contains("def get_decorator(self, path: str)"),
+            "expected `def get_decorator(self, path: str)` decorator form:\n{output}"
+        );
+        // Check for wrapper constructor call
+        assert!(
+            output.contains("builder = RouteBuilder(Method.GET, path)"),
+            "expected wrapper constructor call with Method.GET:\n{output}"
         );
     }
 
