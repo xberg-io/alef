@@ -2991,7 +2991,9 @@ pub fn emit_test_backend(
 
     // Emit method callbacks for all methods (required and optional). The factory wrapper
     // requires callbacks for all trait methods to satisfy the Rust bridge signature.
-    for (i, method) in methods.iter().enumerate() {
+    // Skip binding_excluded methods — these are not part of the FRB-generated factory.
+    let emitted_methods: Vec<_> = methods.iter().filter(|m| !m.binding_excluded).collect();
+    for (i, method) in emitted_methods.iter().enumerate() {
         let method_name = method.name.to_lower_camel_case();
         let param_names: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
         let params_str = param_names.join(", ");
@@ -3000,7 +3002,7 @@ pub fn emit_test_backend(
         } else {
             format!("{method_name}: ({params_str}) => {instance_name}.{method_name}({params_str})")
         };
-        let comma = if i < methods.len() - 1 { "," } else { "" };
+        let comma = if i < emitted_methods.len() - 1 { "," } else { "" };
         let _ = writeln!(setup, "  {binding}{comma}");
     }
     let _ = writeln!(setup, ");");

@@ -987,15 +987,13 @@ fn emit_method_shim(
             TypeRef::Optional(inner) => inner.as_ref(),
             other => other,
         };
-        // Only the general `_` branch in emit_single_param_unmarshal supports
-        // the empty-string sentinel and produces an `Option<T>` binding directly.
-        // Special-case branches (Vec<u8>, Bytes, Path, Vec<String>, String) bind
-        // the unwrapped `T` and need `Some(name)` wrapping at the call site.
+        // Branches that understand the target's optional sentinel produce an
+        // `Option<T>` binding directly. Other special cases bind the unwrapped
+        // `T` and need `Some(name)` wrapping at the call site.
         let unmarshal_produces_option = p.optional
-            && !matches!(
-                base_ty,
-                TypeRef::Vec(_) | TypeRef::Bytes | TypeRef::Path | TypeRef::String
-            );
+            && (matches!(base_ty, TypeRef::Bytes)
+                || matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)))
+                || !matches!(base_ty, TypeRef::Vec(_) | TypeRef::Path | TypeRef::String));
         emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option);
         // Apply optional/is_ref at the call site.
         // Special case: Vec<String> with is_ref means the core expects `&[&str]`.

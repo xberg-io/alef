@@ -191,6 +191,10 @@ fn test_basic_generation() {
         content.contains("C.test_last_error_code()"),
         "Should call FFI error code function"
     );
+    assert!(
+        content.contains("if ctx == nil {\n\t\treturn fmt.Errorf(\"[%d] native error\", code)\n\t}"),
+        "lastError must tolerate a nonzero error code with no context pointer"
+    );
 
     // Verify struct generation
     assert!(content.contains("type Config struct"), "Should define Config struct");
@@ -1653,10 +1657,6 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
     assert!(
         code.contains("if old, ok := reg.handles[name]; ok {\n\t\told.Delete()\n\t}"),
         "handle registry must delete any replaced handle on duplicate registration"
-    );
-    assert!(
-        code.contains("if ctx == nil {\n\t\treturn fmt.Errorf(\"[%d] native error\", code)\n\t}"),
-        "lastError must tolerate a nonzero error code with no context pointer"
     );
 }
 

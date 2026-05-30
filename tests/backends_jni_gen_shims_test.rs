@@ -1130,6 +1130,97 @@ fn method_slice_u8_param_receives_jbytearray() {
     );
 }
 
+#[test]
+fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
+    let payload = ParamDef {
+        name: "payload".to_string(),
+        ty: TypeRef::Bytes,
+        optional: true,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+    };
+    let upload_method = MethodDef {
+        name: "upload".to_string(),
+        params: vec![payload],
+        return_type: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+        is_async: false,
+        is_static: false,
+        receiver: Some(ReceiverKind::Ref),
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let client_type = TypeDef {
+        name: "Parser".to_string(),
+        rust_path: "demo::Parser".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![upload_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+    let section = extract_fn_section(content, "nativeParserUpload");
+
+    assert!(
+        section.contains("payload: jbyteArray") && section.contains("-> jbyteArray"),
+        "optional bytes param/return must use jbyteArray, section:\n{section}"
+    );
+    assert!(
+        section.contains("Ok(0) => None"),
+        "empty ByteArray sentinel must decode to None, section:\n{section}"
+    );
+    assert!(
+        section.contains("None => std::ptr::null_mut()"),
+        "optional bytes return None must map to null jbyteArray, section:\n{section}"
+    );
+    assert!(
+        !section.contains("serde_json::from_str") && !section.contains("serde_json::to_string"),
+        "optional bytes direct JNI path must not JSON round-trip, section:\n{section}"
+    );
+}
+
 /// Verifies that a method taking `dir: PathBuf` receives a JString and
 /// constructs `std::path::PathBuf::from(...)` without JSON decoding.
 #[test]
