@@ -903,6 +903,9 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
     ));
 
     let doc = clean_doc(&en.doc, Language::Rust);
+    // Demote any embedded headings in the enum documentation by 2 levels
+    // to ensure they stay nested under the enum heading (####).
+    let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -1460,6 +1463,42 @@ exclude_types = ["FfiHidden"]
         assert!(out.contains("| Variant | Wire value | Description |"));
         assert!(out.contains("| `Default` | `default` |"));
         assert!(out.contains("| `Github` | `github` |"));
+    }
+
+    #[test]
+    fn test_render_enum_for_shared_doc_demotes_internal_headings() {
+        use crate::core::ir::EnumVariant;
+        // MD025/MD001: enum doc-comment contains a heading that must be demoted
+        let en = EnumDef {
+            name: "OutputFormat".into(),
+            rust_path: "test::OutputFormat".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Markdown".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            // Doc-comment contains an internal heading that should be demoted
+            doc: "Output format specification.\n\n## Variants\n\nDetailed variant info.".into(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let out = render_enum_for_shared_doc(&en);
+        // The internal heading ## should become #### (demoted by 2 levels)
+        assert!(out.contains("#### Variants"), "internal heading must be demoted to #### (was ##): {out}");
+        assert!(!out.contains("## Variants"), "raw ## heading must not remain");
+        assert!(out.contains("Output format specification."));
     }
 
     #[test]

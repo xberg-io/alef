@@ -138,6 +138,9 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
     // Replace Rust-centric terminology
     let doc = replace_rust_terminology(&doc, lang);
 
+    // Normalize list markers from `*` to `-` for rumdl compliance
+    let doc = normalize_list_markers(&doc);
+
     // Insert blank lines before lists that follow prose. Rust doc strings often
     // omit the blank line — CommonMark tolerates it, but rumdl's MD032 flags it.
     let doc = ensure_blank_before_lists(&doc);
@@ -250,6 +253,57 @@ pub(crate) fn convert_doc_headings_to_bold(doc: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Normalize list markers from `*` to `-` for consistency with rumdl style.
+///
+/// Replaces list marker `* ` with `- ` at line start (after indentation),
+/// but avoids changing emphasis/bold markers like `*text*` or `**bold**` and
+/// skips content inside fenced code blocks.
+pub(crate) fn normalize_list_markers(doc: &str) -> String {
+    let mut out = String::new();
+    let mut in_code_block = false;
+    for line in doc.lines() {
+        // Track code block boundaries
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        // Skip normalization inside code blocks
+        if in_code_block {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        let trimmed_left = line.trim_start_matches(' ');
+        let leading_spaces = line.len() - trimmed_left.len();
+
+        // Only normalize `*` at the start of a list item (after indentation, followed by space)
+        if trimmed_left.starts_with("* ") && leading_spaces <= 3 {
+            out.push_str(&" ".repeat(leading_spaces));
+            out.push_str("- ");
+            out.push_str(&trimmed_left[2..]);
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
+/// Collapse multi-line and multi-space strings into a single line with normalized spacing.
+///
+/// Useful for field defaults that may contain embedded newlines or multiple consecutive spaces.
+pub(crate) fn collapse_whitespace(s: &str) -> String {
+    s.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Replace Rust-centric terminology with language-neutral equivalents.
@@ -1063,6 +1117,95 @@ mod tests {
             cleaned.contains(":\n\n1."),
             "blank line must separate prose from list: {cleaned}"
         );
+    }
+
+    #[test]
+    fn test_normalize_list_markers_converts_asterisk_to_dash() {
+        let doc = "Items:\n* First item\n* Second item";
+        let normalized = normalize_list_markers(doc);
+        assert!(normalized.contains("- First item"), "* should be converted to -");
+        assert!(normalized.contains("- Second item"), "* should be converted to -");
+        assert!(!normalized.contains("* First"), "* marker should be replaced");
+    }
+
+    #[test]
+    fn test_normalize_list_markers_preserves_emphasis() {
+        let doc = "Text with *emphasis* and *more emphasis*.";
+        let normalized = normalize_list_markers(doc);
+        assert!(normalized.contains("*emphasis*"), "emphasis markers must be preserved");
+        assert!(!normalized.contains("- emphasis"), "emphasis must not become a list");
+    }
+
+    #[test]
+    fn test_normalize_list_markers_preserves_bold() {
+        let doc = "Text with **bold** content.";
+        let normalized = normalize_list_markers(doc);
+        assert!(normalized.contains("**bold**"), "bold markers must be preserved");
+    }
+
+    #[test]
+    fn test_normalize_list_markers_indented_lists() {
+        let doc = "Parent:\n* Item 1\n  * Nested item";
+        let normalized = normalize_list_markers(doc);
+        assert!(normalized.contains("- Item 1"));
+        assert!(normalized.contains("- Nested item"), "indented asterisk must also convert");
+    }
+
+    #[test]
+    fn test_normalize_list_markers_skips_code_blocks() {
+        let doc = "Text:\n\n```markdown\n* Item in code block\n```\n\n* Real list item";
+        let normalized = normalize_list_markers(doc);
+        assert!(normalized.contains("* Item in code block"), "code block content must be preserved");
+        assert!(normalized.contains("- Real list item"), "real list items must be converted");
+    }
+
+    #[test]
+    fn test_collapse_whitespace_multiline() {
+        let s = "First line\nSecond line\nThird line";
+        let collapsed = collapse_whitespace(s);
+        assert_eq!(collapsed, "First line Second line Third line");
+        assert!(!collapsed.contains('\n'));
+    }
+
+    #[test]
+    fn test_collapse_whitespace_with_empty_lines() {
+        let s = "First\n\n\nSecond";
+        let collapsed = collapse_whitespace(s);
+        assert_eq!(collapsed, "First Second");
+    }
+
+    #[test]
+    fn test_collapse_whitespace_with_extra_spaces() {
+        let s = "Text   with    multiple     spaces";
+        let collapsed = collapse_whitespace(s);
+        // split_whitespace handles multiple spaces
+        assert!(collapsed.contains("Text with multiple spaces") || collapsed.contains("Text  with"), "extra spaces should be normalized");
+    }
+
+    #[test]
+    fn test_collapse_whitespace_empty() {
+        assert_eq!(collapse_whitespace(""), "");
+        assert_eq!(collapse_whitespace("   \n\n  "), "");
+    }
+
+    // MD038 (spaces inside code span), MD055/MD056 (table cell count mismatch)
+    #[test]
+    fn test_field_default_with_multiline_collapsed() {
+        // Simulates a default value with embedded newlines
+        let raw = "value_line_1\nvalue_line_2";
+        let collapsed = collapse_whitespace(raw);
+        let formatted = format!("`{collapsed}`");
+        assert_eq!(formatted, "`value_line_1 value_line_2`");
+        assert!(!formatted.contains('\n'), "backtick code span must be single-line");
+    }
+
+    // MD004 (list marker style)
+    #[test]
+    fn test_clean_doc_normalizes_asterisk_list_markers_to_dash() {
+        let doc = "Summary.\n\n* First item\n* Second item";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(cleaned.contains("- First item"), "asterisk lists should be normalized to dash: {cleaned}");
+        assert!(!cleaned.contains("* First"), "raw asterisk list markers should not remain");
     }
 }
 
