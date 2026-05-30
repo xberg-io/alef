@@ -437,6 +437,31 @@ pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &s
     )
 }
 
+/// Generate a private Rust helper `fn {enum_snake}_from_i32_rs(v: i32) -> Option<{qualified}>`.
+///
+/// This helper is used by generated FFI function bodies to reconstruct an enum value from its
+/// `i32` discriminant. It is `pub(crate)` to avoid unused-item warnings and is not exported
+/// to C. All FFI parameter-crossing enums need this helper regardless of their `Copy` status.
+pub(super) fn gen_enum_from_i32_rs_helper(enum_def: &EnumDef, core_import: &str) -> String {
+    let enum_snake = enum_def.name.to_snake_case();
+    let qualified = core_enum_path(enum_def, core_import);
+
+    let mut arms = String::new();
+    for (i, variant) in enum_def.variants.iter().enumerate() {
+        arms.push_str(&format!("        {i} => Some({qualified}::{}),\n", variant.name));
+    }
+
+    format!(
+        "#[allow(dead_code)]\n\
+         fn {enum_snake}_from_i32_rs(v: i32) -> Option<{qualified}> {{\n\
+             match v {{\n\
+         {arms}\
+                 _ => None,\n\
+             }}\n\
+         }}\n"
+    )
+}
+
 /// Generate a `_free` function for an enum type returned as a heap-allocated pointer.
 ///
 /// These are needed when a function returns `*mut EnumType` (via `Box::into_raw`), and the
@@ -547,6 +572,38 @@ pub(super) fn gen_type_new(
     )
 }
 
+/// Generate an opaque handle struct for a type marked `is_opaque = true`.
+///
+/// Emits:
+/// ```rust
+/// #[repr(C)]
+/// pub struct {TypeName}Opaque {
+///     pub(crate) inner: {qualified},
+/// }
+/// ```
+///
+/// This struct is the heap-allocated opaque handle returned by `{prefix}_{type_snake}_new()`
+/// and accepted by every method wrapper. It must be defined once before all constructor and
+/// method functions that reference `{TypeName}Opaque` are emitted.
+pub(super) fn gen_opaque_struct_def(typ: &TypeDef, core_import: &str) -> String {
+    let type_name = &typ.name;
+    let type_snake = typ.name.to_snake_case();
+    let qualified = core_type_path(typ, core_import);
+    format!(
+        "/// Opaque heap-allocated handle to a `{type_name}` instance.\n\
+         /// Allocated by `{type_snake}_new()` and freed by `{type_snake}_free()`.\n\
+         /// The inner field is accessible only within this crate.\n\
+         ///\n\
+         /// # Safety\n\
+         /// The pointer returned by the constructor must be freed exactly once via\n\
+         /// the matching `_free()` function. Never access the pointer after freeing it.\n\
+         #[repr(C)]\n\
+         pub struct {type_name}Opaque {{\n    \
+             pub(crate) inner: {qualified},\n\
+         }}\n"
+    )
+}
+
 /// Generate an opaque static constructor from a method definition.
 ///
 /// For an opaque type with a static `new` method that returns `Self`,
@@ -635,13 +692,19 @@ pub(super) fn gen_opaque_static_constructor(
                 ));
             }
             TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
+                // Use the private Rust helper (generated alongside the public C export) so that
+                // we don't call the non-existent `{core_import}::{enum_snake}_from_i32` Rust fn.
+                // Use a `match` instead of `?` because the function returns `*mut T`, not Result/Option.
                 let enum_snake = heck::ToSnakeCase::to_snake_case(n.as_str());
                 out.push_str(&format!(
-                    "    let {0}_rs = {1}::{0}_from_i32({0}).ok_or_else(|| {{\n        \
-                     set_last_error(\"invalid discriminant for {2}\");\n        \
-                     return std::ptr::null_mut();\n    \
-                     }})?;\n",
-                    enum_snake, core_import, n
+                    "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
+                     Some(v) => v,\n        \
+                     None => {{\n            \
+                     set_last_error(1, \"invalid discriminant for {1}\");\n            \
+                     return std::ptr::null_mut();\n        \
+                     }},\n    \
+                     }};\n",
+                    enum_snake, n
                 ));
             }
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
@@ -689,11 +752,22 @@ pub(super) fn gen_opaque_static_constructor(
     out
 }
 
-/// Check if a method is a static constructor (is_static=true, returns the owner type by name).
+/// Check if a method is a static constructor.
+///
+/// A static constructor must:
+/// - be named `"new"` (so the emitted C symbol is `{prefix}_{type_snake}_new`)
+/// - be marked `is_static`
+/// - return the owner type by name (i.e. return type is `TypeRef::Named(type_name)`)
+///
+/// Methods like `default()` are explicitly excluded because they would collide with
+/// the `_new` symbol produced for the actual `new()` method.
 pub(super) fn is_static_constructor(
     method: &crate::core::ir::MethodDef,
     type_name: &str,
 ) -> bool {
+    if method.name != "new" {
+        return false;
+    }
     if !method.is_static {
         return false;
     }

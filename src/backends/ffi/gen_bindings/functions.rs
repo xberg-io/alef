@@ -126,7 +126,7 @@ fn method_sanitized_recoverable(method: &MethodDef) -> bool {
 }
 
 use crate::backends::ffi::type_map::{
-    c_param_type_with_paths, c_return_type_with_paths, is_passthrough_return, is_void_return,
+    c_return_type_with_paths, is_passthrough_return, is_void_return,
 };
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
@@ -576,7 +576,12 @@ pub(super) fn gen_method_wrapper(
         params.push(format!(
             "    {}: {}",
             param_name,
-            c_param_type_with_paths(&p.ty, core_import, path_map)
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
+                &p.ty,
+                core_import,
+                path_map,
+                enum_names,
+            )
         ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
@@ -673,7 +678,7 @@ pub(super) fn gen_method_wrapper(
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
             context! {
-                content => gen_param_conversion(p, has_error, is_bytes_result, &method.return_type, core_import),
+                content => gen_param_conversion_with_enums(p, has_error, is_bytes_result, &method.return_type, core_import, enum_names),
             },
         ));
     }
@@ -1024,7 +1029,12 @@ pub(super) fn gen_free_function(
         params.push(format!(
             "    {}: {}",
             param_name,
-            c_param_type_with_paths(&p.ty, core_import, path_map)
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
+                &p.ty,
+                core_import,
+                path_map,
+                enum_names,
+            )
         ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
@@ -1454,15 +1464,19 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
-                // Optional enum passed as i32 sentinel: i32::MAX or similar indicates None
-                // For now, treat like non-optional and convert via from_i32
+                // Optional enum passed as i32 sentinel: reconstruct via private Rust helper.
+                // Use match+explicit return rather than `?` because the outer function may return
+                // *mut T or i32, not Result/Option, so the ? operator is unavailable.
                 let enum_snake = type_name.to_snake_case();
                 out.push_str(&format!(
-                    "    let {0}_rs = {1}::{0}_from_i32({0}).ok_or_else(|| {{\n        \
-                     set_last_error(\"invalid enum discriminant for {2}\");\n        \
-                     {3}\n    \
-                     }})?;\n",
-                    enum_snake, core_import, type_name, fail_ret
+                    "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
+                     Some(v) => v,\n        \
+                     None => {{\n            \
+                     set_last_error(1, \"invalid enum discriminant for {1}\");\n            \
+                     {2}\n        \
+                     }},\n    \
+                     }};\n",
+                    enum_snake, type_name, fail_ret
                 ));
             }
             TypeRef::Named(_type_name) => {
@@ -1618,14 +1632,19 @@ pub(super) fn gen_param_conversion_with_enums(
                 }
             },
             TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
-                // Enum passed as i32: reconstruct using the from_i32 helper
+                // Enum passed as i32: reconstruct using the private Rust helper.
+                // Use match+explicit return rather than `?` because the outer function may return
+                // *mut T or i32, not Result/Option, so the ? operator is unavailable.
                 let enum_snake = type_name.to_snake_case();
                 out.push_str(&format!(
-                    "    let {0}_rs = {1}::{0}_from_i32({0}).ok_or_else(|| {{\n        \
-                     set_last_error(\"invalid enum discriminant for {2}\");\n        \
-                     {3}\n    \
-                     }})?;\n",
-                    enum_snake, core_import, type_name, fail_ret
+                    "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
+                     Some(v) => v,\n        \
+                     None => {{\n            \
+                     set_last_error(1, \"invalid enum discriminant for {1}\");\n            \
+                     {2}\n        \
+                     }},\n    \
+                     }};\n",
+                    enum_snake, type_name, fail_ret
                 ));
             }
             TypeRef::Named(_type_name) => {

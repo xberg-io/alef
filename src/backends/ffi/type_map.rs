@@ -240,15 +240,6 @@ pub fn is_passthrough_return(ty: &TypeRef) -> bool {
     )
 }
 
-/// Like `c_param_type` but uses full rust_path from path_map for Named types.
-pub fn c_param_type_with_paths(
-    ty: &TypeRef,
-    core_import: &str,
-    path_map: &AHashMap<String, String>,
-) -> Cow<'static, str> {
-    c_param_type_with_paths_and_enums(ty, core_import, path_map, &Default::default())
-}
-
 pub fn c_param_type_with_paths_and_enums(
     ty: &TypeRef,
     core_import: &str,
