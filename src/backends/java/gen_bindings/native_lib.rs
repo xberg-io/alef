@@ -4,7 +4,7 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToSnakeCase;
 
-use super::marshal::{gen_ffi_layout, gen_function_descriptor, is_bytes_result};
+use super::marshal::{gen_ffi_layout_with_enums, gen_function_descriptor, is_bytes_result};
 
 /// Detection mirroring `is_bytes_result` for `MethodDef` — `Result<Vec<u8>>`-returning
 /// methods use the (out_ptr, out_len, out_cap) triple FFI ABI.
@@ -76,6 +76,10 @@ pub(crate) fn gen_native_lib(
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
 
+    // Collect enum names so we can emit JAVA_INT layouts for enum params (Wave 2 FFI backend
+    // emits enums as i32 discriminants, not pointers).
+    let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
     // Collect function handles
     let mut function_handles = Vec::new();
 
@@ -110,7 +114,7 @@ pub(crate) fn gen_native_lib(
                         layouts.push("ValueLayout.JAVA_LONG".to_string());
                     }
                     other => {
-                        layouts.push(gen_ffi_layout(other));
+                        layouts.push(gen_ffi_layout_with_enums(other, &enum_names));
                     }
                 }
             }
@@ -119,7 +123,7 @@ pub(crate) fn gen_native_lib(
             layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap: *mut usize
             ("ValueLayout.JAVA_INT".to_string(), layouts)
         } else {
-            let return_layout = gen_ffi_layout(&func.return_type);
+            let return_layout = gen_ffi_layout_with_enums(&func.return_type, &enum_names);
             // For non-bytes-result functions, still expand Bytes params to (ptr, len)
             let mut param_layouts: Vec<String> = Vec::new();
             for param in &func.params {
@@ -135,7 +139,7 @@ pub(crate) fn gen_native_lib(
                         param_layouts.push("ValueLayout.JAVA_LONG".to_string());
                     }
                     other => {
-                        param_layouts.push(gen_ffi_layout(other));
+                        param_layouts.push(gen_ffi_layout_with_enums(other, &enum_names));
                     }
                 }
             }
@@ -348,12 +352,16 @@ pub(crate) fn gen_native_lib(
     // Collect builder handles
     let mut builder_handles = Vec::new();
 
-    // Free handles for opaque types (handle pointer → void)
+    // Free handles for opaque types (handle pointer → void), plus _new constructor handles
+    // for opaque types that have static factory methods.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque && !builder_class_names.contains(&typ.name) {
             let type_snake = typ.name.to_snake_case();
             let type_upper = type_snake.to_uppercase();
-            let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+            let prefix_upper = prefix.to_uppercase();
+
+            // Free handle
+            let free_handle = format!("{}_{}_FREE", prefix_upper, type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
             if emitted_free_handles.insert(free_handle.clone()) {
                 let handle_code = crate::backends::java::template_env::render(
@@ -365,6 +373,13 @@ pub(crate) fn gen_native_lib(
                 );
                 builder_handles.push(handle_code);
             }
+
+            // Note: opaque static `new` constructors emit their MethodHandle via the
+            // method-handle loop further below (per-method, per-opaque-type — which
+            // already produces `{PREFIX}_{TYPE}_NEW` for a `new` method and includes
+            // its parameter layouts). Emitting a separate handle here would duplicate
+            // that and ALSO collide on any second static-returning-Self method like
+            // `default()` (both would resolve to `{PREFIX}_{TYPE}_NEW`).
         }
     }
 
@@ -608,7 +623,7 @@ pub(crate) fn gen_native_lib(
                         param_layouts.push("ValueLayout.JAVA_LONG".to_string());
                     }
                     other => {
-                        param_layouts.push(gen_ffi_layout(other));
+                        param_layouts.push(gen_ffi_layout_with_enums(other, &enum_names));
                     }
                 }
             }
@@ -618,7 +633,7 @@ pub(crate) fn gen_native_lib(
                 param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap
                 "ValueLayout.JAVA_INT".to_string()
             } else {
-                gen_ffi_layout(&method.return_type)
+                gen_ffi_layout_with_enums(&method.return_type, &enum_names)
             };
             let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
 

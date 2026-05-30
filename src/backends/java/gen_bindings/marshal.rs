@@ -65,15 +65,22 @@ pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
     }
 }
 
-pub(crate) fn gen_ffi_layout(ty: &TypeRef) -> String {
+pub(crate) fn gen_ffi_layout_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) -> String {
     match ty {
         TypeRef::Primitive(prim) => java_ffi_type(prim).to_string(),
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "ValueLayout.ADDRESS".to_string(),
         TypeRef::Bytes => "ValueLayout.ADDRESS".to_string(),
-        TypeRef::Optional(inner) => gen_ffi_layout(inner),
+        TypeRef::Optional(inner) => gen_ffi_layout_with_enums(inner, enum_names),
         TypeRef::Vec(_) => "ValueLayout.ADDRESS".to_string(),
         TypeRef::Map(_, _) => "ValueLayout.ADDRESS".to_string(),
-        TypeRef::Named(_) => "ValueLayout.ADDRESS".to_string(),
+        TypeRef::Named(name) => {
+            // Enum types (Copy-typed Named types) are passed as i32 discriminants
+            if enum_names.contains(name.as_str()) {
+                "ValueLayout.JAVA_INT".to_string()
+            } else {
+                "ValueLayout.ADDRESS".to_string()
+            }
+        }
         TypeRef::Unit => "".to_string(),
         TypeRef::Duration => "ValueLayout.JAVA_LONG".to_string(),
     }

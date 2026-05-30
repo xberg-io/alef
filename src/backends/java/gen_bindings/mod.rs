@@ -354,11 +354,12 @@ impl Backend for JavaBackend {
         });
 
         // 4b. Opaque handle types
+        let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_opaque_handle_class(&package, typ, &prefix, &config.adapters, &main_class),
+                    content: gen_opaque_handle_class(&package, typ, &prefix, &config.adapters, &main_class, &enum_names),
                     generated_header: true,
                 });
             }

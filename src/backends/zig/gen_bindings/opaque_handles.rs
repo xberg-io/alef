@@ -148,15 +148,15 @@ pub(crate) fn emit_opaque_constructor(ty: &TypeDef, prefix: &str, ctor: &ClientC
 /// exposes each non-static, non-excluded method as a Zig function that dispatches
 /// via `c.{prefix}_{snake_type}_{snake_method}(self._handle, ...)`.
 ///
-/// Static methods are skipped — they are typically constructors like `new()` that
-/// return the handle and should be accessed via the package-level `create_*`
-/// functions instead.
+/// Static methods are emitted as top-level Zig functions that call the FFI constructor,
+/// e.g., `pub fn init(method: Method, path: []const u8) {TypeName}`.
 pub(crate) fn emit_opaque_handle(
     ty: &TypeDef,
     prefix: &str,
     declared_errors: &[String],
     struct_names: &std::collections::HashSet<String>,
     streaming_item_types: &HashMap<String, String>,
+    enum_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     // First, emit streaming struct types for any streaming methods on this type.
@@ -176,6 +176,20 @@ pub(crate) fn emit_opaque_handle(
         }
     }
 
+    // Emit static methods (constructors) at the top level, before the struct definition.
+    for method in ty.methods.iter().filter(|m| m.is_static) {
+        emit_opaque_static_method(
+            method,
+            ty,
+            prefix,
+            declared_errors,
+            struct_names,
+            enum_names,
+            out,
+        );
+        let _ = writeln!(out);
+    }
+
     emit_cleaned_zig_doc(out, &ty.doc, "");
     let _ = writeln!(out, "pub const {type_name} = struct {{", type_name = ty.name);
     let _ = writeln!(out, "    _handle: *anyopaque,");
@@ -190,6 +204,7 @@ pub(crate) fn emit_opaque_handle(
             declared_errors,
             struct_names,
             streaming_item_types,
+            enum_names,
             out,
         );
         let _ = writeln!(out);
@@ -201,6 +216,250 @@ pub(crate) fn emit_opaque_handle(
     emit_opaque_free(ty, prefix, &type_snake, out);
 
     let _ = writeln!(out, "}};");
+}
+
+/// Emit a static method (constructor) on an opaque handle type.
+///
+/// The FFI backend emits static constructors like `spikard_route_builder_new(method: i32, path: *const c_char)`
+/// where enum parameters are passed as i32 discriminants. This function emits the Zig wrapper as a top-level
+/// function that marshals enum parameters to i32 using `@intFromEnum()` and calls the C FFI symbol.
+fn emit_opaque_static_method(
+    method: &MethodDef,
+    ty: &TypeDef,
+    prefix: &str,
+    _declared_errors: &[String],
+    struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
+    emit_cleaned_zig_doc(out, &method.doc, "");
+
+    let method_snake = AsSnakeCase(&method.name).to_string();
+    let type_snake = AsSnakeCase(&ty.name).to_string();
+    let upper_prefix = prefix.to_uppercase();
+
+    // Build parameter list with Zig-idiomatic types (not raw C types).
+    let mut param_parts: Vec<String> = Vec::new();
+    for p in &method.params {
+        let ty_str = param_zig_type_with_enums(&p.ty, p.optional, struct_names, enum_names);
+        param_parts.push(format!("{}: {}", p.name, ty_str));
+    }
+    let params_str = param_parts.join(", ");
+
+    // Check if any parameter needs heap allocation (try expression).
+    let body_needs_try = method.params.iter().any(|p| {
+        matches!(
+            &p.ty,
+            TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_)
+        )
+    });
+
+    // Static constructors return the opaque type; if body uses try, wrap in error union.
+    let return_ty = if body_needs_try {
+        format!("error{{OutOfMemory}}!{}", ty.name)
+    } else {
+        ty.name.clone()
+    };
+
+    let _ = writeln!(
+        out,
+        "pub fn {}({}) {} {{",
+        method.name, params_str, return_ty,
+    );
+
+    // Emit param conversions (string dupeZ, enum intFromEnum, struct JSON handles).
+    for p in &method.params {
+        emit_static_method_param_conversion(p, prefix, struct_names, enum_names, out);
+    }
+
+    // Build C argument list: converted params.
+    let mut c_args: Vec<String> = Vec::new();
+    for p in &method.params {
+        c_args.extend(static_method_c_arg_names(p, struct_names, enum_names));
+    }
+    let c_call = format!(
+        "c.{prefix}_{type_snake}_{method_snake}({args})",
+        args = c_args.join(", ")
+    );
+
+    let _ = writeln!(out, "    const _handle = {c_call};");
+    let _ = writeln!(out, "    if (_handle == null) return _first_error(anyerror);");
+    let _ = writeln!(
+        out,
+        "    return .{{ ._handle = @as(*c.{upper_prefix}{type_name}, @ptrCast(_handle.?)) }};",
+        type_name = ty.name,
+    );
+    let _ = writeln!(out, "}}");
+}
+
+
+/// Zig type for a method parameter, including enum marshalling (for static methods).
+fn param_zig_type_with_enums(
+    ty: &TypeRef,
+    optional: bool,
+    struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+) -> String {
+    let inner = match ty {
+        TypeRef::Named(name) if enum_names.contains(name) => {
+            // Enums are passed as the enum type, not as i32
+            name.clone()
+        }
+        TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            "[]const u8".to_string()
+        }
+        TypeRef::Named(name) if struct_names.contains(name) => "[]const u8".to_string(),
+        TypeRef::Optional(inner) => {
+            let inner_str = param_zig_type_with_enums(inner, false, struct_names, enum_names);
+            return format!("?{inner_str}");
+        }
+        other => super::types::zig_field_type(other, false),
+    };
+    if optional { format!("?{inner}") } else { inner }
+}
+
+/// Emit allocation/conversion lines for a static method parameter before the C call.
+fn emit_static_method_param_conversion(
+    p: &ParamDef,
+    prefix: &str,
+    struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
+    let name = &p.name;
+
+    // Enums: convert to i32 using @intFromEnum
+    if let TypeRef::Named(type_name) = &p.ty {
+        if enum_names.contains(type_name) {
+            let _ = writeln!(out, "    const {name}_i32: i32 = @intFromEnum({name});");
+            return;
+        }
+    }
+
+    // String/Path: dupeZ to NUL-terminated pointer
+    if matches!(
+        &p.ty,
+        TypeRef::String | TypeRef::Path
+    ) {
+        let _ = writeln!(
+            out,
+            "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
+        );
+        let _ = writeln!(out, "    defer std.heap.c_allocator.free({name}_z);");
+        return;
+    }
+
+    // Optional String/Path
+    if p.optional
+        && matches!(
+            &p.ty,
+            TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
+        )
+    {
+        let _ = writeln!(
+            out,
+            "    const {name}_z: ?[:0]u8 = if ({name}) |s| try std.heap.c_allocator.dupeZ(u8, s) else null;"
+        );
+        let _ = writeln!(out, "    defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
+        return;
+    }
+
+    // Named struct: JSON serialize
+    if let TypeRef::Named(n) = &p.ty {
+        if struct_names.contains(n) {
+            let snake = AsSnakeCase(n).to_string();
+            let _ = writeln!(
+                out,
+                "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
+            );
+            let _ = writeln!(out, "    defer std.heap.c_allocator.free({name}_z);");
+            let _ = writeln!(
+                out,
+                "    const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
+            );
+            return;
+        }
+    }
+
+    // Optional Named struct
+    if let TypeRef::Optional(inner) = &p.ty {
+        if let TypeRef::Named(n) = inner.as_ref() {
+            if struct_names.contains(n) {
+                let snake = AsSnakeCase(n).to_string();
+                let _ = writeln!(
+                    out,
+                    "    const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
+                );
+                let _ = writeln!(out, "    defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
+                let _ = writeln!(
+                    out,
+                    "    const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
+                );
+            }
+        }
+    }
+}
+
+/// Build the C argument name(s) for a static method parameter.
+fn static_method_c_arg_names(
+    p: &ParamDef,
+    struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    // Enums: pass the i32 discriminant
+    if let TypeRef::Named(type_name) = &p.ty {
+        if enum_names.contains(type_name) {
+            return vec![format!("{}_i32", p.name)];
+        }
+    }
+
+    // Optional Named struct: pass the conditional handle
+    let optional_named: Option<&str> = match &p.ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if struct_names.contains(n) => Some(n.as_str()),
+            _ => None,
+        },
+        TypeRef::Named(n) if p.optional && struct_names.contains(n) => Some(n.as_str()),
+        _ => None,
+    };
+    if optional_named.is_some() {
+        return vec![format!("{}_handle", p.name)];
+    }
+
+    // Named struct: pass the handle
+    if let TypeRef::Named(n) = &p.ty {
+        if struct_names.contains(n.as_str()) {
+            return vec![format!("{}_handle", p.name)];
+        }
+    }
+
+    // Optional String/Path: pass conditional pointer
+    if p.optional
+        && matches!(
+            &p.ty,
+            TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
+        )
+    {
+        return vec![format!("if ({0}_z) |z| z.ptr else null", p.name)];
+    }
+
+    // String/Path/Vec/Map: pass the NUL-terminated pointer
+    if matches!(
+        &p.ty,
+        TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _)
+    ) {
+        return vec![format!("{}_z.ptr", p.name)];
+    }
+
+    // Bytes: pass pointer + length
+    if matches!(p.ty, TypeRef::Bytes) {
+        return vec![format!("{}.ptr", p.name), format!("{}.len", p.name)];
+    }
+
+    // Default: pass the parameter directly
+    vec![p.name.clone()]
 }
 
 /// Emit a `free()` method that releases the underlying FFI handle by calling
@@ -405,6 +664,7 @@ fn emit_opaque_method(
     declared_errors: &[String],
     struct_names: &std::collections::HashSet<String>,
     streaming_item_types: &HashMap<String, String>,
+    enum_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     // Note: async Rust methods are exposed as synchronous C functions via
@@ -445,11 +705,12 @@ fn emit_opaque_method(
     // Build parameter list: `self: *{TypeName}` followed by method params.
     // All struct-typed (non-opaque) params become `[]const u8` (JSON).
     // String/Path params become `[]const u8`.
+    // Enum params become their enum type.
     // Optional variants add `?` prefix.
     let mut param_parts: Vec<String> = Vec::new();
     param_parts.push(format!("self: *{}", ty.name));
     for p in effective_params {
-        let ty_str = param_zig_type(&p.ty, p.optional, struct_names);
+        let ty_str = param_zig_type_instance(&p.ty, p.optional, struct_names, enum_names);
         param_parts.push(format!("{}: {}", p.name, ty_str));
     }
     let params_str = param_parts.join(", ");
@@ -487,9 +748,9 @@ fn emit_opaque_method(
         return_ty = return_ty,
     );
 
-    // Emit param conversions (string alloc, struct JSON handle creation).
+    // Emit param conversions (string alloc, struct JSON handle creation, enum conversion).
     for p in effective_params {
-        emit_method_param_conversion(p, prefix, struct_names, out);
+        emit_method_param_conversion(p, prefix, struct_names, enum_names, out);
     }
 
     // Detect Bytes return: the C FFI uses a multi-out-parameter convention
@@ -512,7 +773,7 @@ fn emit_opaque_method(
     );
     let mut c_args: Vec<String> = vec![c_handle];
     for p in effective_params {
-        c_args.extend(method_c_arg_names(p, struct_names));
+        c_args.extend(method_c_arg_names(p, struct_names, enum_names));
     }
     if returns_bytes {
         c_args.push("&_out_ptr".to_string());
@@ -580,14 +841,25 @@ fn emit_opaque_method(
 }
 
 /// Zig type for a method parameter (same rules as function params).
-fn param_zig_type(ty: &TypeRef, optional: bool, struct_names: &std::collections::HashSet<String>) -> String {
+/// Zig type for a method parameter, including enum marshalling (for instance methods).
+/// Note: Instance methods can have enum parameters; enums are passed as their enum type.
+fn param_zig_type_instance(
+    ty: &TypeRef,
+    optional: bool,
+    struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+) -> String {
     let inner = match ty {
+        TypeRef::Named(name) if enum_names.contains(name) => {
+            // Enums are passed as the enum type
+            name.clone()
+        }
         TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             "[]const u8".to_string()
         }
         TypeRef::Named(name) if struct_names.contains(name) => "[]const u8".to_string(),
         TypeRef::Optional(inner) => {
-            let inner_str = param_zig_type(inner, false, struct_names);
+            let inner_str = param_zig_type_instance(inner, false, struct_names, enum_names);
             return format!("?{inner_str}");
         }
         other => super::types::zig_field_type(other, false),
@@ -600,9 +872,19 @@ fn emit_method_param_conversion(
     p: &crate::core::ir::ParamDef,
     prefix: &str,
     struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     let name = &p.name;
+
+    // Enums: convert to i32 using @intFromEnum
+    if let TypeRef::Named(type_name) = &p.ty {
+        if enum_names.contains(type_name) {
+            let _ = writeln!(out, "        const {name}_i32: i32 = @intFromEnum({name});");
+            return;
+        }
+    }
+
     let is_optional_string = p.optional
         || matches!(
             &p.ty,
@@ -763,7 +1045,18 @@ fn emit_method_param_free(
 }
 
 /// Build the C argument name(s) for a method parameter.
-fn method_c_arg_names(p: &crate::core::ir::ParamDef, struct_names: &std::collections::HashSet<String>) -> Vec<String> {
+fn method_c_arg_names(
+    p: &crate::core::ir::ParamDef,
+    struct_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    // Enums: pass the i32 discriminant
+    if let TypeRef::Named(type_name) = &p.ty {
+        if enum_names.contains(type_name) {
+            return vec![format!("{}_i32", p.name)];
+        }
+    }
+
     // `Option<NamedStruct>` parameters use a conditional handle: `null` when
     // the caller passed `null`, otherwise the FFI handle produced via
     // `_from_json`. Check the optional form first so non-optional Named

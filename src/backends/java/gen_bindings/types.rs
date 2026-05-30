@@ -989,6 +989,7 @@ pub(crate) fn gen_opaque_handle_class(
     prefix: &str,
     adapters: &[AdapterConfig],
     main_class: &str,
+    enum_names: &AHashSet<String>,
 ) -> String {
     let class_name = &typ.name;
     let type_snake = class_name.to_snake_case();
@@ -1064,7 +1065,7 @@ pub(crate) fn gen_opaque_handle_class(
     // `DownloadManager.create(version)` API without exposing the raw FFI handle.
     if has_static_factories {
         for method in &static_factory_methods {
-            gen_static_factory_method(&mut body, method, class_name, prefix, &type_snake, main_class);
+            gen_static_factory_method(&mut body, method, class_name, prefix, &type_snake, main_class, enum_names);
         }
     }
 
@@ -1493,6 +1494,7 @@ fn gen_static_factory_method(
     prefix: &str,
     owner_snake: &str,
     main_class: &str,
+    enum_names: &AHashSet<String>,
 ) {
     let method_name = safe_java_method_name(&method.name);
     let prefix_upper = prefix.to_uppercase();
@@ -1568,35 +1570,52 @@ fn gen_static_factory_method(
                 call_args.push(cname);
             }
             TypeRef::Named(type_name) => {
-                let req_snake = type_name.to_snake_case();
-                let req_upper = req_snake.to_uppercase();
-                let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
-                let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
-                if p.optional {
-                    out.push_str(&crate::backends::java::template_env::render(
-                        "stream_method_optional_named_param.jinja",
-                        minijinja::context! {
-                            c_name => cname,
-                            param_name => pname,
-                            from_json => from_json,
-                            exception_class => exception_class,
-                            method_name => method_name,
-                        },
-                    ));
+                // Check if this is an enum type (Wave 2 FFI backend emits enums as i32 discriminants)
+                if enum_names.contains(type_name.as_str()) {
+                    // Enum parameter: convert to ordinal/discriminant value
+                    // For Method enum: method.ordinal() gives the i32 discriminant
+                    if p.optional {
+                        out.push_str(&format!(
+                            "            var {cname} = {pname} != null ? {pname}.ordinal() : -1;\n"
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "            var {cname} = {pname}.ordinal();\n"
+                        ));
+                    }
+                    call_args.push(cname);
                 } else {
-                    out.push_str(&crate::backends::java::template_env::render(
-                        "stream_method_named_param.jinja",
-                        minijinja::context! {
-                            c_name => cname,
-                            param_name => pname,
-                            from_json => from_json,
-                            exception_class => exception_class,
-                            method_name => method_name,
-                        },
-                    ));
+                    // Struct/record parameter: JSON-serialize via _from_json
+                    let req_snake = type_name.to_snake_case();
+                    let req_upper = req_snake.to_uppercase();
+                    let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
+                    let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
+                    if p.optional {
+                        out.push_str(&crate::backends::java::template_env::render(
+                            "stream_method_optional_named_param.jinja",
+                            minijinja::context! {
+                                c_name => cname,
+                                param_name => pname,
+                                from_json => from_json,
+                                exception_class => exception_class,
+                                method_name => method_name,
+                            },
+                        ));
+                    } else {
+                        out.push_str(&crate::backends::java::template_env::render(
+                            "stream_method_named_param.jinja",
+                            minijinja::context! {
+                                c_name => cname,
+                                param_name => pname,
+                                from_json => from_json,
+                                exception_class => exception_class,
+                                method_name => method_name,
+                            },
+                        ));
+                    }
+                    named_ptr_frees.push((cname.clone(), req_free));
+                    call_args.push(cname);
                 }
-                named_ptr_frees.push((cname.clone(), req_free));
-                call_args.push(cname);
             }
             TypeRef::Primitive(_) | TypeRef::Duration => {
                 call_args.push(pname);
