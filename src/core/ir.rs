@@ -134,24 +134,80 @@ pub struct RegistrationVariant {
     pub name: String,
     /// Resolved overrides — one per pinned base metadata-param.
     pub overrides: Vec<RegistrationVariantOverride>,
+    /// When the base registration consumes a wrapper-typed metadata param whose
+    /// type carries a static constructor (e.g. `route(builder: RouteBuilder, …)`
+    /// where `RouteBuilder::new(method, path)` exists), the extractor pre-builds
+    /// the call recipe here. Backends render this directly — composing the
+    /// constructor invocation with `Fixed` args substituted in and `Free` args
+    /// pulled from the variant's own signature.
+    ///
+    /// `None` when no metadata param matches the wrapper pattern; in that case
+    /// `overrides` targets the base metadata params directly and the variant's
+    /// signature is just the non-overridden subset.
+    #[serde(default)]
+    pub wrapper_call: Option<WrapperConstructorCall>,
+    /// The variant's user-facing signature in canonical order: the non-fixed
+    /// constructor args (when `wrapper_call` is set) or the non-overridden base
+    /// metadata params (otherwise). Each entry carries the host param's name +
+    /// type so backends can render them in language-idiomatic shape.
+    pub signature_params: Vec<ParamDef>,
     /// Optional documentation for the variant. When absent, backends emit a
     /// generic docstring referencing the base registration.
     #[serde(default)]
     pub doc: Option<String>,
 }
 
-/// A resolved pin: the metadata-param being overridden and the expression to
-/// substitute at the wrapper-construction site.
+/// A resolved pin: the param being overridden and the expression to substitute
+/// at the call site.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistrationVariantOverride {
-    /// Name of the base metadata param this override pins (matches a
-    /// [`ParamDef::name`] in [`RegistrationDef::metadata_params`]).
+    /// Name of the param this override pins. When `wrapper_call` is set on the
+    /// parent variant this matches a wrapper-constructor param; otherwise it
+    /// matches a base [`RegistrationDef::metadata_params`] entry.
     pub param_name: String,
     /// Verbatim expression substituted for the param at the call site. For
     /// enum overrides this is the fully-qualified Rust path
     /// (e.g. `"my_crate::Method::GET"`); for other types it is the raw value
     /// expression supplied by the library author.
     pub value_expr: String,
+}
+
+/// Pre-resolved recipe for building a wrapper metadata-param value via a
+/// static constructor with a mix of pinned and free arguments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WrapperConstructorCall {
+    /// Name of the base metadata param the constructor result is bound to
+    /// (e.g. `"builder"`).
+    pub metadata_param: String,
+    /// Fully-qualified Rust path of the wrapper type
+    /// (e.g. `"my_crate::RouteBuilder"`).
+    pub wrapper_type_path: String,
+    /// Bare type name of the wrapper (e.g. `"RouteBuilder"`).
+    pub wrapper_type_name: String,
+    /// Constructor method name on the wrapper type (e.g. `"new"`).
+    pub constructor_method: String,
+    /// Constructor args in declared order. Each is either fixed (with a value
+    /// expression substituted in) or free (taken from the variant's signature).
+    pub args: Vec<WrapperConstructorArg>,
+}
+
+/// One argument in a [`WrapperConstructorCall`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum WrapperConstructorArg {
+    /// Pinned at the call site to `value_expr`.
+    Fixed {
+        /// Name of the wrapper constructor param (e.g. `"method"`).
+        param_name: String,
+        /// Verbatim expression substituted at the call site.
+        value_expr: String,
+    },
+    /// Pulled from the variant's own signature at the call site.
+    Free {
+        /// Definition of the free param — name + type drive both the variant's
+        /// signature and the constructor call argument position.
+        param: ParamDef,
+    },
 }
 
 /// An entrypoint on a service — either a long-lived async `run` or a consuming `finalize`.
