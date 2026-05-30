@@ -84,6 +84,17 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
              \x20\x20\x20\x20}\n\
              }\n\n",
         );
+
+        // swift-bridge extern blocks declare these as free fns taking `client: &mut Foo`
+        // (see rust_extern_service_methods.rs.jinja). The bridge then expects matching
+        // free fns at the parent module scope, which delegate to the wrapper's
+        // inherent methods.
+        out.push_str(&format!(
+            "/// Free-function shim so the bridge declaration resolves.\n\
+             pub fn config(client: &mut {service_name}) {{ client.config() }}\n\n\
+             /// Free-function shim so the bridge declaration resolves.\n\
+             pub fn run(client: &mut {service_name}) -> String {{ client.run() }}\n\n"
+        ));
     }
 
     out

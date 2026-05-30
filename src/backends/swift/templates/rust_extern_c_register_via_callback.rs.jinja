@@ -6,6 +6,9 @@
 // SAFETY: The opaque pointer (app) is the swift-bridge-wrapped handle from the
 // bridge module. swift-bridge emits it as #[repr(transparent)] around the service,
 // so reconstituting via &mut *app is safe given the caller's guarantee of validity.
+// swift-bridge generates its own ABI for opaque wrapper types; the rustc warning
+// about non-FFI-safe param types does not apply to the swift-bridge passing convention.
+#[allow(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
 pub extern "C" fn {{ service_snake }}_{{ reg_snake }}_via_callback(
     app: *mut {{ service_name }},
@@ -18,17 +21,21 @@ pub extern "C" fn {{ service_snake }}_{{ reg_snake }}_via_callback(
     // SAFETY: The caller guarantees a valid, live pointer to the service instance.
     let app = unsafe { &mut *app };
 
-    // Wrap the raw C callback function as an Arc<dyn Handler>.
-    let handler = std::sync::Arc::new(SwiftCCallbackHandler { ctx, callback });
+    // Wrap the raw C callback function as Arc<dyn {{ trait_path }}>.
+    let handler: std::sync::Arc<dyn {{ trait_path }}> =
+        std::sync::Arc::new(SwiftCCallbackHandler { ctx, callback });
 
-    // Call the service's route registration method with the handler.
+    // Call the service's registration method with metadata params positionally + handler.
+    // Named metadata params arrive as swift-bridge tuple-struct wrappers; `.0` unwraps to
+    // the inner library type the service method expects.
     app.inner.blocking_lock().as_mut().map_or(-1, |service| {
-        service.{{ method_name }}(
-            {{ source_crate }}::RouteBuilder::default()
+        // Discard the registration result — the host-side wrapper conveys errors via
+        // status code only at this boundary; richer reporting is the service's job.
+        let _ = service.{{ method_name }}(
 {%- for meta_param in metadata_params %}
-                .{{ meta_param.name }}({{ meta_param.name }})
-{%- endfor %},
-            handler
+            {{ meta_param.name }}{% if meta_param.is_opaque_wrapper %}.0{% endif %},
+{%- endfor %}
+            handler,
         );
         0
     })
@@ -50,9 +57,16 @@ impl {{ trait_path }} for SwiftCCallbackHandler {
         request_data: {{ request_path }},
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
         Box::pin(async move {
+            // Serialise request → JSON; on error, defer to the library-supplied adapter
+            // so no HTTP-specific types (StatusCode, axum::Body) leak into this generic
+            // codegen template.
             let req_json = match serde_json::to_string(&request_data) {
                 Ok(s) => s,
-                Err(e) => return Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+                Err(e) => {
+                    let outcome: Result<{{ response_path }}, Box<dyn std::error::Error + Send + Sync>> =
+                        Err(Box::new(e));
+                    return {{ response_adapter }};
+                }
             };
             let req_bytes = req_json.as_bytes();
             let resp_ptr = (self.callback)(self.ctx, req_bytes.as_ptr(), req_bytes.len());
@@ -69,7 +83,7 @@ impl {{ trait_path }} for SwiftCCallbackHandler {
 
             let resp: {{ response_path }} = serde_json::from_str(&resp_str)
                 .unwrap_or_else(|_| {{ response_path }}::default());
-            let outcome = Ok(resp);
+            let outcome: Result<{{ response_path }}, Box<dyn std::error::Error + Send + Sync>> = Ok(resp);
             {{ response_adapter }}
         })
     }

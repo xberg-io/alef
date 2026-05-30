@@ -271,9 +271,14 @@ fn gen_rust_callback_c_functions_for_service(api: &ApiSurface, service: &Service
             .metadata_params
             .iter()
             .map(|mp| {
+                // Named metadata-param types are emitted as swift-bridge wrapper newtypes
+                // (`pub struct Foo(pub crate_path::Foo)`), so calling through to the inner
+                // service requires `.0` to unwrap. Primitives + String pass through directly.
+                let is_opaque_wrapper = matches!(&mp.ty, TypeRef::Named(_));
                 minijinja::context! {
                     name => &mp.name,
                     rust_type => typeref_to_rust_ffi_type(&mp.ty),
+                    is_opaque_wrapper => is_opaque_wrapper,
                 }
             })
             .collect();
