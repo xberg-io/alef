@@ -9,14 +9,29 @@ use super::render_type::{format_param, render_type};
 
 /// Returns `true` if the parameter is a config type that should be made optional in Dart.
 ///
-/// Parameters named `config` whose named type has a Rust `Default` implementation are
-/// made optional in the Dart wrapper so callers can omit the config and get the Rust
-/// default represented as a Dart constructor expression.
-fn is_optional_config_param(p: &crate::core::ir::ParamDef, type_defs: &[TypeDef]) -> bool {
+/// Parameters named `config` whose named type has a Rust `Default` implementation AND
+/// for which alef can synthesize a complete Dart constructor expression are made
+/// optional in the Dart wrapper. Both conditions are required: FRB-generated DTOs use
+/// `required` named parameters for every field, so a bare `Type()` constructor only
+/// compiles when alef can emit a value for every field. When alef cannot synthesize a
+/// default (e.g. a field whose type lacks a known zero value), the config param stays
+/// required in the wrapper signature — otherwise the `config ?? Type()` fallback emits
+/// dart that fails to compile.
+fn is_optional_config_param(
+    p: &crate::core::ir::ParamDef,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+) -> bool {
     let TypeRef::Named(name) = &p.ty else {
         return false;
     };
-    p.name == "config" && type_defs.iter().any(|ty| ty.name == *name && ty.has_default)
+    if p.name != "config" {
+        return false;
+    }
+    if !type_defs.iter().any(|ty| ty.name == *name && ty.has_default) {
+        return false;
+    }
+    default_expression_for_named_type(name, type_defs, enums).is_some()
 }
 
 pub(super) fn emit_function(
@@ -48,7 +63,7 @@ pub(super) fn emit_function(
     let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
 
     // Find the optional config param if present, and determine its type.
-    let config_param = f.params.iter().find(|p| is_optional_config_param(p, type_defs));
+    let config_param = f.params.iter().find(|p| is_optional_config_param(p, type_defs, enums));
     let config_type = config_param.and_then(|p| match &p.ty {
         TypeRef::Named(n) => Some(n.as_str()),
         _ => None,
@@ -66,7 +81,7 @@ pub(super) fn emit_function(
         let required_params: Vec<String> = f
             .params
             .iter()
-            .filter(|p| !is_optional_config_param(p, type_defs))
+            .filter(|p| !is_optional_config_param(p, type_defs, enums))
             .map(|p| format_param(p, imports))
             .collect();
         let optional_sig = format!("[{cfg_type}? config]");
@@ -103,7 +118,7 @@ pub(super) fn emit_function(
         let non_config: Vec<String> = f
             .params
             .iter()
-            .filter(|p| !is_optional_config_param(p, type_defs))
+            .filter(|p| !is_optional_config_param(p, type_defs, enums))
             .map(|p| {
                 let ident = dart_safe_ident(&p.name.to_lower_camel_case());
                 format!("{ident}: {ident}")
