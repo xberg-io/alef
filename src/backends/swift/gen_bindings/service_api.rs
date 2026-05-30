@@ -19,11 +19,17 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
+
+fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
+    api.handler_contracts
+        .iter()
+        .find(|contract| contract.trait_name == trait_name)
+}
 
 /// Format a multi-line Rust doc as a Swift `///` block at the given column
 /// indent. Every non-blank line is prefixed with `/// `; blank lines stay as
@@ -256,9 +262,7 @@ fn gen_rust_callback_c_functions_for_service(api: &ApiSurface, service: &Service
         let output_type = contract
             .and_then(|c| c.dispatch_return_type.as_deref())
             .map(str::to_owned)
-            .unwrap_or_else(|| {
-                format!("Result<{response_path}, Box<dyn std::error::Error + Send + Sync>>")
-            });
+            .unwrap_or_else(|| format!("Result<{response_path}, Box<dyn std::error::Error + Send + Sync>>"));
         let response_adapter = contract
             .and_then(|c| c.response_adapter.as_deref())
             .map(|adapter| format!("{adapter}(outcome)"))
@@ -875,7 +879,7 @@ mod tests {
     fn test_generate_rust_callback_c_functions_contains_callback_signature() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_rust_callback_c_functions_for_service(service);
+        let output = gen_rust_callback_c_functions_for_service(&api, service);
 
         // Callback registration SHOULD be in the C function output
         assert!(
