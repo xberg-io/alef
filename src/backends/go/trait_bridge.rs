@@ -274,6 +274,7 @@ fn gen_trait_bridge(
     ffi_prefix: &str,
     crate_name: &str,
     excluded_named_types: &HashSet<&str>,
+    #[allow(unused_variables)]
     trait_snake: &str,
 ) {
     let trait_name = &trait_def.name;

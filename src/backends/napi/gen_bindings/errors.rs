@@ -160,6 +160,10 @@ pub(super) fn gen_dts(
     }
     all_decls.sort_by_key(|a| a.0.to_lowercase());
 
+    // Deduplicate declarations by name — trait bridges may appear multiple times
+    // if trait_bridges config is inadvertently loaded twice.
+    all_decls.dedup_by(|a, b| a.0 == b.0);
+
     // Emit declarations with unprefixed TS names. The Rust structs carry
     // `#[napi(js_name = "Foo")]` so NAPI-RS maps JsFoo → Foo at runtime.
     // Passing empty string to dts_type/dts_params ensures field type references
