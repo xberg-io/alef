@@ -2188,6 +2188,70 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
 }
 
 #[test]
+fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
+    use crate::core::config::TraitBridgeConfig;
+
+    let mut config = test_config();
+    config.name = "sample-markdown".to_string();
+    config.languages = vec![Language::Elixir];
+    config.elixir = Some(crate::core::config::ElixirConfig {
+        app_name: Some("sample_markdown".to_string()),
+        features: None,
+        serde_rename_all: None,
+        exclude_functions: vec![],
+        exclude_types: vec![],
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+        cpu_bound_functions: Vec::new(),
+        nif_targets: Vec::new(),
+    });
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("sample_markdown::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: crate::core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let bridge_file = all_files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("ocr_backend_bridge.ex"))
+        .expect("Elixir scaffold must produce a trait bridge .ex file");
+
+    assert!(
+        bridge_file.content.contains("plugin_name = impl_module.name()")
+            && bridge_file
+                .content
+                .contains("SampleMarkdown.Native.register_ocr_backend(pid, plugin_name)"),
+        "register/1 must require Plugin.name/0 and register the started GenServer pid; got:\n{}",
+        bridge_file.content
+    );
+    assert!(
+        !bridge_file
+            .content
+            .contains("register_ocr_backend(self(), Atom.to_string(impl_module))"),
+        "register/1 must not register the caller pid or fallback module string name; got:\n{}",
+        bridge_file.content
+    );
+}
+
+#[test]
 fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_crate() {
     use crate::core::config::TraitBridgeConfig;
 

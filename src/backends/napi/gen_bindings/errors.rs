@@ -235,10 +235,16 @@ pub(super) fn gen_dts(
                 // Each method becomes an optional property with a function signature.
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {} {{", typ.name));
+                if trait_bridge_requires_plugin_name(typ, trait_bridges) {
+                    lines.push("  name(): string".to_string());
+                }
                 for method in &typ.methods {
                     let js_name = &method.name;
+                    if trait_bridge_requires_plugin_name(typ, trait_bridges) && method.name == "name" {
+                        continue;
+                    }
                     let params = dts_params(&method.params, no_prefix, default_types);
-                    let ret = trait_bridge_dts_return_type(&method.return_type);
+                    let ret = trait_bridge_dts_return_type(&method.return_type, method.is_async);
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     let optional_marker = if method.has_default_impl { "?" } else { "" };
                     lines.push(format!("  {js_name}{optional_marker}({params}): {ret}"));
@@ -381,11 +387,22 @@ pub(super) fn gen_dts(
     lines.join("\n")
 }
 
-fn trait_bridge_dts_return_type(return_type: &TypeRef) -> &'static str {
-    if matches!(return_type, TypeRef::Unit) {
+fn trait_bridge_requires_plugin_name(typ: &TypeDef, trait_bridges: &[crate::core::config::TraitBridgeConfig]) -> bool {
+    trait_bridges
+        .iter()
+        .any(|bridge| bridge.trait_name == typ.name && bridge.super_trait.as_deref().is_some())
+}
+
+fn trait_bridge_dts_return_type(return_type: &TypeRef, is_async: bool) -> String {
+    let base = if matches!(return_type, TypeRef::Unit) {
         "void"
     } else {
         "string"
+    };
+    if is_async {
+        format!("Promise<{base}>")
+    } else {
+        base.to_string()
     }
 }
 
@@ -626,7 +643,7 @@ pub(super) fn apply_rename_all(variant_name: &str, rename_all: Option<&str>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::{ParamDef, TypeRef};
+    use crate::core::ir::{ParamDef, TypeDef, TypeRef};
 
     fn make_param(name: &str, optional: bool) -> ParamDef {
         ParamDef {
@@ -683,5 +700,50 @@ mod tests {
         let params = vec![make_param("a", false), make_param("b", false), make_param("c", false)];
         let result = dts_params(&params, "Js", &ahash::AHashSet::new());
         assert_eq!(result, "a: string, b: string, c: string");
+    }
+
+    #[test]
+    fn trait_bridge_dts_return_type_wraps_async_methods_in_promise() {
+        assert_eq!(
+            trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), true),
+            "Promise<string>"
+        );
+        assert_eq!(trait_bridge_dts_return_type(&TypeRef::Unit, true), "Promise<void>");
+        assert_eq!(
+            trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), false),
+            "string"
+        );
+    }
+
+    #[test]
+    fn plugin_trait_bridge_requires_name_in_typescript_interface() {
+        let typ = TypeDef {
+            name: "DocumentExtractor".to_string(),
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            fields: Vec::new(),
+            methods: Vec::new(),
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: Vec::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+        };
+        let bridges = vec![crate::core::config::TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        }];
+        assert!(trait_bridge_requires_plugin_name(&typ, &bridges));
     }
 }

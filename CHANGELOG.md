@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java Panama trait bridges: match the C vtable ABI.** Registration downcalls now pass
+  the vtable as a by-value struct, callback slots use the FFI-owned method set, and C
+  ABI booleans use `i32` layouts with Java-side boolean conversion.
+  (`src/backends/java`)
+
+- **elixir rustler trait bridges: register GenServer pids and dispatch ordered callback args.**
+  Scaffolded plugin bridges now register the started GenServer pid with the required
+  `Plugin.name/0` value instead of the caller pid/module fallback, e2e GenServer stubs
+  convert decoded JSON argument maps into signature-ordered argument lists before
+  `apply/3`, and unregister/clear public specs now match their `:ok | :error` NIF
+  returns. (`src/backends/rustler`, `src/e2e/codegen/elixir.rs`,
+  `src/scaffold/languages/elixir.rs`)
+
+- **napi/typescript e2e: require plugin names and align Node fixture emission.**
+  NAPI plugin bridge constructors now reject registered objects that do not expose
+  `name`, generated TypeScript trait interfaces require `name()` for Plugin-backed
+  bridges and wrap async callback returns in `Promise<...>`, and Node e2e generation
+  strips `Js` prefixes from type imports, keeps fixture `setup` metadata out of
+  runtime arguments, and emits byte fixture content as `Uint8Array`/`Buffer` values.
+  (`src/backends/napi/{trait_bridge.rs,templates/trait_bridge_constructor.jinja,gen_bindings/errors.rs}`,
+  `src/e2e/codegen/typescript/{mod.rs,test_file.rs}`)
+
+- **go trait bridges: propagate callback JSON errors and use FFI string free.** Callback
+  trampolines now return JSON marshal/unmarshal failures through `outError` instead of
+  silently continuing, and clear-registry wrappers free Rust-owned error strings with
+  `{prefix}_free_string`. (`src/backends/go/trait_bridge.rs`,
+  `src/backends/go/templates/clear_c_call.jinja`)
+
 - **dart trait bridge: emit bare `DartFnFuture` ident in factory `impl Fn` signatures so FRB can synthesise Dart-callable closure params.** `dart_fn_future_params_and_ret` (used by both `dart_fn_future_callback_type` for `Box<dyn Fn>` struct fields and `dart_fn_future_factory_param_type` for the factory's `impl Fn` parameters) emitted the fully-qualified `flutter_rust_bridge::DartFnFuture<…>`. FRB v2's closure-parameter parser inspects the first path segment of the return type; a qualified name makes the first segment resolve to `flutter_rust_bridge` and the parser bails with "DartFn does not support return types except `DartFnFuture<T>` yet", silently dropping the entire `create_{trait}_dart_impl` factory. The fix emits the bare `DartFnFuture<…>` ident — already in scope via the `pub use flutter_rust_bridge::DartFnFuture;` re-export at the top of every alef-generated lib.rs — for both call sites. End-to-end effect: `createDocumentExtractorDartImpl`, `createOcrBackendDartImpl`, `createPostProcessorDartImpl`, `createRendererDartImpl`, `createValidatorDartImpl`, and `createEmbeddingBackendDartImpl` are now real Dart functions on the binding instead of "error during generation" comments in lib.dart. (`src/backends/dart/gen_rust_crate/trait_bridge.rs`)
 
 - **extractor: do not emit binding-visible opaque wrappers for `pub(crate)` types whose `impl` blocks declare `pub` methods.** `process_impl_block` synthesises an opaque `TypeDef` when it encounters `impl Foo { pub fn … }` for a `Foo` not registered by the first-pass struct extractor (which only picks up `pub` structs). The synthesised entry was flagged `binding_excluded = false`, so downstream emitters generated `pub struct Foo { pub(crate) inner: this_crate::path::Foo }` wrappers that fail to compile with E0603 ("struct `Foo` is private") because the binding crate cannot name a `pub(crate)` source type. Rust allows `pub` methods on `pub(crate)` structs (their effective visibility is still capped at `pub(crate)`), so this pattern legitimately occurs in source crates — the symptom in kreuzberg was the `Document`/`table_page_numbers` wrapper emitted from `crates/kreuzberg/src/extraction/docx/parser.rs`. Synthesised entries are now flagged `binding_excluded = true` with reason `synthetic-opaque-from-impl-block (source visibility unverified)`; callers that genuinely want such a type surfaced can re-add it via an explicit `alef.toml` config entry. (`src/extract/extractor/functions.rs`)

@@ -413,6 +413,27 @@ pub(crate) fn gen_native_lib(
 
         let trait_snake = bridge_cfg.trait_name.to_snake_case();
         let trait_upper = trait_snake.to_uppercase();
+        let vtable_slot_count = api
+            .types
+            .iter()
+            .find(|ty| ty.name == bridge_cfg.trait_name)
+            .map(|ty| {
+                let own_method_count = ty
+                    .methods
+                    .iter()
+                    .filter(|method| {
+                        method.trait_source.is_none()
+                            && !bridge_cfg.ffi_skip_methods.iter().any(|skip| skip == &method.name)
+                    })
+                    .count();
+                let super_slots = if bridge_cfg.super_trait.is_some() { 4 } else { 0 };
+                super_slots + own_method_count + 1
+            })
+            .unwrap_or(1);
+        let vtable_layout = format!(
+            "MemoryLayout.structLayout({})",
+            vec!["ValueLayout.ADDRESS"; vtable_slot_count].join(", ")
+        );
 
         // Register handle
         let register_handle_name = format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper);
@@ -425,6 +446,7 @@ pub(crate) fn gen_native_lib(
                 minijinja::context! {
                     handle_name => register_handle_name,
                     ffi_name => register_ffi_name,
+                    vtable_layout => &vtable_layout,
                 },
             );
             trait_handles.push(handle_code);
@@ -780,6 +802,9 @@ pub(crate) fn gen_native_lib(
     }
     if class_body.contains("Linker") {
         out.push_str("import java.lang.foreign.Linker;\n");
+    }
+    if class_body.contains("MemoryLayout") {
+        out.push_str("import java.lang.foreign.MemoryLayout;\n");
     }
     if class_body.contains("MemorySegment") {
         out.push_str("import java.lang.foreign.MemorySegment;\n");

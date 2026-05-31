@@ -243,6 +243,21 @@ fn test_plugin_bridge_generates_registration_fn() {
         code.code.contains("my_lib::get_registry"),
         "registration fn must call the configured registry getter"
     );
+    assert!(
+        code.code
+            .contains("genserver_pid: rustler::LocalPid, plugin_name: String")
+            && code
+                .code
+                .contains("RustlerOcrBackendBridge::new(genserver_pid, plugin_name)"),
+        "registration fn must store the provided GenServer pid and require a plugin name, got:\n{}",
+        code.code
+    );
+    assert!(
+        !code.code.contains("RustlerOcrBackendBridge::new(env.pid()")
+            && !code.code.contains("RustlerOcrBackendBridge::new(pid)"),
+        "registration fn must not fall back to the NIF caller pid, got:\n{}",
+        code.code
+    );
 }
 
 // ---------------------------------------------------------------------------

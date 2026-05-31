@@ -1,2 +1,2 @@
             var result = ({{ java_primitive_type }}) {{ ffi_handle }}.invoke({{ args_joined }});
-{{ named_frees }}            return result;
+{{ named_frees }}            return {{ java_primitive_expr }};

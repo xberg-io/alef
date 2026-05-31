@@ -11,6 +11,14 @@ impl {{ wrapper_name }} {
             ));
         }
 {%- endfor %}
+{%- if requires_plugin_name %}
+        if !js_obj.has_named_property("name").unwrap_or(false) {
+            return Err(napi::Error::new(
+                napi::Status::GenericFailure,
+                "Object missing required method: name".to_string()
+            ));
+        }
+{%- endif %}
         // SAFETY: The JS object is owned by the Node.js runtime and lives for
         // the duration of the enclosing #[napi] call. The bridge is only used
         // synchronously during that same call, so 'static is safe here.
@@ -20,15 +28,19 @@ impl {{ wrapper_name }} {
 
         // Cache the plugin name. `name` may be either a string property or a
         // zero-arg function returning a string (the trait method form). Try the
-        // function first, then fall back to a string property, and finally to
-        // "unknown" so registration never panics — but the cached value is what
-        // shows up in list_*() output, so plugins authored with the function-style
-        // `name()` must actually be invoked.
+        // function first, then fall back to a string property.
         let cached_name = js_obj
             .get_named_property::<napi::bindgen_prelude::Function<(), String>>("name")
             .and_then(|f| f.call(()))
             .or_else(|_| js_obj.get_named_property::<String>("name"))
-            .unwrap_or_else(|_| "unknown".to_string());
+{%- if requires_plugin_name %}
+            .map_err(|e| napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Object missing required method: name ({e})")
+            ))?;
+{%- else %}
+            .unwrap_or_default();
+{%- endif %}
 
         Ok(Self {
             inner: js_obj,

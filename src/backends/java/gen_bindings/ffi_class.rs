@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java};
 use super::marshal::{
     ffi_param_args, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
-    marshal_param_to_ffi,
+    java_ffi_return_expr, marshal_param_to_ffi,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -628,9 +628,11 @@ pub(crate) fn gen_sync_function_method(
             out.push_str("            checkLastError();\n");
         }
         if is_optional_return {
-            out.push_str("            return Optional.of(primitiveResult);\n");
+            let return_expr = java_ffi_return_expr(&dispatch_return_type, "primitiveResult");
+            out.push_str(&format!("            return Optional.of({return_expr});\n"));
         } else {
-            out.push_str("            return primitiveResult;\n");
+            let return_expr = java_ffi_return_expr(&dispatch_return_type, "primitiveResult");
+            out.push_str(&format!("            return {return_expr};\n"));
         }
         out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::backends::java::template_env::render(

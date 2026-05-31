@@ -318,6 +318,7 @@ fn emit_ts_stub_method(
     // For numeric types in test backends, use 1 instead of 0 to satisfy validation
     // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
     let default_val = match &method.return_type {
+        crate::core::ir::TypeRef::Unit => "undefined".to_string(),
         crate::core::ir::TypeRef::Named(_) => "\"{}\"".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "false".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => "0.0".to_string(),
@@ -325,19 +326,29 @@ fn emit_ts_stub_method(
         crate::core::ir::TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
         other => defaults.emit_default(other),
     };
+    let return_type = ts_stub_return_type(&method.return_type);
 
     if method.is_async {
         let _ = writeln!(
             out,
-            "  async {name}({params_str}): Promise<any> {{ return {default_val}; }}",
+            "  async {name}({params_str}): Promise<{return_type}> {{ return {default_val}; }}",
             name = method.name
         );
     } else {
         let _ = writeln!(
             out,
-            "  {name}({params_str}): any {{ return {default_val}; }}",
+            "  {name}({params_str}): {return_type} {{ return {default_val}; }}",
             name = method.name
         );
+    }
+}
+
+fn ts_stub_return_type(return_type: &crate::core::ir::TypeRef) -> &'static str {
+    match return_type {
+        crate::core::ir::TypeRef::Unit => "void",
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "boolean",
+        crate::core::ir::TypeRef::Primitive(_) => "number",
+        _ => "string",
     }
 }
 
@@ -548,6 +559,16 @@ result_var = "result"
         assert!(
             emission.setup_block.contains("async asyncOp("),
             "required async method should be emitted with async keyword"
+        );
+        assert!(
+            emission.setup_block.contains("syncOp(): string"),
+            "sync method should return the generated sync shape, got: {}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("async asyncOp(): Promise<string>"),
+            "async method should return the generated async shape, got: {}",
+            emission.setup_block
         );
 
         // arg_expr uses new keyword.

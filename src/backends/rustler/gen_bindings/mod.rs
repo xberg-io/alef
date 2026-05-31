@@ -1571,9 +1571,7 @@ impl Backend for RustlerBackend {
                     "  @doc \"Unregister a previously registered {} plugin by name.\"\n",
                     bridge_cfg.trait_name
                 ));
-                content.push_str(&format!(
-                    "  @spec {fn_name}(String.t()) :: {{:ok, nil}} | {{:error, atom, String.t()}}\n"
-                ));
+                content.push_str(&format!("  @spec {fn_name}(String.t()) :: :ok | :error\n"));
                 content.push_str(&format!("  def {fn_name}(name) do\n"));
                 content.push_str(&format!("    {native_mod}.{fn_name}(name)\n"));
                 content.push_str("  end\n\n");
@@ -1586,9 +1584,7 @@ impl Backend for RustlerBackend {
                     "  @doc \"Clear all {} plugins from the global registry.\"\n",
                     bridge_cfg.trait_name
                 ));
-                content.push_str(&format!(
-                    "  @spec {fn_name}() :: {{:ok, nil}} | {{:error, atom, String.t()}}\n"
-                ));
+                content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
                 content.push_str(&format!("  def {fn_name} do\n"));
                 content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
                 content.push_str("  end\n\n");

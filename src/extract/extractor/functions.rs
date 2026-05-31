@@ -269,7 +269,9 @@ pub(crate) fn extract_impl_block(
             has_serde: false,
             super_traits: vec![],
             binding_excluded: true,
-            binding_exclusion_reason: Some("synthetic-opaque-from-impl-block (source visibility unverified)".to_string()),
+            binding_exclusion_reason: Some(
+                "synthetic-opaque-from-impl-block (source visibility unverified)".to_string(),
+            ),
             is_variant_wrapper: false,
         });
     }

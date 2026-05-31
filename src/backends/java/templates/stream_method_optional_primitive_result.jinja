@@ -2,5 +2,5 @@
 {{ named_frees }}{%- if is_optional_long %}
             return java.util.OptionalLong.of(result);
 {%- else %}
-            return java.util.Optional.of(result);
+            return java.util.Optional.of({{ java_primitive_expr }});
 {%- endif %}

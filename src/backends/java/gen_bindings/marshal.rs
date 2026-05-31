@@ -52,7 +52,7 @@ pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
 pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "boolean",
+            PrimitiveType::Bool => "int",
             PrimitiveType::U8 | PrimitiveType::I8 => "byte",
             PrimitiveType::U16 | PrimitiveType::I16 => "short",
             PrimitiveType::U32 | PrimitiveType::I32 => "int",
@@ -62,6 +62,13 @@ pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
         },
         TypeRef::Duration => "long",
         _ => "MemorySegment",
+    }
+}
+
+pub(crate) fn java_ffi_return_expr(ty: &TypeRef, var_name: &str) -> String {
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => format!("{var_name} != 0"),
+        _ => var_name.to_string(),
     }
 }
 
@@ -282,7 +289,7 @@ pub(crate) fn marshal_param_to_ffi(
                         PrimitiveType::I8 => ("byte", "Byte.MAX_VALUE"),
                         PrimitiveType::F32 => ("float", "Float.NaN"),
                         PrimitiveType::F64 => ("double", "Double.NaN"),
-                        PrimitiveType::Bool => ("boolean", "false"),
+                        PrimitiveType::Bool => ("int", "0"),
                     };
                     out.push_str(&crate::backends::java::template_env::render(
                         "marshal_optional_primitive.jinja",
@@ -291,6 +298,11 @@ pub(crate) fn marshal_param_to_ffi(
                             name => name,
                             prim_kw => prim_kw,
                             none_lit => none_lit,
+                            value_expr => if matches!(prim, PrimitiveType::Bool) {
+                                format!("({name} ? 1 : 0)")
+                            } else {
+                                name.to_string()
+                            },
                         },
                     ));
                 }
@@ -357,6 +369,7 @@ pub(crate) fn ffi_param_args(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<
             TypeRef::Primitive(_) => vec!["c".to_string() + name],
             _ => vec![name.to_string()],
         },
+        TypeRef::Primitive(PrimitiveType::Bool) => vec![format!("({name} ? 1 : 0)")],
         _ => vec![name.to_string()],
     }
 }

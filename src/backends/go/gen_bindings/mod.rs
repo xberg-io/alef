@@ -464,12 +464,17 @@ fn gen_go_file(
     value_only_types: &HashSet<String>,
     has_options_field_bridge: bool,
 ) -> String {
-    let mut out = String::with_capacity(4096);
+    // Two-pass generation: accumulate body content first, then scan for actual usage
+    // to determine which imports are truly needed (e.g., runtime.Pinner only appears
+    // in bytes_to_c_pointer.jinja when actually emitted for FFI params).
+
+    // Pass 1: Generate header, cgo, and placeholder for imports (to be filled in Pass 2)
+    let mut header = String::with_capacity(2048);
 
     // Go convention: generated file marker must appear before package declaration.
     // Blank line after header prevents revive from treating it as package doc.
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push('\n');
+    header.push_str(&hash::header(CommentStyle::DoubleSlash));
+    header.push('\n');
 
     // Compute relative path from Go output dir to project root.
     // go_output_dir is like "packages/go/", so we need "../../" to reach root.
@@ -478,14 +483,14 @@ fn gen_go_file(
 
     // Package header and cgo directives.
     // The package comment must immediately precede the package declaration with no blank line.
-    out.push_str(&crate::backends::go::template_env::render(
+    header.push_str(&crate::backends::go::template_env::render(
         "package_doc_and_declaration.jinja",
         minijinja::context! {
             pkg_name => pkg_name,
             crate_name => &config.name,
         },
     ));
-    out.push_str(&crate::backends::go::template_env::render(
+    header.push_str(&crate::backends::go::template_env::render(
         "cgo_preamble_binding.jinja",
         minijinja::context! {
             to_root => &to_root,
@@ -494,63 +499,27 @@ fn gen_go_file(
             ffi_header => ffi_header,
         },
     ));
-    out.push('\n');
-    // Determine which imports are needed based on generated code.
-    let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
-    // Functions that are not skipped (non-async or with non-Named returns) need json + unsafe.
-    // Opaque-returning functions are no longer skipped, so check all non-async functions.
-    let has_sync_functions = api.functions.iter().any(|f| !f.is_async);
-    let has_non_static_methods = api.types.iter().any(|t| t.methods.iter().any(|m| !m.is_static));
-    let needs_json_and_unsafe = has_sync_functions || has_non_static_methods;
+    header.push('\n');
 
-    // NOTE: imports_basic.jinja renders each value as-is (no extra quoting).
-    // Pass bare package paths without surrounding quotes — the template does not add them.
-    let mut imports = vec!["fmt"];
-    if needs_json_and_unsafe {
-        imports.insert(0, "encoding/json");
-        let has_byte_slice_params = api
-            .functions
-            .iter()
-            .any(|f| f.params.iter().any(|p| matches!(p.ty, TypeRef::Bytes)))
-            || api.types.iter().any(|t| {
-                t.methods
-                    .iter()
-                    .any(|m| m.params.iter().any(|p| matches!(p.ty, TypeRef::Bytes)))
-            });
-        if has_byte_slice_params {
-            imports.push("runtime");
-        }
-        imports.push("unsafe");
-    } else if has_opaque_types {
-        // Opaque types need unsafe for pointer wrapping even without JSON serialization.
-        imports.push("unsafe");
-    }
-    if !api.errors.is_empty() {
-        imports.insert(1.min(imports.len()), "errors");
-    }
-    out.push_str(&crate::backends::go::template_env::render(
-        "imports_basic.jinja",
-        minijinja::context! {
-            imports => imports,
-        },
-    ));
+    // Pass 2: Generate the body content
+    let mut body = String::with_capacity(8192);
 
     // Error helper functions
-    out.push_str(&gen_last_error_helper(ffi_prefix));
-    out.push_str("\n\n");
+    body.push_str(&gen_last_error_helper(ffi_prefix));
+    body.push_str("\n\n");
 
     // Bytes helper: emitted once per package, used by every method/function
     // returning `TypeRef::Bytes`. Defining it here (rather than inline at each
     // call site) avoids repeated declarations and keeps a single place to
     // adjust ownership semantics.
-    out.push_str(&gen_unmarshal_bytes_helper());
-    out.push_str("\n\n");
+    body.push_str(&gen_unmarshal_bytes_helper());
+    body.push_str("\n\n");
 
     // Pointer helper: emitted once per package, used by data DTOs to construct
     // pointers for optional fields without functional-options boilerplate.
     // Usage: &MyStruct{Field: Ptr("value")}
-    out.push_str(&gen_ptr_helper());
-    out.push_str("\n\n");
+    body.push_str(&gen_ptr_helper());
+    body.push_str("\n\n");
 
     // Note: trait bridge exports (//export trampolines) are emitted by trait_bridges.go
     // (generated when has_plugin_bridges is true). Do NOT emit them here to avoid duplication.
@@ -561,11 +530,11 @@ fn gen_go_file(
     // `ErrGraphQLValidationError` vs `ErrSchemaValidationError`), followed by
     // the per-error structured error struct + Error() method.
     if !api.errors.is_empty() {
-        out.push_str(&crate::codegen::error_gen::gen_go_sentinel_errors(&api.errors));
-        out.push_str("\n\n");
+        body.push_str(&crate::codegen::error_gen::gen_go_sentinel_errors(&api.errors));
+        body.push_str("\n\n");
         for error in &api.errors {
-            out.push_str(&crate::codegen::error_gen::gen_go_error_struct(error, pkg_name));
-            out.push_str("\n\n");
+            body.push_str(&crate::codegen::error_gen::gen_go_error_struct(error, pkg_name));
+            body.push_str("\n\n");
         }
     }
 
@@ -609,8 +578,8 @@ fn gen_go_file(
         .iter()
         .filter(|e| !visitor_types.contains(e.name.as_str()) && !exclude_types.contains(&e.name))
     {
-        out.push_str(&gen_enum_type(enum_def));
-        out.push_str("\n\n");
+        body.push_str(&gen_enum_type(enum_def));
+        body.push_str("\n\n");
     }
 
     // Error type names that are also opaque types — in this case the error struct emitted by
@@ -680,26 +649,26 @@ fn gen_go_file(
             // struct was already emitted by gen_go_error_types. Skip the duplicate struct
             // definition but still emit the Free() method.
             if error_names.contains(typ.name.as_str()) {
-                out.push_str(&gen_opaque_type_free_only(typ, ffi_prefix));
-                out.push_str("\n\n");
+                body.push_str(&gen_opaque_type_free_only(typ, ffi_prefix));
+                body.push_str("\n\n");
             } else {
-                out.push_str(&gen_opaque_type(typ, ffi_prefix));
-                out.push_str("\n\n");
+                body.push_str(&gen_opaque_type(typ, ffi_prefix));
+                body.push_str("\n\n");
             }
             // Client constructor — emit New<TypeName> when configured.
             if let Some(ctor) = config.client_constructors.get(&typ.name) {
-                out.push_str(&gen_go_opaque_constructor(typ, ffi_prefix, ctor));
-                out.push_str("\n\n");
+                body.push_str(&gen_go_opaque_constructor(typ, ffi_prefix, ctor));
+                body.push_str("\n\n");
             }
         } else {
-            out.push_str(&gen_struct_type(
+            body.push_str(&gen_struct_type(
                 typ,
                 &unit_enum_names,
                 &passthrough_enum_names,
                 &data_enum_names,
                 &struct_names,
             ));
-            out.push_str("\n\n");
+            body.push_str("\n\n");
             // Generate functional options pattern only if type is in the functional_options allowlist.
             // By default, pure data DTOs use idiomatic struct literals instead of functional options.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
@@ -712,13 +681,13 @@ fn gen_go_file(
                 .map(|g| &g.functional_options)
                 .unwrap_or(&empty_functional_options);
             if !typ.name.ends_with("Update") && functional_options.contains(&typ.name) {
-                out.push_str(&gen_config_options(
+                body.push_str(&gen_config_options(
                     typ,
                     &unit_enum_names,
                     &passthrough_enum_names,
                     &data_enum_names,
                 ));
-                out.push_str("\n\n");
+                body.push_str("\n\n");
             }
         }
     }
@@ -742,15 +711,15 @@ fn gen_go_file(
         // For the convert function with visitor support, wrap it with visitor-awareness logic
         // instead of generating the basic wrapper.
         if func.name == "convert" && has_options_field_bridge {
-            out.push_str(&gen_convert_with_visitor_wrapper(
+            body.push_str(&gen_convert_with_visitor_wrapper(
                 func,
                 ffi_prefix,
                 &opaque_names,
                 value_only_types,
             ));
-            out.push_str("\n\n");
+            body.push_str("\n\n");
         } else {
-            out.push_str(&gen_function_wrapper(
+            body.push_str(&gen_function_wrapper(
                 func,
                 ffi_prefix,
                 &opaque_names,
@@ -760,7 +729,7 @@ fn gen_go_file(
                 &ffi_enum_names,
                 &ffi_param_enum_names,
             ));
-            out.push_str("\n\n");
+            body.push_str("\n\n");
         }
     }
 
@@ -774,8 +743,8 @@ fn gen_go_file(
         if adapter.owner_type.is_none() || adapter.item_type.is_none() {
             continue;
         }
-        out.push_str(&gen_adapter_wrapper(adapter, pkg_name, &api.types));
-        out.push_str("\n\n");
+        body.push_str(&gen_adapter_wrapper(adapter, pkg_name, &api.types));
+        body.push_str("\n\n");
     }
 
     // Generate struct methods.
@@ -820,7 +789,7 @@ fn gen_go_file(
             if let Some(item_type) = streaming_methods.get(&(typ.name.clone(), method.name.clone())) {
                 // Streaming method: drive the FFI iterator-handle exports and surface a typed
                 // Go channel instead of calling the callback-based wrapper directly.
-                out.push_str(&gen_streaming_method_wrapper(
+                body.push_str(&gen_streaming_method_wrapper(
                     typ,
                     method,
                     ffi_prefix,
@@ -831,7 +800,7 @@ fn gen_go_file(
                     &ffi_enum_names,
                     &ffi_param_enum_names,
                 ));
-                out.push_str("\n\n");
+                body.push_str("\n\n");
                 continue;
             }
             if ffi_exclude_functions.contains(&method.name) {
@@ -849,7 +818,7 @@ fn gen_go_file(
             ) {
                 continue;
             }
-            out.push_str(&gen_method_wrapper(
+            body.push_str(&gen_method_wrapper(
                 typ,
                 method,
                 ffi_prefix,
@@ -858,9 +827,43 @@ fn gen_go_file(
                 &ffi_enum_names,
                 &ffi_param_enum_names,
             ));
-            out.push_str("\n\n");
+            body.push_str("\n\n");
         }
     }
+
+    // Pass 3: Determine imports based on actual content usage
+    let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
+    let has_sync_functions = api.functions.iter().any(|f| !f.is_async);
+    let has_non_static_methods = api.types.iter().any(|t| t.methods.iter().any(|m| !m.is_static));
+    let needs_json_and_unsafe = has_sync_functions || has_non_static_methods;
+
+    let mut imports = vec!["fmt"];
+    if needs_json_and_unsafe {
+        imports.insert(0, "encoding/json");
+        // Only add runtime if it's actually used in the body (e.g., runtime.Pinner)
+        if body.contains("runtime.") {
+            imports.push("runtime");
+        }
+        imports.push("unsafe");
+    } else if has_opaque_types {
+        // Opaque types need unsafe for pointer wrapping even without JSON serialization.
+        imports.push("unsafe");
+    }
+    if !api.errors.is_empty() {
+        imports.insert(1.min(imports.len()), "errors");
+    }
+    let imports_str = crate::backends::go::template_env::render(
+        "imports_basic.jinja",
+        minijinja::context! {
+            imports => imports,
+        },
+    );
+
+    // Assemble final output: header + imports + body
+    let mut out = String::with_capacity(header.len() + imports_str.len() + body.len());
+    out.push_str(&header);
+    out.push_str(&imports_str);
+    out.push_str(&body);
 
     out
 }

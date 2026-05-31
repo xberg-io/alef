@@ -74,7 +74,7 @@ pub fn render_test_file(
     let mut all_result_enum_classes: std::collections::BTreeSet<String> =
         result_enum_fields.values().cloned().collect();
     if let Some(opts) = options_type {
-        all_options_types.insert(opts.to_string());
+        all_options_types.insert(canonical_ts_type_name(lang, opts, config));
     }
     for fixture in fixtures.iter() {
         let cc = e2e_config.resolve_call_for_fixture(
@@ -86,7 +86,7 @@ pub fn render_test_file(
         );
         if let Some(o) = cc.overrides.get(lang) {
             if let Some(opts) = &o.options_type {
-                all_options_types.insert(opts.clone());
+                all_options_types.insert(canonical_ts_type_name(lang, opts, config));
             }
             for (k, v) in &o.nested_types {
                 all_nested_types.entry(k.clone()).or_insert_with(|| v.clone());
@@ -628,7 +628,8 @@ fn render_test_case(
     let per_call_override = call_config.overrides.get(lang);
     let effective_options_type: Option<String> = per_call_override
         .and_then(|o| o.options_type.clone())
-        .or_else(|| options_type.map(|s| s.to_string()));
+        .or_else(|| options_type.map(|s| s.to_string()))
+        .map(|type_name| canonical_ts_type_name(lang, &type_name, config));
     let mut effective_nested_types: std::collections::HashMap<String, String> = nested_types.clone();
     if let Some(o) = per_call_override {
         for (k, v) in &o.nested_types {
@@ -952,17 +953,12 @@ fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) ->
                         "BatchBytesItem" => {
                             let content = obj.get("content").and_then(|v| v.as_array());
                             let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                            // napi-rs v3 #[napi(object)] for Vec<u8> fields accepts only
-                            // JS `Array<number>` at runtime (not Buffer/Uint8Array — the
-                            // macro-generated FromNapiValue calls napi_get_array_length).
-                            // Emit a raw array literal; the d.ts is aligned via
-                            // #[napi(ts_type = "Array<number>")] on the struct field.
                             let content_code = if let Some(arr) = content {
                                 let bytes: Vec<String> =
                                     arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                                format!("[{}]", bytes.join(", "))
+                                format!("new Uint8Array([{}])", bytes.join(", "))
                             } else {
-                                "[]".to_string()
+                                "new Uint8Array([])".to_string()
                             };
                             Some(format!("{{ content: {}, mimeType: \"{}\" }}", content_code, mime_type))
                         }
@@ -1423,14 +1419,15 @@ fn build_args_and_setup(
         // shape expected by zero-arg or single-optional-arg functions like
         // `listFiles(query?)` in WASM, where passing `{}` would fail the
         // `instanceof` check.
-        if input
+        let runtime_input = strip_setup_metadata(input);
+        if runtime_input
             .as_object()
             .map(|m| m.is_empty())
-            .unwrap_or_else(|| input.is_null())
+            .unwrap_or_else(|| runtime_input.is_null())
         {
             return (Vec::new(), String::new());
         }
-        return (Vec::new(), json_to_js(input));
+        return (Vec::new(), json_to_js(&runtime_input));
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
@@ -1588,8 +1585,10 @@ fn build_args_and_setup(
         }
 
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let runtime_input;
         let val = if field == "input" {
-            Some(input)
+            runtime_input = strip_setup_metadata(input);
+            Some(&runtime_input)
         } else {
             input.get(field)
         };
@@ -1689,6 +1688,28 @@ fn build_args_and_setup(
     }
 
     (setup_lines, parts.join(", "))
+}
+
+fn strip_setup_metadata(input: &serde_json::Value) -> serde_json::Value {
+    match input {
+        serde_json::Value::Object(map) => {
+            let mut cleaned = map.clone();
+            cleaned.remove("setup");
+            serde_json::Value::Object(cleaned)
+        }
+        other => other.clone(),
+    }
+}
+
+fn canonical_ts_type_name(lang: &str, type_name: &str, config: &crate::core::config::ResolvedCrateConfig) -> String {
+    if lang == "node" {
+        type_name
+            .strip_prefix(&config.node_type_prefix())
+            .unwrap_or(type_name)
+            .to_string()
+    } else {
+        type_name.to_string()
+    }
 }
 
 /// Detect if cache isolation is needed: checks if any fixture calls `cleanCache`
@@ -1985,6 +2006,60 @@ mod tests {
     fn wasm_class_name_prepends_wasm_prefix() {
         assert_eq!(wasm_class_name("ChatMessage", "Wasm"), "WasmChatMessage");
         assert_eq!(wasm_class_name("EmbeddingRequest", "Wasm"), "WasmEmbeddingRequest");
+    }
+
+    #[test]
+    fn strip_setup_metadata_removes_harness_setup_from_runtime_input() {
+        let input = serde_json::json!({
+            "setup": { "register": true },
+            "text": "hello"
+        });
+        let cleaned = strip_setup_metadata(&input);
+        assert_eq!(cleaned, serde_json::json!({ "text": "hello" }));
+    }
+
+    #[test]
+    fn batch_bytes_items_use_typed_byte_arrays() {
+        let input = serde_json::json!([
+            { "content": [65, 66, 67], "mime_type": "text/plain" }
+        ]);
+        let rendered = emit_typescript_batch_item_array(&input, "BatchBytesItem");
+        assert!(
+            rendered.contains("new Uint8Array([65, 66, 67])"),
+            "batch byte content must use typed byte arrays, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains("content: [65"),
+            "raw array bytes should not be emitted: {rendered}"
+        );
+    }
+
+    #[test]
+    fn node_type_imports_strip_configured_js_prefix() {
+        use crate::core::config::NewAlefConfig;
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["node"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.node]
+type_prefix = "Js"
+"#,
+        )
+        .unwrap();
+        let resolved = cfg.resolve().unwrap().remove(0);
+        assert_eq!(
+            canonical_ts_type_name("node", "JsExtractionConfig", &resolved),
+            "ExtractionConfig"
+        );
+        assert_eq!(
+            canonical_ts_type_name("wasm", "WasmExtractionConfig", &resolved),
+            "WasmExtractionConfig"
+        );
     }
 
     #[test]

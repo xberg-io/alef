@@ -1,6 +1,6 @@
 use alef::backends::rustler::RustlerBackend;
 use alef::core::backend::Backend;
-use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
+use alef::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig, new_config::NewAlefConfig};
 use alef::core::ir::{
     ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
     MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
@@ -610,6 +610,59 @@ fn test_main_module_has_method_wrappers() {
     assert!(
         !content.contains("def config_default"),
         "Methods should NOT be in main module; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
+    let backend = RustlerBackend;
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let mut config = make_config("my_lib");
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let main = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib.ex"))
+        .expect("my_lib.ex should be generated");
+    let content = &main.content;
+
+    assert!(
+        content.contains("@spec unregister_ocr_backend(String.t()) :: :ok | :error")
+            && content.contains("@spec clear_ocr_backends() :: :ok | :error"),
+        "unregister/clear specs must match Rustler NIF atom returns; got:\n{content}"
+    );
+    assert!(
+        !content.contains("{:ok, nil}") && !content.contains("{:error, atom, String.t()}"),
+        "unregister/clear specs must not advertise tuple returns; got:\n{content}"
     );
 }
 

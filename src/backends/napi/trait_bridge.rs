@@ -226,6 +226,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             minijinja::context! {
                 wrapper_name => wrapper,
                 required_methods => required_methods,
+                requires_plugin_name => spec.bridge_config.super_trait.is_some(),
             },
         )
     }

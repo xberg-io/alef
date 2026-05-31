@@ -183,7 +183,7 @@ pub fn java_return_type(ty: &TypeRef) -> Cow<'static, str> {
 /// Maps a primitive type to its Java FFI equivalent (Panama FFM ValueLayout).
 pub fn java_ffi_type(prim: &PrimitiveType) -> &'static str {
     match prim {
-        PrimitiveType::Bool => "ValueLayout.JAVA_BOOLEAN",
+        PrimitiveType::Bool => "ValueLayout.JAVA_INT",
         PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_BYTE",
         PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_SHORT",
         PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_INT",

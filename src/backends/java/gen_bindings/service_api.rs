@@ -234,7 +234,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 TypeRef::Primitive(p) => {
                     use crate::core::ir::PrimitiveType;
                     let layout = match p {
-                        PrimitiveType::Bool => "ValueLayout.JAVA_BOOLEAN",
+                        PrimitiveType::Bool => "ValueLayout.JAVA_INT",
                         PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_BYTE",
                         PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_SHORT",
                         PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_INT",
@@ -270,6 +270,8 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                     ",\n                {}.handle()    // opaque handle",
                     param_name
                 ));
+            } else if matches!(meta_param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
+                out.push_str(&format!(",\n                ({} ? 1 : 0)    // metadata", param_name));
             } else {
                 // String/primitive/other types pass directly
                 out.push_str(&format!(",\n                {}    // metadata", param_name));
@@ -370,7 +372,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 TypeRef::Primitive(p) => {
                     use crate::core::ir::PrimitiveType;
                     let layout = match p {
-                        PrimitiveType::Bool => "ValueLayout.JAVA_BOOLEAN",
+                        PrimitiveType::Bool => "ValueLayout.JAVA_INT",
                         PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_BYTE",
                         PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_SHORT",
                         PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_INT",
@@ -409,6 +411,8 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             if is_opaque_metadata(&param.ty, api) {
                 // Opaque types pass the MemorySegment handle
                 out.push_str(&format!(", {}.handle()", param_name));
+            } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
+                out.push_str(&format!(", ({} ? 1 : 0)", param_name));
             } else {
                 // String/primitive/other types pass directly
                 out.push_str(&format!(", {}", param_name));

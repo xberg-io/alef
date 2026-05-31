@@ -11,7 +11,7 @@ use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
     java_apply_rename_all, safe_java_field_name, safe_java_method_name,
 };
-use super::marshal::{is_ffi_string_return, java_ffi_return_cast};
+use super::marshal::{is_ffi_string_return, java_ffi_return_cast, java_ffi_return_expr};
 
 /// Resolve a TypeRef to its Java type, replacing unknown/excluded Named types with JsonNode.
 ///
@@ -1446,6 +1446,7 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 args_joined => args_joined,
                 named_frees => render_named_frees("            "),
                 java_primitive_type => java_ffi_return_cast(&dispatch_return),
+                java_primitive_expr => java_ffi_return_expr(&dispatch_return, "result"),
                 is_optional_long => matches!(dispatch_return, TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Isize | PrimitiveType::Usize) | TypeRef::Duration),
             },
         ));

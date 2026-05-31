@@ -1193,11 +1193,13 @@ fn gen_extendr_bridge_field_function(
     body.push_str(&format!("    opts.{field_name} = {field_name}_handle;\n"));
 
     // Build the core function call. For `String` params we pass `&name` (deref-coerces to `&str`);
-    // for `Robj` fall back to passing by reference as before. Options always becomes `Some(opts)`.
+    // for `Robj` fall back to passing by reference as before. Options always becomes
+    // `Some(opts.into())` since `opts` is the R-local `ConversionOptions` and the core function
+    // expects `html_to_markdown_rs::ConversionOptions` — the generated `From` impl bridges them.
     let mut call_args = Vec::new();
     for param in &func.params {
         if param.name == *options_param {
-            call_args.push("Some(opts)".to_string());
+            call_args.push("Some(opts.into())".to_string());
         } else {
             call_args.push(format!("&{}", param.name));
         }

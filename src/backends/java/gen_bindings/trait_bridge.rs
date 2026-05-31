@@ -11,7 +11,7 @@
 //! All complex parameter and return marshalling goes through Jackson JSON, matching
 //! how the FFI vtable receives values from native callers.
 
-use crate::core::ir::{TypeDef, TypeRef};
+use crate::core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
 use minijinja::Value;
 use std::collections::HashSet;
@@ -314,12 +314,17 @@ fn gen_bridge_file(
     // (e.g., trait-object references), so they are absent from the interface
     // and the bridge must not emit upcall stubs or handlers for them.
     let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
+    let bridge_methods: Vec<&MethodDef> = trait_def
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
+        .collect();
 
     // Determine which imports are needed based on method signatures
     let bridge_signatures: String = trait_def
         .methods
         .iter()
-        .filter(|m| !skipped.contains(m.name.as_str()))
+        .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
         .map(|m| {
             let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
             let params = m
@@ -411,13 +416,14 @@ fn gen_bridge_file(
     }
 
     // Build stub allocations for trait methods
-    for method in trait_def.methods.iter().filter(|m| !skipped.contains(m.name.as_str())) {
+    for method in &bridge_methods {
         let handle_name = format!("handle{}", method.name.to_pascal_case());
         let stub_name = format!("stub{}", method.name.to_pascal_case());
 
         let mut method_type_params = vec!["MemorySegment.class".to_string()];
         for param in &method.params {
             let class_literal = match &param.ty {
+                TypeRef::Primitive(PrimitiveType::Bool) => "int.class".to_string(),
                 TypeRef::Primitive(p) => format!("{}.class", java_type(&TypeRef::Primitive(p.clone()))),
                 _ => "MemorySegment.class".to_string(),
             };
@@ -460,16 +466,17 @@ fn gen_bridge_file(
     }
 
     // Build trait method handlers
-    let methods: Vec<Value> = trait_def
-        .methods
+    let methods: Vec<Value> = bridge_methods
         .iter()
-        .filter(|m| !skipped.contains(m.name.as_str()))
         .map(|method| {
             let handle = format!("handle{}", method.name.to_pascal_case());
             let mut sig_params = vec!["MemorySegment userData".to_string()];
             for param in &method.params {
                 let local = java_param_name(&param.name);
                 match &param.ty {
+                    TypeRef::Primitive(PrimitiveType::Bool) => {
+                        sig_params.push(format!("int {local}_raw"));
+                    }
                     TypeRef::Primitive(p) => {
                         sig_params.push(format!("{} {local}", java_type(&TypeRef::Primitive(p.clone()))));
                     }
@@ -492,7 +499,9 @@ fn gen_bridge_file(
             let mut unmarshal_params: Vec<String> = vec![];
             for param in &method.params {
                 let local = java_param_name(&param.name);
-                if !matches!(param.ty, TypeRef::Primitive(_)) {
+                if matches!(param.ty, TypeRef::Primitive(PrimitiveType::Bool)) {
+                    unmarshal_params.push(format!("boolean {local} = {local}_raw != 0;"));
+                } else if !matches!(param.ty, TypeRef::Primitive(_)) {
                     let segment = format!("{local}_in");
                     // Named types not in visible_type_names (e.g. InternalDocument) OR in excluded_types
                     // are JSON-bridged as opaque Strings — no companion Java class is generated
@@ -546,7 +555,7 @@ fn gen_bridge_file(
         })
         .collect();
 
-    let num_methods = trait_def.methods.len();
+    let num_methods = bridge_methods.len();
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
     let num_vtable_fields = num_super_slots + num_methods + 1;
     let register_takes_name = has_super_trait;
@@ -580,6 +589,7 @@ fn gen_bridge_file(
         num_methods => num_methods,
         num_super_slots => num_super_slots,
         num_vtable_fields => num_vtable_fields,
+        vtable_layout_fields => vec!["ValueLayout.ADDRESS"; num_vtable_fields].join(", "),
         lifecycle_methods => lifecycle_methods,
         stubs => stubs,
         methods => methods,

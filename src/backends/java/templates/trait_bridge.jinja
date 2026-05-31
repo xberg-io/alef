@@ -3,6 +3,7 @@ package {{ package }};
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
+import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
@@ -29,7 +30,8 @@ public final class {{ bridge_class }} implements AutoCloseable {
             {{ registry_field }} = new ConcurrentHashMap<>();
 
     // C vtable: {{ num_vtable_fields }} fields ({{ num_super_slots }} plugin methods + {{ num_methods }} trait methods + free_user_data)
-    private static final long VTABLE_SIZE = (long) ValueLayout.ADDRESS.byteSize() * {{ num_vtable_fields }}L;
+    private static final MemoryLayout VTABLE_LAYOUT = MemoryLayout.structLayout({{ vtable_layout_fields }});
+    private static final long VTABLE_SIZE = VTABLE_LAYOUT.byteSize();
 
     private final Arena arena;
     private final MemorySegment vtable;

@@ -2735,9 +2735,11 @@ pub fn emit_test_backend(
     // If there is a Plugin super-trait, emit `name/0`.
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(module_defs, "  def name, do: \"{plugin_name}\"");
+        let _ = writeln!(module_defs, "  def version, do: \"test\"");
         // initialize/0 has a Rust default impl but Rustler calls it unconditionally on
         // every registered plugin object — the Elixir stub must define it.
         let _ = writeln!(module_defs, "  def initialize, do: :ok");
+        let _ = writeln!(module_defs, "  def shutdown, do: :ok");
     }
 
     // Emit required (non-default) methods.
@@ -2794,7 +2796,15 @@ pub fn emit_test_backend(
         "  def handle_info({{:trait_call, method_atom, args_json, reply_id}}, state) do"
     );
     let _ = writeln!(module_defs, "    args = Jason.decode!(args_json)");
-    let _ = writeln!(module_defs, "    result = apply({qualified_module}, method_atom, args)");
+    let _ = writeln!(module_defs, "    method_name = to_string(method_atom)");
+    let _ = writeln!(
+        module_defs,
+        "    ordered_args = __alef_ordered_args__(method_name, args)"
+    );
+    let _ = writeln!(
+        module_defs,
+        "    result = apply({qualified_module}, String.to_existing_atom(method_name), ordered_args)"
+    );
     let _ = writeln!(module_defs, "    result_json = Jason.encode!(result)");
     let _ = writeln!(
         module_defs,
@@ -2802,6 +2812,35 @@ pub fn emit_test_backend(
     );
     let _ = writeln!(module_defs, "    {{:noreply, state}}");
     let _ = writeln!(module_defs, "  end");
+    let _ = writeln!(module_defs);
+    for method in methods {
+        if method.has_default_impl {
+            continue;
+        }
+        let args = method
+            .params
+            .iter()
+            .map(|p| format!("args[\"{}\"]", p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            module_defs,
+            "  defp __alef_ordered_args__(\"{}\", args), do: [{}]",
+            method.name, args
+        );
+    }
+    if trait_bridge.super_trait.is_some() {
+        let _ = writeln!(module_defs, "  defp __alef_ordered_args__(\"version\", _args), do: []");
+        let _ = writeln!(
+            module_defs,
+            "  defp __alef_ordered_args__(\"initialize\", _args), do: []"
+        );
+        let _ = writeln!(module_defs, "  defp __alef_ordered_args__(\"shutdown\", _args), do: []");
+    }
+    let _ = writeln!(
+        module_defs,
+        "  defp __alef_ordered_args__(_method, args) when map_size(args) == 0, do: []"
+    );
     let _ = writeln!(module_defs, "end");
     let _ = writeln!(module_defs, "end");
 
@@ -3027,6 +3066,46 @@ mod test_backend_tests {
         assert!(
             emission.setup_block.contains("complete_trait_call"),
             "GenServer must reply via the NIF complete_trait_call/2, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission
+                .setup_block
+                .contains("ordered_args = __alef_ordered_args__(method_name, args)")
+                && emission.setup_block.contains(
+                    "apply(E2e.TestStubs.TestStubMyTestFixture, String.to_existing_atom(method_name), ordered_args)"
+                ),
+            "GenServer must convert decoded JSON objects into ordered apply/3 args, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    #[test]
+    fn elixir_stub_orders_callback_args_by_method_signature() {
+        let bridge = make_trait_bridge("TestTrait");
+        let mut required_method = make_method("process", true);
+        required_method.params = vec![
+            crate::core::ir::ParamDef {
+                name: "first".to_string(),
+                ty: crate::core::ir::TypeRef::String,
+                ..Default::default()
+            },
+            crate::core::ir::ParamDef {
+                name: "second".to_string(),
+                ty: crate::core::ir::TypeRef::String,
+                ..Default::default()
+            },
+        ];
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+
+        assert!(
+            emission
+                .setup_block
+                .contains("defp __alef_ordered_args__(\"process\", args), do: [args[\"first\"], args[\"second\"]]"),
+            "GenServer must emit method-specific ordered args, got:\n{}",
             emission.setup_block
         );
     }

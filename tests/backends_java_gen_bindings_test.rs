@@ -173,6 +173,168 @@ fn trait_bridge_string_return_is_not_json_quoted() {
 }
 
 #[test]
+fn trait_bridge_register_downcall_passes_vtable_struct_by_value() {
+    let renderer = TypeDef {
+        name: "Renderer".to_string(),
+        rust_path: "test_lib::Renderer".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "render".to_string(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: Some("TestError".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![renderer],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = JavaBackend
+        .generate_bindings(&api, &make_test_config_with_trait_bridge("com.example"))
+        .unwrap();
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("NativeLib.java"))
+        .expect("NativeLib.java")
+        .content
+        .as_str();
+    let bridge = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("RendererBridge.java"))
+        .expect("RendererBridge.java")
+        .content
+        .as_str();
+
+    assert!(
+        native_lib.contains("import java.lang.foreign.MemoryLayout;"),
+        "NativeLib must import MemoryLayout for by-value vtable structs, got:\n{native_lib}"
+    );
+    assert!(
+        native_lib.contains("MemoryLayout.structLayout(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"),
+        "register downcall must pass the vtable struct by value, got:\n{native_lib}"
+    );
+    assert!(
+        bridge.contains(
+            "NativeLib.TEST_REGISTER_RENDERER.invoke(nameCs, bridge.vtableSegment(), MemorySegment.NULL, outErr)"
+        ),
+        "register helper should pass the vtable MemorySegment value, got:\n{bridge}"
+    );
+}
+
+#[test]
+fn bool_function_uses_i32_ffi_layout_and_boolean_wrapper_result() {
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "is_ready".to_string(),
+            rust_path: "test_lib::is_ready".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "enabled".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = JavaBackend
+        .generate_bindings(&api, &make_test_config("com.example"))
+        .unwrap();
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("NativeLib.java"))
+        .expect("NativeLib.java")
+        .content
+        .as_str();
+    let main_class = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("TestLibRs.java"))
+        .expect("TestLibRs.java")
+        .content
+        .as_str();
+
+    assert!(
+        native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT)"),
+        "bool FFI params and returns must use i32 layouts, got:\n{native_lib}"
+    );
+    assert!(!native_lib.contains("ValueLayout.JAVA_BOOLEAN"));
+    assert!(
+        main_class.contains("var primitiveResult = (int) NativeLib.TEST_IS_READY.invoke((enabled ? 1 : 0));"),
+        "wrapper must receive the raw i32 bool result, got:\n{main_class}"
+    );
+    assert!(
+        main_class.contains("return primitiveResult != 0;"),
+        "safe wrapper must convert i32 to boolean, got:\n{main_class}"
+    );
+}
+
+#[test]
 fn string_return_uses_len_companion_and_bounded_decode() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
