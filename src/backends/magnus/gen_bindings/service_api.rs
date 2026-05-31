@@ -701,6 +701,8 @@ fn gen_run_function(
          /// produced by the Ruby service class. Constructs an owned service instance,\n\
          /// registers all handlers (acquiring GVL for each Ruby proc call), then invokes\n\
          /// the entrypoint.\n\
+         ///\n\
+         /// This function runs on a Ruby thread (via #[magnus::function]), so the GVL is already held.\n\
          #[magnus::function]\n\
          pub fn {fn_name}({param_sig}) -> magnus::error::Result<()> {{\n"
     ));
@@ -709,22 +711,29 @@ fn gen_run_function(
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
 
-    // Iterate registrations and dispatch (within GVL context)
-    out.push_str("    Ruby::with_gvl(|ruby| {\n");
-    out.push_str("        let regs_value = registrations.get_inner_with(&ruby);\n");
-    out.push_str("        let regs_array = RArray::try_convert(regs_value)\n");
+    // Get the Ruby handle (we are on a Ruby thread via #[magnus::function])
+    out.push_str("    let ruby = Ruby::get().expect(\"#[magnus::function] callbacks run on a Ruby thread\");\n\n");
+
+    // Iterate registrations and dispatch (GVL is held)
+    out.push_str("    let regs_value = registrations.get_inner_with(&ruby);\n");
+    out.push_str("    let regs_array = RArray::try_convert(regs_value)\n");
+    out.push_str("        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
+
+    out.push_str("    for i in 0..regs_array.len() {\n");
+    out.push_str("        let entry = regs_array\n");
+    out.push_str("            .entry::<Value>(i as isize)\n");
+    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+    out.push_str("        let entry_array = RArray::try_convert(entry)\n");
+    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+    out.push_str("        let method_name: String = entry_array\n");
+    out.push_str("            .entry::<String>(0 as isize)\n");
+    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+    out.push_str("        let proc_value = entry_array\n");
+    out.push_str("            .entry::<Value>(2 as isize)\n");
     out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
 
-    out.push_str("        for entry in regs_array.iter() {\n");
-    out.push_str("            let entry_array = RArray::try_convert(entry)\n");
-    out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-    out.push_str("            let method_name: String = entry_array.get::<String>(0)\n");
-    out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-    out.push_str("            let proc_value = entry_array.get::<Value>(2)\n");
-    out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
-
     // Dispatch on method name
-    out.push_str("            match method_name.as_str() {\n");
+    out.push_str("        match method_name.as_str() {\n");
     for reg in &service.registrations {
         let reg_method = &reg.method;
         let contract_name = &reg.callback_contract;
@@ -733,19 +742,22 @@ fn gen_run_function(
             let bridge_name = format!("Rb{}Bridge", contract.trait_name.to_upper_camel_case());
             let meta_count = reg.metadata_params.len();
 
-            out.push_str(&format!("                \"{reg_method}\" => {{\n"));
+            out.push_str(&format!("            \"{reg_method}\" => {{\n"));
             out.push_str(&format!(
-                "                    let bridge = {bridge_name}::new(Opaque::new(proc_value));\n"
+                "                let bridge = {bridge_name}::new(proc_value.into());\n"
             ));
             // Create handler trait object — no generic parameter needed
             out.push_str(&format!(
-                "                    let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+                "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
             ));
 
             if meta_count > 0 {
-                out.push_str("                    let meta_array = RArray::try_convert(entry_array.get::<Value>(1)\n");
-                out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                out.push_str("                let meta_array = RArray::try_convert(\n");
+                out.push_str("                    entry_array\n");
+                out.push_str("                        .entry::<Value>(1 as isize)\n");
+                out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,\n");
+                out.push_str("                )\n");
+                out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
 
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
@@ -762,30 +774,30 @@ fn gen_run_function(
                         _ => "Value".to_owned(),
                     };
                     out.push_str(&format!(
-                        "                    let {}: {} = meta_array.get::<{}>({})\n",
-                        meta_param.name, rust_ty, extract_ty, i
+                        "                let {}: {} = meta_array.entry::<{}>({})\n",
+                        meta_param.name, rust_ty, extract_ty, i as isize
                     ));
-                    out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                    out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                 }
 
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
                 out.push_str(&format!(
-                    "                    owner.{reg_method}({}, handler)\n",
+                    "                owner.{reg_method}({}, handler)\n",
                     meta_args.join(", ")
                 ));
             } else {
-                out.push_str(&format!("                    owner.{reg_method}(handler)\n"));
+                out.push_str(&format!("                owner.{reg_method}(handler)\n"));
             }
 
             // Handle error if the registration is fallible
             if reg.error_type.is_some() {
                 out.push_str(
-                    "                        .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
+                    "                    .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
                 );
             } else {
-                out.push_str("                        ;\n");
+                out.push_str("                    ;\n");
             }
-            out.push_str("                }\n");
+            out.push_str("            }\n");
 
             // Emit match arms for variants
             for variant in &reg.variants {
@@ -793,15 +805,13 @@ fn gen_run_function(
             }
         }
     }
-    out.push_str("                _ => {\n");
+    out.push_str("            _ => {\n");
     out.push_str(
-        "                    return Err(magnus::Error::new(\n                        ruby.exception_arg_error(),\n                        format!(\"unknown registration method: {method_name}\"),\n                    ));\n",
+        "                return Err(magnus::Error::new(\n                    ruby.exception_arg_error(),\n                    format!(\"unknown registration method: {method_name}\"),\n                ));\n",
     );
-    out.push_str("                }\n");
     out.push_str("            }\n");
     out.push_str("        }\n");
-    out.push_str("        Ok::<(), magnus::Error>(())\n");
-    out.push_str("    }).map_err(|e| e)?;\n\n");
+    out.push_str("    }\n\n");
 
     // Call the entrypoint on the owned, registered owner
     let ep_call = build_ep_call(ep, service, core_import);
