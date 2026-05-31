@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extendr: export `conversion_options()` helper in R `NAMESPACE`.** The
+  `gen_namespace` emitter walked API functions and added `export(<fn>)` for each, but the
+  standalone `conversion_options()` helper (generated alongside the `ConversionOptions`
+  opaque so R users can construct options with named args) was emitted into `R/options.R`
+  without a matching NAMESPACE entry. Calling `conversion_options(heading_style="setext")`
+  from a downstream R package then raised `could not find function "conversion_options"`
+  at runtime, and any test that built `ConversionOptions` via the helper (h2m's R smoke
+  suite, for instance) failed with `options must be a named list` from extendr-api 0.9.0
+  because the fallback path tried to construct from an unnamed list. The emitter now
+  emits `export(conversion_options)` alongside the other exports whenever a
+  `ConversionOptions` type exists. (`src/backends/extendr/gen_bindings/mod.rs`)
+
+- **java (Panama FFM): use `Optional.orElse(null)` instead of `Optional.orElseThrow()`
+  for the `LAST_ERROR_CODE` / `LAST_ERROR_CONTEXT` symbol-lookup handles in the generated
+  `NativeLib.<clinit>`.** When the loaded native library happens not to export the
+  optional error-context symbols (older FFI build, stripped binary, partial backport),
+  the static initializer raised `NoSuchElementException: No value present` from
+  `Optional.orElseThrow()` mid-clinit, which the JVM then rethrew as
+  `NoClassDefFoundError: ... NativeLib` for every subsequent access. The handles are
+  consulted at error-reporting time and the rest of the loader already null-checks them
+  before use, so falling back to `null` is the safe choice — the library loads, basic
+  calls work, and only the extended error-context message degrades gracefully when the
+  symbols genuinely aren't present.
+  (`src/backends/java/templates/native_lib.jinja`)
+
 - **dart trait bridges: take callback closures as `impl Fn` factory parameters so Dart user code can pass them.** The non-`type_alias` (plugin / OCR / post-processor / renderer / validator / embedding-backend) factory shape emitted callback parameters as `Box<dyn Fn(...) -> DartFnFuture<R> + Send + Sync>`. FRB v2 renders `Box<dyn Fn(...)>` parameters as opaque `BoxFn…` Dart classes that have no public constructor, so Dart code calling e.g. `createDocumentExtractorDartImpl(extractBytes: (content, mimeType, config) => …)` failed strong-mode type checks against the generated `BoxFnVecU8StringExtractionConfigDartFnFutureExtractionResult` parameter. FRB v2 only synthesises a Dart-callable function type for closure PARAMETERS when the Rust signature uses bare `impl Fn(...) -> DartFnFuture<R> + Send + Sync + 'static` (the same shape already used by the `type_alias` visitor pattern). The factory now emits `impl Fn` parameters and boxes each argument as it stores it in the existing `Box<dyn Fn(...)>` struct fields, so the struct shape and forwarder wiring are unchanged. A new `dart_fn_future_factory_param_type` helper produces the `impl Fn` signature; `dart_fn_future_callback_type` (used for struct fields) continues to emit `Box<dyn Fn>`. (`src/backends/dart/gen_rust_crate/trait_bridge.rs`)
 
 - **napi: invert `never_skip_cfg_field_names` membership test in struct emission.** The `skip_cfg_bridge_field` predicate was `field.cfg.is_some() && never_skip_cfg_field_names.contains(&field.name)`, which inverted the intent: cfg-gated fields whose names appeared in the never-skip allowlist were the ones getting `#[serde(skip)]` attached. The correct semantics — emit `#[serde(skip)]` for cfg-gated fields *not* in the allowlist — needs the negation `!never_skip_cfg_field_names.contains(&field.name)`. Allowlisted cfg-gated bridge fields stay serializable; trait-bridge wrapper fields whose wrapper types lack serde impls remain skipped. (`src/backends/napi/gen_bindings/types.rs`)
