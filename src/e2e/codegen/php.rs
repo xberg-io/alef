@@ -1095,9 +1095,8 @@ fn render_test_method(
     // applies identically to every binding. Read it from the call-level field
     // first (preferred), and fall back to the per-call language override or the
     // file-level language default for backwards compatibility.
-    let result_is_simple = call_config.result_is_simple
-        || call_overrides.is_some_and(|o| o.result_is_simple)
-        || result_is_simple;
+    let result_is_simple =
+        call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
@@ -2188,13 +2187,21 @@ fn render_assertion(
 
     // Detect if this field is an array type
     // When there's no field, default to result_is_array (the result itself is the array)
-    let field_is_array = assertion.field.as_ref().map_or(result_is_array, |f| {
-        if f.is_empty() {
-            result_is_array
-        } else {
-            field_resolver.is_array(f)
-        }
-    });
+    // When result_is_simple, the assertion's `field` is a logical alias for the
+    // result itself (`field_expr` above already routes to `$result_var`), so
+    // `field_is_array` must mirror `result_is_array` rather than trying to
+    // resolve a sub-field that doesn't exist on a scalar return type.
+    let field_is_array = if result_is_simple {
+        result_is_array
+    } else {
+        assertion.field.as_ref().map_or(result_is_array, |f| {
+            if f.is_empty() {
+                result_is_array
+            } else {
+                field_resolver.is_array(f)
+            }
+        })
+    };
 
     // For string equality, trim trailing whitespace to handle trailing newlines.
     // Only apply trim() when the expected value is a string — calling trim() on int/bool

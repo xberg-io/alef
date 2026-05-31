@@ -23,6 +23,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **php e2e: route `result_is_simple` array assertions through the array
+  branch.** When `result_is_simple = true` AND `result_is_array = true` (e.g.
+  `get_extensions_for_mime` returns `Vec<String>` as the entire result), the
+  `contains` assertion template still chose the scalar
+  `assertStringContainsString(…, $array)` arm because `field_is_array` was
+  computed from the assertion's `field` name via `field_resolver.is_array(...)`
+  — which returns `false` for a logical "result" alias that has no struct
+  field of its own. PHP then failed with `TypeError:
+  assertStringContainsString(): Argument #2 ($haystack) must be of type
+  string, array given`. The codegen now short-circuits `field_is_array` to
+  `result_is_array` when `result_is_simple` is true, so array-returning
+  simple-result calls render the loop-based array assertion.
+  (`src/e2e/codegen/php.rs`)
+
+- **high-level binding generators: tighten trait-bridge stubs, Node declarations, and e2e defaults.**
+  Node public barrels now keep value/type exports de-duplicated, `.d.ts`
+  signatures treat explicit default parameters as optional, and service
+  registration replay ignores stale unknown registration names instead of
+  aborting. TypeScript and Elixir e2e trait stubs now emit default-impl
+  lifecycle callbacks as no-op methods, Node e2e imports typed config DTOs
+  when byte/config fixtures require them, R unknown config slots now default
+  to `NULL` instead of a plain list, and the Python package header no longer
+  refers to a hardcoded conversion library.
+  (`src/backends/{napi,pyo3}`, `src/e2e/codegen/{typescript,elixir,r}.rs`)
+
 - **python/php e2e: honour the call-level `result_is_simple` flag.** The python
   and php test_function codegen only consulted the per-language override for
   `result_is_simple`, so fixtures that declared it at the call level (e.g.
