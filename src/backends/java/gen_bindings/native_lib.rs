@@ -430,10 +430,19 @@ pub(crate) fn gen_native_lib(
                 super_slots + own_method_count + 1
             })
             .unwrap_or(1);
-        let vtable_layout = format!(
-            "MemoryLayout.structLayout({})",
-            vec!["ValueLayout.ADDRESS"; vtable_slot_count].join(", ")
-        );
+        // For wide vtables, wrap the field list across multiple lines so the surrounding
+        // `LINKER.downcallHandle(...)` line stays under the checkstyle 200-char limit.
+        let vtable_layout = if vtable_slot_count <= 4 {
+            format!(
+                "MemoryLayout.structLayout({})",
+                vec!["ValueLayout.ADDRESS"; vtable_slot_count].join(", ")
+            )
+        } else {
+            format!(
+                "MemoryLayout.structLayout(\n                {}\n            )",
+                vec!["ValueLayout.ADDRESS"; vtable_slot_count].join(",\n                ")
+            )
+        };
 
         // Register handle
         let register_handle_name = format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper);

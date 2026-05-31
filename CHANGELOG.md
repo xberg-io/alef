@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java native_lib: wrap wide vtable `MemoryLayout.structLayout(...)` across multiple
+  lines.** Visitor and plugin trait bridges with more than four vtable slots produced a
+  single inline `LINKER.downcallHandle(s, FunctionDescriptor.of(..., MemoryLayout.structLayout(VL.ADDRESS, VL.ADDRESS, ...)))`
+  expression that exceeded the project checkstyle 200-char `LineLength` limit, failing
+  `mvn verify` during `java-verify` pre-commit. The fix splits the layout fields across
+  lines when the vtable has five or more slots.
+  (`src/backends/java/gen_bindings/native_lib.rs`)
+
 - **go: scan emitted body for runtime import detection.** The Go codegen was unconditionally
   adding a `runtime` import whenever ANY function or method had a `TypeRef::Bytes` parameter,
   but `runtime.Pinner` is only actually emitted by the `bytes_to_c_pointer.jinja` template
