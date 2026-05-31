@@ -57,6 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/csharp/templates/callback_json_deserialize.jinja`,
   `src/backends/csharp/templates/trait_bridges_header.jinja`)
 
+- **csharp trait bridges: include enums in visible types for generic .ToFfiJson().**
+  Trait bridge enum return types were excluded from visible types with a comment
+  stating enums lack `.ToFfiJson()` methods. However, `FfiJsonExtensions` defines
+  a generic `ToFfiJson<T>()` extension method that works on all types including
+  enums. The trait interface now correctly includes enums in the visible-types
+  set so enum return values can be serialized via the generic method. The prior
+  logic would incorrectly exclude enums from the interface, causing the
+  deserialization path to receive JSON strings instead of actual enum values.
+  (`src/backends/csharp/gen_bindings/mod.rs`,
+  `src/backends/csharp/trait_bridge.rs`)
+
 ### Added
 
 - **e2e server-pattern harness config IR:** `HarnessConfig` struct in

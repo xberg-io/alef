@@ -10,11 +10,12 @@ public static class {{ trait_pascal }}Registry {
             throw new ArgumentNullException(nameof(impl));
 
         var bridge = new {{ trait_pascal }}Bridge(impl);
-        var userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
-        var userData = GCHandle.ToIntPtr(userDataHandle);
+        var userData = bridge._bridgeId;
         var name = {% if has_super_trait %}impl.Name{% else %}"bridge_" + Guid.NewGuid().ToString(){% endif %};
 
-        _bridges.TryAdd(name, bridge);
+        lock ({{ trait_pascal }}Bridge._registryLock) {
+            {{ trait_pascal }}Bridge._bridgeRegistry[userData] = bridge;
+        }
         return userData;
     }
 
@@ -37,22 +38,31 @@ public static class {{ trait_pascal }}Registry {
         var bridge = new {{ trait_pascal }}Bridge(impl);
 
         try {
-            var userDataHandle = GCHandle.Alloc(bridge, GCHandleType.Normal);
-            var userData = GCHandle.ToIntPtr(userDataHandle);
+            var userData = bridge._bridgeId;
             var vtablePtr = bridge._vtable;
+
+            // Register bridge in the static registry using its unique ID.
+            // This keeps the bridge alive while Rust holds the ID (userData).
+            lock ({{ trait_pascal }}Bridge._registryLock) {
+                {{ trait_pascal }}Bridge._bridgeRegistry[userData] = bridge;
+            }
 
             var result = NativeMethods.Register{{ trait_pascal }}(name, vtablePtr, userData, out var outError);
             if (result != 0) {
-                userDataHandle.Free();
+                lock ({{ trait_pascal }}Bridge._registryLock) {
+                    {{ trait_pascal }}Bridge._bridgeRegistry.Remove(userData);
+                }
                 bridge.Dispose();
                 var errorMsg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
                 global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(outError);
                 throw new InvalidOperationException($"Failed to register {name}: {errorMsg}");
             }
 
-            _bridges.TryAdd(name, bridge);
             return userData;
         } catch {
+            lock ({{ trait_pascal }}Bridge._registryLock) {
+                {{ trait_pascal }}Bridge._bridgeRegistry.Remove(bridge._bridgeId);
+            }
             bridge.Dispose();
             throw;
         }
