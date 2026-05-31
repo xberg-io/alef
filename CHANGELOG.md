@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart e2e: route source-code file fixtures through the path-based extract
+  facade.** `extract_file_sync(path: "code/hello.py", config: { tree_sitter: ... })`
+  fixtures previously remapped to `extractBytesSync(readBytes(path), 'application/octet-stream', cfg)`,
+  but CodeExtractor's `extract_bytes` requires a shebang for language detection
+  and the kreuzberg core MIME upgrade only triggers `text/x-source-code` for
+  shebang scripts. Non-shebang files like `hello.py` therefore errored with
+  `Cannot detect programming language from content`. When the resolved MIME is
+  `text/x-source-code`, the dart generator now keeps `extractFileSync` /
+  `extractFile` and passes the path string verbatim, so CodeExtractor's
+  `extract_file` (extension-based language detection) runs. The hand-rolled
+  bytes-only override has been removed from kreuzberg's `alef.toml`.
+  (`src/e2e/codegen/dart.rs`)
+
 - **php `Option<&T>` config bridges: drop spurious `.as_ref()` before clone+into.**
   The `php_serde_ref_named_optional_let_binding` template emitted
   `pname.as_ref().map(|v| v.clone().into())` for parameters of type
