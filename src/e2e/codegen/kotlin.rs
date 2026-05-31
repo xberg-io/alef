@@ -1102,7 +1102,11 @@ fn render_test_method(
     );
     let field_resolver = &call_field_resolver;
     let enum_fields = e2e_config.effective_fields_enum(call_config);
-    let lang = if kotlin_android_style { "kotlin_android" } else { "kotlin" };
+    let lang = if kotlin_android_style {
+        "kotlin_android"
+    } else {
+        "kotlin"
+    };
     let call_overrides = call_config.overrides.get(lang);
 
     // Check for client_factory — when set, use instance-method call style.
@@ -1619,14 +1623,22 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let lang = if kotlin_android_style { "kotlin_android" } else { "kotlin" };
+                    let lang = if kotlin_android_style {
+                        "kotlin_android"
+                    } else {
+                        "kotlin"
+                    };
                     let emission = super::emit_test_backend(lang, trait_bridge, &methods, fixture);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
                     continue;
                 }
             }
-            let lang = if kotlin_android_style { "kotlin_android" } else { "kotlin" };
+            let lang = if kotlin_android_style {
+                "kotlin_android"
+            } else {
+                "kotlin"
+            };
             let emission = crate::e2e::codegen::TestBackendEmission::unimplemented(lang);
             setup_lines.push(format!("// {}", emission.arg_expr));
             parts.push("null".to_string());
