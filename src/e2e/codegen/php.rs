@@ -148,10 +148,17 @@ impl E2eCodegen for PhpCodegen {
 
         // Check if any fixture needs a mock HTTP server (either http-shape or
         // sample-llm mock_response-shape) so bootstrap.php spawns it.
-        let has_http_fixtures = groups
+        let has_mock_server_fixtures = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
             .any(|f| f.needs_mock_server());
+
+        // Check if any fixture uses HTTP server-pattern (has http field and harness config).
+        let has_http_server_fixtures = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.http.is_some());
+        let uses_server_harness = has_http_server_fixtures && !e2e_config.harness.imports.is_empty();
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
@@ -167,14 +174,26 @@ impl E2eCodegen for PhpCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
+        // Generate app_harness.php for server-pattern HTTP fixtures (before bootstrap).
+        if uses_server_harness {
+            files.push(GeneratedFile {
+                path: output_base.join("app_harness.php"),
+                content: render_app_harness(e2e_config, groups, &pkg_path),
+                generated_header: true,
+            });
+        }
+
         // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {
             path: output_base.join("bootstrap.php"),
             content: render_bootstrap(
                 &pkg_path,
-                has_http_fixtures,
+                has_mock_server_fixtures,
                 has_file_fixtures,
                 &e2e_config.test_documents_relative_from(0),
+                uses_server_harness,
+                &e2e_config.harness.host,
+                e2e_config.harness.port,
             ),
             generated_header: true,
         });
@@ -542,11 +561,109 @@ fn render_phpunit_xml() -> String {
     crate::e2e::template_env::render("php/phpunit.xml.jinja", minijinja::context! {})
 }
 
+/// Render the app harness script for server-pattern HTTP fixtures.
+///
+/// The harness spawns the SUT app and registers handlers per fixture,
+/// returning canned expected responses. It's driven by bootstrap.php's
+/// subprocess launcher.
+fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], pkg_path: &str) -> String {
+    use serde_json::json;
+
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            // Convert the fixture to JSON for the harness to load.
+            // We only need the http field, handler, request, and expected_response.
+            let http_data = fixture.http.as_ref().unwrap();
+            let fixture_json = json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+
+    let imports = &e2e_config.harness.imports;
+    let app_class = &e2e_config.harness.app_class;
+    let register_route_method = &e2e_config.harness.register_method;
+    let body_schema_setter = &e2e_config.harness.body_schema_setter;
+    let method_enum = &e2e_config.harness.method_enum;
+    let run_method = &e2e_config.harness.run_method;
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    // Derive route_builder_import: for spikard, imports[0] = "spikard" → namespace Spikard\Php
+    let route_builder_import = if !imports.is_empty() {
+        let module_name = &imports[0];
+        // Normalize module name to PHP namespace (spikard → Spikard, sample_core → SampleCore)
+        module_name
+            .split('_')
+            .map(|p| {
+                let mut chars = p.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\\")
+            + "\\Php"
+    } else {
+        "App\\Php".to_string()
+    };
+    let method_enum_import = route_builder_import.clone();
+
+    let ctx = minijinja::context! {
+        header => header,
+        imports => imports,
+        app_class => app_class.as_deref().unwrap_or("App"),
+        route_builder_import => route_builder_import,
+        route_builder_class => "RouteBuilder",
+        register_route_method => register_route_method.as_deref().unwrap_or("route"),
+        route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
+        method_enum_import => method_enum_import,
+        method_enum_class => method_enum.as_deref().unwrap_or("Method"),
+        run_method => run_method.as_deref().unwrap_or("run"),
+        response_body_field => e2e_config.harness.response_body_field.as_str(),
+        host => host,
+        port => port,
+        pkg_path => pkg_path,
+        fixtures_json => fixtures_json,
+    };
+
+    crate::e2e::template_env::render("php/app_harness.php.jinja", ctx)
+}
+
 fn render_bootstrap(
     pkg_path: &str,
-    has_http_fixtures: bool,
+    has_mock_server_fixtures: bool,
     has_file_fixtures: bool,
     test_documents_path: &str,
+    uses_server_harness: bool,
+    harness_host: &str,
+    harness_port: u16,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::e2e::template_env::render(
@@ -554,9 +671,12 @@ fn render_bootstrap(
         minijinja::context! {
             header => header,
             pkg_path => pkg_path,
-            has_http_fixtures => has_http_fixtures,
+            has_mock_server_fixtures => has_mock_server_fixtures,
             has_file_fixtures => has_file_fixtures,
             test_documents_path => test_documents_path,
+            uses_server_harness => uses_server_harness,
+            harness_host => harness_host,
+            harness_port => harness_port,
         },
     )
 }

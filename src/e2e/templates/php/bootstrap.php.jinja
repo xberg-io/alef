@@ -11,7 +11,33 @@ require_once __DIR__ . '/vendor/autoload.php';
 $pkgAutoloader = __DIR__ . '/{{ pkg_path }}/vendor/autoload.php';
 if (file_exists($pkgAutoloader)) {
     require_once $pkgAutoloader;
-}{% if has_file_fixtures %}
+}{% if uses_server_harness %}
+
+// Spawn the app harness subprocess for server-pattern HTTP fixtures.
+$appHarnessBin = __DIR__ . '/app_harness.php';
+if (file_exists($appHarnessBin)) {
+    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR];
+    $proc = proc_open([PHP_BINARY, $appHarnessBin], $descriptors, $pipes);
+    if (is_resource($proc)) {
+        // Read startup line from the app harness: "Harness listening on {host}:{port}"
+        $line = fgets($pipes[1]);
+        if ($line !== false) {
+            $line = trim($line);
+            // Extract host and port to set SUT_URL.
+            if (str_contains($line, 'Harness listening on')) {
+                $url = "http://{{ harness_host }}:{{ harness_port }}";
+                putenv('SUT_URL=' . $url);
+                $_ENV['SUT_URL'] = $url;
+            }
+        }
+        // Drain stdout in background is not possible in PHP; keep pipe open.
+        register_shutdown_function(static function () use ($proc, $pipes): void {
+            fclose($pipes[0]);
+            fclose($pipes[1]);
+            proc_close($proc);
+        });
+    }
+}{% endif %}{% if has_file_fixtures %}
 
 // Change to the configured test-documents directory so that fixture file
 // paths like "pdf/fake_memo.pdf" resolve correctly when running phpunit
@@ -19,7 +45,7 @@ if (file_exists($pkgAutoloader)) {
 $_test_documents = __DIR__ . '/{{ test_documents_path }}';
 if (is_dir($_test_documents)) {
     chdir($_test_documents);
-}{% endif %}{% if has_http_fixtures %}
+}{% endif %}{% if has_mock_server_fixtures %}
 
 // Spawn the mock HTTP server binary for HTTP fixture tests.
 $mockServerBin = __DIR__ . '/../rust/target/release/mock-server';
