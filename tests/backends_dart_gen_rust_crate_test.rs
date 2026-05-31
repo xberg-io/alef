@@ -727,9 +727,10 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
     );
     assert!(lib.contains("validate:"), "missing validate field: {lib}");
 
-    // Trait impl block
+    // Trait impl block is on the private callback holder; the public FRB type
+    // wraps it behind an opaque Arc so FRB does not inspect closure fields.
     assert!(
-        lib.contains("impl demo_crate::Validator for ValidatorDartImpl"),
+        lib.contains("impl demo_crate::Validator for ValidatorDartCallbacks"),
         "missing trait impl: {lib}"
     );
     assert!(lib.contains("fn validate("), "missing validate method: {lib}");
@@ -795,9 +796,10 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
         "missing factory fn: {lib}"
     );
 
-    // Trait impl uses async_trait and awaits the DartFnFuture directly in async fn
+    // Trait impl uses async_trait on the private callback holder and awaits the
+    // DartFnFuture directly in async fn.
     assert!(
-        lib.contains("impl demo_crate::OcrBackend for OcrBackendDartImpl"),
+        lib.contains("impl demo_crate::OcrBackend for OcrBackendDartCallbacks"),
         "missing trait impl: {lib}"
     );
     assert!(
@@ -934,15 +936,15 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
         "missing register forwarder signature: {lib}"
     );
     assert!(
-        lib.contains("std::sync::Arc<dyn demo_crate::plugins::OcrBackend>"),
-        "register forwarder must wrap impl_ as Arc<dyn Trait>: {lib}"
+        lib.contains("pub field0: std::sync::Arc<dyn OcrBackend + Send + Sync>"),
+        "opaque wrapper must hold Arc<dyn Trait>: {lib}"
     );
     assert!(
         lib.contains("demo_crate::plugins::registry::get_ocr_backend_registry()"),
         "register forwarder must call the configured registry getter: {lib}"
     );
     assert!(
-        lib.contains("registry.register(arc).map_err(|e| e.to_string())"),
+        lib.contains("registry.register(impl_.field0).map_err(|e| e.to_string())"),
         "register forwarder must register the Arc and stringify errors: {lib}"
     );
 
@@ -1046,7 +1048,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("registry.register(arc, 0)"),
+        lib.contains("registry.register(impl_.field0, 0)"),
         "register forwarder must append register_extra_args: {lib}"
     );
 }

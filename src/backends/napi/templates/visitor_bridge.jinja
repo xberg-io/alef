@@ -2,7 +2,6 @@
 use napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object};
 #[allow(unused_imports)]
 use napi::JsValue;
-use std::sync::Mutex;
 
 fn nodecontext_to_js_object<'e>(
     env: &'e napi::Env,
@@ -29,13 +28,6 @@ fn nodecontext_to_js_object<'e>(
     }
     obj.set_named_property("attributes", attrs)?;
     Ok(obj)
-}
-
-/// Thread-safe visitor bridge result that can be shared across threads.
-#[derive(Debug, Clone)]
-struct CallResult {
-    is_error: bool,
-    message: String,
 }
 
 pub struct {{ struct_name }} {
