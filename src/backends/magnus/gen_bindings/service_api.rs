@@ -381,7 +381,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     // File-level allow attributes to keep clippy happy in generated code
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use magnus::{method, prelude::*, value::Opaque, RArray, RHash, Ruby, Value};\n");
+    out.push_str("use magnus::{method, prelude::*, value::{InnerValue, Opaque}, RArray, RHash, Ruby, Value};\n");
     out.push_str("use std::sync::Arc;\n\n");
 
     // Emit one handler bridge per unique handler contract referenced by any registration
@@ -605,7 +605,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     out.push_str("        let proc_value = state.proc_handle.get_inner_with(&ruby);\n");
     out.push_str("        \n");
     out.push_str("        // Parse request JSON into a Ruby Hash\n");
-    out.push_str("        let json_mod = match ruby.eval::<_, Value>(\"JSON\") {\n");
+    out.push_str("        let json_mod = match ruby.eval::<Value>(\"JSON\") {\n");
     out.push_str("            Ok(m) => m,\n");
     out.push_str("            Err(e) => {\n");
     out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
@@ -774,12 +774,15 @@ fn gen_run_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build parameter list: registrations + entrypoint params (ruby obtained via Ruby::get())
+    // Build parameter list: registrations + entrypoint params + _ruby (for #[magnus::function])
+    // The #[magnus::function] macro automatically manages the Ruby parameter, so we just
+    // include it in the signature to match what the macro expects, even though we don't use it.
     let mut fn_params = vec!["registrations: &Opaque<Value>".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         fn_params.push(format!("{}: {}", p.name, rust_ty));
     }
+    fn_params.push("_ruby: &Ruby".to_owned());
     let fn_param_sig = fn_params.join(", ");
 
     out.push_str(&format!(

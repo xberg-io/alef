@@ -1,18 +1,14 @@
     fn {{ method_name }}({{ signature }}) -> {{ return_type }} {
-        let has_method = self.obj.has_named_property("{{ js_method_name }}").unwrap_or(false);
-        if !has_method {
-            return {{ return_type }}::Continue;
-        }
-
+        // Get the JS function from the object
         let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.obj.get_named_property("{{ js_method_name }}") {
             Ok(f) => f,
             Err(_) => return {{ return_type }}::Continue,
         };
 
+        let __env = self.env();
 {% if empty_args %}
         let result = func.call(());
 {% else %}
-        let __env = self.env();
 {% for arg_expr in arg_exprs %}
         let arg_{{ loop.index0 }}: napi::bindgen_prelude::Unknown = {{ arg_expr }};
 {% endfor %}

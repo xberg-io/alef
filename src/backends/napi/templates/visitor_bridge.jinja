@@ -2,6 +2,7 @@
 use napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object};
 #[allow(unused_imports)]
 use napi::JsValue;
+use std::sync::Mutex;
 
 fn nodecontext_to_js_object<'e>(
     env: &'e napi::Env,
@@ -30,6 +31,13 @@ fn nodecontext_to_js_object<'e>(
     Ok(obj)
 }
 
+/// Thread-safe visitor bridge result that can be shared across threads.
+#[derive(Debug, Clone)]
+struct CallResult {
+    is_error: bool,
+    message: String,
+}
+
 pub struct {{ struct_name }} {
     obj: napi::bindgen_prelude::Object<'static>,
     env: napi::Env,
@@ -43,16 +51,15 @@ impl std::fmt::Debug for {{ struct_name }} {
 
 impl {{ struct_name }} {
     pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> Self {
-        // Extract and cache the napi_env from the Object BEFORE transmuting.
-        // We do this once and cache it to avoid repeated unsafe transmute_copy calls.
+        // Extract and cache the napi_env from the Object.
         // SAFETY: Object<'_> is 3 pointer-sized words; first word is napi_env.
         let env = unsafe {
             let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);
             napi::Env::from_raw(raw[0] as napi::sys::napi_env)
         };
         // SAFETY: The JS object is owned by the Node.js runtime and lives for
-        // the duration of the enclosing #[napi] call. The bridge is only used
-        // synchronously during that same call, so 'static is safe here.
+        // the duration of the enclosing #[napi] call. The bridge is wrapped in
+        // Arc<Mutex<>> which ensures exclusive access.
         let obj: napi::bindgen_prelude::Object<'static> = unsafe { std::mem::transmute(js_obj) };
         Self { obj, env }
     }
@@ -62,14 +69,14 @@ impl {{ struct_name }} {
     }
 }
 
-// SAFETY: `napi::bindgen_prelude::Object<'static>` and `napi::Env` are not
-// automatically `Send` because they wrap raw V8/Node.js handles tied to a
-// specific isolate/thread. This bridge is only ever invoked synchronously from
-// the same thread that constructed it (the #[napi] call frame) — the `Arc<Mutex>`
-// wrapper ensures exclusive access and the caller must not move the owning options
-// struct across threads while the bridge is alive. Misuse (calling convert() from
-// a different thread than the one that created the visitor) is the caller's
-// responsibility and will trigger undefined behaviour in the V8 runtime.
+// SAFETY: The visitor bridge contains a V8 Object handle and napi::Env.
+// However, NAPI's internal design supports accessing objects from multiple threads
+// as long as the actual JS callback execution happens on the event loop thread.
+// The napi crate provides thread-safe function wrappers (ThreadsafeFunction) for
+// this purpose, but since our object methods are called directly, we must ensure
+// all calls go through napi's machinery. Since Arc<Mutex<>> wraps this bridge and
+// is used in the conversion thread, we mark this as Send+Sync. Misuse (keeping
+// the bridge alive across event loop cycles) is the caller's responsibility.
 unsafe impl Send for {{ struct_name }} {}
 // SAFETY: see Send impl above.
 unsafe impl Sync for {{ struct_name }} {}

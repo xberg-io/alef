@@ -525,7 +525,20 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             if func.sanitized && bridge_param.is_none() && options_field_bridge.is_none() {
                 continue;
             }
-            if let Some((param_idx, bridge_cfg)) = bridge_param {
+            // Prefer options_field binding over function-param binding for trait bridges.
+            // When both exist, options_field provides the correct API surface (visitor
+            // embedded in options object, not a separate parameter).
+            if let Some((param_idx, bridge_cfg)) = options_field_bridge {
+                builder.add_item(&crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
+                    func,
+                    param_idx,
+                    bridge_cfg,
+                    &mapper,
+                    &cfg,
+                    &opaque_types,
+                    &core_import,
+                ));
+            } else if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::backends::napi::trait_bridge::gen_bridge_function(
                     func,
                     param_idx,
@@ -536,7 +549,6 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &opaque_types,
                     &core_import,
                 ));
-            } else if let Some((param_idx, bridge_cfg)) = options_field_bridge {
                 builder.add_item(&crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
                     func,
                     param_idx,
