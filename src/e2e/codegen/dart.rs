@@ -2957,14 +2957,15 @@ pub fn emit_test_backend(
         let return_type = map_dart_type_with_fallback(&mapper, &method.return_type);
         let default_val = emit_dart_default_for_type(defaults.as_ref(), &method.return_type);
 
-        if method.is_async {
-            let _ = writeln!(
-                setup,
-                "  Future<{return_type}> {method_name}({params_str}) async => {default_val};"
-            );
-        } else {
-            let _ = writeln!(setup, "  {return_type} {method_name}({params_str}) => {default_val};");
-        }
+        // Always emit `Future<T> ... async => default` to match the abstract trait, which
+        // wraps every method in `Future<T>` because FRB bridges every Dart-side callback as
+        // `DartFnFuture<T>`. Mirroring this on sync methods avoids "return type 'int' does
+        // not match overridden 'Future<int>'" errors when subclassing the abstract trait.
+        let _ = method.is_async;
+        let _ = writeln!(
+            setup,
+            "  Future<{return_type}> {method_name}({params_str}) async => {default_val};"
+        );
     }
 
     let _ = writeln!(setup, "}}");
