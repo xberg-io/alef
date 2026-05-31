@@ -370,9 +370,9 @@ pub fn format_method_signature(suspend_keyword: &str, method_name: &str, params:
     if params.is_empty() || full_sig_no_newline.len() < THRESHOLD {
         // Short or no params: single-line
         if return_type == "Unit" {
-            format!("{indent}{base_sig})\n")
+            format!("{indent}{base_sig}{params})\n")
         } else {
-            format!("{indent}{base_sig}): {return_type}\n")
+            format!("{indent}{base_sig}{params}): {return_type}\n")
         }
     } else {
         // Long signature: multi-line with trailing comma on params
