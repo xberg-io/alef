@@ -23,6 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extendr struct decoder: generate generic list decoders for all struct fields.**
+  The `decode_options` function in extendr bindings now accepts R named lists
+  (e.g., `list(heading_style = "Atx", wrap = TRUE, wrap_width = 100L)`) in addition
+  to ExternalPtr and NULL. Field decoders for enums, Vec<String>, Option<usize>,
+  bool, String, and nested PreprocessingOptions are now auto-generated from the IR,
+  eliminating the hand-written placeholder that only accepted ExternalPtr. The
+  `visitor` field (R has no visitor concept) is explicitly skipped.
+  (`src/backends/extendr/gen_bindings/mod.rs`)
+
+- **native ABI trait bridges: require explicit callback string destructors.**
+  C/FFI, Go, Java/Panama, C#, and Zig trait bridge generators now model
+  callback-owned strings with an explicit vtable `free_string` callback, use
+  status-returning plugin lifecycle callbacks with `out_error`, and tighten host
+  stubs around bool boundary values and JSON conversion errors.
+
 - **kotlin: enum `fromWire` accepts both PascalCase and lowercase wire forms.** Some
   core enums (e.g., `UrlEscapeStyle`) implement custom `Serialize`/`Deserialize`
   logic that accepts lowercase wire forms (`"angle"`, `"percent"`) in addition to

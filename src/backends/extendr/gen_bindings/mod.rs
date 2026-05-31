@@ -969,43 +969,400 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 
 /// Generate the Rust-side `options.rs` module with `decode_options` function.
 ///
-/// The `decode_options` function handles input from R in two main forms:
+/// The `decode_options` function handles input from R in three main forms:
 /// 1. ExternalPtr<ConversionOptions> (from $default() / builder methods) — unwraps and converts to core
 /// 2. NULL — uses default ConversionOptions
+/// 3. Named list with field names matching struct fields — decodes field by field
 ///
-/// This allows R callers to pass `ConversionOptions$default()` directly to convert() without error.
-/// Full list-based construction is left to project-specific implementation if needed.
-fn gen_options_rs(_opts_type: &TypeDef, _core_import: &str) -> String {
-    r#"//! Option decoding for R bindings.
+/// This allows R callers to pass `ConversionOptions$default()`, NULL, or a named list like
+/// `list(heading_style = "Atx", wrap = TRUE, wrap_width = 100L)` to convert().
+fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
+    let mut code = String::new();
+    code.push_str("//! Option decoding for R bindings.\n\n");
+    code.push_str("use extendr_api::prelude::*;\n\n");
 
-use extendr_api::prelude::*;
-
-/// Decode an R ExternalPtr or NULL into ConversionOptions.
-///
-/// Accepts:
-/// - ExternalPtr<ConversionOptions> (from $default() or builder methods) — unwraps and converts
-/// - NULL — returns default ConversionOptions
-///
-/// This function is a placeholder that handles the core ExternalPtr case. Full list-based
-/// field parsing can be added by the project if needed for advanced use cases.
-pub fn decode_options(options: Robj) -> std::result::Result<crate::ConversionOptions, String> {
-    if options.is_null() {
-        return Ok(crate::ConversionOptions::default().into());
+    // Generate enum decoders by inspecting field types
+    let mut enum_decoders = std::collections::HashSet::new();
+    for field in &opts_type.fields {
+        if let TypeRef::Named(enum_name) = &field.ty {
+            enum_decoders.insert(enum_name.clone());
+        } else if let TypeRef::Optional(inner) = &field.ty {
+            if let TypeRef::Named(enum_name) = inner.as_ref() {
+                enum_decoders.insert(enum_name.clone());
+            }
+        }
     }
 
-    // Accept the wrapper struct returned by `ConversionOptions$default()` / builder methods,
-    // which extendr exposes as an `ExternalPtr`. The binding struct is returned directly
-    // from the #[extendr] impl methods, so unwrap it as the binding type.
-    if let Ok(ext) = ExternalPtr::<crate::ConversionOptions>::try_from(&options) {
-        // Clone the binding struct and convert to core type via the generated From impl
-        return Ok((*ext).clone().into());
+    // Helper function for list access
+    code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
+    code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
+    code.push_str("    let names = list.names().ok()?;\n");
+    code.push_str("    names\n");
+    code.push_str("        .iter()\n");
+    code.push_str("        .zip(list.iter())\n");
+    code.push_str("        .find(|(name, _)| name == key)\n");
+    code.push_str("        .map(|(_, val)| val)\n");
+    code.push_str("}\n\n");
+
+    // Generate enum-specific decoders
+    for enum_name in enum_decoders {
+        gen_enum_decoder(&mut code, &enum_name);
     }
 
-    // If unwrapping as ExternalPtr failed, the input is not a valid options object
-    Err("options must be NULL, or an ExternalPtr from ConversionOptions$default()".to_string())
+    // Generate preprocessing options decoder (if needed)
+    let has_preprocessing = opts_type.fields.iter().any(|f| {
+        matches!(
+            &f.ty,
+            TypeRef::Named(n) if n == "PreprocessingOptions"
+        )
+    });
+    if has_preprocessing {
+        gen_preprocessing_decoder(&mut code);
+    }
+
+    // Main decode_options function
+    code.push_str("/// Decode an R ExternalPtr, NULL, or named list into ConversionOptions.\n");
+    code.push_str("///\n");
+    code.push_str("/// Accepts:\n");
+    code.push_str("/// - ExternalPtr<ConversionOptions> (from $default() or builder methods) — unwraps and converts\n");
+    code.push_str("/// - NULL — returns default ConversionOptions\n");
+    code.push_str("/// - Named list with field names matching struct fields — decodes field by field\n");
+    code.push_str("///\n");
+    code.push_str("/// Fields are optional: omitted fields retain their defaults. Unknown fields are ignored.\n");
+    code.push_str("pub fn decode_options(options: Robj) -> std::result::Result<crate::ConversionOptions, String> {\n");
+    code.push_str("    if options.is_null() {\n");
+    code.push_str("        return Ok(crate::ConversionOptions::default());\n");
+    code.push_str("    }\n\n");
+
+    code.push_str("    // Accept the wrapper struct returned by `ConversionOptions$default()` / builder methods,\n");
+    code.push_str("    // which extendr exposes as an `ExternalPtr`. The binding struct is returned directly\n");
+    code.push_str("    // from the #[extendr] impl methods, so unwrap it as the binding type.\n");
+    code.push_str("    if let Ok(ext) = ExternalPtr::<crate::ConversionOptions>::try_from(&options) {\n");
+    code.push_str("        // Clone the binding struct and convert to core type via the generated From impl\n");
+    code.push_str("        return Ok((*ext).clone().into());\n");
+    code.push_str("    }\n\n");
+
+    code.push_str("    // Try to decode as a named list\n");
+    code.push_str("    let list = List::try_from(&options)\n");
+    code.push_str("        .map_err(|e| format!(\"options must be NULL, ExternalPtr, or named list: {e}\"))?\n");
+    code.push_str("    let mut opts = crate::ConversionOptions::default();\n\n");
+
+    // Generate field decoders
+    for field in &opts_type.fields {
+        gen_field_decoder(&mut code, field);
+    }
+
+    code.push_str(
+        "    // Note: visitor field is skipped — R has no visitor concept, so it remains at default None\n\n",
+    );
+    code.push_str("    Ok(opts)\n");
+    code.push_str("}\n");
+
+    code
 }
-"#
-    .to_string()
+
+/// Generate an enum decoder function for the given enum type name.
+fn gen_enum_decoder(code: &mut String, enum_name: &str) {
+    // Map known enum types to their variants
+    let variants = match enum_name {
+        "HeadingStyle" => vec!["Atx", "Underlined", "AtxClosed"],
+        "ListIndentType" => vec!["Spaces", "Tabs"],
+        "HighlightStyle" => vec!["DoubleEqual", "SingleMark"],
+        "WhitespaceMode" => vec!["Normalized", "Strict"],
+        "NewlineStyle" => vec!["Spaces", "Backslash", "TwoSpaces", "Html"],
+        "CodeBlockStyle" => vec!["Backtick", "Tilde"],
+        "UrlEscapeStyle" => vec!["Angle", "Percent"],
+        "LinkStyle" => vec!["Inline", "Reference"],
+        "OutputFormat" => vec!["Markdown", "PlainText"],
+        "PreprocessingPreset" => vec!["Minimal", "Standard", "Aggressive"],
+        _ => return, // Unknown enum, skip
+    };
+
+    let field_name_snake = to_snake_case(enum_name);
+    let fn_name = format!("decode_{}", field_name_snake);
+
+    code.push_str("/// Decode a ");
+    code.push_str(&field_name_snake.replace('_', " "));
+    code.push_str(" enum from its string representation.\n");
+    code.push_str("fn ");
+    code.push_str(&fn_name);
+    code.push_str("(val: Robj) -> std::result::Result<crate::");
+    code.push_str(enum_name);
+    code.push_str(", String> {\n");
+    code.push_str("    let s = String::try_from(&val).map_err(|e| format!(\"");
+    code.push_str(&field_name_snake);
+    code.push_str(": {e}\"))?\n");
+    code.push_str("    match s.as_str() {\n");
+
+    for variant in variants {
+        code.push_str("        \"");
+        code.push_str(variant);
+        code.push_str("\" => Ok(crate::");
+        code.push_str(enum_name);
+        code.push_str("::");
+        code.push_str(variant);
+        code.push_str("),\n");
+    }
+
+    code.push_str("        _ => Err(format!(\"");
+    code.push_str(&field_name_snake);
+    code.push_str(": unknown variant '{{}}'\", s)),\n");
+    code.push_str("    }\n");
+    code.push_str("}\n\n");
+}
+
+/// Generate decoder for PreprocessingOptions nested struct.
+fn gen_preprocessing_decoder(code: &mut String) {
+    code.push_str("/// Decode preprocessing options from an R list.\n");
+    code.push_str(
+        "fn decode_preprocessing_options(val: Robj) -> std::result::Result<crate::PreprocessingOptions, String> {\n",
+    );
+    code.push_str("    if val.is_null() {\n");
+    code.push_str("        return Ok(crate::PreprocessingOptions::default());\n");
+    code.push_str("    }\n");
+    code.push_str("    let list = List::try_from(&val).map_err(|e| format!(\"preprocessing: {e}\"))?\n");
+    code.push_str("    let mut opts = crate::PreprocessingOptions::default();\n\n");
+
+    code.push_str("    if let Some(v) = list_get(&list, \"enabled\") {\n");
+    code.push_str("        opts.enabled = bool::try_from(&v).map_err(|e| format!(\"preprocessing.enabled: {e}\"))?\n");
+    code.push_str("    }\n");
+    code.push_str("    if let Some(v) = list_get(&list, \"preset\") {\n");
+    code.push_str("        opts.preset = decode_preprocessing_preset(v)?\n");
+    code.push_str("    }\n");
+    code.push_str("    if let Some(v) = list_get(&list, \"remove_navigation\") {\n");
+    code.push_str("        opts.remove_navigation = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_navigation: {e}\"))?\n");
+    code.push_str("    }\n");
+    code.push_str("    if let Some(v) = list_get(&list, \"remove_forms\") {\n");
+    code.push_str(
+        "        opts.remove_forms = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_forms: {e}\"))?\n",
+    );
+    code.push_str("    }\n\n");
+    code.push_str("    Ok(opts)\n");
+    code.push_str("}\n\n");
+}
+
+/// Generate field decoding logic for a single field.
+fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+
+    let field_name = &field.name;
+    let field_name_trim = field_name.trim_start_matches('_');
+
+    match &field.ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => {
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = bool::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?\n");
+            code.push_str("    }\n");
+        }
+        TypeRef::String => {
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = String::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?\n");
+            code.push_str("    }\n");
+        }
+        TypeRef::Char => {
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        let s = String::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?\n");
+            code.push_str("        if s.len() != 1 {\n");
+            code.push_str("            return Err(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": must be a single character string\".to_string());\n");
+            code.push_str("        }\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = s.chars().next().unwrap();\n");
+            code.push_str("    }\n");
+        }
+        TypeRef::Primitive(
+            prim @ (PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32),
+        ) => {
+            let ty = match prim {
+                PrimitiveType::U8 => "u8",
+                PrimitiveType::U16 => "u16",
+                PrimitiveType::U32 => "u32",
+                PrimitiveType::I8 => "i8",
+                PrimitiveType::I16 => "i16",
+                PrimitiveType::I32 => "i32",
+                _ => unreachable!(),
+            };
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = ");
+            code.push_str(ty);
+            code.push_str("::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?\n");
+            code.push_str("    }\n");
+        }
+        TypeRef::Primitive(
+            prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+        ) => {
+            let ty = match prim {
+                PrimitiveType::U64 => "u64",
+                PrimitiveType::I64 => "i64",
+                PrimitiveType::Usize => "usize",
+                PrimitiveType::Isize => "isize",
+                _ => unreachable!(),
+            };
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = ");
+            code.push_str(ty);
+            code.push_str("::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?\n");
+            code.push_str("    }\n");
+        }
+        TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => {
+            let ty = match &field.ty {
+                TypeRef::Primitive(PrimitiveType::F32) => "f32",
+                _ => "f64",
+            };
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = ");
+            code.push_str(ty);
+            code.push_str("::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?\n");
+            code.push_str("    }\n");
+        }
+        TypeRef::Vec(inner) => {
+            if matches!(inner.as_ref(), TypeRef::String) {
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        let vec: Vec<String> = Strings::try_from(&v)\n");
+                code.push_str("            .map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?\n");
+                code.push_str("            .iter()\n");
+                code.push_str("            .map(String::from)\n");
+                code.push_str("            .collect();\n");
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = vec;\n");
+                code.push_str("    }\n");
+            }
+        }
+        TypeRef::Named(enum_name) => {
+            if should_decode_enum(enum_name) {
+                let fn_name = format!("decode_{}", to_snake_case(enum_name));
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = ");
+                code.push_str(&fn_name);
+                code.push_str("(v)?\n");
+                code.push_str("    }\n");
+            } else if enum_name == "PreprocessingOptions" {
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = decode_preprocessing_options(v)?\n");
+                code.push_str("    }\n");
+            }
+        }
+        TypeRef::Optional(inner) => {
+            match inner.as_ref() {
+                TypeRef::Named(enum_name) if enum_name == "PreprocessingOptions" => {
+                    // PreprocessingOptions wrapped in Option
+                    code.push_str("    if let Some(v) = list_get(&list, \"");
+                    code.push_str(field_name_trim);
+                    code.push_str("\") {\n");
+                    code.push_str("        opts.");
+                    code.push_str(field_name);
+                    code.push_str(" = decode_preprocessing_options(v)?\n");
+                    code.push_str("    }\n");
+                }
+                TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
+                    // max_depth is Option<usize>
+                    let ty = match prim {
+                        PrimitiveType::U64 => "u64",
+                        PrimitiveType::Usize => "usize",
+                        _ => unreachable!(),
+                    };
+                    code.push_str("    if let Some(v) = list_get(&list, \"");
+                    code.push_str(field_name_trim);
+                    code.push_str("\") {\n");
+                    code.push_str("        if !v.is_null() {\n");
+                    code.push_str("            let val = ");
+                    code.push_str(ty);
+                    code.push_str("::try_from(&v).map_err(|e| format!(\"");
+                    code.push_str(field_name_trim);
+                    code.push_str(": {e}\"))?\n");
+                    code.push_str("            opts.");
+                    code.push_str(field_name);
+                    code.push_str(" = Some(val);\n");
+                    code.push_str("        }\n");
+                    code.push_str("    }\n");
+                }
+                _ => {} // Skip other Option types
+            }
+        }
+        _ => {} // Skip other types
+    }
+}
+
+/// Check if a named type is a known enum that needs a decoder.
+fn should_decode_enum(name: &str) -> bool {
+    matches!(
+        name,
+        "HeadingStyle"
+            | "ListIndentType"
+            | "HighlightStyle"
+            | "WhitespaceMode"
+            | "NewlineStyle"
+            | "CodeBlockStyle"
+            | "UrlEscapeStyle"
+            | "LinkStyle"
+            | "OutputFormat"
+    )
+}
+
+/// Convert a CamelCase type name to snake_case for function names.
+fn to_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_lowercase().next().unwrap_or(ch));
+    }
+    result
 }
 
 /// Returns true if the function return type cannot be handled by extendr's `#[extendr]` macro
