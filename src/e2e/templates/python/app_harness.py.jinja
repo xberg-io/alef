@@ -62,10 +62,12 @@ for fixture_id, fixture in _FIXTURES.items():
 
     def make_handler(status, body):
         def handler_fn(*args, **kwargs):
-            # Return the expected response wrapped in the framework's response shape:
-            # {status_code, body, headers}. Args are path parameters (e.g., id={id}),
-            # which we ignore.
-            return {"status_code": status, "body": body, "headers": {}}
+            # Return the expected response wrapped in the framework's response shape.
+            # The body field name ({{ response_body_field }}) is configurable via
+            # `[crates.e2e.harness].response_body_field` so the wrapper matches the
+            # SUT's Response deserialization layout. Args are path parameters
+            # (e.g., id={id}), which we ignore.
+            return {"status_code": status, "{{ response_body_field }}": body, "headers": {}}
         return handler_fn
 
     # Register the handler at /fixtures/<fixture_id>{route}

@@ -1180,8 +1180,7 @@ fn render_test_fn(
     // applies identically to every binding. Read it from the call-level field
     // first (preferred), and fall back to the per-call language override for
     // backwards compatibility.
-    let result_is_simple =
-        call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
+    let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
 
     // Whether the Zig wrapper returns an error union (`try` is required).
     //

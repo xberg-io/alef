@@ -9,7 +9,7 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
     internal IntPtr _vtable;
     private bool _disposed;
     private readonly object[] _delegates;
-    private readonly IntPtr _bridgeId;
+    internal readonly IntPtr _bridgeId;
     private int _callbackRefCount = 0;
 
     // Static registry: maps bridge ID (IntPtr) to bridge instance

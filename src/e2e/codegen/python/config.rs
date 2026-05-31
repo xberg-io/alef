@@ -194,6 +194,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         method_enum_class => method_enum.as_deref().unwrap_or("Method"),
         register_route_method => register_route_method.as_deref().unwrap_or("register_route"),
         run_method => run_method.as_deref().unwrap_or("run"),
+        response_body_field => e2e_config.harness.response_body_field.as_str(),
         host => host,
         port => port,
         fixtures_json => fixtures_json,

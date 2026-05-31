@@ -1267,10 +1267,10 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                 code.push_str("    if let Some(v) = list_get(&list, \"");
                 code.push_str(field_name_trim);
                 code.push_str("\") {\n");
-                code.push_str("        let vec: Vec<String> = Strings::try_from(&v)\n");
-                code.push_str("            .map_err(|e| format!(\"");
+                code.push_str("        let strings = Strings::try_from(&v).map_err(|e| format!(\"");
                 code.push_str(field_name_trim);
                 code.push_str(": {e}\"))?;\n");
+                code.push_str("        let vec: Vec<String> = strings\n");
                 code.push_str("            .iter()\n");
                 code.push_str("            .map(String::from)\n");
                 code.push_str("            .collect();\n");

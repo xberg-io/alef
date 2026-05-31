@@ -91,12 +91,21 @@ pub struct HarnessConfig {
     /// Serve entrypoint method name (e.g., "run")
     #[serde(default)]
     pub run_method: Option<String>,
+    /// Field name in the handler's returned response object that carries the
+    /// response body payload (e.g., "body" or "content"). Defaults to "body".
+    /// Configure to match the deserialization shape of the SUT's Response type.
+    #[serde(default = "default_response_body_field")]
+    pub response_body_field: String,
     /// Default host for SUT binding (e.g., "127.0.0.1")
     #[serde(default = "default_harness_host")]
     pub host: String,
     /// Default port for SUT binding (e.g., 8000)
     #[serde(default = "default_harness_port")]
     pub port: u16,
+}
+
+fn default_response_body_field() -> String {
+    "body".to_string()
 }
 
 fn default_harness_host() -> String {
@@ -117,6 +126,7 @@ impl Default for HarnessConfig {
             route_builder: None,
             method_enum: None,
             run_method: None,
+            response_body_field: default_response_body_field(),
             host: default_harness_host(),
             port: default_harness_port(),
         }

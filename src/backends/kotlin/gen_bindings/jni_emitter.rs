@@ -110,11 +110,12 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
             .types
             .iter()
             .filter(|t| {
-                t.is_opaque && !t.is_trait &&
-                !t.methods.is_empty() &&
-                !exclude_functions.iter().all(|&excluded| {
-                    t.methods.iter().all(|m| excluded == m.name.as_str())
-                })
+                t.is_opaque
+                    && !t.is_trait
+                    && !t.methods.is_empty()
+                    && !exclude_functions
+                        .iter()
+                        .all(|&excluded| t.methods.iter().all(|m| excluded == m.name.as_str()))
             })
             .collect();
         if !opaque_with_methods.is_empty() {
