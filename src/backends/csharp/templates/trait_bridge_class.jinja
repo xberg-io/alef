@@ -88,6 +88,13 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {{ vtable_slots }}
     }
 
+    private static readonly JsonSerializerOptions FfiJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString
+    };
+
     private static string ToJsonString<T>(T value) {
         return JsonSerializer.Serialize(value);
     }

@@ -722,16 +722,12 @@ fn gen_single_trait_bridge(
                 "callback_result_call.jinja",
                 minijinja::context! { method_pascal, param_call, result_var => "methodResult" },
             ));
-            let is_non_api_return =
-                matches!(&method.return_type, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
-            // When a non-API Named type (enum) is substituted to string in the interface,
-            // methodResult is already JSON-encoded. Use it directly without additional serialization.
-            let serialize_expr = if is_non_api_return {
-                // Non-API Named types get substituted to string by the interface, so methodResult
-                // is already JSON-encoded. Return it directly.
-                "methodResult".to_string()
-            } else if matches!(method.return_type, TypeRef::Named(_)) {
-                // API Named types: use ToFfiJson()
+            // Check if return type is a Named type (struct or enum) that's visible
+            let is_named_visible =
+                matches!(&method.return_type, TypeRef::Named(n) if visible_type_names.contains(n.as_str()));
+            // All Named types (both enums and struct types) that are visible have ToFfiJson() extension methods
+            let serialize_expr = if is_named_visible {
+                // Named types (enums or structs): use ToFfiJson()
                 "methodResult.ToFfiJson()".to_string()
             } else {
                 "ToJsonString(methodResult)".to_string()
@@ -1267,11 +1263,11 @@ mod tests {
         assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
     }
 
-    /// Regression: enum return types are substituted to string in the interface, so the callback
-    /// receives an already-JSON-encoded value. The callback should use the methodResult directly
-    /// without additional serialization (not ToJsonString, not ToFfiJson).
+    /// Regression: enum return types are visible in the interface, so the interface
+    /// declares the actual enum type. The callback receives the enum and must serialize it
+    /// using .ToFfiJson() extension method.
     #[test]
-    fn test_trait_method_enum_return_uses_json_serialization() {
+    fn test_trait_method_enum_return_uses_toffijson_serialization() {
         let mut trait_def = make_trait_def("PostProcessor");
         trait_def.methods.push(crate::core::ir::MethodDef {
             name: "processing_stage".to_string(),
@@ -1293,15 +1289,14 @@ mod tests {
         });
         let bridge_cfg = make_bridge_cfg("PostProcessor", Some("Plugin"));
         let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];
-        // ProcessingStage is NOT in visible_types (simulating enum exclusion)
-        let visible_types: HashSet<&str> = vec!["PostProcessor"].into_iter().collect();
+        // ProcessingStage IS in visible_types (enums are now visible)
+        let visible_types: HashSet<&str> = vec!["PostProcessor", "ProcessingStage"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        // The callback receives methodResult as already-JSON (string) from the interface method.
-        // It should marshal methodResult directly (via the shared result-serialize block) without
-        // ToJsonString or ToFfiJson serialization.
-        assert!(content.contains("string __result_str = (methodResult) ?? string.Empty;"));
+        // The interface method returns ProcessingStage (not string), and the callback
+        // receives the actual enum value. It must serialize using .ToFfiJson().
+        assert!(content.contains("ProcessingStage ProcessingStage()"));
+        assert!(content.contains("methodResult.ToFfiJson()"));
         assert!(!content.contains("ToJsonString(methodResult)"));
-        assert!(!content.contains("methodResult.ToFfiJson()"));
     }
 }
