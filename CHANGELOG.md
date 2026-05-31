@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **swift: preserve populated RustBridgeC.h when cargo build output is missing.** When `emit_swift_bridge_files` runs before `cargo build -p {binding_crate}`, it fell through to emitting a minimal placeholder header. Previously, this branch always overwrote any existing on-disk `RustBridgeC.h`, even when a full 3000+ line concatenated header from a prior successful build was present. The regression broke users regenerating bindings between builds — their committed populated header was silently replaced with the minimal placeholder, breaking Swift compilation. Now, before emitting a placeholder, the function checks if an existing header carries the marker string "Concatenates SwiftBridgeCore.h" (present only in populated headers); if it does, the function preserves it unchanged by returning `Ok(None)`. The placeholder is only emitted when no populated header exists on disk. (`src/backends/swift/gen_bindings/mod.rs`)
+
 ### Added
 
 - **pyo3: emit `#[new]` constructor on variant-wrapper opaque types.** When a `TypeDef.is_variant_wrapper` is set (Wave-D extractor pass), the pyo3 backend now emits a `#[pymethods] impl T { #[new] pub fn py_new(...) -> Self { Self::new(...) } }` block in addition to the existing `#[staticmethod] pub fn new(...)`. The wrapper's `new` signature is mirrored verbatim via the existing `function_params` mapper. Without this, variant bodies emitting `RouteBuilder(method, path)` constructor-syntax raised `TypeError: cannot create 'builtins.RouteBuilder' instances` at runtime — the `#[new]` companion makes the constructor syntax resolve to a real instance while leaving the existing `RouteBuilder.new(...)` static accessor in place. The two coexist by giving the constructor a distinct Rust function name (`py_new`); pyo3 registers it as Python `__new__` via the attribute regardless of the Rust name. (`src/backends/pyo3/gen_bindings/mod.rs`)
