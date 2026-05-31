@@ -335,6 +335,69 @@ fn emit_trait_interfaces(
     }
 }
 
+/// Format a trait/interface method signature, wrapping long signatures across
+/// multiple lines to avoid AGP parser cascade errors on lines >=115 chars.
+///
+/// When the full single-line signature would exceed ~110 chars, emits a
+/// multi-line form with parameters indented and trailing commas:
+///
+/// ```kotlin
+///     suspend fun extractFile(
+///         path: java.nio.file.Path,
+///         mimeType: String,
+///         config: ExtractionConfig,
+///     ): ExtractionResult
+/// ```
+///
+/// Short signatures remain single-line. Empty parameter lists are always
+/// single-line even if return type is long.
+pub fn format_method_signature(
+    suspend_keyword: &str,
+    method_name: &str,
+    params: &str,
+    return_type: &str,
+) -> String {
+    // Base signature without leading indent: "suspend fun name(...):"
+    let base_sig = format!("{suspend_keyword}fun {method_name}(");
+    // Leading indent (4 spaces for trait method declarations)
+    let indent = "    ";
+    // Total with indent, method name, and return type
+    let full_sig_no_newline = format!(
+        "{indent}{base_sig}{params}{}{}",
+        if return_type == "Unit" { "" } else { "): " },
+        return_type
+    );
+
+    // Threshold: 110 chars (soft cap to avoid AGP parser cascade)
+    // Include trailing newline in length calculation
+    const THRESHOLD: usize = 110;
+
+    if params.is_empty() || full_sig_no_newline.len() < THRESHOLD {
+        // Short or no params: single-line
+        if return_type == "Unit" {
+            format!("{indent}{base_sig})\n")
+        } else {
+            format!("{indent}{base_sig}): {return_type}\n")
+        }
+    } else {
+        // Long signature: multi-line with trailing comma on params
+        let mut result = format!("{indent}{base_sig}\n");
+        // Parameters indented 8 spaces (2 levels), each on its own line
+        for param in params.split(", ") {
+            result.push_str("        ");
+            result.push_str(param);
+            result.push_str(",\n");
+        }
+        // Return type line (or closing paren for Unit)
+        if return_type == "Unit" {
+            result.push_str("    )\n");
+        } else {
+            result.push_str(&format!("    ): {return_type}\n"));
+        }
+        result
+    }
+}
+
 fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body: &mut String) {
     for method in &trait_def.methods {
         if method.sanitized || method.is_static {
@@ -365,13 +428,7 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
         } else {
             return_type
         };
-        if return_type == "Unit" {
-            body.push_str(&format!("    {suspend_keyword}fun {method_name}({params})\n"));
-        } else {
-            body.push_str(&format!(
-                "    {suspend_keyword}fun {method_name}({params}): {return_type}\n"
-            ));
-        }
+        body.push_str(&format_method_signature(&suspend_keyword, &method_name, &params, &return_type));
     }
 }
 
