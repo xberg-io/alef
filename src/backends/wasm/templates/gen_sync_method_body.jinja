@@ -59,6 +59,23 @@ result.as_string()
 {% else %}
 result.as_string().unwrap_or_default()
 {% endif %}
+{% elif return_bool %}
+// Convert JS boolean to Rust bool
+{% if has_error %}
+result.as_bool()
+    .ok_or_else(|| {{ error_result_conv }})
+{% else %}
+result.as_bool().unwrap_or_default()
+{% endif %}
+{% elif return_enum %}
+// Convert bare enum string (non-JSON) to {{ ret_ty }}
+{% if has_error %}
+result.as_string()
+    .ok_or_else(|| {{ error_result_conv }})
+    .and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&format!("\"{}\"", s)).map_err(|e| {{ error_deser }}))
+{% else %}
+result.as_string().and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&format!("\"{}\"", s)).ok()).unwrap_or_default()
+{% endif %}
 {% else %}
 // Convert JS result to {{ ret_ty }}
 {% if has_error %}

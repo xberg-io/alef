@@ -26,6 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm trait bridge: return-type dispatch for bool and bare-string enum returns.**
+  The trait bridge templates assumed all non-string, non-unit return values came back
+  as JSON-encoded strings. However, JS boolean returns are native booleans (not JSON),
+  and bare enum strings like `"Tesseract"` are not valid JSON (need wrapping as
+  `"\"Tesseract\""`). Added return-type classification (bool, enum, struct) to the
+  template context and implemented dispatch: `result.as_bool()` for bool, wrapped
+  format string for enums, and existing JSON path for structs. Prevents silent
+  `Default::default()` fallbacks when JS returns actual values that don't match
+  the assumed JSON encoding. (`src/backends/wasm/trait_bridge.rs`,
+  `src/backends/wasm/templates/gen_sync_method_body.jinja`,
+  `src/backends/wasm/templates/gen_async_method_body.jinja`)
+
 - **e2e ruby: format-string arity mismatch in harness setup emission.**
   The RSpec `before(:suite)` harness emission used `{{}}` in one of three
   `format!` placeholder slots, leaving the trailing `harness_port` argument

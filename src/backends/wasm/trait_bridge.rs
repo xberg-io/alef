@@ -59,6 +59,8 @@ pub struct WasmBridgeGenerator {
     pub type_paths: HashMap<String, String>,
     /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
+    /// Set of type names that are enums (bare-string serialized).
+    pub enum_names: std::collections::HashSet<String>,
 }
 
 impl TraitBridgeGenerator for WasmBridgeGenerator {
@@ -104,6 +106,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
+        let return_bool = matches!(method.return_type, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool));
+        let return_enum = if let TypeRef::Named(type_name) = &method.return_type {
+            self.enum_names.contains(type_name)
+        } else {
+            false
+        };
 
         let ctx = minijinja::context! {
             js_name => js_name,
@@ -119,6 +127,8 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             ret_ty => ret_ty,
             return_unit => return_unit,
             return_string => return_string,
+            return_bool => return_bool,
+            return_enum => return_enum,
         };
         crate::backends::wasm::template_env::render("gen_sync_method_body", ctx)
     }
@@ -153,6 +163,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
+        let return_bool = matches!(method.return_type, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool));
+        let return_enum = if let TypeRef::Named(type_name) = &method.return_type {
+            self.enum_names.contains(type_name)
+        } else {
+            false
+        };
 
         let ctx = minijinja::context! {
             js_name => js_name,
@@ -170,6 +186,8 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             ret_ty => ret_ty,
             return_unit => return_unit,
             return_string => return_string,
+            return_bool => return_bool,
+            return_enum => return_enum,
         };
         crate::backends::wasm::template_env::render("gen_async_method_body", ctx)
     }
@@ -363,10 +381,16 @@ pub fn gen_trait_bridge(
         }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure for plugin pattern
+        let enum_names: std::collections::HashSet<String> = api
+            .enums
+            .iter()
+            .map(|e| e.name.clone())
+            .collect();
         let generator = WasmBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
+            enum_names,
         };
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
