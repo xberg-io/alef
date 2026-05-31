@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **magnus: fix Ruby Rakefile codegen — revert to `Rake::ExtensionTask` with explicit `ext_dir` parameter.**
+  The v0.21.0 pattern wrapped `RbSys::ExtensionTask` initialization in `Dir.chdir(EXT_NATIVE_DIR)` and declared
+  file tasks for `Cargo.lock` and `Cargo.toml` within that block. However, rake loses the chdir context when
+  executing those file tasks, causing `rake compile` to fail with `Don't know how to build task Cargo.lock`
+  across all 5 Ruby platforms (macos-x86_64, macos-arm64, linux, linux-aarch64, windows-x64). Reverted to
+  the v3.5.5 pattern using `Rake::ExtensionTask` with explicit `ext_dir` parameter; the extconf.rb already
+  handles the native directory context. (`src/scaffold/languages/ruby.rs`)
+
 - **csharp: trait-bridge catch variable unused in options-field binding.** C# trait-bridge
   callbacks declared `catch (Exception ex)` unconditionally for non-primitive returns, but
   only used `ex` when `bind_via != "options_field"`. Projects with `<TreatWarningsAsErrors>`
