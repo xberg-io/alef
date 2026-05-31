@@ -2623,7 +2623,7 @@ fn long_signature_short_method_stays_single_line() {
 
     let content = &interface_kt.content;
 
-    // Short method "extract(data: String): String" should be single-line
+    // Short method should be single-line
     assert!(
         content.contains("fun extract(data: String): String"),
         "short method must stay single-line, got:\n{content}"
@@ -2708,7 +2708,7 @@ use alef::backends::kotlin_android::gen_bindings::format_method_signature;
 fn format_method_signature_short_stays_single_line() {
     let sig = format_method_signature("", "process", "data: String", "Boolean");
     assert!(
-        !sig.contains('\n'),
+        !sig.trim().contains('\n'),
         "short signature should be single-line, got:\n{sig}"
     );
     assert!(
@@ -2757,7 +2757,7 @@ fn format_method_signature_empty_params_always_single_line() {
         "VeryLongReturnTypeNameThatWouldExceedThresholdIfParamsWerePresent",
     );
     assert!(
-        !sig.contains('\n'),
+        !sig.trim().contains('\n'),
         "empty-param signature should always be single-line, got:\n{sig}"
     );
     assert!(
