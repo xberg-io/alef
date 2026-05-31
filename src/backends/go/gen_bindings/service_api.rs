@@ -15,10 +15,7 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{
-    ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef,
-    WrapperConstructorArg,
-};
+use crate::core::ir::{ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef, WrapperConstructorArg};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -587,9 +584,7 @@ fn gen_registration_variant(
         for base_param in &reg.metadata_params {
             if variant.overrides.iter().any(|o| o.param_name == base_param.name) {
                 // Fixed override — baked into the FFI function; do not re-emit.
-            } else if let Some(sig_param) =
-                variant.signature_params.iter().find(|s| s.name == base_param.name)
-            {
+            } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
                 match &sig_param.ty {
                     TypeRef::String => {
                         out.push_str(&format!("\t\tC.CString({}),\n", sig_param.name));
