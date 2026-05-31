@@ -360,65 +360,42 @@ pub(crate) fn emit_trait_bridge(
         out.push_str(&format!(
             "/// Construct a `{struct_name}` from Dart callback closures.\n"
         ));
-        out.push_str(
-            "/// FRB synthesises a Dart-callable function type for each closure parameter,\n",
-        );
-        out.push_str(
-            "/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`\n",
-        );
-        out.push_str(
-            "/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an opaque\n",
-        );
-        out.push_str(
-            "/// struct (FRB v2 silently drops factories that return opaque structs whose fields\n",
-        );
-        out.push_str(
-            "/// it cannot bridge). The returned wrapper holds an `Arc<dyn Trait + Send + Sync>`\n",
-        );
+        out.push_str("/// FRB synthesises a Dart-callable function type for each closure parameter,\n");
+        out.push_str("/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`\n");
+        out.push_str("/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an opaque\n");
+        out.push_str("/// struct (FRB v2 silently drops factories that return opaque structs whose fields\n");
+        out.push_str("/// it cannot bridge). The returned wrapper holds an `Arc<dyn Trait + Send + Sync>`\n");
         out.push_str("/// whose backing object carries the supplied callbacks privately.\n");
         if has_plugin_super {
-            out.push_str(
-                "/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n",
-            );
+            out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
         }
-        out.push_str(&format!(
-            "pub fn create_{trait_snake}_dart_impl(\n"
-        ));
+        out.push_str(&format!("pub fn create_{trait_snake}_dart_impl(\n"));
         if has_plugin_super {
             out.push_str("    plugin_name: String,\n");
             out.push_str("    plugin_version: String,\n");
         }
         for method in &own_methods {
             let param_name = &method.name;
-            let params: Vec<String> = method
-                .params
-                .iter()
-                .map(|p| frb_rust_type_excluded_aware(&p.ty, p.optional, &api.excluded_type_paths))
-                .collect();
-            let ret = frb_rust_type_excluded_aware(&method.return_type, false, &api.excluded_type_paths);
-            let params_str = params.join(", ");
-            out.push_str(&format!(
-                "    {param_name}: impl Fn({params_str}) -> DartFnFuture<{ret}> + Send + Sync + 'static,\n"
-            ));
+            // Use the same substitution as the closure-field type
+            // (`dart_fn_future_callback_type`) so the `impl Fn` param shape matches
+            // the field's `Box<dyn Fn>` shape at the `Box::new(name)` init site —
+            // including `InternalDocument` → opaque-bridge substitution applied
+            // to plugin/extractor trait signatures.
+            let callback_ty =
+                dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
+            out.push_str(&format!("    {param_name}: {callback_ty},\n"));
         }
         out.push_str(&format!(") -> {struct_name} {{\n"));
-        out.push_str(&format!(
-            "    let __impl = {callbacks_struct_name} {{\n"
-        ));
+        out.push_str(&format!("    let __impl = {callbacks_struct_name} {{\n"));
         if has_plugin_super {
             out.push_str("        plugin_name,\n");
             out.push_str("        plugin_version,\n");
         }
         for method in &own_methods {
-            out.push_str(&format!(
-                "        {name}: Box::new({name}),\n",
-                name = method.name
-            ));
+            out.push_str(&format!("        {name}: Box::new({name}),\n", name = method.name));
         }
         out.push_str("    };\n");
-        out.push_str(&format!(
-            "    {struct_name}(std::sync::Arc::new(__impl))\n"
-        ));
+        out.push_str(&format!("    {struct_name}(std::sync::Arc::new(__impl))\n"));
         out.push_str("}\n");
     }
 

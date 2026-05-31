@@ -495,7 +495,10 @@ fn render_makefile(
     let _ = writeln!(out);
     let _ = writeln!(out, "ifneq ($(FFI_INCLUDE),)");
     let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_INCLUDE)");
-    let _ = writeln!(out, "    LDFLAGS = -L$(FFI_LIB_DIR) -Wl,-rpath,$(FFI_LIB_DIR) -l{link_lib_name}");
+    let _ = writeln!(
+        out,
+        "    LDFLAGS = -L$(FFI_LIB_DIR) -Wl,-rpath,$(FFI_LIB_DIR) -l{link_lib_name}"
+    );
     let _ = writeln!(out, "else");
     let _ = writeln!(
         out,

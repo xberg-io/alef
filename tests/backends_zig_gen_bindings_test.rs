@@ -1222,6 +1222,81 @@ fn optional_string_return_uses_len_companion_with_null_guard() {
 }
 
 #[test]
+fn from_json_params_check_null_and_defer_handle_cleanup() {
+    let config_type = TypeDef {
+        name: "Config".into(),
+        rust_path: "demo::Config".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![config_type],
+        functions: vec![FunctionDef {
+            name: "configure".into(),
+            rust_path: "demo::configure".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("config", TypeRef::Named("Config".into()))],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub fn configure(config: []const u8) error{OutOfMemory,InvalidJson}![]u8"),
+        "from_json failure must be part of the generated error union: {content}"
+    );
+    assert!(
+        content.contains("const config_handle = c.demo_config_from_json(config_z);"),
+        "must create a handle via _from_json: {content}"
+    );
+    assert!(
+        content.contains("if (config_handle == null) return error.InvalidJson;"),
+        "must check _from_json handle creation before the primary call: {content}"
+    );
+    assert!(
+        content.contains("defer c.demo_config_free(config_handle);"),
+        "non-null _from_json handles must be cleaned up with defer: {content}"
+    );
+}
+
+#[test]
 fn client_constructors_emits_create_function() {
     let toml = r#"
 [workspace]

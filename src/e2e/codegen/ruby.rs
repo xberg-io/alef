@@ -2521,7 +2521,7 @@ pub fn emit_test_backend(
 
 #[cfg(test)]
 mod trait_bridge_tests {
-    use super::emit_test_backend;
+    use super::{emit_test_backend, render_spec_helper};
     use crate::core::config::TraitBridgeConfig;
     use crate::core::ir::{MethodDef, ParamDef, TypeRef};
     use crate::e2e::fixture::Fixture;
@@ -2581,6 +2581,23 @@ mod trait_bridge_tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }
+    }
+
+    #[test]
+    fn spec_helper_uses_configured_package_and_module_names() {
+        let content = render_spec_helper(true, false, "../../fixtures", "custom_gem", "custom_module");
+
+        assert!(
+            content.contains("require 'custom_gem'"),
+            "spec helper must require configured gem name:\n{content}"
+        );
+        assert!(
+            content.contains("CustomModule.list_ocr_backends")
+                && content.contains("CustomModule.unregister_ocr_backend(name)")
+                && !content.contains("SampleCrate")
+                && !content.contains("sample_crate"),
+            "spec helper must use configured module constant instead of sample defaults:\n{content}"
+        );
     }
 
     /// Genericity test: a synthetic TestTrait with one sync method and Plugin super-trait

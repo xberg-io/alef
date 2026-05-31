@@ -508,11 +508,15 @@ fn gen_go_file(
     let mut imports = vec!["fmt"];
     if needs_json_and_unsafe {
         imports.insert(0, "encoding/json");
-        let has_byte_slice_params = api.functions.iter().any(|f| f.params.iter().any(|p| matches!(p.ty, TypeRef::Bytes)))
-            || api
-                .types
-                .iter()
-                .any(|t| t.methods.iter().any(|m| m.params.iter().any(|p| matches!(p.ty, TypeRef::Bytes))));
+        let has_byte_slice_params = api
+            .functions
+            .iter()
+            .any(|f| f.params.iter().any(|p| matches!(p.ty, TypeRef::Bytes)))
+            || api.types.iter().any(|t| {
+                t.methods
+                    .iter()
+                    .any(|m| m.params.iter().any(|p| matches!(p.ty, TypeRef::Bytes)))
+            });
         if has_byte_slice_params {
             imports.push("runtime");
         }

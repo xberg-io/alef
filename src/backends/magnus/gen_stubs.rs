@@ -51,7 +51,9 @@ pub fn gen_stubs(
     }
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
-            lines.push(format!("  def self.{register_fn}: (untyped backend, String name) -> nil"));
+            lines.push(format!(
+                "  def self.{register_fn}: (untyped backend, String name) -> nil"
+            ));
             lines.push("".to_string());
         }
         if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {

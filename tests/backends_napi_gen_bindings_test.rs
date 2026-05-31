@@ -2001,7 +2001,12 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
         ..Default::default()
     }];
 
-    let mut process = make_method_napi("process_image", TypeRef::Named("ExtractionResult".to_string()), true, false);
+    let mut process = make_method_napi(
+        "process_image",
+        TypeRef::Named("ExtractionResult".to_string()),
+        true,
+        false,
+    );
     process.params = vec![ParamDef {
         name: "content".to_string(),
         ty: TypeRef::Bytes,
@@ -2011,7 +2016,10 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
     shutdown.has_default_impl = true;
     let api = ApiSurface {
         types: vec![
-            make_trait_def_napi("OcrBackend", vec![process, make_async_method_napi("warm_up", TypeRef::Unit), shutdown]),
+            make_trait_def_napi(
+                "OcrBackend",
+                vec![process, make_async_method_napi("warm_up", TypeRef::Unit), shutdown],
+            ),
             TypeDef {
                 name: "ExtractionResult".to_string(),
                 rust_path: "my_lib::ExtractionResult".to_string(),
@@ -2041,7 +2049,9 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
     let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
 
     assert!(
-        content.contains("export interface OcrBackend {\n  process_image?(content: Array<number>): string\n  warm_up?(): void"),
+        content.contains(
+            "export interface OcrBackend {\n  process_image?(content: Array<number>): string\n  warm_up?(): void"
+        ),
         "trait interface must use runtime method names and JSON-string return contract:\n{content}"
     );
     assert!(

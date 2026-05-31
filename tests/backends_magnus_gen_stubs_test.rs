@@ -941,3 +941,37 @@ output = "packages/ruby/sig/"
         "snake_case crate name should produce PascalCase module"
     );
 }
+
+#[test]
+fn test_rbs_includes_trait_registry_functions() {
+    let backend = MagnusBackend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        ..Default::default()
+    }];
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("def self.register_ocr_backend: (untyped backend, String name) -> nil")
+            && content.contains("def self.unregister_ocr_backend: (String name) -> nil")
+            && content.contains("def self.clear_ocr_backends: () -> nil"),
+        "RBS must include trait bridge registry functions:\n{content}"
+    );
+}

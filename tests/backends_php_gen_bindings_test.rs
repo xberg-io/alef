@@ -1967,7 +1967,8 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
         .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
         .expect("lib.rs generated");
     assert!(
-        lib.content.contains("#[php(name = \"registerOcrBackend\")]\n    pub fn register_ocr_backend(")
+        lib.content
+            .contains("#[php(name = \"registerOcrBackend\")]\n    pub fn register_ocr_backend(")
             && lib
                 .content
                 .contains("#[php(name = \"unregisterOcrBackend\")]\n    pub fn unregister_ocr_backend(")

@@ -254,7 +254,10 @@ fn emit_opaque_static_method(
             TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_)
         )
     });
-    let body_needs_invalid_json = method.params.iter().any(|p| method_param_needs_from_json(p, struct_names));
+    let body_needs_invalid_json = method
+        .params
+        .iter()
+        .any(|p| method_param_needs_from_json(p, struct_names));
 
     // Static constructors return the opaque type; if body uses try, wrap in error union.
     let return_ty = if body_needs_try || body_needs_invalid_json {
@@ -391,7 +394,10 @@ fn emit_static_method_param_conversion(
                     out,
                     "    const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
                 );
-                let _ = writeln!(out, "    if ({name}_z != null and {name}_handle == null) return error.InvalidJson;");
+                let _ = writeln!(
+                    out,
+                    "    if ({name}_z != null and {name}_handle == null) return error.InvalidJson;"
+                );
                 let _ = writeln!(out, "    defer if ({name}_handle) |h| c.{prefix}_{snake}_free(h);");
             }
         }
@@ -944,7 +950,10 @@ fn emit_method_param_conversion(
             out,
             "        const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
         );
-        let _ = writeln!(out, "        if ({name}_z != null and {name}_handle == null) {json_error_return}");
+        let _ = writeln!(
+            out,
+            "        if ({name}_z != null and {name}_handle == null) {json_error_return}"
+        );
         let _ = writeln!(out, "        defer if ({name}_handle) |h| c.{prefix}_{snake}_free(h);");
         return;
     }

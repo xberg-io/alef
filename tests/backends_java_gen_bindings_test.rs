@@ -350,10 +350,15 @@ fn named_param_from_json_is_checked_before_primary_call() {
         .expect("TestLib.java")
         .content
         .as_str();
-    let check_pos = main.find("if (cConfigJson != null && cConfig.equals(MemorySegment.NULL))").unwrap();
+    let check_pos = main
+        .find("if (cConfigJson != null && cConfig.equals(MemorySegment.NULL))")
+        .unwrap();
     let call_pos = main.find("NativeLib.TEST_CONFIGURE.invoke(cConfig)").unwrap();
 
-    assert!(check_pos < call_pos, "_from_json failure must be checked before primary call: {main}");
+    assert!(
+        check_pos < call_pos,
+        "_from_json failure must be checked before primary call: {main}"
+    );
     assert!(
         main[check_pos..call_pos].contains("checkLastError();"),
         "_from_json null check must preserve and throw the real last_error: {main}"

@@ -613,7 +613,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     out.push_str("            }\n");
     out.push_str("        };\n");
     out.push_str("        \n");
-    out.push_str("        let req_hash = match json_mod.funcall::<_, _, Value>(\"parse\", (state.req_json.as_str(),)) {\n");
+    out.push_str(
+        "        let req_hash = match json_mod.funcall::<_, _, Value>(\"parse\", (state.req_json.as_str(),)) {\n",
+    );
     out.push_str("            Ok(h) => h,\n");
     out.push_str("            Err(e) => {\n");
     out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
@@ -684,7 +686,9 @@ fn gen_variant_match_arm(
             out.push_str("                        .entry::<Value>(1 as isize)\n");
             out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,\n");
             out.push_str("                )\n");
-            out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
+            out.push_str(
+                "                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n",
+            );
 
             for (i, param) in free_params.iter().enumerate() {
                 let rust_ty = typeref_to_rust_type(&param.ty, core_import);
@@ -716,10 +720,7 @@ fn gen_variant_match_arm(
                             param.name, i as isize
                         ));
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                        out.push_str(&format!(
-                            "                    .try_convert::<&{}>()\n",
-                            rust_ty
-                        ));
+                        out.push_str(&format!("                    .try_convert::<&{}>()\n", rust_ty));
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
                         out.push_str("                    .clone();\n");
                     }
@@ -730,10 +731,7 @@ fn gen_variant_match_arm(
                             param.name, rust_ty, i as isize
                         ));
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                        out.push_str(&format!(
-                            "                    .try_convert::<{}>()\n",
-                            rust_ty
-                        ));
+                        out.push_str(&format!("                    .try_convert::<{}>()\n", rust_ty));
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                     }
                 }
@@ -876,7 +874,9 @@ fn gen_run_function(
                 out.push_str("                        .entry::<Value>(1 as isize)\n");
                 out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,\n");
                 out.push_str("                )\n");
-                out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                out.push_str(
+                    "                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n",
+                );
 
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
@@ -908,10 +908,7 @@ fn gen_run_function(
                                 meta_param.name, i as isize
                             ));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                            out.push_str(&format!(
-                                "                    .try_convert::<&{}>()\n",
-                                rust_ty
-                            ));
+                            out.push_str(&format!("                    .try_convert::<&{}>()\n", rust_ty));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
                             out.push_str("                    .clone();\n");
                         }
@@ -922,10 +919,7 @@ fn gen_run_function(
                                 meta_param.name, rust_ty, i as isize
                             ));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                            out.push_str(&format!(
-                                "                    .try_convert::<{}>()\n",
-                                rust_ty
-                            ));
+                            out.push_str(&format!("                    .try_convert::<{}>()\n", rust_ty));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                         }
                     }

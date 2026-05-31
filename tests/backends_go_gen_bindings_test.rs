@@ -217,6 +217,77 @@ fn test_basic_generation() {
 }
 
 #[test]
+fn bytes_params_are_pinned_before_c_calls() {
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "upload".to_string(),
+            rust_path: "test_lib::upload".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = GoBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.path.ends_with("binding.go"))
+        .expect("binding.go")
+        .content
+        .as_str();
+
+    assert!(
+        content.contains("\"runtime\""),
+        "byte-slice pinning must import runtime: {content}"
+    );
+    assert!(
+        content.contains("var cPayloadPinner runtime.Pinner"),
+        "byte-slice params must allocate a runtime.Pinner: {content}"
+    );
+    assert!(
+        content.contains("cPayloadPinner.Pin(&payload[0])"),
+        "byte-slice params must pin the first element before taking its address: {content}"
+    );
+    assert!(
+        content.contains("defer cPayloadPinner.Unpin()"),
+        "byte-slice params must unpin after the C call scope returns: {content}"
+    );
+}
+
+#[test]
 fn test_ffi_excluded_types_are_not_generated_for_cgo() {
     let backend = GoBackend;
     let config = resolved_one(

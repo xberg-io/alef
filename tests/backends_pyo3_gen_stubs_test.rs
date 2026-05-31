@@ -1637,3 +1637,37 @@ fn test_opaque_type_without_constructor_omits_init_stub() {
         "opaque type without constructor must NOT emit __init__. Got:\n{content}"
     );
 }
+
+#[test]
+fn test_pyi_includes_trait_bridge_registry_functions() {
+    let backend = Pyo3Backend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        ..Default::default()
+    }];
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("def register_ocr_backend(backend: object) -> None: ...")
+            && content.contains("def unregister_ocr_backend(name: str) -> None: ...")
+            && content.contains("def clear_ocr_backends() -> None: ..."),
+        "pyi must include trait bridge functions exported by runtime:\n{content}"
+    );
+}
