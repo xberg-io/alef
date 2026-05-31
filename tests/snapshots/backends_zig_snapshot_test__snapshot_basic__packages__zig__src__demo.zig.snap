@@ -30,7 +30,7 @@ pub fn _last_error() ?[]const u8 {
 /// will replace this once the IR exposes per-variant numeric codes.
 inline fn _first_error(comptime E: type) E {
     const fields = @typeInfo(E).error_set orelse return @as(E, error.Unknown);
-    if (fields.len == 0) unreachable;
+    if (fields.len == 0) return @as(E, error.Unknown);
     return @field(E, fields[0].name);
 }
 
@@ -62,10 +62,10 @@ pub fn process(input: []const u8, count: u32) DemoError![]u8 {
         std.heap.c_allocator, "{s}", .{input}, 0);
     defer std.heap.c_allocator.free(input_z);
     const _result = c.demo_process(input_z, count);
-    const _result_len = c.demo_process_len(input_z, count);
     if (c.demo_last_error_code() != 0) {
         return _first_error(DemoError);
     }
+    const _result_len = c.demo_process_len(input_z, count);
     return blk: {
         if (_result == null) return _first_error(DemoError);
         const slice = _result[0.._result_len];
