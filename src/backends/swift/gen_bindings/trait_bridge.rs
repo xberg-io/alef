@@ -492,7 +492,7 @@ pub fn gen_bridge_registration_overloads_file(
         let pascal_name = to_pascal_case(trait_name);
         content.push_str(&format!(
             "public func unregister{pascal_name}(name: String) throws {{\n\
-             \x20   try unregister{pascal_name}(name)\n\
+             \x20   try RustBridge.unregister{pascal_name}(name)\n\
              }}\n\n"
         ));
     }

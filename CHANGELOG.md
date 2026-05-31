@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **csharp: trait-bridge catch variable unused in options-field binding.** C# trait-bridge
+  callbacks declared `catch (Exception ex)` unconditionally for non-primitive returns, but
+  only used `ex` when `bind_via != "options_field"`. Projects with `<TreatWarningsAsErrors>`
+  failed with CS0168. The emitter now emits `catch (Exception)` without binding the variable
+  when the exception won't be used (primitive returns or options-field binding).
 - **extendr: export `conversion_options()` helper in R `NAMESPACE`.** The
   `gen_namespace` emitter walked API functions and added `export(<fn>)` for each, but the
   standalone `conversion_options()` helper (generated alongside the `ConversionOptions`

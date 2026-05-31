@@ -41,7 +41,7 @@ public func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] 
 
 {% for trait in traits %}
 public func unregister{{ trait.pascal_name }}(name: String) throws {
-    try unregister{{ trait.pascal_name }}(name)
+    try RustBridge.unregister{{ trait.pascal_name }}(name)
 }
 
 {% endfor %}

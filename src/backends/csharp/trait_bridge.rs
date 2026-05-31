@@ -719,9 +719,12 @@ fn gen_single_trait_bridge(
 
         if is_primitive_return {
             callbacks.push_str("        } catch (Exception) {\n");
-        } else {
-            // Always bind ex for non-primitive returns so we can log it
+        } else if !is_options_field {
+            // Only bind ex for non-primitive, non-options-field returns where we log it
             callbacks.push_str("        } catch (Exception ex) {\n");
+        } else {
+            // Options-field binding doesn't use exception details
+            callbacks.push_str("        } catch (Exception) {\n");
         }
 
         if !is_primitive_return {

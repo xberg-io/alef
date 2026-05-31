@@ -1,11 +1,15 @@
     fn {{ method_name }}({{ signature }}) -> {{ return_type }} {
-        // Get the JS function from the object
-        let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match self.obj.get_named_property("{{ js_method_name }}") {
+        // SAFETY: env and obj are raw NAPI pointers stored at initialization time.
+        // We reconstruct the Env and Object from these pointers to call the JS function.
+        let __env = unsafe { napi::Env::from_raw(self.env) };
+        let obj = unsafe { napi::bindgen_prelude::Object::from_raw_unchecked(__env.raw(), self.obj) };
+
+        // Try to get the JS function from the object
+        let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match obj.get_named_property("{{ js_method_name }}") {
             Ok(f) => f,
             Err(_) => return {{ return_type }}::Continue,
         };
 
-        let __env = self.env();
 {% if empty_args %}
         let result = func.call(());
 {% else %}

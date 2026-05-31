@@ -49,9 +49,10 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
         r#"// swift-tools-version: 6.0
 import PackageDescription
 
-// NOTE: Run `cargo build -p {binding_crate}` before `swift build`.
-// The build step generates Swift + C bridge sources; copy them into Sources/RustBridge
-// and Sources/RustBridgeC before building. See README.md for the full workflow.
+// NOTE: Run `cargo build -p {binding_crate}` and then rerun `alef generate`
+// before `swift build`. Alef materializes the swift-bridge Swift/C outputs into
+// Sources/RustBridge and Sources/RustBridgeC when the Cargo build output exists.
+// See README.md for the full workflow.
 let package = Package(
   name: "{module}",
   platforms: [
@@ -138,8 +139,8 @@ final class {module}Tests: XCTestCase {{
     // `import RustBridgeC` prepended) after `cargo build -p {binding_crate_name}` runs.
     let rust_bridge_swift = format!(
         r#"// Placeholder Swift source for the RustBridge target.
-// Run `cargo build -p {binding_crate}` and copy the generated Swift files here
-// (with `import RustBridgeC` prepended). See README.md for instructions.
+// Run `cargo build -p {binding_crate}` and then rerun `alef generate` to replace
+// this file with swift-bridge output. See README.md for instructions.
 //
 // This file is intentionally minimal so SwiftPM accepts the target before
 // the cargo build step has been run.
@@ -175,19 +176,15 @@ Add to your `Package.swift`:
 
 ```sh
 cargo build -p {binding_crate}
-OUT=$(ls -dt target/debug/build/{binding_crate}-*/out 2>/dev/null | head -1)
-cat "$OUT/SwiftBridgeCore.h" "$OUT/{binding_crate}/{binding_crate}.h" \
-    > packages/swift/Sources/RustBridgeC/RustBridgeC.h
-{{ echo "import RustBridgeC"; cat "$OUT/SwiftBridgeCore.swift"; }} \
-    > packages/swift/Sources/RustBridge/SwiftBridgeCore.swift
-{{ echo "import RustBridgeC"; cat "$OUT/{binding_crate}/{binding_crate}.swift"; }} \
-    > packages/swift/Sources/RustBridge/{binding_crate}.swift
+alef generate --lang swift
 swift build --package-path packages/swift
 swift test --package-path packages/swift
 ```
 
-The generated `Sources/RustBridgeC` and `Sources/RustBridge` artifacts are
-rewritten after each Cargo clean or rebuild.
+Before the Cargo build output exists, Alef emits placeholder RustBridge files so
+the generated package layout is complete. After Cargo produces swift-bridge
+artifacts, rerunning Alef replaces the placeholders with the generated Swift and
+C bridge sources.
 
 ## License
 

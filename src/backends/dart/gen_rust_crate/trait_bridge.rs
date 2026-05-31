@@ -341,14 +341,8 @@ pub(crate) fn emit_trait_bridge(
         }
         for method in &own_methods {
             let param_name = &method.name;
-            // FRB v2 only synthesises Dart-callable function types for closure
-            // PARAMETERS when the Rust signature uses `impl Fn(...) -> DartFnFuture<R>
-            // + Send + Sync + 'static`. `Box<dyn Fn(...)>` parameters render as
-            // opaque `BoxFn…` Dart classes that have no constructor — Dart user
-            // code cannot pass closures to them. The struct field stays
-            // `Box<dyn Fn(...)>`; we box the `impl Fn` argument at the init site.
             let callback_ty =
-                dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
+                dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_factory_param.jinja",
                 minijinja::context! {
@@ -374,8 +368,12 @@ pub(crate) fn emit_trait_bridge(
             out.push_str("        plugin_version,\n");
         }
         for method in &own_methods {
-            let name = method.name.as_str();
-            out.push_str(&format!("        {name}: Box::new({name}),\n"));
+            out.push_str(&crate::backends::dart::template_env::render(
+                "rust_trait_factory_method_init.jinja",
+                minijinja::context! {
+                    param_name => method.name.as_str(),
+                },
+            ));
         }
         out.push_str("    }\n");
         out.push_str("}\n");

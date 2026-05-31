@@ -39,8 +39,8 @@ struct CallResult {
 }
 
 pub struct {{ struct_name }} {
-    obj: napi::bindgen_prelude::Object<'static>,
-    env: napi::Env,
+    env: napi::sys::napi_env,
+    obj: napi::sys::napi_value,
 }
 
 impl std::fmt::Debug for {{ struct_name }} {
@@ -51,32 +51,28 @@ impl std::fmt::Debug for {{ struct_name }} {
 
 impl {{ struct_name }} {
     pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> Self {
-        // Extract and cache the napi_env from the Object.
-        // SAFETY: Object<'_> is 3 pointer-sized words; first word is napi_env.
+        // Store raw NAPI pointers instead of typed references.
+        // This avoids lifetime issues with the Object<'static> transmute.
+        // SAFETY: Object<'_> is 3 pointer-sized words: [napi_env, napi_value, is_ref].
+        // We extract these raw pointers which remain valid as long as the object exists.
         let env = unsafe {
             let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);
-            napi::Env::from_raw(raw[0] as napi::sys::napi_env)
+            raw[0] as napi::sys::napi_env
         };
-        // SAFETY: The JS object is owned by the Node.js runtime and lives for
-        // the duration of the enclosing #[napi] call. The bridge is wrapped in
-        // Arc<Mutex<>> which ensures exclusive access.
-        let obj: napi::bindgen_prelude::Object<'static> = unsafe { std::mem::transmute(js_obj) };
-        Self { obj, env }
-    }
-
-    fn env(&self) -> napi::Env {
-        self.env
+        let obj = unsafe {
+            let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);
+            raw[1] as napi::sys::napi_value
+        };
+        Self { env, obj }
     }
 }
 
-// SAFETY: The visitor bridge contains a V8 Object handle and napi::Env.
-// However, NAPI's internal design supports accessing objects from multiple threads
-// as long as the actual JS callback execution happens on the event loop thread.
-// The napi crate provides thread-safe function wrappers (ThreadsafeFunction) for
-// this purpose, but since our object methods are called directly, we must ensure
-// all calls go through napi's machinery. Since Arc<Mutex<>> wraps this bridge and
-// is used in the conversion thread, we mark this as Send+Sync. Misuse (keeping
-// the bridge alive across event loop cycles) is the caller's responsibility.
+// SAFETY: The visitor bridge stores raw napi_env and napi_value pointers.
+// These pointers are obtained from a JS object created on the NAPI event loop thread.
+// Since the bridge is wrapped in Arc<Mutex<>> and only accessed during the convert() call,
+// it is safe to send across threads as long as all napi:: operations reconstructed from
+// these pointers happen on the original event loop thread. The convert() function ensures
+// this by keeping the bridge alive only for the duration of the synchronous NAPI call.
 unsafe impl Send for {{ struct_name }} {}
 // SAFETY: see Send impl above.
 unsafe impl Sync for {{ struct_name }} {}
