@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift JSON-string convenience overloads: pass through the original parameter
+  label instead of a hardcoded `config:`.** The Swift JSON-overload codegen
+  hardcoded `config: config` for the decoded config call argument, but the base
+  function's parameter label is the original Rust parameter name (commonly
+  `options:`), so consumers that took a non-`config`-named parameter saw a Swift
+  compile error: `incorrect argument label in call (have 'html:config:'`,
+  `expected 'html:options:')`. The fix uses `{param_name}: config`.
+  (`src/backends/swift/gen_bindings/mod.rs`)
+
 - **dart traits.dart: drop duplicate stub declarations of bridge-exposed types.**
   `InternalDocumentBridge`, `OcrBackendType`, and `ProcessingStage` are now surfaced by
   the generated FRB bridge (they appear in trait method signatures, so FRB walks them

@@ -2665,8 +2665,11 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
             if i == config_param_idx {
-                // Pass the decoded config, not the JSON string parameter
-                call_args.push("config: config".to_string());
+                // Pass the decoded config, not the JSON string parameter. The base function's
+                // parameter label is the original Rust parameter name (e.g. `options:`), not
+                // a hardcoded `config:` — using the wrong label produces "incorrect argument
+                // label" Swift compile errors.
+                call_args.push(format!("{param_name}: config"));
             } else {
                 call_args.push(format!("{param_name}: {param_name}"));
             }
