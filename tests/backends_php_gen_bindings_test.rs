@@ -1982,7 +1982,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
     let public = backend.generate_public_api(&api, &config).unwrap();
     let facade = &public[0].content;
     assert!(
-        facade.contains("public static function registerOcrBackend(?OcrBackend $backend = null) : void")
+        facade.contains("public static function registerOcrBackend(OcrBackend $backend) : void")
             && facade.contains("\\Test\\Lib\\TestLibApi::registerOcrBackend($backend)")
             && facade.contains("\\Test\\Lib\\TestLibApi::unregisterOcrBackend($name)")
             && facade.contains("\\Test\\Lib\\TestLibApi::clearOcrBackends()"),
@@ -1992,7 +1992,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
     let stubs = backend.generate_type_stubs(&api, &config).unwrap();
     let stub = &stubs[0].content;
     assert!(
-        stub.contains("public static function registerOcrBackend(?\\Test\\Lib\\OcrBackend $backend = null): void")
+        stub.contains("public static function registerOcrBackend(\\Test\\Lib\\OcrBackend $backend): void")
             && stub.contains("public static function unregisterOcrBackend(string $name): void")
             && stub.contains("public static function clearOcrBackends(): void"),
         "extension stubs must expose registry methods on the native Api class:\n{stub}"

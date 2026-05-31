@@ -716,22 +716,20 @@ fn gen_variant_match_arm(
                     TypeRef::Named(_) => {
                         // For named types (wrapper types), extract as Value and convert via try_convert
                         out.push_str(&format!(
-                            "                let {} = meta_array.entry::<Value>({})\n",
-                            param.name, i as isize
+                            "                let {} = magnus::TryConvert::try_convert::<&{}>(meta_array.entry::<Value>({})\n",
+                            param.name, rust_ty, i as isize
                         ));
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                        out.push_str(&format!("                    .try_convert::<&{}>()\n", rust_ty));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
                         out.push_str("                    .clone();\n");
                     }
                     _ => {
                         // Fallback for other types
                         out.push_str(&format!(
-                            "                let {}: {} = meta_array.entry::<Value>({})\n",
+                            "                let {}: {} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
                             param.name, rust_ty, i as isize
                         ));
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                        out.push_str(&format!("                    .try_convert::<{}>()\n", rust_ty));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                     }
                 }
@@ -805,7 +803,7 @@ fn gen_run_function(
     let ep_method = &ep.method;
 
     // Build parameter list: registrations + entrypoint params (no &Ruby - use Ruby::get())
-    let mut fn_params = vec!["registrations: &Opaque<Value>".to_owned()];
+    let mut fn_params = vec!["registrations: Value".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         fn_params.push(format!("{}: {}", p.name, rust_ty));
@@ -828,12 +826,11 @@ fn gen_run_function(
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
 
-    // Get the Ruby handle (we are on a Ruby thread via #[magnus::function])
-    out.push_str("    let ruby = Ruby::get().expect(\"#[magnus::function] callbacks run on a Ruby thread\");\n\n");
+    // Get the Ruby handle (we are on a Ruby thread via function! macro)
+    out.push_str("    let ruby = Ruby::get().expect(\"function! macro callbacks run on a Ruby thread\");\n\n");
 
     // Iterate registrations and dispatch (GVL is held)
-    out.push_str("    let regs_value = registrations.get_inner_with(&ruby);\n");
-    out.push_str("    let regs_array = RArray::try_convert(regs_value)\n");
+    out.push_str("    let regs_array = RArray::try_convert(registrations)\n");
     out.push_str("        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
 
     out.push_str("    for i in 0..regs_array.len() {\n");
@@ -904,22 +901,20 @@ fn gen_run_function(
                         TypeRef::Named(_) => {
                             // For named types (wrapper types), extract as Value and convert via try_convert
                             out.push_str(&format!(
-                                "                let {} = meta_array.entry::<Value>({})\n",
-                                meta_param.name, i as isize
+                                "                let {} = magnus::TryConvert::try_convert::<&{}>(meta_array.entry::<Value>({})\n",
+                                meta_param.name, rust_ty, i as isize
                             ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                            out.push_str(&format!("                    .try_convert::<&{}>()\n", rust_ty));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
                             out.push_str("                    .clone();\n");
                         }
                         _ => {
                             // Fallback for other types
                             out.push_str(&format!(
-                                "                let {}: {} = meta_array.entry::<Value>({})\n",
+                                "                let {}: {} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
                                 meta_param.name, rust_ty, i as isize
                             ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                            out.push_str(&format!("                    .try_convert::<{}>()\n", rust_ty));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                         }
                     }
