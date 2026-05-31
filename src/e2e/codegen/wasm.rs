@@ -5,8 +5,8 @@
 //! path and `wasm` as the language key for skip/override resolution. Adds
 //! wasm-specific scaffolding: a `setup.ts` chdir to `test_documents/` so
 //! file_path fixtures resolve, and a `globalSetup.ts` that spawns the
-//! mock-server for HTTP fixtures. The wasm-pack `--target nodejs` CJS bundle
-//! initializes synchronously and does not require vite-plugin-wasm.
+//! app harness (server-pattern) for HTTP fixtures. The wasm-pack `--target nodejs`
+//! CJS bundle initializes synchronously and does not require vite-plugin-wasm.
 
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
@@ -21,6 +21,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::typescript::config::{render_app_harness, render_global_setup};
 
 /// WebAssembly e2e code generator.
 pub struct WasmCodegen;
@@ -221,15 +222,9 @@ impl E2eCodegen for WasmCodegen {
             generated_header: false,
         });
 
-        // Generate vitest.config.ts — optional globalSetup (for HTTP fixtures and
-        // any function-call test that hits the mock server via MOCK_SERVER_URL)
-        // and setupFiles (for chdir). Function-call e2e tests construct request URLs via
-        // `${process.env.MOCK_SERVER_URL}/fixtures/<id>`, so the mock server must
-        // be running and the env var set even when no raw HTTP fixtures exist.
-        let needs_global_setup = has_http_fixtures;
-        // needs_setup_ts is computed after has_file_fixtures below; hoist the
-        // boolean here since we need it for vitest.config.ts before the
-        // setup.ts push. Use `has_file_fixtures || has_http_fixtures` directly.
+        // Generate vitest.config.ts — optional globalSetup (for HTTP fixtures with
+        // server-pattern harness) and setupFiles (for chdir and wasm init).
+        let needs_global_setup = has_http_fixtures && !e2e_config.harness.imports.is_empty();
         let with_file_setup_cfg = has_file_fixtures || has_http_fixtures;
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
@@ -237,14 +232,21 @@ impl E2eCodegen for WasmCodegen {
             generated_header: true,
         });
 
-        // Generate globalSetup.ts when any fixture requires the mock server —
-        // either an HTTP fixture (the original consumer) or any function-call
-        // fixture that interpolates `${process.env.MOCK_SERVER_URL}` into a
-        // base URL. It spawns the rust mock-server binary.
+        // Emit app_harness for server-pattern HTTP fixtures (requires harness config)
+        if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
+            files.push(GeneratedFile {
+                path: output_base.join("app_harness.mjs"),
+                content: render_app_harness(e2e_config, groups),
+                generated_header: true,
+            });
+        }
+
+        // Generate globalSetup.ts for server-pattern HTTP fixtures.
+        // It spawns the app harness as a subprocess, which registers fixture handlers.
         if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
-                content: render_global_setup(&pkg_name),
+                content: render_global_setup(true),
                 generated_header: true,
             });
         }
@@ -650,17 +652,6 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     );
     out.push_str("process.chdir(testDocumentsDir);\n");
     out
-}
-
-fn render_global_setup(pkg_name: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
-    crate::e2e::template_env::render(
-        "wasm/globalSetup.ts.jinja",
-        minijinja::context! {
-            header => header,
-            pkg_name => pkg_name,
-        },
-    )
 }
 
 fn render_tsconfig() -> String {

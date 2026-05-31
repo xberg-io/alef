@@ -117,7 +117,7 @@ pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
     )
 }
 
-pub(super) fn render_app_harness(e2e_config: &crate::e2e::config::E2eConfig, groups: &[crate::e2e::fixture::FixtureGroup]) -> String {
+pub fn render_app_harness(e2e_config: &crate::e2e::config::E2eConfig, groups: &[crate::e2e::fixture::FixtureGroup]) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
@@ -176,7 +176,7 @@ pub(super) fn render_app_harness(e2e_config: &crate::e2e::config::E2eConfig, gro
     )
 }
 
-pub(super) fn render_global_setup(use_server_pattern: bool) -> String {
+pub fn render_global_setup(use_server_pattern: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
 
     let template = if use_server_pattern {
