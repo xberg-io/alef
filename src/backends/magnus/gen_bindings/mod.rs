@@ -298,6 +298,19 @@ impl Backend for MagnusBackend {
                     let ctor_impl = format!("impl {} {{\n{}}}", typ.name, ctor_body);
                     builder.add_item(&ctor_impl);
                 }
+                // Variant-wrapper constructor — when the type is the target of one or more
+                // registration-variant `wrapper_call`s (and therefore variant bodies emit
+                // `WrapperType(args...)` constructor syntax), emit a static `new` on the
+                // Magnus opaque struct. Magnus registers it as `define_singleton_method("new")`
+                // in `ruby_init` so `WrapperType.new(args)` works from Ruby.
+                //
+                // `client_constructors` takes priority — if a constructor is already
+                // configured explicitly, skip this auto-generated one to avoid duplicate `new`.
+                else if typ.is_variant_wrapper && !config.client_constructors.contains_key(&typ.name) {
+                    if let Some(ctor) = magnus_variant_wrapper_constructor(typ, &mapper, &core_import) {
+                        builder.add_item(&ctor);
+                    }
+                }
             } else {
                 let generates_default =
                     typ.has_default && crate::codegen::generators::can_generate_default_impl(typ, &default_types);
@@ -970,6 +983,49 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
     }
     out.push_str("end\n");
     out
+}
+
+/// For a variant-wrapper opaque type (one whose `is_variant_wrapper` flag is set
+/// by the extractor), emit a static `pub fn new(...)` on the Magnus binding struct
+/// so that `define_singleton_method("new", function!(TypeName::new, N))` in
+/// `ruby_init` resolves to a real Rust function.
+///
+/// The generated `new` creates a core instance via `CoreType::new(args)` and wraps
+/// it in `Arc` — matching the opaque struct layout produced by `gen_opaque_struct`.
+///
+/// Returns `None` when the wrapper has no `new` method in the IR (or its receiver
+/// is not `None`), in which case the variant body would not compile either but we
+/// silently skip rather than panic so the rest of the surface can still be generated.
+fn magnus_variant_wrapper_constructor(
+    typ: &crate::core::ir::TypeDef,
+    mapper: &MagnusMapper,
+    core_import: &str,
+) -> Option<String> {
+    use crate::codegen::type_mapper::TypeMapper as _;
+    let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
+    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
+    let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+    let call_args = ctor
+        .params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    let body = if call_args.is_empty() {
+        format!("Self {{ inner: std::sync::Arc::new({core_path}::new()) }}")
+    } else {
+        format!("Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}")
+    };
+    let fn_sig = if sig_params.is_empty() {
+        "pub fn new() -> Self".to_string()
+    } else {
+        format!("pub fn new({sig_params}) -> Self")
+    };
+    Some(format!(
+        "impl {name} {{\n    {fn_sig} {{\n        {body}\n    }}\n}}\n",
+        name = typ.name,
+    ))
 }
 
 #[cfg(test)]

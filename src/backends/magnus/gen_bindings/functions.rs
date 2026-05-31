@@ -1012,7 +1012,15 @@ pub(super) fn gen_module_init(
         if exclude_types.contains(typ.name.as_str()) {
             continue;
         }
-        let class_used = (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static);
+        // Variant-wrapper opaque types expose a static `new` singleton method — include
+        // them in the `class` binding so `define_singleton_method` can be called on it.
+        let has_variant_wrapper_ctor = typ.is_opaque
+            && typ.is_variant_wrapper
+            && !config.client_constructors.contains_key(&typ.name)
+            && typ.methods.iter().any(|m| m.name == "new" && m.receiver.is_none());
+        let class_used = (!typ.is_opaque && !typ.fields.is_empty())
+            || typ.methods.iter().any(|m| !m.is_static)
+            || has_variant_wrapper_ctor;
         let binding = if class_used { "class" } else { "_class" };
         lines.push(crate::backends::magnus::template_env::render(
             "module_class_define.rs.jinja",
@@ -1036,6 +1044,22 @@ pub(super) fn gen_module_init(
                     arity => -1,
                 },
             ));
+        } else if has_variant_wrapper_ctor {
+            // Register the static `new` emitted by magnus_variant_wrapper_constructor as
+            // a Ruby singleton method. Arity matches the number of params on the `new`
+            // MethodDef so Magnus can route positional arguments correctly.
+            if let Some(ctor_method) = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none()) {
+                let arity = ctor_method.params.len() as i32;
+                lines.push(crate::backends::magnus::template_env::render(
+                    "module_class_singleton_method_register.rs.jinja",
+                    minijinja::context! {
+                        ruby_name => "new",
+                        type_name => &typ.name,
+                        function_name => "new",
+                        arity => arity,
+                    },
+                ));
+            }
         }
 
         if !typ.is_opaque {
