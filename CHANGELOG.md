@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **go service_api: fix variant C symbol dropping registration method segment.** `gen_registration_variant` previously built the C FFI symbol as `{prefix}_{service}_{reg_method}_{variant}`, but the FFI layer exports it as `{prefix}_{service}_{variant}`. Removed the `_{reg_method}` segment from the format string and dropped the now-unused `reg_method_snake` local variable. (`src/backends/go/gen_bindings/service_api.rs`)
+- **go service_api: fix variant C symbol and missing free-arg emission.** Two bugs in `gen_registration_variant`: (1) the C FFI symbol was built as `{prefix}_{service}_{reg_method}_{variant}` but the ABI exports it as `{prefix}_{service}_{variant}` — removed the `_{reg_method}` segment. (2) When a `wrapper_call` is present, extra C call args must come from `wc.args` (free args only); the old loop over `reg.metadata_params` never matched the wrapper type name against override/sig-param names so produced no args at all, causing "not enough arguments" link errors. (`src/backends/go/gen_bindings/service_api.rs`)
 
 - **kotlin service_api: fix variant template newline and Rust-path leak.** Registration variant methods now emit the doc comment on its own line (not merged with `fun`), always include `handler: (String) -> String` in the variant signature, and translate Rust enum path expressions (`my_crate::Type::Variant`) to Kotlin form (`Type.VARIANT`) in both direct-override and wrapper-constructor modes. (`src/backends/kotlin/gen_bindings/service_api.rs`, `src/backends/kotlin/templates/registration_variant.kt.jinja`)
 

@@ -15,7 +15,10 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef,
+    WrapperConstructorArg,
+};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -554,28 +557,53 @@ fn gen_registration_variant(
         service_lower, service_snake, variant_name_snake
     ));
 
-    // Emit fixed overrides + free args, marshaling each
-    for base_param in &reg.metadata_params {
-        if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
-            // Fixed: use the value expression verbatim (assumes it's already in Go form)
-            out.push_str(&format!("\t\t{},\n", override_.value_expr));
-        } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
-            // Free: marshal from variant signature
-            match &sig_param.ty {
-                TypeRef::String => {
-                    out.push_str(&format!("\t\tC.CString({}),\n", sig_param.name));
+    // Emit the free args that follow the fixed trampoline args.
+    //
+    // When a wrapper_call is present the FFI function's extra args are the free
+    // constructor params in declaration order (fixed params are baked in).
+    // When there is no wrapper_call the extra args are the non-overridden base
+    // metadata params.
+    if let Some(wc) = &variant.wrapper_call {
+        for arg in &wc.args {
+            if let WrapperConstructorArg::Free { param } = arg {
+                match &param.ty {
+                    TypeRef::String => {
+                        out.push_str(&format!("\t\tC.CString({}),\n", param.name));
+                    }
+                    TypeRef::Named(type_name) => {
+                        out.push_str(&format!(
+                            "\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr)),\n",
+                            param.name
+                        ));
+                    }
+                    _ => {
+                        let c_type = typeref_to_c_type(&param.ty);
+                        out.push_str(&format!("\t\t{c_type}({}),\n", param.name));
+                    }
                 }
-                TypeRef::Named(type_name) => {
-                    // Opaque type
-                    out.push_str(&format!(
-                        "\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr)),\n",
-                        sig_param.name
-                    ));
-                }
-                _ => {
-                    // Primitive
-                    let c_type = typeref_to_c_type(&sig_param.ty);
-                    out.push_str(&format!("\t\t{c_type}({}),\n", sig_param.name));
+            }
+        }
+    } else {
+        for base_param in &reg.metadata_params {
+            if variant.overrides.iter().any(|o| o.param_name == base_param.name) {
+                // Fixed override — baked into the FFI function; do not re-emit.
+            } else if let Some(sig_param) =
+                variant.signature_params.iter().find(|s| s.name == base_param.name)
+            {
+                match &sig_param.ty {
+                    TypeRef::String => {
+                        out.push_str(&format!("\t\tC.CString({}),\n", sig_param.name));
+                    }
+                    TypeRef::Named(type_name) => {
+                        out.push_str(&format!(
+                            "\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr)),\n",
+                            sig_param.name
+                        ));
+                    }
+                    _ => {
+                        let c_type = typeref_to_c_type(&sig_param.ty);
+                        out.push_str(&format!("\t\t{c_type}({}),\n", sig_param.name));
+                    }
                 }
             }
         }
@@ -1040,5 +1068,66 @@ mod tests {
         // WITHOUT the registration method name in between.
         assert!(go.contains("C.test_crate_test_service_get"));
         assert!(!go.contains("C.test_crate_test_service_add_handler_get"));
+        // Verify that the free wrapper-call arg (path) is marshaled with CString.
+        assert!(go.contains("C.CString(path)"));
+    }
+
+    #[test]
+    fn test_registration_variant_wrapper_call_emits_free_args() {
+        use crate::core::ir::{WrapperConstructorArg, WrapperConstructorCall};
+
+        // Build a surface where the variant uses wrapper_call so free args come from wc.args.
+        let mut api = make_fixture_surface();
+        let svc = &mut api.services[0];
+        let reg = &mut svc.registrations[0];
+
+        // Replace the variant with one that has wrapper_call set.
+        reg.variants[0] = crate::core::ir::RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![crate::core::ir::RegistrationVariantOverride {
+                param_name: "method".to_owned(),
+                value_expr: "\"GET\"".to_owned(),
+            }],
+            wrapper_call: Some(WrapperConstructorCall {
+                metadata_param: "builder".to_owned(),
+                wrapper_type_path: "test_crate::RouteBuilder".to_owned(),
+                wrapper_type_name: "RouteBuilder".to_owned(),
+                constructor_method: "new".to_owned(),
+                args: vec![
+                    WrapperConstructorArg::Fixed {
+                        param_name: "method".to_owned(),
+                        value_expr: "\"GET\"".to_owned(),
+                    },
+                    WrapperConstructorArg::Free {
+                        param: ParamDef {
+                            name: "path".to_owned(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            ..ParamDef::default()
+                        },
+                    },
+                ],
+            }),
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: Some("Register a GET handler.".to_owned()),
+        };
+
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+        let go = gen_service_go(&api, &config, "binding", "test_crate");
+
+        // Free arg from wrapper_call must be emitted as a C arg.
+        assert!(go.contains("C.CString(path)"), "missing CString(path) in:\n{go}");
+        // Fixed args must NOT be emitted separately (baked into the FFI function).
+        assert!(!go.contains("\"GET\""), "fixed arg must not be re-emitted:\n{go}");
     }
 }
