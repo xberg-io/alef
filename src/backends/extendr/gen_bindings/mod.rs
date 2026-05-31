@@ -993,6 +993,18 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
         }
     }
 
+    // Check if PreprocessingOptions is present; if so, we need the PreprocessingPreset decoder
+    let has_preprocessing = opts_type.fields.iter().any(|f| {
+        matches!(
+            &f.ty,
+            TypeRef::Named(n) if n == "PreprocessingOptions"
+        )
+    });
+    if has_preprocessing {
+        // PreprocessingPreset is a nested enum used inside PreprocessingOptions
+        enum_decoders.insert("PreprocessingPreset".to_string());
+    }
+
     // Helper function for list access
     code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
     code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
@@ -1010,12 +1022,6 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
     }
 
     // Generate preprocessing options decoder (if needed)
-    let has_preprocessing = opts_type.fields.iter().any(|f| {
-        matches!(
-            &f.ty,
-            TypeRef::Named(n) if n == "PreprocessingOptions"
-        )
-    });
     if has_preprocessing {
         gen_preprocessing_decoder(&mut code);
     }
@@ -1044,7 +1050,7 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
 
     code.push_str("    // Try to decode as a named list\n");
     code.push_str("    let list = List::try_from(&options)\n");
-    code.push_str("        .map_err(|e| format!(\"options must be NULL, ExternalPtr, or named list: {e}\"))?\n");
+    code.push_str("        .map_err(|e| format!(\"options must be NULL, ExternalPtr, or named list: {e}\"))?;\n");
     code.push_str("    let mut opts = crate::ConversionOptions::default();\n\n");
 
     // Generate field decoders
@@ -1063,17 +1069,17 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
 
 /// Generate an enum decoder function for the given enum type name.
 fn gen_enum_decoder(code: &mut String, enum_name: &str) {
-    // Map known enum types to their variants
+    // Map known enum types to their variants (verified against src/options/validation.rs and src/options/preprocessing.rs)
     let variants = match enum_name {
         "HeadingStyle" => vec!["Atx", "Underlined", "AtxClosed"],
         "ListIndentType" => vec!["Spaces", "Tabs"],
-        "HighlightStyle" => vec!["DoubleEqual", "SingleMark"],
+        "HighlightStyle" => vec!["DoubleEqual", "Html", "Bold", "None"],
         "WhitespaceMode" => vec!["Normalized", "Strict"],
-        "NewlineStyle" => vec!["Spaces", "Backslash", "TwoSpaces", "Html"],
-        "CodeBlockStyle" => vec!["Backtick", "Tilde"],
+        "NewlineStyle" => vec!["Spaces", "Backslash"],
+        "CodeBlockStyle" => vec!["Indented", "Backticks", "Tildes"],
         "UrlEscapeStyle" => vec!["Angle", "Percent"],
         "LinkStyle" => vec!["Inline", "Reference"],
-        "OutputFormat" => vec!["Markdown", "PlainText"],
+        "OutputFormat" => vec!["Markdown", "Djot", "Plain"],
         "PreprocessingPreset" => vec!["Minimal", "Standard", "Aggressive"],
         _ => return, // Unknown enum, skip
     };
@@ -1091,7 +1097,7 @@ fn gen_enum_decoder(code: &mut String, enum_name: &str) {
     code.push_str(", String> {\n");
     code.push_str("    let s = String::try_from(&val).map_err(|e| format!(\"");
     code.push_str(&field_name_snake);
-    code.push_str(": {e}\"))?\n");
+    code.push_str(": {e}\"))?;\n");
     code.push_str("    match s.as_str() {\n");
 
     for variant in variants {
@@ -1120,21 +1126,21 @@ fn gen_preprocessing_decoder(code: &mut String) {
     code.push_str("    if val.is_null() {\n");
     code.push_str("        return Ok(crate::PreprocessingOptions::default());\n");
     code.push_str("    }\n");
-    code.push_str("    let list = List::try_from(&val).map_err(|e| format!(\"preprocessing: {e}\"))?\n");
+    code.push_str("    let list = List::try_from(&val).map_err(|e| format!(\"preprocessing: {e}\"))?;\n");
     code.push_str("    let mut opts = crate::PreprocessingOptions::default();\n\n");
 
     code.push_str("    if let Some(v) = list_get(&list, \"enabled\") {\n");
-    code.push_str("        opts.enabled = bool::try_from(&v).map_err(|e| format!(\"preprocessing.enabled: {e}\"))?\n");
+    code.push_str("        opts.enabled = bool::try_from(&v).map_err(|e| format!(\"preprocessing.enabled: {e}\"))?;\n");
     code.push_str("    }\n");
     code.push_str("    if let Some(v) = list_get(&list, \"preset\") {\n");
-    code.push_str("        opts.preset = decode_preprocessing_preset(v)?\n");
+    code.push_str("        opts.preset = decode_preprocessing_preset(v)?;\n");
     code.push_str("    }\n");
     code.push_str("    if let Some(v) = list_get(&list, \"remove_navigation\") {\n");
-    code.push_str("        opts.remove_navigation = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_navigation: {e}\"))?\n");
+    code.push_str("        opts.remove_navigation = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_navigation: {e}\"))?;\n");
     code.push_str("    }\n");
     code.push_str("    if let Some(v) = list_get(&list, \"remove_forms\") {\n");
     code.push_str(
-        "        opts.remove_forms = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_forms: {e}\"))?\n",
+        "        opts.remove_forms = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_forms: {e}\"))?;\n",
     );
     code.push_str("    }\n\n");
     code.push_str("    Ok(opts)\n");
@@ -1157,7 +1163,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str(field_name);
             code.push_str(" = bool::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?\n");
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::String => {
@@ -1168,7 +1174,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str(field_name);
             code.push_str(" = String::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?\n");
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Char => {
@@ -1177,7 +1183,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str("\") {\n");
             code.push_str("        let s = String::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?\n");
+            code.push_str(": {e}\"))?;\n");
             code.push_str("        if s.len() != 1 {\n");
             code.push_str("            return Err(\"");
             code.push_str(field_name_trim);
@@ -1214,7 +1220,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str(ty);
             code.push_str("::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?\n");
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Primitive(
@@ -1236,7 +1242,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str(ty);
             code.push_str("::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?\n");
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => {
@@ -1253,7 +1259,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str(ty);
             code.push_str("::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?\n");
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Vec(inner) => {
@@ -1264,7 +1270,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                 code.push_str("        let vec: Vec<String> = Strings::try_from(&v)\n");
                 code.push_str("            .map_err(|e| format!(\"");
                 code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?\n");
+                code.push_str(": {e}\"))?;\n");
                 code.push_str("            .iter()\n");
                 code.push_str("            .map(String::from)\n");
                 code.push_str("            .collect();\n");
@@ -1284,7 +1290,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                 code.push_str(field_name);
                 code.push_str(" = ");
                 code.push_str(&fn_name);
-                code.push_str("(v)?\n");
+                code.push_str("(v)?;\n");
                 code.push_str("    }\n");
             } else if enum_name == "PreprocessingOptions" {
                 code.push_str("    if let Some(v) = list_get(&list, \"");
@@ -1292,7 +1298,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                 code.push_str("\") {\n");
                 code.push_str("        opts.");
                 code.push_str(field_name);
-                code.push_str(" = decode_preprocessing_options(v)?\n");
+                code.push_str(" = decode_preprocessing_options(v)?;\n");
                 code.push_str("    }\n");
             }
         }
@@ -1305,7 +1311,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                     code.push_str("\") {\n");
                     code.push_str("        opts.");
                     code.push_str(field_name);
-                    code.push_str(" = decode_preprocessing_options(v)?\n");
+                    code.push_str(" = decode_preprocessing_options(v)?;\n");
                     code.push_str("    }\n");
                 }
                 TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
@@ -1323,7 +1329,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                     code.push_str(ty);
                     code.push_str("::try_from(&v).map_err(|e| format!(\"");
                     code.push_str(field_name_trim);
-                    code.push_str(": {e}\"))?\n");
+                    code.push_str(": {e}\"))?;\n");
                     code.push_str("            opts.");
                     code.push_str(field_name);
                     code.push_str(" = Some(val);\n");

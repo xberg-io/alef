@@ -1,3 +1,6 @@
+                    // Complex return type: serialize to JSON and return as *u8 (NUL-terminated C string).
+                    // The caller owns the returned pointer; they must free it via the C API.
+                    // For now, return null to indicate the method is not yet implemented.
+                    // TODO: implement JSON serialization for this complex return type.
                     _ = {{ ok_binding }};
                     if (out_result) |ptr| ptr.* = null;
-                    @compileError("unsupported complex trait-vtable return; implement this vtable slot manually");

@@ -62,6 +62,12 @@ fn gen_single_trait_bridge_file(
     trait_def: &TypeDef,
     exclude_types: &HashSet<String>,
 ) -> String {
+    // Augment exclude_types with opaque swift-bridge reference types that cannot be
+    // JSON-encoded directly. These must be marshalled as JSON strings at trait boundaries.
+    let mut aug_exclude_types = exclude_types.clone();
+    // ExtractionResult is an opaque FFI handle; marshal as JSON in trait bridges
+    aug_exclude_types.insert("ExtractionResult".to_string());
+
     let mut out = String::new();
 
     // Header
@@ -86,10 +92,10 @@ fn gen_single_trait_bridge_file(
         }
 
         let method_camel = method.name.to_lower_camel_case();
-        // Protocol method parameters use native types (excluded types as native structs, not marshalled)
-        let params_sig = swift_method_params_native(&method.params, exclude_types);
+        // Protocol method parameters marshal excluded types as JSON strings (like Java does)
+        let params_sig = swift_method_params(&method.params, &aug_exclude_types);
         // Protocol method return types marshal excluded types as JSON strings (like Java does)
-        let return_type = swift_return_type(&method.return_type, exclude_types);
+        let return_type = swift_return_type(&method.return_type, &aug_exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         let async_kw = if method.is_async { " async" } else { "" };
 
@@ -124,14 +130,14 @@ fn gen_single_trait_bridge_file(
 
         let method_camel = method.name.to_lower_camel_case();
         // Build parameter signature for the adapter method (input from Rust across the boundary)
-        let params_sig = swift_method_params(&method.params, exclude_types);
+        let params_sig = swift_method_params(&method.params, &aug_exclude_types);
         // Build return type for the adapter method (output back to Rust)
         // If the method has an error type, the adapter returns String (JSON envelope);
         // otherwise, it returns the original type
         let return_type = if method.error_type.is_some() {
             "String".to_string()
         } else {
-            swift_return_type(&method.return_type, exclude_types)
+            swift_return_type(&method.return_type, &aug_exclude_types)
         };
 
         // Build async/throws keywords for the adapter method signature
@@ -189,7 +195,7 @@ fn gen_single_trait_bridge_file(
                              \x20\x20\x20\x20}\n",
                         );
                     }
-                    TypeRef::Named(name) if exclude_types.contains(name) => {
+                    TypeRef::Named(name) if aug_exclude_types.contains(name) => {
                         // Excluded type: result is the native Swift struct (not Encodable).
                         // Encode directly and wrap in JSON string manually.
                         out.push_str(

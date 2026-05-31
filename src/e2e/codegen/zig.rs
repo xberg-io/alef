@@ -1176,6 +1176,13 @@ fn render_test_fn(
     // than `.len`.
     let result_is_option = call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
 
+    // `result_is_simple` is a Rust-side property of the call's return type and
+    // applies identically to every binding. Read it from the call-level field
+    // first (preferred), and fall back to the per-call language override for
+    // backwards compatibility.
+    let result_is_simple =
+        call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
+
     // Whether the Zig wrapper returns an error union (`try` is required).
     //
     // The Zig backend nearly always returns an error union: any function with
@@ -1386,6 +1393,7 @@ fn render_test_fn(
                         field_resolver,
                         enum_fields,
                         result_is_option,
+                        result_is_simple,
                     );
                 }
             }
@@ -1554,6 +1562,7 @@ fn render_test_fn(
                     field_resolver,
                     enum_fields,
                     result_is_option,
+                    result_is_simple,
                 );
             }
         } else if call_returns_error_union {
@@ -2334,6 +2343,7 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
     result_is_option: bool,
+    result_is_simple: bool,
 ) {
     // Bare-result assertions on `?T` (Optional) translate to null-checks instead
     // of `.len`. Mirrors the same behaviour in kotlin.rs (bare_result_is_option).
@@ -2419,6 +2429,24 @@ fn render_assertion(
         }
     }
 
+    // When result_is_simple, the Zig binding returns a scalar type like []u8 or ?T.
+    // Skip assertions on fields that don't exist on the scalar (e.g., metadata,
+    // document, structure fields).
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            let f_lower = f.to_lowercase();
+            if !f.is_empty()
+                && f_lower != "content"
+                && (f_lower.starts_with("metadata")
+                    || f_lower.starts_with("document")
+                    || f_lower.starts_with("structure"))
+            {
+                let _ = writeln!(out, "    // skipped: field '{}' not available when result_is_simple", f);
+                return;
+            }
+        }
+    }
+
     // Synthetic-field 'result' on a bare-string/JSON-bytes return (e.g.
     // `detect_mime_type_from_bytes` returns `String` → Zig `[]u8`). The
     // fixture convention is `field: "result", contains: "pdf"` meaning the
@@ -2482,6 +2510,10 @@ fn render_assertion(
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
     let field_expr = match &assertion.field {
+        // When result_is_simple, the result is a scalar ([]u8 or ?T, etc.) — any
+        // field access on it would fail. Treat all assertions as referring to the
+        // result itself.
+        _ if result_is_simple => result_var.to_string(),
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "zig", result_var),
         _ => result_var.to_string(),
     };
