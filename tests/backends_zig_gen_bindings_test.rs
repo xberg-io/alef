@@ -68,6 +68,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -599,6 +600,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let get_language_fn = FunctionDef {
         name: "get_language".to_string(),
@@ -1172,6 +1174,7 @@ type = "*const std::ffi::c_char"
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1278,6 +1281,7 @@ type = "CrawlStreamRequest"
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1469,6 +1473,7 @@ type = "CrawlStreamRequest"
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {

@@ -118,6 +118,7 @@ fn make_demo_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let config_type = TypeDef {
@@ -146,6 +147,7 @@ fn make_demo_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     ApiSurface {
@@ -703,6 +705,7 @@ fn real_ir_shape_optional_ref_result_async() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // create_client(api_key: Option<String>, base_url: Option<String>, timeout_secs: Option<u64>,
@@ -936,6 +939,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1010,6 +1014,7 @@ fn method_ref_receiver_emits_const_cast() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1096,6 +1101,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1184,6 +1190,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1277,6 +1284,7 @@ fn method_pathbuf_param_receives_raw_string() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1373,6 +1381,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {

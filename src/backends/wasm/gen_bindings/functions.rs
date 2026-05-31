@@ -1509,6 +1509,7 @@ mod tests {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
 
         let (code, _name) = gen_input_dto_for_type("CrawlConfig", "sample_crawler", &type_def);
@@ -1584,6 +1585,7 @@ mod tests {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
 
         // Generate without the "layout" feature enabled

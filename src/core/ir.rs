@@ -334,6 +334,17 @@ pub struct TypeDef {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default)]
     pub binding_exclusion_reason: Option<String>,
+    /// True when this type appears as the wrapper of one or more registration
+    /// variants — i.e. its name matches a
+    /// [`RegistrationVariant::wrapper_call`]'s
+    /// [`WrapperConstructorCall::wrapper_type_name`]. Backends use this flag
+    /// to opt the type's static `new` constructor into host-language
+    /// constructor emission (e.g. `#[new]` for pyo3, `#[napi(constructor)]`
+    /// for napi-rs), so that variant bodies which call
+    /// `WrapperType(args...)` resolve to a real instance rather than a
+    /// "cannot create instances" runtime error.
+    #[serde(default)]
+    pub is_variant_wrapper: bool,
 }
 
 /// A field on a public struct.

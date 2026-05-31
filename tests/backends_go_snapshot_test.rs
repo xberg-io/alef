@@ -72,6 +72,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 

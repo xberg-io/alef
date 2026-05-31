@@ -74,6 +74,7 @@ fn make_basic_api() -> ApiSurface {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "process".into(),
@@ -217,6 +218,7 @@ fn snapshot_conversion_struct_with_named_types() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "Wrapper".to_string(),
@@ -238,6 +240,7 @@ fn snapshot_conversion_struct_with_named_types() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![FunctionDef {
@@ -305,6 +308,7 @@ fn snapshot_conversion_enum_with_data() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -385,6 +389,7 @@ fn snapshot_conversion_vec_of_named() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "getItems".into(),
@@ -476,6 +481,7 @@ fn snapshot_trait_bridge_inbound() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "OcrConfig".to_string(),
@@ -497,6 +503,7 @@ fn snapshot_trait_bridge_inbound() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ExtractionResult".to_string(),
@@ -518,6 +525,7 @@ fn snapshot_trait_bridge_inbound() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "OcrBackend".to_string(),
@@ -596,6 +604,7 @@ fn snapshot_trait_bridge_inbound() {
                 super_traits: vec!["Plugin".to_string()],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -690,6 +699,7 @@ fn snapshot_tuple_field_as_vec() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract_keywords".into(),
@@ -800,6 +810,7 @@ fn snapshot_streaming_adapter() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -884,6 +895,7 @@ fn snapshot_first_class_struct_optional_field() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -970,6 +982,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             // The options type that receives the visitor via a field.
             TypeDef {
@@ -992,6 +1005,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             // The visitor trait implemented by Swift.
             TypeDef {
@@ -1020,6 +1034,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1124,6 +1139,7 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1222,6 +1238,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "Diagnostic".to_string(),
@@ -1246,6 +1263,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ProcessResult".to_string(),
@@ -1275,6 +1293,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1386,6 +1405,7 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1501,6 +1521,7 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1582,6 +1603,7 @@ fn snapshot_enum_variant_optional_field() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -1707,6 +1729,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {

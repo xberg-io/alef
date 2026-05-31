@@ -81,6 +81,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -254,6 +255,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -399,6 +401,7 @@ fn test_generated_header() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -512,6 +515,7 @@ fn test_methods_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -792,6 +796,7 @@ fn test_opaque_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -866,6 +871,7 @@ fn test_default_config() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -931,6 +937,7 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
@@ -1067,6 +1074,7 @@ mod trait_bridge {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 
@@ -1399,6 +1407,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -1710,6 +1719,7 @@ fn test_optional_ref_string_method_returns_owned_option() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1795,6 +1805,7 @@ fn test_opaque_owned_builder_return_rewraps_arc() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1852,6 +1863,7 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -1981,6 +1993,7 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2057,6 +2070,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let cfg = TraitBridgeConfig {
@@ -2179,6 +2193,7 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2870,6 +2885,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         },
         // Update struct should be filtered out
         TypeDef {
@@ -2892,6 +2908,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         },
         // Builder struct should be filtered out
         TypeDef {
@@ -2914,6 +2931,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         },
     ];
 

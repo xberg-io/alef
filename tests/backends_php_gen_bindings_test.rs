@@ -111,6 +111,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
@@ -263,6 +264,7 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "hidden_function".to_string(),
@@ -363,6 +365,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -598,6 +601,7 @@ fn test_methods_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -868,6 +872,7 @@ fn test_opaque_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -939,6 +944,7 @@ fn test_default_config() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1048,6 +1054,7 @@ fn test_multiple_types_with_shared_error() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "Parser".to_string(),
@@ -1099,6 +1106,7 @@ fn test_multiple_types_with_shared_error() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1170,6 +1178,7 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "create_thing".to_string(),
@@ -1396,6 +1405,7 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1577,6 +1587,7 @@ fn make_trait_def_php(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -2150,6 +2161,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -2250,6 +2262,7 @@ fn test_stubs_non_void_methods_have_return_statements() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "create_config".to_string(),
@@ -2447,6 +2460,7 @@ fn test_vec_named_struct_parameter() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "batch_process".to_string(),
@@ -2562,6 +2576,7 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2642,6 +2657,7 @@ fn test_dto_properties_use_camel_case_php_names() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2841,6 +2857,7 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2911,6 +2928,7 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3051,6 +3069,7 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3136,6 +3155,7 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     struct StubMapper;
@@ -3248,6 +3268,7 @@ fn has_default_struct_keeps_derived_default_when_delegation_disabled() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     struct StubMapper;
@@ -3331,6 +3352,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "Handle".to_string(),
@@ -3369,6 +3391,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],

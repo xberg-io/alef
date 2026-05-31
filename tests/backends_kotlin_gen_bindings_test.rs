@@ -96,6 +96,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -630,6 +631,7 @@ type = "ChatCompletionRequest"
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -783,6 +785,7 @@ type = "ChatCompletionRequest"
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -888,6 +891,7 @@ target = "jvm"
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -1002,6 +1006,7 @@ target = "jvm"
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 
@@ -1151,6 +1156,7 @@ target = "jvm"
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 

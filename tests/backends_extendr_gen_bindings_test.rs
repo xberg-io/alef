@@ -79,6 +79,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract".to_string(),
@@ -238,6 +239,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -378,6 +380,7 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "run".to_string(),
@@ -460,6 +463,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "parse".to_string(),
@@ -553,6 +557,7 @@ fn test_generated_header() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "simple_fn".to_string(),
@@ -666,6 +671,7 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -743,6 +749,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let options_type = TypeDef {
@@ -765,6 +772,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -853,6 +861,7 @@ mod trait_bridge {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 

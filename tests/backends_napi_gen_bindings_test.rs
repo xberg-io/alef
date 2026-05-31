@@ -77,6 +77,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract_file".to_string(),
@@ -239,6 +240,7 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -299,6 +301,7 @@ fn dts_extract_file_preserves_native_argument_order() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract_file".to_string(),
@@ -404,6 +407,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "Config".to_string(),
@@ -425,6 +429,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![FunctionDef {
@@ -554,6 +559,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -700,6 +706,7 @@ fn test_binding_excluded_field_is_hidden_from_napi_api() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "accept_upload".to_string(),
@@ -949,6 +956,7 @@ fn test_methods_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1127,6 +1135,7 @@ fn test_opaque_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1201,6 +1210,7 @@ fn test_optional_and_default_fields() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1301,6 +1311,7 @@ fn test_async_method() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1396,6 +1407,7 @@ fn test_static_method_with_error() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1462,6 +1474,7 @@ fn test_map_types() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1551,6 +1564,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1637,6 +1651,7 @@ fn make_trait_def_napi(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -2034,6 +2049,7 @@ fn make_language_type_def() -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -2269,6 +2285,7 @@ fn make_language_registry_type_def() -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -2473,6 +2490,7 @@ fn test_napi_js_name_on_non_opaque_struct() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2529,6 +2547,7 @@ fn test_napi_js_name_on_opaque_struct() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2654,6 +2673,7 @@ fn test_dts_dto_fields_are_readonly() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2827,6 +2847,7 @@ fn struct_doc_and_field_docs_emitted_as_rustdoc() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3039,6 +3060,7 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],

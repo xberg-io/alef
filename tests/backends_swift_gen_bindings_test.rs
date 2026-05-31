@@ -70,6 +70,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -729,6 +730,7 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "schema_query_only".into(),
@@ -1614,6 +1616,7 @@ fn make_streaming_api() -> ApiSurface {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1777,6 +1780,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ChatCompletionChunk".to_string(),
@@ -1802,6 +1806,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1918,6 +1923,7 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2030,6 +2036,7 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -2134,6 +2141,7 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {

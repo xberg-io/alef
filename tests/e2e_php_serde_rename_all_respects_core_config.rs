@@ -83,6 +83,7 @@ fn php_respects_serde_rename_all_camel_case_when_present() {
         super_traits: Vec::new(),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
         fields: Vec::new(),
         methods: Vec::new(),
     };
@@ -153,6 +154,7 @@ fn php_camel_cases_keys_when_core_type_lacks_rename_all() {
         super_traits: Vec::new(),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
         fields: Vec::new(),
         methods: Vec::new(),
     };

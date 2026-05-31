@@ -653,6 +653,7 @@ fn extract_items(
                     super_traits: vec![],
                     binding_excluded,
                     binding_exclusion_reason,
+                    is_variant_wrapper: false,
                 });
             }
             syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {
@@ -762,6 +763,7 @@ fn extract_items(
                     super_traits,
                     binding_excluded: trait_binding_excluded,
                     binding_exclusion_reason: trait_binding_exclusion_reason,
+                    is_variant_wrapper: false,
                 });
             }
             syn::Item::Mod(item_mod) => {

@@ -2012,6 +2012,7 @@ mod tests {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let out = gen_struct_type(
             &typ,
@@ -2111,6 +2112,7 @@ mod tests {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let out = gen_struct_type(
             &typ,
@@ -2151,6 +2153,7 @@ mod tests {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let mut data_enum_names = std::collections::HashSet::new();
         data_enum_names.insert("ChunkSizing");
@@ -2200,6 +2203,7 @@ mod tests {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let out = gen_struct_type(
             &typ,
@@ -2253,6 +2257,7 @@ mod tests {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         // Simulate the config allowing DialOptions for functional-options
         let out = gen_config_options(

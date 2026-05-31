@@ -98,6 +98,7 @@ fn data_class_field_carries_kdoc() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],

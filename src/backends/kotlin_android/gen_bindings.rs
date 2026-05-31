@@ -351,12 +351,7 @@ fn emit_trait_interfaces(
 ///
 /// Short signatures remain single-line. Empty parameter lists are always
 /// single-line even if return type is long.
-pub fn format_method_signature(
-    suspend_keyword: &str,
-    method_name: &str,
-    params: &str,
-    return_type: &str,
-) -> String {
+pub fn format_method_signature(suspend_keyword: &str, method_name: &str, params: &str, return_type: &str) -> String {
     // Base signature without leading indent: "suspend fun name(...):"
     let base_sig = format!("{suspend_keyword}fun {method_name}(");
     // Leading indent (4 spaces for trait method declarations)
@@ -428,7 +423,12 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
         } else {
             return_type
         };
-        body.push_str(&format_method_signature(&suspend_keyword, &method_name, &params, &return_type));
+        body.push_str(&format_method_signature(
+            suspend_keyword,
+            &method_name,
+            &params,
+            &return_type,
+        ));
     }
 }
 

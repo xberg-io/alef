@@ -102,6 +102,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // The enum_defaults map should map MyEnumType to ActualDefault

@@ -77,7 +77,37 @@ pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateC
         }
     }
 
+    mark_variant_wrapper_types(surface);
+
     warnings
+}
+
+/// After every service is built, walk each registration variant's
+/// [`WrapperConstructorCall`] and flip
+/// [`TypeDef::is_variant_wrapper`](crate::core::ir::TypeDef::is_variant_wrapper)
+/// on every type that appears as a wrapper. Backends consult this flag to opt
+/// the type's static constructor into host-language constructor emission so
+/// variant call sites like `RouteBuilder(method, path)` resolve to a real
+/// instance instead of a "cannot create instances" runtime error.
+fn mark_variant_wrapper_types(surface: &mut ApiSurface) {
+    let mut wrapper_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for svc in &surface.services {
+        for reg in &svc.registrations {
+            for variant in &reg.variants {
+                if let Some(call) = &variant.wrapper_call {
+                    wrapper_names.insert(call.wrapper_type_name.clone());
+                }
+            }
+        }
+    }
+    if wrapper_names.is_empty() {
+        return;
+    }
+    for t in &mut surface.types {
+        if wrapper_names.contains(&t.name) {
+            t.is_variant_wrapper = true;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -912,6 +942,27 @@ pub trait IntoHandler {}
         }
         assert_eq!(get.signature_params.len(), 1);
         assert_eq!(get.signature_params[0].name, "path");
+
+        // The wrapper type must be flagged so backends opt its `new` constructor
+        // into host-language constructor emission. Without this, variant bodies
+        // calling `RouteBuilder(method, path)` would hit a "cannot create
+        // instances" error at runtime.
+        let route_builder = surface
+            .types
+            .iter()
+            .find(|t| t.name == "RouteBuilder")
+            .expect("RouteBuilder TypeDef must exist");
+        assert!(
+            route_builder.is_variant_wrapper,
+            "RouteBuilder must be marked is_variant_wrapper after extract_services"
+        );
+        let request_data = surface.types.iter().find(|t| t.name == "RequestData");
+        if let Some(rd) = request_data {
+            assert!(
+                !rd.is_variant_wrapper,
+                "non-wrapper types must NOT be flagged is_variant_wrapper"
+            );
+        }
     }
 
     #[test]

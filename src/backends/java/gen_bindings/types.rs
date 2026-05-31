@@ -2528,6 +2528,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 
@@ -2613,6 +2614,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 
@@ -2772,6 +2774,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let out = gen_record_type(
             "dev.sample_crate.samplellm",

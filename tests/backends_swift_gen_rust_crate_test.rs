@@ -70,6 +70,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -812,6 +813,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -1111,6 +1113,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1347,6 +1350,7 @@ type = "ChatCompletionRequest"
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1494,6 +1498,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1596,6 +1601,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 

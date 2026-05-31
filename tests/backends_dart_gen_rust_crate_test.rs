@@ -69,6 +69,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -93,6 +94,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -654,6 +656,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -1416,6 +1419,7 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // A free function that takes ProcessConfig as input forces a From<Mirror> for Core impl.
@@ -1574,6 +1578,7 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let process_fn = FunctionDef {

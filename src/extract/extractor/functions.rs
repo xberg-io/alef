@@ -261,6 +261,7 @@ pub(crate) fn extract_impl_block(
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         });
     }
 }

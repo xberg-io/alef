@@ -152,6 +152,7 @@ fn test_generate_public_api_creates_all_files() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
@@ -305,6 +306,7 @@ fn test_native_ex_has_all_nif_stubs() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
@@ -458,6 +460,7 @@ fn test_struct_module_has_defstruct() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -576,6 +579,7 @@ fn test_main_module_has_method_wrappers() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -636,6 +640,7 @@ fn test_opaque_types_not_get_struct_module() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1163,6 +1168,7 @@ fn test_defstruct_string_fields_default_to_nil() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],

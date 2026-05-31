@@ -136,6 +136,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -481,6 +482,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -611,6 +613,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -718,6 +721,7 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -808,6 +812,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
