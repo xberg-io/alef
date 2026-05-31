@@ -1,4 +1,5 @@
-let {{ param_name }} = {{ param_name }}.map(|v| {
-        let bridge = {{ struct_name }}::new(v);
-        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
+let {{ param_name }} = {{ param_name }}.and_then(|v| {
+        {{ struct_name }}::new(v).ok().map(|bridge| {
+            std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
+        })
     });

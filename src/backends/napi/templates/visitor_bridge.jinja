@@ -32,7 +32,7 @@ fn nodecontext_to_js_object<'e>(
 
 pub struct {{ struct_name }} {
     env: napi::sys::napi_env,
-    obj: napi::sys::napi_value,
+    obj_ref: Option<napi::bindgen_prelude::ObjectRef<false>>,
 }
 
 impl std::fmt::Debug for {{ struct_name }} {
@@ -42,29 +42,37 @@ impl std::fmt::Debug for {{ struct_name }} {
 }
 
 impl {{ struct_name }} {
-    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> Self {
-        // Store raw NAPI pointers instead of typed references.
-        // This avoids lifetime issues with the Object<'static> transmute.
-        // SAFETY: Object<'_> is 3 pointer-sized words: [napi_env, napi_value, is_ref].
-        // We extract these raw pointers which remain valid as long as the object exists.
+    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> napi::Result<Self> {
+        // SAFETY: Object<'_> is laid out as 3 pointer-sized words: [napi_env, napi_value, is_ref].
+        // We extract the raw napi_env pointer so we can reconstruct an Env inside visitor
+        // callbacks. The pointer is stable for the lifetime of the Node process.
         let env = unsafe {
             let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);
             raw[0] as napi::sys::napi_env
         };
-        let obj = unsafe {
-            let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);
-            raw[1] as napi::sys::napi_value
-        };
-        Self { env, obj }
+        // Create a persistent napi reference so the JS object survives across the
+        // synchronous convert() call, regardless of HandleScope movement.
+        let obj_ref = js_obj.create_ref::<false>()?;
+        Ok(Self { env, obj_ref: Some(obj_ref) })
     }
 }
 
-// SAFETY: The visitor bridge stores raw napi_env and napi_value pointers.
-// These pointers are obtained from a JS object created on the NAPI event loop thread.
-// Since the bridge is wrapped in Arc<Mutex<>> and only accessed during the convert() call,
-// it is safe to send across threads as long as all napi:: operations reconstructed from
-// these pointers happen on the original event loop thread. The convert() function ensures
-// this by keeping the bridge alive only for the duration of the synchronous NAPI call.
+impl Drop for {{ struct_name }} {
+    fn drop(&mut self) {
+        // Release the persistent reference so the JS object can be GC'd. unref takes
+        // ownership; the Option lets us move out from &mut self in drop.
+        if let Some(obj_ref) = self.obj_ref.take() {
+            // self.env was captured from the napi_env that owns obj_ref.
+            let env = napi::Env::from_raw(self.env);
+            let _ = obj_ref.unref(&env);
+        }
+    }
+}
+
+// SAFETY: The visitor bridge stores an napi_ref (via ObjectRef), which is valid across
+// threads as long as all napi:: operations using it happen on the original event loop
+// thread where the reference was created. The Arc<Mutex<>> wrapper around the bridge
+// ensures synchronous, single-threaded access during the convert() call.
 unsafe impl Send for {{ struct_name }} {}
 // SAFETY: see Send impl above.
 unsafe impl Sync for {{ struct_name }} {}

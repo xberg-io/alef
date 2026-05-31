@@ -924,9 +924,10 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                             let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
                             let handle_path = format!("{core_import}::visitor::{type_alias}");
                             let replacement = format!(
-                                "__result.visitor = val.{field_name}.map(|obj| {{\n            \
-                                    let bridge = JsHtmlVisitorBridge::new(obj);\n            \
-                                    std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n        \
+                                "__result.visitor = val.{field_name}.and_then(|obj| {{\n            \
+                                    JsHtmlVisitorBridge::new(obj).ok().map(|bridge| {{\n                \
+                                        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n            \
+                                    }})\n        \
                                 }});"
                             );
 

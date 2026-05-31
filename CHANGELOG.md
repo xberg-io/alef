@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **napi visitor bridge: store persistent `ObjectRef` instead of raw `napi_value`
+  pointers — fixes silently dropped callbacks.** The previous bridge struct stored
+  raw `napi_env`/`napi_value` pointers extracted via `transmute_copy` from the
+  `Object<'_>` constructor argument, then reconstructed an `Object` per callback
+  via `Object::from_raw`. The `napi_value` is a *local handle* tied to the
+  HandleScope active at the time the bridge was constructed; by the time visitor
+  methods fired deep inside the `convert()` call, the scope had moved and
+  `get_named_property("visitText")` silently returned `Err`, so every callback
+  fell through to `VisitResult::Continue` without dispatching. The fix uses
+  napi-rs's `Object::create_ref::<false>()` to obtain a persistent `ObjectRef`
+  that holds a strong reference until `unref()` (called from `Drop`). Each
+  callback calls `obj_ref.get_value(&env)` to materialize a fresh local handle
+  inside its own active scope. The constructor now returns `Result<Self>` since
+  `create_ref` can fail; the four call-site templates
+  (`bridge_optional_wrap`, `bridge_required_wrap`,
+  `options_visitor_extract_optional`, `options_visitor_extract_required`) and
+  the inline `visitor_wrap` emitter in `trait_bridge.rs` were updated to
+  propagate via `and_then(... .ok().map(...))` or `?` so a failed reference
+  creation cleanly skips the visitor wrap. Resolves downstream h2m issue #395.
+  (`src/backends/napi/templates/{visitor_bridge,visitor_method,bridge_optional_wrap,bridge_required_wrap,options_visitor_extract_optional,options_visitor_extract_required}.jinja`,
+  `src/backends/napi/trait_bridge.rs`, `src/backends/napi/gen_bindings/mod.rs`)
+
 - **go service_api: fix variant C symbol and missing free-arg emission.** Two bugs in `gen_registration_variant`: (1) the C FFI symbol was built as `{prefix}_{service}_{reg_method}_{variant}` but the ABI exports it as `{prefix}_{service}_{variant}` — removed the `_{reg_method}` segment. (2) When a `wrapper_call` is present, extra C call args must come from `wc.args` (free args only); the old loop over `reg.metadata_params` never matched the wrapper type name against override/sig-param names so produced no args at all, causing "not enough arguments" link errors. (`src/backends/go/gen_bindings/service_api.rs`)
 
 - **kotlin service_api: fix variant template newline and Rust-path leak.** Registration variant methods now emit the doc comment on its own line (not merged with `fun`), always include `handler: (String) -> String` in the variant signature, and translate Rust enum path expressions (`my_crate::Type::Variant`) to Kotlin form (`Type.VARIANT`) in both direct-override and wrapper-constructor modes. (`src/backends/kotlin/gen_bindings/service_api.rs`, `src/backends/kotlin/templates/registration_variant.kt.jinja`)

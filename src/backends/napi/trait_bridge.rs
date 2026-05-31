@@ -880,9 +880,10 @@ pub fn gen_options_field_bridge_function(
     // Generate visitor wrapping (wrap the visitor parameter into a VisitorHandle).
     // This mirrors PyO3's approach: take visitor as a separate parameter and wrap it.
     let visitor_wrap = format!(
-        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n    \
-         let bridge = {struct_name}::new(v);\n    \
-         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n\
+        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.and_then(|v| {{\n    \
+         {struct_name}::new(v).ok().map(|bridge| {{\n    \
+         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
+         }})\n\
          }});"
     );
 

@@ -1,8 +1,16 @@
     fn {{ method_name }}({{ signature }}) -> {{ return_type }} {
-        // SAFETY: env and obj are raw NAPI pointers stored at initialization time.
-        // We reconstruct the Env and Object from these pointers to call the JS function.
-        let __env = unsafe { napi::Env::from_raw(self.env) };
-        let obj = napi::bindgen_prelude::Object::from_raw(__env.raw(), self.obj);
+        // self.env is the napi_env that owned the persistent reference; it is stable for
+        // the lifetime of the Node process. Env::from_raw is a safe constructor that
+        // gives us a live Env handle for the current scope.
+        let __env = napi::Env::from_raw(self.env);
+        let obj_ref = match self.obj_ref.as_ref() {
+            Some(r) => r,
+            None => return {{ return_type }}::Continue,
+        };
+        let obj = match obj_ref.get_value(&__env) {
+            Ok(o) => o,
+            Err(_) => return {{ return_type }}::Continue,
+        };
 
         // Try to get the JS function from the object
         let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match obj.get_named_property("{{ js_method_name }}") {
@@ -53,3 +61,4 @@
             }
         }
     }
+
