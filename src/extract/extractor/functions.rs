@@ -239,7 +239,16 @@ pub(crate) fn extract_impl_block(
             }
         }
     } else {
-        // The impl is for a type we haven't seen as a pub struct — create an opaque entry
+        // The impl is for a type we haven't seen as a `pub` struct — create an opaque
+        // entry, but flag it `binding_excluded` because the struct's own visibility
+        // is unverified (the pub-only first-pass struct extractor at
+        // `extract/extractor/mod.rs` rejected it). The common case is a `pub(crate)`
+        // struct with `pub` methods: rustc allows the methods to be marked `pub`
+        // but their effective visibility is capped at `pub(crate)`. Emitting a
+        // binding wrapper (`pub struct Foo { pub(crate) inner: this_crate::path::Foo }`)
+        // fails to compile with E0603 ("struct is private"), since the binding crate
+        // cannot name the wrapped type. Callers that genuinely want such a type
+        // surfaced can opt in via an `alef.toml` config entry.
         let rust_path = build_rust_path(crate_name, module_path, &type_name);
         surface.types.push(TypeDef {
             name: type_name.clone(),
@@ -259,8 +268,8 @@ pub(crate) fn extract_impl_block(
             serde_rename_all: None,
             has_serde: false,
             super_traits: vec![],
-            binding_excluded: false,
-            binding_exclusion_reason: None,
+            binding_excluded: true,
+            binding_exclusion_reason: Some("synthetic-opaque-from-impl-block (source visibility unverified)".to_string()),
             is_variant_wrapper: false,
         });
     }
