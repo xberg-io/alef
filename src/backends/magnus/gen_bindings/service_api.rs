@@ -658,6 +658,7 @@ fn gen_variant_match_arm(
     contract_name: &str,
     bridge_name: &str,
     core_import: &str,
+    api: &ApiSurface,
 ) {
     let variant_name = &variant.name;
     let base_method = &base_reg.method;
@@ -713,18 +714,35 @@ fn gen_variant_match_arm(
                         ));
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                     }
-                    TypeRef::Named(_) => {
-                        // For named types (wrapper types), extract as Value and convert via try_convert
-                        out.push_str(&format!(
-                            "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                            param.name, rust_ty, i as isize
-                        ));
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                        out.push_str(&format!(
-                            "                let {} = (*{}).clone();\n",
-                            param.name, param.name
-                        ));
+                    TypeRef::Named(n) => {
+                        // For named types, check if it's a variant wrapper.
+                        // If so, TryConvert to the local wrapper type name, then extract .inner.as_ref().clone().
+                        // Otherwise, TryConvert directly using the source-crate-qualified type.
+                        if is_variant_wrapper_type(api, n) {
+                            // Variant wrapper: use local type name for TryConvert
+                            out.push_str(&format!(
+                                "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
+                                param.name, n, i as isize
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                            out.push_str(&format!(
+                                "                let {} = {}.inner.as_ref().clone();\n",
+                                param.name, param.name
+                            ));
+                        } else {
+                            // Non-variant named type: TryConvert using source-crate-qualified path
+                            out.push_str(&format!(
+                                "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
+                                param.name, rust_ty, i as isize
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                            out.push_str(&format!(
+                                "                let {} = (*{}).clone();\n",
+                                param.name, param.name
+                            ));
+                        }
                     }
                     _ => {
                         // Fallback for other types
@@ -783,6 +801,11 @@ fn gen_variant_match_arm(
         out.push_str(";\n");
     }
     out.push_str("            }\n");
+}
+
+/// Check if a named type is a variant wrapper by looking up in the API surface.
+fn is_variant_wrapper_type(api: &ApiSurface, type_name: &str) -> bool {
+    api.types.iter().any(|t| t.name == type_name && t.is_variant_wrapper)
 }
 
 /// Emit the `#[magnus::function]` entry point for one service × entrypoint.
@@ -901,18 +924,35 @@ fn gen_run_function(
                             ));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                         }
-                        TypeRef::Named(_) => {
-                            // For named types (wrapper types), extract as Value and convert via try_convert
-                            out.push_str(&format!(
-                                "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                                meta_param.name, rust_ty, i as isize
-                            ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                            out.push_str(&format!(
-                                "                let {} = (*{}).clone();\n",
-                                meta_param.name, meta_param.name
-                            ));
+                        TypeRef::Named(n) => {
+                            // For named types, check if it's a variant wrapper.
+                            // If so, TryConvert to the local wrapper type name, then extract .inner.as_ref().clone().
+                            // Otherwise, TryConvert directly using the source-crate-qualified type.
+                            if is_variant_wrapper_type(api, n) {
+                                // Variant wrapper: use local type name for TryConvert
+                                out.push_str(&format!(
+                                    "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
+                                    meta_param.name, n, i as isize
+                                ));
+                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
+                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                                out.push_str(&format!(
+                                    "                let {} = {}.inner.as_ref().clone();\n",
+                                    meta_param.name, meta_param.name
+                                ));
+                            } else {
+                                // Non-variant named type: TryConvert using source-crate-qualified path
+                                out.push_str(&format!(
+                                    "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
+                                    meta_param.name, rust_ty, i as isize
+                                ));
+                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
+                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                                out.push_str(&format!(
+                                    "                let {} = (*{}).clone();\n",
+                                    meta_param.name, meta_param.name
+                                ));
+                            }
                         }
                         _ => {
                             // Fallback for other types
@@ -947,7 +987,7 @@ fn gen_run_function(
 
             // Emit match arms for variants
             for variant in &reg.variants {
-                gen_variant_match_arm(&mut *out, variant, reg, contract_name, &bridge_name, core_import);
+                gen_variant_match_arm(&mut *out, variant, reg, contract_name, &bridge_name, core_import, api);
             }
         }
     }
@@ -1439,15 +1479,15 @@ mod tests {
         );
     }
 
-    /// `gen_service_rs` emits the `#[magnus::function]` run entry point.
+    /// `gen_service_rs` emits the run entry point registered via `function!`.
     #[test]
     fn rust_output_contains_magnus_function_run() {
         let surface = make_fixture_surface();
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
         assert!(
-            output.contains("#[magnus::function]"),
-            "expected `#[magnus::function]` attribute:\n{output}"
+            output.contains("function! macro callbacks run on a Ruby thread"),
+            "expected `function!` callback handling in run entry point:\n{output}"
         );
         assert!(
             output.contains("pub fn test_service_run("),
