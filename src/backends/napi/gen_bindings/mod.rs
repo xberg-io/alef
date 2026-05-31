@@ -1026,7 +1026,15 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .map(|c| c.capsule_types.clone())
             .unwrap_or_default();
         for typ in api.types.iter() {
-            if !typ.is_trait && !capsule_types.contains_key(&typ.name) {
+            // The napi binding filters out Builder/Update DTOs (see the
+            // filters at lines 382/643/735/776) — exclude them here too so
+            // the typescript wrapper does not re-export names that the
+            // native module never emits.
+            if !typ.is_trait
+                && !capsule_types.contains_key(&typ.name)
+                && !typ.name.ends_with("Builder")
+                && !typ.name.ends_with("Update")
+            {
                 if typ.is_opaque {
                     value_names.insert(typ.name.clone());
                 } else {
