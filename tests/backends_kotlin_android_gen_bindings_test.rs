@@ -64,6 +64,7 @@ fn make_streaming_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -85,6 +86,7 @@ fn make_streaming_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -239,6 +241,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -260,6 +263,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let create_client_fn = FunctionDef {
         name: "create_client".into(),
@@ -291,6 +295,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -372,6 +377,7 @@ fn make_handle_only_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let create_engine_fn = FunctionDef {
         name: "create_engine".into(),
@@ -390,6 +396,7 @@ fn make_handle_only_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let scrape_fn = FunctionDef {
         name: "scrape".into(),
@@ -437,6 +444,7 @@ fn make_handle_only_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -537,6 +545,7 @@ fn make_optional_params_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -558,6 +567,7 @@ fn make_optional_params_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     use alef::core::ir::PrimitiveType;
     let create_client_fn = FunctionDef {
@@ -651,6 +661,7 @@ fn make_optional_params_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -818,6 +829,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         enums: vec![],
         errors: vec![],
@@ -941,6 +953,7 @@ fn make_sealed_field(name: &str, ty: TypeRef) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
         original_type: None,
     }
 }
@@ -991,6 +1004,7 @@ fn make_sealed_variants_api() -> ApiSurface {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     ApiSurface {
@@ -1106,6 +1120,7 @@ fn make_tuple_error_api() -> ApiSurface {
                         serde_flatten: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        is_variant_wrapper: false,
                         original_type: None,
                     }],
                     has_source: false,
@@ -1136,6 +1151,7 @@ fn make_tuple_error_api() -> ApiSurface {
                             serde_flatten: false,
                             binding_excluded: false,
                             binding_exclusion_reason: None,
+                            is_variant_wrapper: false,
                             original_type: None,
                         },
                         FieldDef {
@@ -1156,6 +1172,7 @@ fn make_tuple_error_api() -> ApiSurface {
                             serde_flatten: false,
                             binding_excluded: false,
                             binding_exclusion_reason: None,
+                            is_variant_wrapper: false,
                             original_type: None,
                         },
                     ],
@@ -1179,6 +1196,7 @@ fn make_tuple_error_api() -> ApiSurface {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1273,6 +1291,7 @@ fn make_convert_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ConversionResult".into(),
@@ -1294,6 +1313,7 @@ fn make_convert_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![FunctionDef {
@@ -1342,6 +1362,7 @@ fn make_convert_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         enums: vec![],
         errors: vec![],
@@ -1450,6 +1471,7 @@ fn make_batch_function_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "DemoResult".into(),
@@ -1471,6 +1493,7 @@ fn make_batch_function_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![FunctionDef {
@@ -1503,6 +1526,7 @@ fn make_batch_function_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         enums: vec![],
         errors: vec![],
@@ -1669,6 +1693,7 @@ fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         enums: vec![],
         errors: vec![],
@@ -1852,6 +1877,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "TowerResponse".into(),
@@ -1873,6 +1899,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "KeepMe".into(),
@@ -1894,6 +1921,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1918,6 +1946,7 @@ fn make_exclude_types_api() -> ApiSurface {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         errors: vec![ErrorDef {
             name: "TowerError".into(),
@@ -1944,6 +1973,7 @@ fn make_exclude_types_api() -> ApiSurface {
                     serde_flatten: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    is_variant_wrapper: false,
                     original_type: None,
                 }],
                 has_source: false,
@@ -1955,6 +1985,7 @@ fn make_exclude_types_api() -> ApiSurface {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -2041,6 +2072,7 @@ fn make_trait_api() -> ApiSurface {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         is_opaque: false,
         is_clone: false,
@@ -2056,6 +2088,7 @@ fn make_trait_api() -> ApiSurface {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -2268,6 +2301,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
             original_type: None,
         }],
         methods: vec![],
@@ -2285,6 +2319,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let skipped_type = TypeDef {
         name: "SkippedDto".into(),
@@ -2308,6 +2343,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             serde_flatten: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
             original_type: None,
         }],
         methods: vec![],
@@ -2325,6 +2361,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         super_traits: vec![],
         binding_excluded: true,
         binding_exclusion_reason: Some("alef(skip)".into()),
+        is_variant_wrapper: false,
     };
     let included_enum = EnumDef {
         name: "IncludedMode".into(),
@@ -2347,6 +2384,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let skipped_enum = EnumDef {
         name: "SkippedMode".into(),
@@ -2369,6 +2407,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         serde_rename_all: None,
         binding_excluded: true,
         binding_exclusion_reason: Some("alef(skip)".into()),
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -2406,5 +2445,364 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
     assert!(
         !kt_names.iter().any(|n| n == "SkippedMode.kt"),
         "binding_excluded enum must NOT be emitted; got: {kt_names:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// AGP Parser Cascade Fix: Long interface method signatures
+// ---------------------------------------------------------------------------
+
+fn make_long_signature_api() -> ApiSurface {
+    // Create a trait with methods that have long signatures (>=115 chars) to
+    // trigger the AGP 8.13.0 + Kotlin 2.3.21 parser cascade on single-line form.
+    let extract_method = MethodDef {
+        name: "extract_file".into(),
+        params: vec![
+            ParamDef {
+                name: "path".into(),
+                ty: TypeRef::Named("java.nio.file.Path".into()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            },
+            ParamDef {
+                name: "mime_type".into(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            },
+            ParamDef {
+                name: "config".into(),
+                ty: TypeRef::Named("ExtractionConfig".into()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            },
+        ],
+        return_type: TypeRef::Named("ExtractionResult".into()),
+        is_async: true,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+
+    let short_method = MethodDef {
+        name: "extract".into(),
+        params: vec![ParamDef {
+            name: "data".into(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+        }],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+
+    let zero_param_method = MethodDef {
+        name: "get_version".into(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+
+    let trait_type = TypeDef {
+        name: "DocumentExtractor".into(),
+        rust_path: "demo::DocumentExtractor".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![extract_method, short_method, zero_param_method],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    }
+}
+
+fn make_long_signature_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.sample_crate"
+
+[crates.kotlin_android]
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
+artifact_id = "demo-android"
+group_id = "dev.sample_crate"
+
+[[crates.trait_bridges]]
+trait_name = "DocumentExtractor"
+type_alias = "DocumentExtractorHandle"
+"#,
+    )
+}
+
+/// Test 1: Short method signature stays single-line
+#[test]
+fn long_signature_short_method_stays_single_line() {
+    let api = make_long_signature_api();
+    let config = make_long_signature_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let interface_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IDocumentExtractor.kt"))
+        .expect("IDocumentExtractor.kt must be emitted");
+
+    let content = &interface_kt.content;
+
+    // Short method "extract(data: String): String" should be single-line
+    assert!(
+        content.contains("fun extract(data: String): String"),
+        "short method must stay single-line, got:\n{content}"
+    );
+    // Should NOT wrap into multi-line
+    assert!(
+        !content.contains("fun extract(\n"),
+        "short method must not wrap, got:\n{content}"
+    );
+}
+
+/// Test 2: Long suspend method signature wraps multi-line with trailing commas
+#[test]
+fn long_signature_suspend_method_wraps_multiline_with_trailing_commas() {
+    let api = make_long_signature_api();
+    let config = make_long_signature_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let interface_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IDocumentExtractor.kt"))
+        .expect("IDocumentExtractor.kt must be emitted");
+
+    let content = &interface_kt.content;
+
+    // Long suspend method should wrap and have trailing commas on params
+    assert!(
+        content.contains("suspend fun extractFile(\n"),
+        "long suspend method must wrap to multi-line, got:\n{content}"
+    );
+    assert!(
+        content.contains("path: java.nio.file.Path,\n"),
+        "path param must have trailing comma, got:\n{content}"
+    );
+    assert!(
+        content.contains("mimeType: String,\n"),
+        "mimeType param must have trailing comma, got:\n{content}"
+    );
+    assert!(
+        content.contains("config: ExtractionConfig,\n"),
+        "config param must have trailing comma, got:\n{content}"
+    );
+    // Return type should be on its own line
+    assert!(
+        content.contains("): ExtractionResult"),
+        "return type must be on closing paren line, got:\n{content}"
+    );
+}
+
+/// Test 3: Zero-param method stays single-line even if return type is long
+#[test]
+fn long_signature_zero_param_method_always_single_line() {
+    let api = make_long_signature_api();
+    let config = make_long_signature_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let interface_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IDocumentExtractor.kt"))
+        .expect("IDocumentExtractor.kt must be emitted");
+
+    let content = &interface_kt.content;
+
+    // Zero-param method should always be single-line
+    assert!(
+        content.contains("fun getVersion(): String"),
+        "zero-param method must stay single-line, got:\n{content}"
+    );
+    assert!(
+        !content.contains("fun getVersion(\n"),
+        "zero-param method must not wrap, got:\n{content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Unit test for format_method_signature helper function
+// ---------------------------------------------------------------------------
+
+use alef::backends::kotlin_android::gen_bindings::format_method_signature;
+
+#[test]
+fn format_method_signature_short_stays_single_line() {
+    let sig = format_method_signature("", "process", "data: String", "Boolean");
+    assert!(
+        !sig.contains('\n'),
+        "short signature should be single-line, got:\n{sig}"
+    );
+    assert!(
+        sig.contains("fun process(data: String): Boolean"),
+        "short signature format incorrect, got:\n{sig}"
+    );
+}
+
+#[test]
+fn format_method_signature_long_wraps_with_trailing_commas() {
+    let sig = format_method_signature(
+        "suspend ",
+        "extractFile",
+        "path: java.nio.file.Path, mimeType: String, config: ExtractionConfig",
+        "ExtractionResult",
+    );
+    // Should be multi-line with trailing commas
+    assert!(
+        sig.contains("suspend fun extractFile(\n"),
+        "long suspend signature should wrap, got:\n{sig}"
+    );
+    assert!(
+        sig.contains("path: java.nio.file.Path,\n"),
+        "path param should have trailing comma, got:\n{sig}"
+    );
+    assert!(
+        sig.contains("mimeType: String,\n"),
+        "mimeType param should have trailing comma, got:\n{sig}"
+    );
+    assert!(
+        sig.contains("config: ExtractionConfig,\n"),
+        "config param should have trailing comma, got:\n{sig}"
+    );
+    assert!(
+        sig.contains("): ExtractionResult"),
+        "return type should be on closing paren line, got:\n{sig}"
+    );
+}
+
+#[test]
+fn format_method_signature_empty_params_always_single_line() {
+    let sig = format_method_signature(
+        "",
+        "getVersion",
+        "",
+        "VeryLongReturnTypeNameThatWouldExceedThresholdIfParamsWerePresent",
+    );
+    assert!(
+        !sig.contains('\n'),
+        "empty-param signature should always be single-line, got:\n{sig}"
+    );
+    assert!(
+        sig.contains("fun getVersion(): VeryLongReturnTypeNameThatWouldExceedThresholdIfParamsWerePresent"),
+        "empty-param signature format incorrect, got:\n{sig}"
+    );
+}
+
+#[test]
+fn format_method_signature_unit_return_type() {
+    let sig = format_method_signature("", "initialize", "", "Unit");
+    assert!(
+        sig.contains("fun initialize()\n"),
+        "Unit return should omit return type, got:\n{sig}"
+    );
+    assert!(
+        !sig.contains(": Unit"),
+        "Unit return should not appear in signature, got:\n{sig}"
     );
 }
