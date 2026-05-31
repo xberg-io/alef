@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Magnus service.rs: fix variant-wrapper type extraction.** Variant-wrapper types
+  now extract using the local wrapper struct name (not the source-crate-qualified path),
+  then access `.inner.as_ref().clone()` to get the owned source type value. This fixes
+  E0277 trait-bound errors in `TryConvert` when registering variant-wrapped parameters.
+  (`src/backends/magnus/gen_bindings/service_api.rs`)
+
 - **native/ABI generators: harden byte, string-length, and handle-lifetime paths.**
   Kotlin/JNI byte API pairing is covered by focused generator tests to keep Kotlin
   `ByteArray` declarations matched to Rust `jbyteArray` symbols. Java/Panama now
