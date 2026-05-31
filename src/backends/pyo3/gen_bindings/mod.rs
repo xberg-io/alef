@@ -936,6 +936,19 @@ mod alef_json_str_opt {
                     let ctor_impl = format!("#[pymethods]\nimpl {} {{\n{}}}", typ.name, ctor_body);
                     builder.add_item(&ctor_impl);
                 }
+                // Variant-wrapper constructor — when the type is referenced as the
+                // wrapper of one or more registration variants (and therefore variant
+                // bodies emit `WrapperType(args...)` constructor-syntax calls), opt
+                // its static `new` method into a Python-level `__new__` so the
+                // constructor syntax actually resolves. The existing
+                // `#[staticmethod] pub fn new` remains in place; this just adds the
+                // `#[new]` companion that delegates to it. Distinct Rust fn name
+                // (`py_new`) avoids the inherent-impl duplicate-`fn new` conflict.
+                else if typ.is_variant_wrapper {
+                    if let Some(ctor) = variant_wrapper_constructor(typ, &mapper) {
+                        builder.add_item(&ctor);
+                    }
+                }
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
@@ -1895,6 +1908,54 @@ fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
         .replace("Arc<std::sync::Mutex<", "Arc<tokio::sync::Mutex<")
         .replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(")
         .replace(".lock().unwrap()", ".lock().await")
+}
+
+/// For a wrapper type referenced by registration variants (i.e. one whose
+/// `is_variant_wrapper` flag is set by the extractor), emit a `#[pymethods]
+/// impl T { #[new] pub fn py_new(...) -> Self { Self::new(...) } }` block
+/// so the Python-side `WrapperType(args...)` constructor syntax used by
+/// variant bodies resolves to a real instance.
+///
+/// The wrapper's static `new` method remains emitted as `#[staticmethod]` by
+/// the general `gen_opaque_impl_block` pass — this just adds the `#[new]`
+/// companion. The two coexist by giving the constructor a distinct Rust
+/// function name (`py_new`); pyo3 registers it as Python `__new__` via the
+/// `#[new]` attribute regardless of the Rust name.
+///
+/// Returns `None` when the wrapper has no `new` method (or the constructor's
+/// receiver is not static) — the variant body would not compile in that
+/// case either, but we silently skip rather than panic so the rest of the
+/// surface can still be generated for diagnosis.
+fn variant_wrapper_constructor(
+    typ: &crate::core::ir::TypeDef,
+    mapper: &Pyo3Mapper,
+) -> Option<String> {
+    let ctor = typ
+        .methods
+        .iter()
+        .find(|m| m.name == "new" && m.receiver.is_none())?;
+    use crate::codegen::type_mapper::TypeMapper as _;
+    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
+    let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+    let call_args = ctor
+        .params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    // The core (source) constructor takes Rust-native types (`String` for
+    // path, the user-side `Method` newtype for the enum, etc.). Our binding
+    // wrapper's static `new` already does the `binding-Method → core-Method`
+    // conversion and produces a `Self`; we just delegate.
+    let body = if call_args.is_empty() {
+        "Self::new()".to_string()
+    } else {
+        format!("Self::new({call_args})")
+    };
+    Some(format!(
+        "#[pymethods]\nimpl {name} {{\n    #[new]\n    pub fn py_new({sig_params}) -> Self {{\n        {body}\n    }}\n}}\n",
+        name = typ.name,
+    ))
 }
 
 #[cfg(test)]
