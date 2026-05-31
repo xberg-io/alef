@@ -167,6 +167,17 @@ pub(crate) fn emit_cargo_toml(
     // any Named field that resolves to an enum (D6 fix).
     let needs_serde_json = api_has_json_or_enum_field(api);
     let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
+    // Trait-bridge codegen emits `pub struct InternalDocumentBridge` with
+    // `#[derive(serde::Serialize, serde::Deserialize)]` whenever any trait-bridge
+    // method signature references `InternalDocument`. The Serialize/Deserialize
+    // derives need `serde` as a direct dependency with the `derive` feature; the
+    // crate is not pulled in transitively by `serde_json`.
+    let needs_serde_derive = !config.trait_bridges.is_empty();
+    let serde_dep = if needs_serde_derive {
+        "serde = { version = \"1\", features = [\"derive\"] }\n"
+    } else {
+        ""
+    };
     // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
     // bridge fn emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
     let needs_ahash = api_has_ahash_param(api);
@@ -192,8 +203,9 @@ pub(crate) fn emit_cargo_toml(
     } else {
         ""
     };
-    let extra_deps =
-        format!("{ahash_dep}{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}");
+    let extra_deps = format!(
+        "{ahash_dep}{serde_dep}{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}"
+    );
 
     let license = config
         .scaffold

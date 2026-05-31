@@ -6,5 +6,5 @@
 pub fn {{ register_fn }}(impl_: {{ struct_name }}) -> Result<(), String> {
     let registry = {{ registry_getter }}();
     let mut registry = registry.write();
-    registry.register(impl_.0{{ extra_args }}).map_err(|e| e.to_string())
+    registry.register(impl_.field0{{ extra_args }}).map_err(|e| e.to_string())
 }
