@@ -1517,6 +1517,45 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
 }
 
 #[test]
+fn test_trait_bridge_string_return_is_not_json_quoted() {
+    let trait_type = make_trait_type(
+        "Scanner",
+        vec![make_trait_method("scan", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Scanner".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_scanner".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    assert!(
+        code.contains("cResult := C.CString(result)"),
+        "string callback returns must cross the FFI boundary as raw UTF-8, not JSON: {code}"
+    );
+    assert!(
+        !code.contains("json.Marshal(result)\n\tcResult := C.CString(string(jsonBytes))"),
+        "string callback return must not be JSON-quoted before Rust decodes it: {code}"
+    );
+}
+
+#[test]
 fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
     let trait_type = make_trait_type(
         "Greeter",

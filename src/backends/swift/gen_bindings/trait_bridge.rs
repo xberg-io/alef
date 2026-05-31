@@ -547,6 +547,9 @@ pub fn gen_bridge_registration_overloads_file(
         content.push_str(&format!(
             "    func name() -> String {{ \"swift-bridge-{stub_name}-stub\" }}\n"
         ));
+        content.push_str("    func version() -> String { \"0.0.0\" }\n");
+        content.push_str("    func initialize() throws {}\n");
+        content.push_str("    func shutdown() throws {}\n\n");
 
         // Generate default implementations for all methods
         for method in &trait_def.methods {
@@ -557,10 +560,15 @@ pub fn gen_bridge_registration_overloads_file(
             let method_camel = method.name.to_lower_camel_case();
 
             // Build parameter list
+            let no_excluded_types = HashSet::new();
             let params = method
                 .params
                 .iter()
-                .map(|p| format!("{}_{}: {}", p.name, p.name, "String"))
+                .map(|p| {
+                    let name = p.name.to_snake_case();
+                    let ty = swift_type_name(&p.ty, &no_excluded_types);
+                    format!("{name}: {ty}")
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -568,7 +576,7 @@ pub fn gen_bridge_registration_overloads_file(
             // This is a conservative stub that will compile but throw on async methods
             if method.is_async {
                 content.push_str(&format!(
-                    "    func {method_camel}({params}) throws -> String {{\n\
+                    "    func {method_camel}({params}) async throws -> String {{\n\
                      \x20       throw _BridgeStubError(description: \"async bridge {method_camel} cannot be invoked from sync FFI stub\")\n\
                      \x20   }}\n\n"
                 ));
@@ -887,6 +895,18 @@ mod tests {
             content.contains("func name() -> String { \"swift-bridge-my-lib-stub\" }"),
             "missing adapter name method"
         );
+        assert!(
+            content.contains("func version() -> String { \"0.0.0\" }"),
+            "missing adapter version lifecycle method"
+        );
+        assert!(
+            content.contains("func initialize() throws {}"),
+            "missing adapter initialize lifecycle method"
+        );
+        assert!(
+            content.contains("func shutdown() throws {}"),
+            "missing adapter shutdown lifecycle method"
+        );
 
         // Check for error struct
         assert!(
@@ -917,6 +937,53 @@ mod tests {
 
         let result = gen_bridge_registration_overloads_file(&bridges);
         assert!(result.is_none(), "should skip bridges excluded from swift");
+    }
+
+    #[test]
+    fn test_bridge_registration_overloads_keeps_async_stubs_async() {
+        use crate::core::ir::{MethodDef, ParamDef, TypeRef};
+
+        let mut trait_def = make_trait_def("OcrBackend");
+        trait_def.methods.push(MethodDef {
+            name: "process_image".to_string(),
+            params: vec![ParamDef {
+                name: "image_bytes".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::String,
+            is_async: true,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+
+        let bridge_cfg = make_bridge_cfg("OcrBackend");
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let (_filename, content) = gen_bridge_registration_overloads_file(&bridges).expect("file should be emitted");
+
+        assert!(
+            content.contains("func processImage(image_bytes: Data) async throws -> String"),
+            "async trait stubs must remain async:\n{content}"
+        );
     }
 
     #[test]

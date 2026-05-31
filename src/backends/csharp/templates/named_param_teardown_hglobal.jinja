@@ -1,1 +1,1 @@
-{{ indent }}if ({{ handle_var }} != global::System.IntPtr.Zero) global::System.Runtime.InteropServices.Marshal.FreeHGlobal({{ handle_var }});
+{{ indent }}if ({{ handle_var }} != global::System.IntPtr.Zero) global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem({{ handle_var }});

@@ -185,6 +185,41 @@ fn make_simple_api() -> ApiSurface {
     }
 }
 
+fn make_top_level_bytes_api() -> ApiSurface {
+    let mut payload = make_param("payload", TypeRef::Bytes);
+    payload.is_ref = true;
+    let upload_function = FunctionDef {
+        name: "upload".into(),
+        rust_path: "demo::upload".into(),
+        original_rust_path: String::new(),
+        params: vec![payload],
+        return_type: TypeRef::Bytes,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![upload_function],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    }
+}
+
 /// Snapshot the Bridge object emitted in JNI mode.
 ///
 /// Asserts that:
@@ -253,6 +288,38 @@ fn snapshot_jni_bridge_object() {
     );
 
     insta::assert_snapshot!("snapshot_jni_bridge_object", content);
+}
+
+#[test]
+fn kotlin_jni_top_level_byte_api_matches_rust_jbytearray() {
+    let api = make_top_level_bytes_api();
+    let config = make_pairing_config();
+
+    let kotlin_files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let bridge_content = &kotlin_files
+        .iter()
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with("Bridge.kt"))
+        })
+        .expect("DemoBridge.kt")
+        .content;
+
+    let rust_files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let rust_content = &rust_files[0].content;
+
+    assert!(
+        bridge_content.contains("external fun nativeUpload(payload: ByteArray): ByteArray"),
+        "Kotlin JNI declaration must expose byte APIs as ByteArray: {bridge_content}"
+    );
+    assert!(
+        rust_content.contains(
+            "nativeUpload(\n    mut env: EnvUnowned,\n    _class: JClass,\n    payload: jbyteArray,\n) -> jbyteArray"
+        ),
+        "Rust JNI symbol must expose the matching jbyteArray signature: {rust_content}"
+    );
 }
 
 /// Snapshot the DefaultClient class emitted in JNI mode.

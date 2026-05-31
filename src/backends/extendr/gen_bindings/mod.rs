@@ -2308,7 +2308,7 @@ fn gen_extendr_wrappers_r(
             continue;
         }
         let params: Vec<&str> = func.params.iter().map(|p| p.name.as_str()).collect();
-        let params_sig = params.join(", ");
+        let params_sig = r_wrapper_params_signature(&func.params, api);
         let mut call_args = vec![format!("\"wrap__{}\"", func.name)];
         for p in &params {
             call_args.push((*p).to_string());
@@ -2602,6 +2602,28 @@ fn gen_extendr_wrappers_r(
     }
 
     out
+}
+
+fn r_wrapper_params_signature(params: &[ParamDef], api: &ApiSurface) -> String {
+    let default_types: ahash::AHashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.has_default)
+        .map(|t| t.name.as_str())
+        .collect();
+    params
+        .iter()
+        .map(|p| {
+            let is_default_type = matches!(&p.ty, TypeRef::Named(name) if default_types.contains(name.as_str()))
+                || matches!(&p.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(name) if default_types.contains(name.as_str())));
+            if p.optional || matches!(p.ty, TypeRef::Optional(_)) || is_default_type {
+                format!("{} = NULL", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Collect S3 (method_name, type_name) pairs for instance methods.
@@ -3075,6 +3097,10 @@ package_name = "testlib"
         assert!(
             content.contains("#' @param config Optional ExtractionConfig object"),
             "@param for named optional type must reference the named type:\n{content}"
+        );
+        assert!(
+            content.contains("extract_bytes <- function(bytes, mime_type = NULL, config = NULL)"),
+            "R wrapper must allow README-style omitted optional config/mime args:\n{content}"
         );
         assert!(
             content.contains("#' @return ExtractionResult object"),

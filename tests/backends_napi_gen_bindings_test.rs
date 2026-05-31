@@ -375,8 +375,14 @@ fn dts_extract_file_preserves_native_argument_order() {
         .content
         .clone();
     assert!(
-        dts.contains("extractFile(path: string, mimeType?: string | undefined | null, config: Config)"),
-        "extractFile declaration must preserve native binding argument order:\n{dts}"
+        dts.contains(
+            "extractFile(path: string, mimeType?: string | undefined | null, config?: Config | undefined | null)"
+        ),
+        "extractFile declaration must preserve native order without required params after optional ones:\n{dts}"
+    );
+    assert!(
+        !dts.contains("mimeType?: string | undefined | null, config: Config"),
+        "extractFile declaration must not emit TS1016-invalid optional-before-required params:\n{dts}"
     );
 }
 

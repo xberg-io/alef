@@ -1500,8 +1500,10 @@ mod tests {
             "generated vtable helpers must not use unreachable stubs: {out}"
         );
         assert!(
-            out.contains("return 1; // complex return: implement this vtable slot manually"),
-            "complex fallible vtable returns must fail with an error code instead of trapping: {out}"
+            out.contains(
+                "@compileError(\"unsupported complex trait-vtable return; implement this vtable slot manually\")"
+            ),
+            "complex fallible vtable returns must be explicitly unsupported instead of a placeholder null/error: {out}"
         );
     }
 }

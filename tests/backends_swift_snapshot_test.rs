@@ -1,10 +1,23 @@
 use alef::backends::swift::SwiftBackend;
-use alef::core::backend::Backend;
+use alef::core::backend::{Backend, GeneratedFile};
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef::core::ir::{
     ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
     PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
+
+fn assert_swift_snapshots(prefix: &str, files: &[GeneratedFile]) {
+    for file in files {
+        let path = file.path.to_string_lossy();
+        if path.ends_with("Sources/RustBridgeC/RustBridgeC.h") {
+            continue;
+        }
+        insta::assert_snapshot!(
+            format!("{prefix}__{}", file.path.display().to_string().replace('/', "__")),
+            &file.content
+        );
+    }
+}
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -183,12 +196,7 @@ fn snapshot_basic_struct_function_enum_error() {
     let api = make_basic_api();
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!("snapshot_basic__{}", file.path.display().to_string().replace('/', "__")),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_basic", &files);
 }
 
 #[test]
@@ -271,15 +279,7 @@ fn snapshot_conversion_struct_with_named_types() {
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_conversion_struct__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_conversion_struct", &files);
 }
 
 #[test]
@@ -352,15 +352,7 @@ fn snapshot_conversion_enum_with_data() {
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_conversion_enum__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_conversion_enum", &files);
 }
 
 #[test]
@@ -419,15 +411,7 @@ fn snapshot_conversion_vec_of_named() {
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_conversion_vec__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_conversion_vec", &files);
 }
 
 fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool, fallible: bool) -> MethodDef {
@@ -635,15 +619,7 @@ unregister_fn = "unregister_ocr_backend"
     let config = cfg.resolve().expect("test config must resolve").remove(0);
 
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_trait_bridge_inbound__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_trait_bridge_inbound", &files);
 }
 
 /// Snapshot a struct whose IR contains a sanitized homogeneous-tuple field.
@@ -749,15 +725,7 @@ fn snapshot_tuple_field_as_vec() {
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_tuple_field__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_tuple_field", &files);
 }
 
 /// Snapshot the full output of a streaming adapter: the generated swift-bridge
@@ -848,15 +816,7 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo::DefaultClient::ne
     let config = cfg.resolve().expect("test config must resolve").remove(0);
 
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_streaming__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_streaming", &files);
 }
 
 /// Verifies that Option<T> fields stored as (ty: T, optional: true) in extractor-produced IR
@@ -935,15 +895,7 @@ fn snapshot_first_class_struct_optional_field() {
         swift_file.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_optional_field__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_optional_field", &files);
 }
 
 /// Snapshot the OptionsField bind_via path: a trait bridge where Swift implements a Rust trait
@@ -1094,15 +1046,7 @@ options_type = "ConversionOptions"
         lib_rs.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_trait_bridge_inbound_options_field__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_trait_bridge_inbound_options_field", &files);
 }
 
 /// Verifies that `intoRust()` on a primitive-only first-class struct emits a direct
@@ -1194,15 +1138,7 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         swift_file.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_intorust_bulk_primitives__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_intorust_bulk_primitives", &files);
 }
 
 /// Verifies that `intoRust()` is emitted only for directly bridgeable first-class DTOs.
@@ -1358,15 +1294,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_intorust_bulk_nested__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_intorust_bulk_nested", &files);
 }
 
 /// Primitive-only serde DTOs without a `Default` impl (e.g. `Point { row: u32,
@@ -1464,15 +1392,7 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         swift_file.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_intorust_bulk_primitive_no_default__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_intorust_bulk_primitive_no_default", &files);
 }
 
 /// DTOs whose fields cannot be bridged through the positional constructor (e.g.
@@ -1557,15 +1477,7 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         lib_rs.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_intorust_json_fallback_shim_present__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_intorust_json_fallback_shim_present", &files);
 }
 
 /// Verifies that `Option<T>` fields stored as `(ty: T, optional: true)` in
@@ -1681,15 +1593,7 @@ fn snapshot_enum_variant_optional_field() {
         swift_file.content
     );
 
-    for file in &files {
-        insta::assert_snapshot!(
-            format!(
-                "snapshot_enum_variant_optional_field__{}",
-                file.path.display().to_string().replace('/', "__")
-            ),
-            &file.content
-        );
-    }
+    assert_swift_snapshots("snapshot_enum_variant_optional_field", &files);
 }
 
 #[test]

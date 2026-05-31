@@ -20,6 +20,7 @@ pub(super) fn gen_dts(
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
     capsule_types: &HashMap<String, NodeCapsuleTypeConfig>,
     streaming_item_types: &ahash::AHashMap<String, String>,
+    default_types: &ahash::AHashSet<String>,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut lines: Vec<String> = header.lines().map(|l| l.to_string()).collect();
@@ -178,7 +179,7 @@ pub(super) fn gen_dts(
                 lines.push(format!("export declare class {} {{", typ.name));
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
-                    let params = dts_params(&method.params, no_prefix);
+                    let params = dts_params(&method.params, no_prefix, default_types);
                     // Check if this is a streaming method — if so, override the return type to
                     // Promise<AsyncGenerator<ItemType, void, undefined>> so `for await...of` is
                     // typesafe. The iterator class name follows the PascalCase(method_name)+Iterator
@@ -236,7 +237,7 @@ pub(super) fn gen_dts(
                 lines.push(format!("export interface {} {{", typ.name));
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
-                    let params = dts_params(&method.params, no_prefix);
+                    let params = dts_params(&method.params, no_prefix, default_types);
                     let ret = dts_return_type(
                         &method.return_type,
                         method.error_type.is_some(),
@@ -295,7 +296,12 @@ pub(super) fn gen_dts(
             }
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
-                let params = dts_params_with_order(&func.params, no_prefix, !preserves_native_param_order(func));
+                let params = dts_params_with_order(
+                    &func.params,
+                    no_prefix,
+                    !preserves_native_param_order(func),
+                    default_types,
+                );
                 // When the function returns a capsule type, use the ecosystem type name
                 // (e.g. `Language` from `tree-sitter`) instead of the Js-prefixed wrapper.
                 let ret = dts_return_type_capsule(
@@ -453,15 +459,22 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
 }
 
 /// Render a list of parameters as a TypeScript parameter string for `.d.ts`.
-pub(super) fn dts_params(params: &[ParamDef], prefix: &str) -> String {
-    dts_params_with_order(params, prefix, true)
+pub(super) fn dts_params(params: &[ParamDef], prefix: &str, default_types: &ahash::AHashSet<String>) -> String {
+    dts_params_with_order(params, prefix, true, default_types)
 }
 
-fn dts_params_with_order(params: &[ParamDef], prefix: &str, reorder_for_typescript: bool) -> String {
+fn dts_params_with_order(
+    params: &[ParamDef],
+    prefix: &str,
+    reorder_for_typescript: bool,
+    default_types: &ahash::AHashSet<String>,
+) -> String {
     if !reorder_for_typescript {
+        let has_required_after = required_after_optional(params, default_types);
         return params
             .iter()
-            .map(|p| dts_param(p, prefix))
+            .enumerate()
+            .map(|(idx, p)| dts_param(p, prefix, param_is_optional(p, default_types), !has_required_after[idx]))
             .collect::<Vec<_>>()
             .join(", ");
     }
@@ -473,7 +486,7 @@ fn dts_params_with_order(params: &[ParamDef], prefix: &str, reorder_for_typescri
     let mut required: Vec<&ParamDef> = Vec::new();
     let mut optional: Vec<&ParamDef> = Vec::new();
     for p in params {
-        if p.optional {
+        if param_is_optional(p, default_types) {
             optional.push(p);
         } else {
             required.push(p);
@@ -491,19 +504,36 @@ fn dts_params_with_order(params: &[ParamDef], prefix: &str, reorder_for_typescri
     };
     ordered
         .iter()
-        .map(|p| dts_param(p, prefix))
+        .map(|p| dts_param(p, prefix, param_is_optional(p, default_types), true))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-fn dts_param(p: &ParamDef, prefix: &str) -> String {
+fn dts_param(p: &ParamDef, prefix: &str, is_optional: bool, allow_question_optional: bool) -> String {
     let js_name = to_node_name(&p.name);
     let ts_ty = dts_type(&p.ty, prefix);
-    if p.optional {
+    if is_optional && allow_question_optional {
         format!("{js_name}?: {ts_ty} | undefined | null")
+    } else if is_optional {
+        format!("{js_name}: {ts_ty} | undefined | null")
     } else {
         format!("{js_name}: {ts_ty}")
     }
+}
+
+fn param_is_optional(p: &ParamDef, default_types: &ahash::AHashSet<String>) -> bool {
+    p.optional || matches!(&p.ty, TypeRef::Named(name) if default_types.contains(name.as_str()))
+}
+
+fn required_after_optional(params: &[ParamDef], default_types: &ahash::AHashSet<String>) -> Vec<bool> {
+    let mut seen_optional = false;
+    let mut result = vec![false; params.len()];
+    for (idx, param) in params.iter().enumerate() {
+        let is_optional = param_is_optional(param, default_types);
+        result[idx] = seen_optional && !is_optional;
+        seen_optional |= is_optional;
+    }
+    result
 }
 
 fn preserves_native_param_order(func: &FunctionDef) -> bool {
@@ -634,7 +664,7 @@ mod tests {
             make_param("lang", true),
             make_param("code", false),
         ];
-        let result = dts_params(&params, "Js");
+        let result = dts_params(&params, "Js", &ahash::AHashSet::new());
         // Required params (ctx, code) must precede optional param (lang)
         let ctx_pos = result.find("ctx:").expect("ctx not found");
         let code_pos = result.find("code:").expect("code not found");
@@ -652,7 +682,7 @@ mod tests {
             make_param("code", false),
             make_param("lang", true),
         ];
-        let result = dts_params(&params, "Js");
+        let result = dts_params(&params, "Js", &ahash::AHashSet::new());
         assert_eq!(result, "ctx: string, code: string, lang?: string | undefined | null");
     }
 
@@ -660,7 +690,7 @@ mod tests {
     #[test]
     fn dts_params_all_required_preserves_order() {
         let params = vec![make_param("a", false), make_param("b", false), make_param("c", false)];
-        let result = dts_params(&params, "Js");
+        let result = dts_params(&params, "Js", &ahash::AHashSet::new());
         assert_eq!(result, "a: string, b: string, c: string");
     }
 }

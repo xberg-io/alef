@@ -113,8 +113,15 @@ fn struct_with_primitive_fields_emits_public_struct() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    // generate_bindings returns 1 Swift file + 3 Rust-crate files (Cargo.toml, src/lib.rs, build.rs)
-    assert_eq!(files.len(), 4);
+    // generate_bindings returns the main Swift file, the Rust bridge crate files,
+    // and a RustBridgeC placeholder header when swift-bridge build output is absent.
+    assert_eq!(files.len(), 5);
+    assert!(
+        files
+            .iter()
+            .any(|f| f.path.to_string_lossy().ends_with("Sources/RustBridgeC/RustBridgeC.h")),
+        "missing RustBridgeC placeholder header"
+    );
     let content = &files[0].content;
 
     assert!(
@@ -1525,8 +1532,7 @@ fn output_path_uses_pascal_case_module_name() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    // generate_bindings returns 1 Swift file + 3 Rust-crate files (Cargo.toml, src/lib.rs, build.rs)
-    assert_eq!(files.len(), 4);
+    assert_eq!(files.len(), 5);
 
     // The Swift wrapper must be a .swift file with PascalCase module name.
     // When using ResolvedCrateConfig, output_paths["swift"] is set from the template
@@ -2749,10 +2755,14 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    assert_eq!(
-        content.matches("func embedTextsAsync(").count(),
-        1,
-        "embedTextsAsync must be declared exactly once by the generic free-function forwarder:\n{content}"
+    assert!(
+        content
+            .contains("public func embedTextsAsync(_ texts: [String], _ configJson: String) async throws -> [[Float]]"),
+        "async JSON-config overload must itself be async/throws:\n{content}"
+    );
+    assert!(
+        content.contains("return try await embedTextsAsync(texts: texts, config: config)"),
+        "async JSON-config overload must await the typed forwarder:\n{content}"
     );
     assert!(
         !content.contains("E2e Test Convenience Wrappers"),

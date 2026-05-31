@@ -64,6 +64,67 @@ fn apply_bridge_none_substitutions(call_args: &str, func: &FunctionDef, bridge_n
     result.join(", ")
 }
 
+fn promoted_default_param_names<'a>(
+    params: &'a [crate::core::ir::ParamDef],
+    default_types: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
+) -> AHashSet<&'a str> {
+    params
+        .iter()
+        .filter_map(|p| match &p.ty {
+            TypeRef::Named(name)
+                if !p.optional && !opaque_types.contains(name.as_str()) && default_types.contains(name.as_str()) =>
+            {
+                Some(p.name.as_str())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn promote_default_params(
+    params: &[crate::core::ir::ParamDef],
+    default_types: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
+) -> Vec<crate::core::ir::ParamDef> {
+    params
+        .iter()
+        .map(|p| {
+            let mut promoted = p.clone();
+            if matches!(&p.ty, TypeRef::Named(name) if !p.optional && !opaque_types.contains(name.as_str()) && default_types.contains(name.as_str())) {
+                promoted.optional = true;
+            }
+            promoted
+        })
+        .collect()
+}
+
+fn apply_default_param_substitutions(
+    call_args: &str,
+    params: &[crate::core::ir::ParamDef],
+    promoted_names: &AHashSet<&str>,
+) -> String {
+    if promoted_names.is_empty() || call_args.is_empty() {
+        return call_args.to_string();
+    }
+    call_args
+        .split(", ")
+        .zip(params.iter())
+        .map(|(term, param)| {
+            if promoted_names.contains(param.name.as_str()) {
+                if param.is_ref {
+                    format!("&{}_core.unwrap_or_default()", param.name)
+                } else {
+                    format!("{term}.unwrap_or_default()")
+                }
+            } else {
+                term.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Returns true if any Named (non-opaque) param with `is_ref=true` is present.
 /// These are the params that would fail the `.clone().into()` path when no `From` impl exists,
 /// and for which the serde round-trip is a viable recovery path.
@@ -641,6 +702,7 @@ pub(crate) fn gen_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
@@ -649,6 +711,7 @@ pub(crate) fn gen_function_as_static_method(
     let body = gen_function_body(
         func,
         opaque_types,
+        default_types,
         core_import,
         &mapper.enum_names,
         bridges,
@@ -662,6 +725,7 @@ pub(crate) fn gen_function_as_static_method(
         .filter(|p| !bridge_names.contains(p.name.as_str()))
         .cloned()
         .collect();
+    let visible_params = promote_default_params(&visible_params, default_types, opaque_types);
     let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
@@ -706,6 +770,7 @@ pub(crate) fn gen_function_as_static_method(
 fn gen_function_body(
     func: &FunctionDef,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
@@ -715,8 +780,11 @@ fn gen_function_body(
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
     if can_delegate {
-        let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
-        let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let promoted_params = promote_default_params(&func.params, default_types, opaque_types);
+        let promoted_names = promoted_default_param_names(&func.params, default_types, opaque_types);
+        let let_bindings = gen_php_named_let_bindings(&promoted_params, opaque_types, core_import);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, opaque_types);
+        let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
@@ -795,14 +863,17 @@ fn gen_function_body(
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true and for
         // sanitized Vec<tuple> params (decoded as Vec<String>). The serde path requires the
         // function to return Result (uses `?` operator).
+        let promoted_params = promote_default_params(&func.params, default_types, opaque_types);
+        let promoted_names = promoted_default_param_names(&func.params, default_types, opaque_types);
         let needs_serde = func.error_type.is_some()
             && (has_ref_named_params(&func.params, opaque_types) || has_sanitized_recoverable(&func.params));
         let let_bindings = if has_serde && needs_serde {
-            gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
+            gen_php_serde_let_bindings(&promoted_params, opaque_types, core_import)
         } else {
-            gen_php_named_let_bindings(&func.params, opaque_types, core_import)
+            gen_php_named_let_bindings(&promoted_params, opaque_types, core_import)
         };
-        let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, opaque_types);
+        let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
@@ -860,6 +931,7 @@ pub(crate) fn gen_async_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
@@ -867,6 +939,7 @@ pub(crate) fn gen_async_function_as_static_method(
     let body = gen_async_function_body(
         func,
         opaque_types,
+        default_types,
         core_import,
         &mapper.enum_names,
         bridges,
@@ -879,6 +952,7 @@ pub(crate) fn gen_async_function_as_static_method(
         .filter(|p| !bridge_names.contains(p.name.as_str()))
         .cloned()
         .collect();
+    let visible_params = promote_default_params(&visible_params, default_types, opaque_types);
     let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
@@ -923,6 +997,7 @@ pub(crate) fn gen_async_function_as_static_method(
 fn gen_async_function_body(
     func: &FunctionDef,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
@@ -933,12 +1008,15 @@ fn gen_async_function_body(
     let needs_serde = func.error_type.is_some()
         && (has_ref_named_params(&func.params, opaque_types) || has_sanitized_recoverable(&func.params));
     if can_delegate || needs_serde {
+        let promoted_params = promote_default_params(&func.params, default_types, opaque_types);
+        let promoted_names = promoted_default_param_names(&func.params, default_types, opaque_types);
         let let_bindings = if needs_serde && !can_delegate {
-            gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
+            gen_php_serde_let_bindings(&promoted_params, opaque_types, core_import)
         } else {
-            gen_php_named_let_bindings(&func.params, opaque_types, core_import)
+            gen_php_named_let_bindings(&promoted_params, opaque_types, core_import)
         };
-        let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, opaque_types);
+        let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");

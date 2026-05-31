@@ -85,6 +85,51 @@ sources = ["src/lib.rs"]
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
+fn make_trait_bridge_config() -> ResolvedCrateConfig {
+    let toml = r#"
+[workspace]
+languages = ["zig"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[[crates.trait_bridges]]
+trait_name = "Renderer"
+register_fn = "register_renderer"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
+}
+
+fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    }
+}
+
 #[test]
 fn struct_emits_zig_struct() {
     let api = ApiSurface {
@@ -116,6 +161,52 @@ fn struct_emits_zig_struct() {
     assert!(content.contains("pub const Point = struct {"));
     assert!(content.contains("x: i32,"));
     assert!(content.contains("y: i32,"));
+}
+
+#[test]
+fn trait_bridge_complex_return_is_explicitly_unsupported() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![make_trait_type(
+            "Renderer",
+            vec![MethodDef {
+                name: "render".into(),
+                params: vec![make_param("input", TypeRef::String)],
+                return_type: TypeRef::Bytes,
+                is_async: false,
+                is_static: false,
+                error_type: Some("RenderError".into()),
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+        )],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains(
+            "@compileError(\"unsupported complex trait-vtable return; implement this vtable slot manually\")"
+        ),
+        "complex Zig trait-vtable return must be explicit, not placeholder null/error: {content}"
+    );
 }
 
 /// String parameter: wrapper takes `[]const u8`; body allocates a null-terminated

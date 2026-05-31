@@ -148,6 +148,7 @@ pub(super) fn gen_native_ex(
 
     // Stubs for top-level API functions
     let mut last_was_multiline = true;
+    let mut emitted_nif_stubs: AHashSet<String> = AHashSet::new();
     for func in api
         .functions
         .iter()
@@ -173,6 +174,7 @@ pub(super) fn gen_native_ex(
             last_was_multiline = true;
         }
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
+        emitted_nif_stubs.insert(fn_name.clone());
 
         // For functions that have a visitor bridge (FunctionParam pattern), also emit the
         // async visitor variant stub plus the visitor_reply NIF stub (once).
@@ -208,6 +210,7 @@ pub(super) fn gen_native_ex(
                 &with_visitor_params,
                 last_was_multiline,
             );
+            emitted_nif_stubs.insert(format!("{fn_name}_with_visitor"));
         }
 
         // For functions that have an options_field visitor bridge, emit
@@ -243,6 +246,7 @@ pub(super) fn gen_native_ex(
                 &with_visitor_params,
                 last_was_multiline,
             );
+            emitted_nif_stubs.insert(format!("{fn_name}_with_visitor"));
         }
     }
 
@@ -279,19 +283,25 @@ pub(super) fn gen_native_ex(
         // register_fn stub: takes (env, pid, name) -> Atom
         if let Some(register_fn) = &bridge.register_fn {
             let params = vec!["_pid".to_string(), "_name".to_string()];
-            last_was_multiline = write_nif_stub(&mut out, register_fn, &params, last_was_multiline);
+            if emitted_nif_stubs.insert(register_fn.clone()) {
+                last_was_multiline = write_nif_stub(&mut out, register_fn, &params, last_was_multiline);
+            }
         }
 
         // unregister_fn stub: takes (env, name) -> Atom
         if let Some(unregister_fn) = &bridge.unregister_fn {
             let params = vec!["_name".to_string()];
-            last_was_multiline = write_nif_stub(&mut out, unregister_fn, &params, last_was_multiline);
+            if emitted_nif_stubs.insert(unregister_fn.clone()) {
+                last_was_multiline = write_nif_stub(&mut out, unregister_fn, &params, last_was_multiline);
+            }
         }
 
         // clear_fn stub: takes (env) -> Atom (no args besides env)
         if let Some(clear_fn) = &bridge.clear_fn {
             let params = vec![];
-            last_was_multiline = write_nif_stub(&mut out, clear_fn, &params, last_was_multiline);
+            if emitted_nif_stubs.insert(clear_fn.clone()) {
+                last_was_multiline = write_nif_stub(&mut out, clear_fn, &params, last_was_multiline);
+            }
         }
     }
 

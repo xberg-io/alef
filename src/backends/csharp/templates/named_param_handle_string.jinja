@@ -1,1 +1,1 @@
-{{ indent }}var {{ handle_var }} = global::System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi({{ json_var }});
+{{ indent }}var {{ handle_var }} = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8({{ json_var }});

@@ -2654,7 +2654,10 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
 
         let params_sig = param_strs.join(", ");
         let return_ty = swift_return_type(&func.return_type);
-        let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+        // Decoding the JSON config always throws, even when the wrapped Rust
+        // function itself is infallible.
+        let async_clause = if func.is_async { " async" } else { "" };
+        let throws_clause = " throws";
         let return_suffix = swift_return_conversion_suffix(&func.return_type);
 
         // Build the call to the base function with labeled arguments.
@@ -2672,11 +2675,12 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
 
         // Emit the overload function (both async and sync variants).
         out.push_str(&format!(
-            "public func {swift_func_name}({params_sig}){throws_clause} -> {return_ty} {{\n"
+            "public func {swift_func_name}({params_sig}){async_clause}{throws_clause} -> {return_ty} {{\n"
         ));
         out.push_str(&format!("    let config = try {config_from_json_name}(configJson)\n"));
+        let await_kw = if func.is_async { "await " } else { "" };
         out.push_str(&format!(
-            "    return try {swift_func_name}({call_args_str}){return_suffix}\n"
+            "    return try {await_kw}{swift_func_name}({call_args_str}){return_suffix}\n"
         ));
         out.push_str("}\n\n");
     }
@@ -5167,8 +5171,7 @@ mod tests {
 
         // Create Sources/RustBridgeC directory structure.
         let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
-        std::fs::create_dir_all(&sources_rust_bridge_c)
-            .expect("failed to create RustBridgeC directory");
+        std::fs::create_dir_all(&sources_rust_bridge_c).expect("failed to create RustBridgeC directory");
 
         // Write a fake populated header with the concatenation marker.
         let populated_header = "#ifndef RUST_BRIDGE_C_H\n\
@@ -5181,8 +5184,7 @@ mod tests {
                                typedef struct RustStr { } RustStr;\n\
                                #endif /* RUST_BRIDGE_C_H */\n";
         let header_path = sources_rust_bridge_c.join("RustBridgeC.h");
-        std::fs::write(&header_path, populated_header)
-            .expect("failed to write populated header");
+        std::fs::write(&header_path, populated_header).expect("failed to write populated header");
 
         // Call emit_swift_bridge_files with no cargo output present (binding crate not built).
         // Since find_swift_bridge_out_dir will return None, the function should detect the
@@ -5197,8 +5199,7 @@ mod tests {
         );
 
         // Verify the header on disk was not overwritten.
-        let on_disk = std::fs::read_to_string(&header_path)
-            .expect("failed to read header after emit");
+        let on_disk = std::fs::read_to_string(&header_path).expect("failed to read header after emit");
         assert_eq!(
             on_disk, populated_header,
             "populated header must not be overwritten when preserve check succeeds"

@@ -434,6 +434,19 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     let ctor_impl = format!("#[napi]\nimpl {struct_name} {{\n{}}}", ctor_body);
                     builder.add_item(&ctor_impl);
                 }
+                // Variant-wrapper constructor — when the type is referenced as the wrapper
+                // of one or more registration variants, and variant bodies emit
+                // `new WrapperType(args)` JS constructor-syntax, opt the wrapper's static
+                // `new` into a `#[napi(constructor)]` so napi-rs exposes it as `new Class()`.
+                //
+                // `client_constructors` takes priority. Use a distinct Rust fn name
+                // (`new_constructor`) to avoid a duplicate-`fn new` conflict with the
+                // static `#[napi]` method already emitted by `gen_opaque_struct_methods`.
+                else if typ.is_variant_wrapper && !config.client_constructors.contains_key(&typ.name) {
+                    if let Some(ctor) = napi_variant_wrapper_constructor(typ, &mapper, &core_import, &prefix) {
+                        builder.add_item(&ctor);
+                    }
+                }
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
@@ -947,6 +960,12 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 Some((format!("{owner}.{}", a.name), item.to_string()))
             })
             .collect();
+        let default_types: ahash::AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_default)
+            .map(|t| t.name.clone())
+            .collect();
         let content = errors::gen_dts(
             api,
             &prefix,
@@ -954,6 +973,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             &config.trait_bridges,
             &capsule_types,
             &streaming_item_types,
+            &default_types,
         );
 
         // `output_for("node")` points to the `src/` directory (e.g., `crates/{name}-node/src/`).
@@ -1101,7 +1121,53 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
     }
 }
 
-/// Generate a NAPI struct with Js-prefixed name and fields wrapped in Option only if optional.
+/// For a variant-wrapper opaque type (one whose `is_variant_wrapper` flag is set),
+/// emit a `#[napi(constructor)] pub fn new_constructor(...)` on the prefixed binding
+/// struct so that `new WrapperType(args)` JS constructor-syntax resolves at runtime.
+///
+/// napi-rs allows multiple `#[napi] impl` blocks. The static `new` is already
+/// emitted by `gen_opaque_struct_methods` as a `#[napi]` static method; this
+/// companion uses a distinct Rust fn name (`new_constructor`) to avoid the
+/// duplicate-`fn new` conflict while mapping to the same JS `new Class()` path
+/// via `#[napi(constructor)]`.
+///
+/// Returns `None` when the wrapper has no `new` method in the IR (or its receiver
+/// is not `None`), silently skipping rather than panicking.
+fn napi_variant_wrapper_constructor(
+    typ: &crate::core::ir::TypeDef,
+    mapper: &crate::backends::napi::type_map::NapiMapper,
+    core_import: &str,
+    prefix: &str,
+) -> Option<String> {
+    use crate::codegen::type_mapper::TypeMapper as _;
+    let ctor = typ
+        .methods
+        .iter()
+        .find(|m| m.name == "new" && m.receiver.is_none())?;
+    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
+    let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+    let call_args = ctor.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+    let struct_name = format!("{prefix}{}", typ.name);
+    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    let body = if call_args.is_empty() {
+        format!(
+            "Self {{ inner: std::sync::Arc::new({core_path}::new()) }}"
+        )
+    } else {
+        format!(
+            "Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}"
+        )
+    };
+    let fn_sig = if sig_params.is_empty() {
+        "pub fn new_constructor() -> Self".to_string()
+    } else {
+        format!("pub fn new_constructor({sig_params}) -> Self")
+    };
+    Some(format!(
+        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    {fn_sig} {{\n        {body}\n    }}\n}}\n",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::NapiBackend;

@@ -478,50 +478,43 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
     ));
 }
 
-/// Substitute all forms of `InternalDocument` with `ExtractionResult` in binding-facing types.
+/// Substitute all forms of `InternalDocument` with the **unqualified** `ExtractionResult`
+/// token in binding-facing closure types.
 ///
-/// This ensures FRB generates closure signatures and factory parameters using the
-/// public `ExtractionResult` type instead of the internal `InternalDocument`. Call-site
-/// conversions (`.into()`) are emitted separately to bridge the original trait signature.
+/// The unqualified form matches the locally-emitted `#[frb(mirror(ExtractionResult))]`
+/// struct in the same lib.rs file. FRB's macro generates factory wrappers that pass the
+/// local mirror struct (unqualified) into the factory function, so the closure parameter
+/// type **must** also be unqualified or FRB-generated and hand-emitted code disagree
+/// (rustc reports `expected kreuzberg::ExtractionResult, found ExtractionResult`).
 ///
-/// Handles all qualified forms:
-/// - `CreatorName::InternalDocument` → `CreatorName::ExtractionResult`
-/// - `CreatorName::types::internal::InternalDocument` → `CreatorName::types::extraction::ExtractionResult`
-/// - Plain `InternalDocument` token → `ExtractionResult`
-/// - Generic arguments: `Vec<InternalDocument>` → `Vec<ExtractionResult>`
+/// Call-site conversions (`.into()`) are emitted separately to bridge between the local
+/// mirror and the canonical source-crate `InternalDocument` used by the trait signature.
+///
+/// `source_crate_name` is used to strip the crate qualifier; the function is otherwise
+/// project-agnostic.
 fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name: &str) -> String {
-    // Handle fully qualified `crate_name::types::internal::InternalDocument`
+    // Strip fully qualified `{crate}::types::internal::InternalDocument`
     let fully_qualified_internal = format!("{}::types::internal::InternalDocument", source_crate_name);
     if rust_type.contains(&fully_qualified_internal) {
-        return rust_type.replace(
-            &fully_qualified_internal,
-            &format!("{}::types::extraction::ExtractionResult", source_crate_name),
-        );
+        return rust_type.replace(&fully_qualified_internal, "ExtractionResult");
     }
 
-    // Handle partially qualified `crate_name::InternalDocument`
+    // Strip partially qualified `{crate}::InternalDocument`
     let partial_qualified_internal = format!("{}::InternalDocument", source_crate_name);
     if rust_type.contains(&partial_qualified_internal) {
-        return rust_type.replace(
-            &partial_qualified_internal,
-            &format!("{}::ExtractionResult", source_crate_name),
-        );
+        return rust_type.replace(&partial_qualified_internal, "ExtractionResult");
     }
 
-    // Handle plain `InternalDocument` token (word boundaries: not InternalDocumentBuilder, etc.)
-    // Use regex-like word boundary logic: check that InternalDocument is surrounded by
-    // non-identifier chars or is at the start/end.
+    // Handle plain `InternalDocument` token (word-boundary aware: skip InternalDocumentBuilder etc.)
     if rust_type.contains("InternalDocument") {
         let mut result = String::new();
         let mut chars = rust_type.chars().peekable();
         while let Some(ch) = chars.next() {
             if ch == 'I' {
-                // Look ahead to match "InternalDocument"
                 let remaining: String = std::iter::once(ch)
                     .chain(chars.by_ref().take("nternalDocument".len()))
                     .collect();
                 if remaining == "InternalDocument" {
-                    // Check word boundaries
                     let before_ok =
                         result.is_empty() || !result.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
                     let after_ok = chars.peek().is_none_or(|&c| !c.is_alphanumeric() && c != '_');
@@ -675,23 +668,42 @@ fn emit_trait_bridge_method(
     }
 
     // Build call-site arg list (use the local owned var names).
-    // For InternalDocument params, emit .into() conversion to ExtractionResult at the call site.
+    //
+    // For params whose original type was the excluded `InternalDocument`, the dart-facing
+    // closure was substituted to receive the local FRB mirror `ExtractionResult`. The Rust
+    // trait method itself still receives `kreuzberg::InternalDocument`. Two `From` hops
+    // are required to convert: `InternalDocument → kreuzberg::ExtractionResult → local
+    // mirror ExtractionResult`. Inline `.into()` only does one step and Rust cannot infer
+    // the intermediate type, so we emit pre-bindings before the closure call.
+    let mut pre_bindings = String::new();
     let call_args: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            // Detect if this param's original type was InternalDocument (or qualified form).
             let is_internal_document = match &p.ty {
                 TypeRef::Named(name) => name.ends_with("InternalDocument"),
                 _ => false,
             };
             if is_internal_document {
-                format!("{}.into()", p.name)
+                let local = format!("__{}_local", p.name);
+                let _ = std::fmt::Write::write_fmt(
+                    &mut pre_bindings,
+                    format_args!(
+                        "        let __{name}_src: {src}::ExtractionResult = {name}.into();\n        let {local}: ExtractionResult = __{name}_src.into();\n",
+                        name = p.name,
+                        src = source_crate_name,
+                        local = local,
+                    ),
+                );
+                local
             } else {
                 p.name.clone()
             }
         })
         .collect();
+    if !pre_bindings.is_empty() {
+        out.push_str(&pre_bindings);
+    }
     let call_expr = format!("(self.{method_name})({})", call_args.join(", "));
 
     // Emit the body, adapting the return value from FRB-widened to original type.
@@ -700,6 +712,27 @@ fn emit_trait_bridge_method(
     // Special case: Named return type — the mirror type cannot be trivially converted
     // back to the core type. Drop the result and return Default::default().
     let named_return_default = ret_conv == "__NAMED_RETURN_DEFAULT__";
+
+    // Special case: the return type was the excluded `InternalDocument`, substituted to
+    // the local mirror `ExtractionResult` in the closure signature. Single `.into()` only
+    // crosses one of the two From-impl hops (local mirror → source crate ExtractionResult,
+    // then source crate ExtractionResult → source crate InternalDocument). Emit explicit
+    // two-step conversion via type-annotated intermediates so type inference resolves both.
+    let returns_internal_document = match &method.return_type {
+        TypeRef::Named(name) => name.ends_with("InternalDocument"),
+        _ => false,
+    };
+    if returns_internal_document && method.error_type.is_some() && method.is_async {
+        out.push_str(&format!(
+            "        let __ret_local: ExtractionResult = {call_expr}.await;\n\
+             \x20       let __ret_src: {src}::ExtractionResult = __ret_local.into();\n\
+             \x20       Ok(__ret_src.into())\n\
+             \x20   }}\n",
+            call_expr = call_expr,
+            src = source_crate_name,
+        ));
+        return;
+    }
 
     if method.error_type.is_some() {
         // DartFnFuture never fails: wrap the awaited value in Ok(...).

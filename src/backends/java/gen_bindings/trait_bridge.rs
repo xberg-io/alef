@@ -527,6 +527,11 @@ fn gen_bridge_file(
             } else {
                 String::new()
             };
+            let raw_result = match &method.return_type {
+                TypeRef::String | TypeRef::Char | TypeRef::Path => true,
+                TypeRef::Named(name) => !visible_type_names.contains(name.as_str()) || excluded_types.contains(name),
+                _ => false,
+            };
 
             minijinja::context! {
                 name => &method.name,
@@ -536,6 +541,7 @@ fn gen_bridge_file(
                 return_type => &return_type_str,
                 call_args => java_args.join(", "),
                 has_return => has_return,
+                raw_result => raw_result,
             }
         })
         .collect();
@@ -907,6 +913,69 @@ mod tests {
     fn java_param_name_sanitizes_keywords() {
         assert_eq!(java_param_name("default"), "default_");
         assert_eq!(java_param_name("config"), "config");
+    }
+
+    #[test]
+    fn bridge_class_does_not_json_quote_raw_string_results() {
+        let trait_def = make_trait("Renderer", vec![make_method("render", TypeRef::String, vec![])]);
+        let visible = all_named_visible(&trait_def.methods);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.sample_crate",
+            false,
+            None,
+            None,
+            &visible,
+            &excluded,
+            &[],
+        );
+        let body = files.bridge_content.as_str();
+
+        assert!(
+            body.contains("MemorySegment jsonCs = arena.allocateFrom(result);"),
+            "String callback results must be returned as raw UTF-8, got:\n{body}"
+        );
+        assert!(
+            !body.contains("String json = JSON.writeValueAsString(result);"),
+            "String callback results must not be JSON-quoted, got:\n{body}"
+        );
+    }
+
+    #[test]
+    fn bridge_class_does_not_double_encode_excluded_named_json_results() {
+        let trait_def = make_trait(
+            "Renderer",
+            vec![make_method(
+                "render",
+                TypeRef::Named("InternalDocument".to_string()),
+                vec![],
+            )],
+        );
+        let visible = HashSet::new();
+        let excluded = HashSet::from(["InternalDocument".to_string()]);
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.sample_crate",
+            false,
+            None,
+            None,
+            &visible,
+            &excluded,
+            &[],
+        );
+        let body = files.bridge_content.as_str();
+
+        assert!(
+            body.contains("String result = impl.render();"),
+            "excluded named return should surface as a raw JSON String, got:\n{body}"
+        );
+        assert!(
+            body.contains("MemorySegment jsonCs = arena.allocateFrom(result);"),
+            "excluded named JSON return must be passed through without writeValueAsString, got:\n{body}"
+        );
     }
 
     #[test]

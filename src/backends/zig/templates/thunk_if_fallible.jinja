@@ -1,3 +1,3 @@
                     _ = {{ ok_binding }};
                     if (out_result) |ptr| ptr.* = null;
-                    return 1; // complex return: implement this vtable slot manually
+                    @compileError("unsupported complex trait-vtable return; implement this vtable slot manually");

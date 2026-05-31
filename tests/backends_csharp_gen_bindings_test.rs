@@ -2764,8 +2764,8 @@ type = "*const std::ffi::c_char"
         "NativeMethods should declare DefaultClientNew P/Invoke: {native_content}"
     );
     assert!(
-        native_content.contains("[MarshalAs(UnmanagedType.LPStr)] string apiKey"),
-        "string param should use LPStr marshalling in P/Invoke: {native_content}"
+        native_content.contains("[MarshalAs(UnmanagedType.LPUTF8Str)] string apiKey"),
+        "string param should use explicit UTF-8 marshalling in P/Invoke: {native_content}"
     );
     assert!(
         native_content.contains("IntPtr DefaultClientNew("),

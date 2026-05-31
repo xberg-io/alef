@@ -10,12 +10,12 @@ use std::collections::{HashMap, HashSet};
 
 /// Map a Rust FFI type string to the C# P/Invoke parameter declaration.
 ///
-/// String parameters use `[MarshalAs(UnmanagedType.LPStr)]` to match the C `const char*` ABI.
+/// String parameters use explicit UTF-8 marshalling to match the C `const char*` ABI.
 fn ffi_ty_to_pinvoke_param(rust_ty: &str, param_name: &str) -> String {
     let normalized = rust_ty.trim();
     let cs_name = param_name.to_lower_camel_case();
     if normalized.contains("c_char") || normalized.contains("CStr") {
-        return format!("[MarshalAs(UnmanagedType.LPStr)] string {cs_name}");
+        return format!("[MarshalAs(UnmanagedType.LPUTF8Str)] string {cs_name}");
     }
     let cs_type = match normalized {
         "bool" => "bool",
@@ -599,7 +599,7 @@ pub(super) fn gen_pinvoke_for_func(
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             // Emit [MarshalAs(...)] attributes for types that need them.
             if pinvoke_ty == "string" {
-                out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
+                out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
             } else if pinvoke_ty == "int" && matches!(param.ty, TypeRef::Primitive(PrimitiveType::Bool)) {
                 // bool cross FFI as C int (0/1) — use U1 to marshal as single byte
                 out.push_str("[MarshalAs(UnmanagedType.U1)] bool ");
@@ -674,7 +674,7 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             // Emit [MarshalAs(...)] attributes for types that need them.
             if pinvoke_ty == "string" {
-                out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
+                out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
             } else if pinvoke_ty == "int" && matches!(param.ty, TypeRef::Primitive(PrimitiveType::Bool)) {
                 // bool cross FFI as C int (0/1) — use U1 to marshal as single byte
                 out.push_str("[MarshalAs(UnmanagedType.U1)] bool ");

@@ -705,9 +705,7 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
-            out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
-            out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
-            out.push_str("\t*outResult = cResult\n");
+            gen_result_conversion(out, &method.return_type);
         }
     } else {
         // Method returns only value (no error)
@@ -722,15 +720,37 @@ fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
-            out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
-            out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
-            out.push_str("\t*outResult = cResult\n");
+            gen_result_conversion(out, &method.return_type);
         }
     }
 
     out.push_str("\treturn 0  // success\n");
     out.push_str("}\n");
     out.push('\n');
+}
+
+/// Marshal a Go callback result into the C out-result slot.
+///
+/// The Rust FFI side decodes String/Path/Char callback returns as raw UTF-8 C strings,
+/// while Json/Named/Vec/Map returns are parsed as JSON payloads. Keep those contracts
+/// separate so string-like returns are not accidentally JSON-quoted and raw JSON payloads
+/// are not double-encoded.
+fn gen_result_conversion(out: &mut String, return_type: &TypeRef) {
+    match return_type {
+        TypeRef::String | TypeRef::Char | TypeRef::Path => {
+            out.push_str("\tcResult := C.CString(result)\n");
+            out.push_str("\t*outResult = cResult\n");
+        }
+        TypeRef::Json => {
+            out.push_str("\tcResult := C.CString(string(result))\n");
+            out.push_str("\t*outResult = cResult\n");
+        }
+        _ => {
+            out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
+            out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
+            out.push_str("\t*outResult = cResult\n");
+        }
+    }
 }
 
 /// Generate trampolines for plugin methods: Name, Version, Initialize, Shutdown.

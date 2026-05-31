@@ -143,6 +143,12 @@ impl Backend for PhpBackend {
             data_enum_names: data_enum_names.clone(),
             untagged_data_enum_names: untagged_data_enum_names.clone(),
         };
+        let default_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_default && !t.is_opaque)
+            .map(|t| t.name.clone())
+            .collect();
         let core_import = config.core_import_name();
         let lang_rename_all = config.serde_rename_all_for_language(Language::Php);
 
@@ -432,6 +438,7 @@ impl Backend for PhpBackend {
                         func,
                         &mapper,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                         &config.trait_bridges,
                         &mutex_types,
@@ -441,6 +448,7 @@ impl Backend for PhpBackend {
                         func,
                         &mapper,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                         &config.trait_bridges,
                         has_serde,
@@ -971,7 +979,7 @@ impl Backend for PhpBackend {
         let no_arg_constructor_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.fields.iter().all(|f| f.optional))
+            .filter(|t| t.has_default || t.fields.iter().all(|f| f.optional))
             .map(|t| t.name.clone())
             .collect();
 
