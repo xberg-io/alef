@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **e2e server-pattern harness config IR:** `HarnessConfig` struct in
+  `src/core/config/e2e.rs` with library-agnostic knobs for server-shaped SUT
+  generation (app_class, register_method, body_schema_setter, run_method, etc.).
+  Backends can now emit harness scripts that start the SUT, register handlers
+  per fixture, and handle requests without hardcoding domain-specific knowledge.
+
 ### Fixed
 
 - **dart e2e: route source-code file fixtures through the path-based extract
