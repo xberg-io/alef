@@ -414,8 +414,9 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 /// Emit the `Rb{ContractName}Bridge` struct + trait impl.
 ///
 /// The bridge wraps a Ruby proc (stored as `Opaque<Value>`) and implements
-/// the handler contract trait. It acquires the GVL via `Ruby::with_gvl()` to
-/// call the proc with JSON request/response serialization.
+/// the handler contract trait. It acquires the GVL via `rb_sys::rb_thread_call_with_gvl()`
+/// (when called from a non-GVL tokio worker) or directly when already on a Ruby thread.
+/// The proc is called with JSON request/response serialization.
 fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_import: &str) {
     let trait_name = &contract.trait_name;
     let bridge_name = format!("Rb{}Bridge", trait_name.to_upper_camel_case());
@@ -512,8 +513,8 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                  {wire_name}: {req_path},\n    \
              ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
                  Box::pin(async move {{\n            \
-                     // Call the Ruby proc with the GVL.\n            \
-                     // Ruby procs are synchronous, so we block_on in a spawn_blocking.\n            \
+                     // Call the Ruby proc with the GVL via spawn_blocking.\n            \
+                     // Ruby procs are synchronous, so we block on the spawned task.\n            \
                      let outcome: {wire_output} = async move {{\n                \
                          // Serialize the request to JSON\n                \
                          let req_json = serde_json::to_string(&{wire_name})\n                    \
@@ -522,30 +523,13 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                              let proc_handle = self.proc_handle.clone();\n                    \
                              let req_json = req_json.clone();\n                    \
                              move || {{\n                        \
-                                 Ruby::with_gvl(|ruby| {{\n                            \
-                                     let proc_value = proc_handle.get_inner_with(&ruby);\n\n                            \
-                                     // Parse request JSON into a Ruby Hash\n                            \
-                                     let json_mod = ruby.eval::<_, Value>(\"JSON\").map_err(|e| {{\n                                \
-                                         Box::new(e) as {box_err}\n                            \
-                                     }})?;\n                            \
-                                     let req_hash = json_mod\n                                \
-                                         .funcall::<_, _, Value>(\"parse\", (&req_json,))\n                                \
-                                         .map_err(|e| Box::new(e) as {box_err})?;\n\n                            \
-                                     // Call the proc with the request hash\n                            \
-                                     let result = proc_value\n                                \
-                                         .funcall::<_, _, Value>(\"call\", (req_hash,))\n                                \
-                                         .map_err(|e| Box::new(e) as {box_err})?;\n\n                            \
-                                     // Serialize result back to JSON\n                            \
-                                     let resp_json_str = json_mod\n                                \
-                                         .funcall::<_, _, String>(\"generate\", (result,))\n                                \
-                                         .map_err(|e| Box::new(e) as {box_err})?;\n\n                            \
-                                     Ok::<String, {box_err}>(resp_json_str)\n                        \
-                                 }})\n                \
+                                 // SAFETY: rb_sys::rb_thread_call_with_gvl acquires the GVL.\n                        \
+                                 // We pass a callback that will be invoked with the GVL held.\n                        \
+                                 call_ruby_proc_with_gvl(&proc_handle, &req_json)\n                \
                              }}\n            \
                          }})\n            \
                          .await\n            \
-                         .map_err(|e| Box::new(e) as {box_err})??\n            \
-                         .map_err(|e| Box::new(e) as {box_err})?;\n\n            \
+                         .map_err(|e| Box::new(e) as {box_err})??;\n\n            \
                          // Deserialize the JSON result back into the wire response DTO.\n            \
                          let response: {resp_path} = serde_json::from_str(&resp_json)\n                \
                              .map_err(|e| Box::new(e) as {box_err})?;\n            \
@@ -557,6 +541,107 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
              }}\n\
          }}\n\n"
     ));
+
+    // Emit the helper function that safely calls a Ruby proc with the GVL acquired
+    out.push_str("/// Call a Ruby proc with the GVL acquired via rb_sys.\n");
+    out.push_str("/// This function is called from a tokio spawn_blocking task (non-GVL context).\n");
+    out.push_str("fn call_ruby_proc_with_gvl(\n");
+    out.push_str("    proc_handle: &Opaque<Value>,\n");
+    out.push_str("    req_json: &str,\n");
+    out.push_str(") -> Result<String, Box<dyn std::error::Error + Send + Sync>> {\n");
+    out.push_str("    let box_err = |e: Box<dyn std::error::Error + Send + Sync>| e;\n");
+    out.push_str("    \n");
+    out.push_str("    // SAFETY: rb_thread_call_with_gvl is safe to call from any thread.\n");
+    out.push_str("    // It acquires the GVL and calls the callback with it held.\n");
+    out.push_str("    // We use a helper extern fn to bridge the gap.\n");
+    out.push_str("    unsafe {\n");
+    out.push_str("        let mut state = RubyProcCallState {\n");
+    out.push_str("            proc_handle: proc_handle.clone(),\n");
+    out.push_str("            req_json: req_json.to_string(),\n");
+    out.push_str("            result: None,\n");
+    out.push_str("        };\n");
+    out.push_str("        rb_sys::rb_thread_call_with_gvl(\n");
+    out.push_str("            Some(ruby_proc_gvl_callback),\n");
+    out.push_str("            &mut state as *mut _ as *mut std::ffi::c_void,\n");
+    out.push_str("        );\n");
+    out.push_str("        state.result.unwrap_or_else(|| {\n");
+    out.push_str("            Err(Box::new(std::io::Error::new(\n");
+    out.push_str("                std::io::ErrorKind::Other,\n");
+    out.push_str("                \"GVL callback failed to set result\",\n");
+    out.push_str("            )) as Box<dyn std::error::Error + Send + Sync>)\n");
+    out.push_str("        })\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
+    out.push_str("struct RubyProcCallState {\n");
+    out.push_str("    proc_handle: Opaque<Value>,\n");
+    out.push_str("    req_json: String,\n");
+    out.push_str("    result: Option<Result<String, Box<dyn std::error::Error + Send + Sync>>>,\n");
+    out.push_str("}\n\n");
+
+    out.push_str("// SAFETY: RubyProcCallState is only accessed from within the GVL callback.\n");
+    out.push_str("unsafe impl Send for RubyProcCallState {}\n");
+    out.push_str("unsafe impl Sync for RubyProcCallState {}\n\n");
+
+    out.push_str("// Callback invoked by rb_thread_call_with_gvl with the GVL held.\n");
+    out.push_str("extern \"C\" fn ruby_proc_gvl_callback(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {\n");
+    out.push_str("    // SAFETY: data is a pointer to our RubyProcCallState, guaranteed valid for the duration of the callback.\n");
+    out.push_str("    unsafe {\n");
+    out.push_str("        let state = &mut *(data as *mut RubyProcCallState);\n");
+    out.push_str("        let box_err = |e: Box<dyn std::error::Error + Send + Sync>| e;\n");
+    out.push_str("        \n");
+    out.push_str("        // We are now on a Ruby thread with the GVL held. Safe to call Magnus APIs.\n");
+    out.push_str("        let ruby = match Ruby::get() {\n");
+    out.push_str("            Ok(r) => r,\n");
+    out.push_str("            Err(_) => {\n");
+    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::new(\n");
+    out.push_str("                    std::io::ErrorKind::Other,\n");
+    out.push_str("                    \"Could not obtain Ruby handle within GVL callback\",\n");
+    out.push_str("                )) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                return std::ptr::null_mut();\n");
+    out.push_str("            }\n");
+    out.push_str("        };\n");
+    out.push_str("        \n");
+    out.push_str("        let proc_value = state.proc_handle.get_inner_with(&ruby);\n");
+    out.push_str("        \n");
+    out.push_str("        // Parse request JSON into a Ruby Hash\n");
+    out.push_str("        let json_mod = match ruby.eval::<_, Value>(\"JSON\") {\n");
+    out.push_str("            Ok(m) => m,\n");
+    out.push_str("            Err(e) => {\n");
+    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                return std::ptr::null_mut();\n");
+    out.push_str("            }\n");
+    out.push_str("        };\n");
+    out.push_str("        \n");
+    out.push_str("        let req_hash = match json_mod.funcall::<_, _, Value>(\"parse\", (&state.req_json,)) {\n");
+    out.push_str("            Ok(h) => h,\n");
+    out.push_str("            Err(e) => {\n");
+    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                return std::ptr::null_mut();\n");
+    out.push_str("            }\n");
+    out.push_str("        };\n");
+    out.push_str("        \n");
+    out.push_str("        // Call the proc with the request hash\n");
+    out.push_str("        let result = match proc_value.funcall::<_, _, Value>(\"call\", (req_hash,)) {\n");
+    out.push_str("            Ok(r) => r,\n");
+    out.push_str("            Err(e) => {\n");
+    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                return std::ptr::null_mut();\n");
+    out.push_str("            }\n");
+    out.push_str("        };\n");
+    out.push_str("        \n");
+    out.push_str("        // Serialize result back to JSON\n");
+    out.push_str("        match json_mod.funcall::<_, _, String>(\"generate\", (result,)) {\n");
+    out.push_str("            Ok(resp_json_str) => {\n");
+    out.push_str("                state.result = Some(Ok(resp_json_str));\n");
+    out.push_str("            }\n");
+    out.push_str("            Err(e) => {\n");
+    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("    std::ptr::null_mut()\n");
+    out.push_str("}\n\n");
 }
 
 /// Emit a match arm for a registration variant shortcut (e.g., "get", "post").
