@@ -3657,10 +3657,9 @@ fn csharp_type_for_stub_visible(ty: &crate::core::ir::TypeRef) -> String {
 /// appear in test stubs or public interfaces.
 fn is_visible_csharp_type(type_name: &str) -> bool {
     // Whitelist of types that are actually exported by the C# binding.
-    // Note: Enums (OcrBackendType, ProcessingStage, etc.) are excluded because
-    // trait-bridge methods returning enums serialize them as JSON strings, not as
-    // enum instances. The stub emitter will map enum return types to string with
-    // default value "".
+    // Post-Wave-2: Enums (OcrBackendType, ProcessingStage, etc.) are now part
+    // of the public interface and must be included here. Trait-bridge methods
+    // returning enums now use typed enum returns, so test stubs must match.
     matches!(
         type_name,
         "ExtractionResult"
@@ -3688,6 +3687,8 @@ fn is_visible_csharp_type(type_name: &str) -> bool {
             | "PluginException"
             | "SampleCrateError"
             | "OcrConfig"
+            | "OcrBackendType"
+            | "ProcessingStage"
     )
 }
 
@@ -3719,6 +3720,12 @@ fn emit_csharp_stub_default(
         } else {
             "\"\"".to_string()
         }
+    } else if matches!(original_type, TypeRef::Named(name) if matches!(name.as_str(), "OcrBackendType")) {
+        // OcrBackendType: return the first variant (Tesseract)
+        "OcrBackendType.Tesseract".to_string()
+    } else if matches!(original_type, TypeRef::Named(name) if matches!(name.as_str(), "ProcessingStage")) {
+        // ProcessingStage: return the first variant (Early)
+        "ProcessingStage.Early".to_string()
     } else {
         // Visible type, use the default logic
         defaults.emit_default(original_type)

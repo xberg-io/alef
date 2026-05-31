@@ -21,6 +21,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C# e2e test stubs: emit typed enum returns post-Wave-2.**
+  After enum visibility re-enabled in commit f08a205be, generated trait bridge interfaces
+  declared typed enum return methods (e.g., `OcrBackendType BackendType()`, `ProcessingStage ProcessingStage()`).
+  The e2e test stub generator was still mapping enum types to `string` because they were
+  excluded from the visible types whitelist, causing interface implementation mismatches (CS0738).
+  `is_visible_csharp_type()` now includes `OcrBackendType` and `ProcessingStage`, and
+  `emit_csharp_stub_default()` returns the first enum variant (e.g., `OcrBackendType.Tesseract`,
+  `ProcessingStage.Early`) instead of empty strings.
+  (`src/e2e/codegen/csharp.rs`)
+
+- **rustler e2e: eliminate duplicate `clear_*` trait-bridge delegates in wrapper module.**
+  The rustler backend was emitting trait-bridge `clear_*` functions twice: once from the
+  outer `generate_bindings` exclusion logic, and again from the `generate_public_api` wrapper
+  function. The wrapper loop did not extend its local `exclude_functions` set with trait
+  bridge function names, so the dedup check at line 1584 failed to skip already-emitted
+  functions. The fix calls `collect_rustler_trait_bridge_fn_names(config)` in
+  `generate_public_api` (mirroring the pattern in `generate_bindings`) and extends the
+  `exclude_functions` set before the wrapper loop runs. This ensures `def clear_*` clauses
+  appear exactly once in the generated Elixir binding.
+  (`src/backends/rustler/gen_bindings/mod.rs`, `src/backends/rustler/gen_bindings/helpers.rs`)
+
 - **zig e2e: honour call-level `result_is_simple` flag for bare-scalar returns.**
   When a Rust function returns a simple type like `String` (mapped to Zig `[]u8`), the
   alef-generated e2e tests tried to access `.result` on the bare scalar value, causing
