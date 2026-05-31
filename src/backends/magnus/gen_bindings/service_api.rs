@@ -774,9 +774,8 @@ fn gen_run_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build parameter list: ruby parameter + registrations + entrypoint params
-    let mut fn_params = vec!["ruby: &Ruby".to_owned()];
-    fn_params.push("registrations: &Opaque<Value>".to_owned());
+    // Build parameter list: registrations + entrypoint params (ruby obtained via Ruby::get())
+    let mut fn_params = vec!["registrations: &Opaque<Value>".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         fn_params.push(format!("{}: {}", p.name, rust_ty));
@@ -799,6 +798,9 @@ fn gen_run_function(
     // Build the owner instance as a mutable owned value (no Arc<Mutex<…>> wrapping)
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
+
+    // Get the Ruby handle (we are on a Ruby thread via #[magnus::function])
+    out.push_str("    let ruby = Ruby::get().expect(\"#[magnus::function] callbacks run on a Ruby thread\");\n\n");
 
     // Iterate registrations and dispatch (GVL is held)
     out.push_str("    let regs_value = registrations.get_inner_with(&ruby);\n");
@@ -1364,10 +1366,13 @@ mod tests {
         let surface = make_fixture_surface();
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
-        // Check for Ruby::get() in the main function (runs on Ruby thread)
+        // Check for Ruby::get() in both contexts
+        let ruby_get_count = output.matches("Ruby::get()").count();
         assert!(
-            output.contains("Ruby::get()"),
-            "expected `Ruby::get()` for main function GVL handling:\n{output}"
+            ruby_get_count >= 2,
+            "expected at least 2 `Ruby::get()` calls (main function + GVL callback): count={}, output:\n{}",
+            ruby_get_count,
+            output
         );
         // Check for rb_sys in the handler bridge (runs from async context)
         assert!(
