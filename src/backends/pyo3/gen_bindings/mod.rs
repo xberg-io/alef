@@ -926,6 +926,23 @@ mod alef_json_str_opt {
                 if !capsule_types.is_empty() {
                     impl_block = rewrite_capsule_methods(impl_block, typ, &capsule_types, &error_converters);
                 }
+                // Variant-wrapper constructor — when the type is referenced as the
+                // wrapper of one or more registration variants (and therefore variant
+                // bodies emit `WrapperType(args...)` constructor-syntax calls), opt
+                // the type into a Python-level constructor by appending a `#[new]
+                // pub fn py_new(...) -> Self { Self::new(...) }` to the SAME impl
+                // block. pyo3 forbids multiple `#[pymethods] impl T` blocks (without
+                // the `multiple-pymethods` feature flag), so the constructor lives
+                // alongside the existing `#[staticmethod] pub fn new`. The two
+                // coexist by giving the constructor a distinct Rust fn name
+                // (`py_new`); pyo3 registers it as Python `__new__` via the
+                // `#[new]` attribute regardless of the Rust name.
+                if typ.is_variant_wrapper
+                    && !impl_block.is_empty()
+                    && let Some(ctor_body) = variant_wrapper_constructor_body(typ, &mapper)
+                {
+                    impl_block = inject_into_impl_block(&impl_block, &ctor_body);
+                }
                 builder.add_item(&struct_code);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
@@ -935,19 +952,6 @@ mod alef_json_str_opt {
                     let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[new]");
                     let ctor_impl = format!("#[pymethods]\nimpl {} {{\n{}}}", typ.name, ctor_body);
                     builder.add_item(&ctor_impl);
-                }
-                // Variant-wrapper constructor — when the type is referenced as the
-                // wrapper of one or more registration variants (and therefore variant
-                // bodies emit `WrapperType(args...)` constructor-syntax calls), opt
-                // its static `new` method into a Python-level `__new__` so the
-                // constructor syntax actually resolves. The existing
-                // `#[staticmethod] pub fn new` remains in place; this just adds the
-                // `#[new]` companion that delegates to it. Distinct Rust fn name
-                // (`py_new`) avoids the inherent-impl duplicate-`fn new` conflict.
-                else if typ.is_variant_wrapper {
-                    if let Some(ctor) = variant_wrapper_constructor(typ, &mapper) {
-                        builder.add_item(&ctor);
-                    }
                 }
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
@@ -1911,30 +1915,18 @@ fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
 }
 
 /// For a wrapper type referenced by registration variants (i.e. one whose
-/// `is_variant_wrapper` flag is set by the extractor), emit a `#[pymethods]
-/// impl T { #[new] pub fn py_new(...) -> Self { Self::new(...) } }` block
-/// so the Python-side `WrapperType(args...)` constructor syntax used by
-/// variant bodies resolves to a real instance.
-///
-/// The wrapper's static `new` method remains emitted as `#[staticmethod]` by
-/// the general `gen_opaque_impl_block` pass — this just adds the `#[new]`
-/// companion. The two coexist by giving the constructor a distinct Rust
-/// function name (`py_new`); pyo3 registers it as Python `__new__` via the
-/// `#[new]` attribute regardless of the Rust name.
+/// `is_variant_wrapper` flag is set by the extractor), produce a `#[new]
+/// pub fn py_new(...) -> Self { Self::new(...) }` method body suitable for
+/// in-place insertion into the type's existing `#[pymethods] impl T { ... }`
+/// block via [`inject_into_impl_block`].
 ///
 /// Returns `None` when the wrapper has no `new` method (or the constructor's
 /// receiver is not static) — the variant body would not compile in that
 /// case either, but we silently skip rather than panic so the rest of the
 /// surface can still be generated for diagnosis.
-fn variant_wrapper_constructor(
-    typ: &crate::core::ir::TypeDef,
-    mapper: &Pyo3Mapper,
-) -> Option<String> {
-    let ctor = typ
-        .methods
-        .iter()
-        .find(|m| m.name == "new" && m.receiver.is_none())?;
+fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, mapper: &Pyo3Mapper) -> Option<String> {
     use crate::codegen::type_mapper::TypeMapper as _;
+    let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
     let call_args = ctor
@@ -1943,19 +1935,30 @@ fn variant_wrapper_constructor(
         .map(|p| p.name.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    // The core (source) constructor takes Rust-native types (`String` for
-    // path, the user-side `Method` newtype for the enum, etc.). Our binding
-    // wrapper's static `new` already does the `binding-Method → core-Method`
-    // conversion and produces a `Self`; we just delegate.
+    // The binding wrapper's static `new` already does the
+    // `binding-side type → core-side type` conversion for each argument and
+    // produces a `Self`; we just delegate.
     let body = if call_args.is_empty() {
         "Self::new()".to_string()
     } else {
         format!("Self::new({call_args})")
     };
     Some(format!(
-        "#[pymethods]\nimpl {name} {{\n    #[new]\n    pub fn py_new({sig_params}) -> Self {{\n        {body}\n    }}\n}}\n",
-        name = typ.name,
+        "    #[new]\n    pub fn py_new({sig_params}) -> Self {{\n        {body}\n    }}\n"
     ))
+}
+
+/// Inject a method body into the existing `#[pymethods] impl T { ... }`
+/// block produced by `gen_opaque_impl_block`. The block ends with a closing
+/// `}`; the body is inserted right before it.
+fn inject_into_impl_block(impl_block: &str, body: &str) -> String {
+    let trimmed = impl_block.trim_end();
+    let Some(close_idx) = trimmed.rfind('}') else {
+        return impl_block.to_string();
+    };
+    let (head, tail) = trimmed.split_at(close_idx);
+    let head_trimmed = head.trim_end();
+    format!("{head_trimmed}\n\n{body}{tail}\n")
 }
 
 #[cfg(test)]

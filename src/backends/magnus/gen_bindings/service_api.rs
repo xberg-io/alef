@@ -381,7 +381,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     // File-level allow attributes to keep clippy happy in generated code
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use magnus::{method, prelude::*, Value, Opaque, RArray, RHash};\n");
+    out.push_str("use magnus::{method, prelude::*, value::Opaque, RArray, RHash, Ruby, Value};\n");
     out.push_str("use std::sync::Arc;\n\n");
 
     // Emit one handler bridge per unique handler contract referenced by any registration
