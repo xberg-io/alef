@@ -154,6 +154,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
                     "expected_response": {
                         "status_code": http_data.expected_response.status_code,
                         "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
                     }
                 }
             });

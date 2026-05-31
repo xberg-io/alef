@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **e2e python harness: surface `expected_response.headers` into the SUT.**
+  The server-pattern harness previously hardcoded the response headers as an empty dict,
+  causing fixtures that asserted on response headers (e.g. `Content-Length`, `Content-Type`)
+  to fail. The fixture serializer now includes `expected_response.headers`, and the
+  generated handler returns the configured headers verbatim. The harness response body
+  field is also driven by the `[crates.e2e.harness].response_body_field` knob so the
+  wrapper matches the SUT's `Response` deserialization shape rather than assuming a
+  fixed `body` key.
+  (`src/e2e/codegen/python/config.rs`, `src/e2e/templates/python/app_harness.py.jinja`)
+
 ### Fixed
 
 - **zig e2e: honour call-level `result_is_simple` flag for bare-scalar returns.**
