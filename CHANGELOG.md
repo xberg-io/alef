@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **elixir clear_* function duplication: emit exactly once with correct spec.**
+  When the Rust API surface exports a `clear_*` function (e.g., `clear_embedding_backends`) AND the trait bridge
+  for that function also needs a `clear_*` delegate, the previous two attempts oscillated between extremes: commit
+  cbc276a02 tried to suppress both (removing all `clear_*` from the generated module), and d2e224f00 reverted this,
+  causing both to emit with conflicting specs. The first emission (from `api.functions`, if present) has the correct
+  `Result`-based return type (e.g., `{:ok, nil} | {:error, atom, String.t()}`); the second emission (from trait bridge)
+  has a simpler `:ok | :error` spec. The fix tracks which functions exist in `api.functions` and skips the trait
+  bridge emission of `clear_*` for those functions, preserving the API function's higher-fidelity spec and preventing
+  duplicate clause compile errors. (`src/backends/rustler/gen_bindings/mod.rs`)
+
 - **go e2e `main_test.go`: only spawn the harness binary when HTTP fixtures are present.**
   The previous codegen unconditionally emitted `exec.Command(harnessBin)` in `TestMain`, but the harness
   binary (`cmd/harness/main.go`) is only generated when at least one fixture has `http` set. For repos with

@@ -56,7 +56,7 @@ impl Backend for RustlerBackend {
         let core_import = config.core_import_name();
 
         let elixir_config = config.elixir.as_ref();
-        let mut exclude_functions: AHashSet<String> = elixir_config
+        let exclude_functions: AHashSet<String> = elixir_config
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
         // Service-owner types and handler-contract traits are marked binding_excluded
@@ -610,7 +610,7 @@ impl Backend for RustlerBackend {
         let crate_name = config.name.replace('-', "_");
 
         let elixir_config = config.elixir.as_ref();
-        let mut exclude_functions: AHashSet<String> = elixir_config
+        let exclude_functions: AHashSet<String> = elixir_config
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
 
@@ -1537,7 +1537,10 @@ impl Backend for RustlerBackend {
         // Emit register_*, unregister_*, and clear_* delegates for every trait bridge.
         // These are excluded from the main function loop (via exclude_functions) because
         // the trait bridge generator handles them, but they must also be surfaced in the
-        // public module so e2e tests can call them.
+        // public module so e2e tests can call them. However, if a clear_fn is already in
+        // api.functions (emitted above with the correct Result return type), skip it here
+        // to avoid duplicate clauses with conflicting specs.
+        let api_fn_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
         for bridge_cfg in &config.trait_bridges {
             if bridge_cfg
                 .exclude_languages
@@ -1573,17 +1576,22 @@ impl Backend for RustlerBackend {
                 content.push_str("  end\n\n");
             }
 
-            // Emit clear_* delegate
+            // Emit clear_* delegate only if not already in api.functions.
+            // If the function is in api.functions, it's already emitted above with the
+            // correct Result return type. Emitting again here with :: :ok | :error would
+            // create duplicate clauses with incompatible specs, triggering a compile error.
             if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
                 let fn_name = clear_fn.to_snake_case();
-                content.push_str(&format!(
-                    "  @doc \"Clear all {} plugins from the global registry.\"\n",
-                    bridge_cfg.trait_name
-                ));
-                content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
-                content.push_str(&format!("  def {fn_name} do\n"));
-                content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
-                content.push_str("  end\n\n");
+                if !api_fn_names.contains(fn_name.as_str()) {
+                    content.push_str(&format!(
+                        "  @doc \"Clear all {} plugins from the global registry.\"\n",
+                        bridge_cfg.trait_name
+                    ));
+                    content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
+                    content.push_str(&format!("  def {fn_name} do\n"));
+                    content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
+                    content.push_str("  end\n\n");
+                }
             }
         }
 
