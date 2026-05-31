@@ -229,12 +229,12 @@ final class {{ class_name }} {
 {% endfor %}
 
     static final MethodHandle {{ prefix_upper }}_LAST_ERROR_CODE = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_last_error_code").orElseThrow(),
+        LIB.find("{{ prefix }}_last_error_code").orElse(null),
         FunctionDescriptor.of(ValueLayout.JAVA_INT)
     );
 
     static final MethodHandle {{ prefix_upper }}_LAST_ERROR_CONTEXT = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_last_error_context").orElseThrow(),
+        LIB.find("{{ prefix }}_last_error_context").orElse(null),
         FunctionDescriptor.of(ValueLayout.ADDRESS)
     );
 

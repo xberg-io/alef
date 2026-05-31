@@ -341,8 +341,14 @@ pub(crate) fn emit_trait_bridge(
         }
         for method in &own_methods {
             let param_name = &method.name;
+            // FRB v2 only synthesises Dart-callable function types for closure
+            // PARAMETERS when the Rust signature uses `impl Fn(...) -> DartFnFuture<R>
+            // + Send + Sync + 'static`. `Box<dyn Fn(...)>` parameters render as
+            // opaque `BoxFn…` Dart classes that have no constructor — Dart user
+            // code cannot pass closures to them. The struct field stays
+            // `Box<dyn Fn(...)>`; we box the `impl Fn` argument at the init site.
             let callback_ty =
-                dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
+                dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_factory_param.jinja",
                 minijinja::context! {
@@ -368,12 +374,8 @@ pub(crate) fn emit_trait_bridge(
             out.push_str("        plugin_version,\n");
         }
         for method in &own_methods {
-            out.push_str(&crate::backends::dart::template_env::render(
-                "rust_trait_factory_method_init.jinja",
-                minijinja::context! {
-                    param_name => method.name.as_str(),
-                },
-            ));
+            let name = method.name.as_str();
+            out.push_str(&format!("        {name}: Box::new({name}),\n"));
         }
         out.push_str("    }\n");
         out.push_str("}\n");
@@ -555,6 +557,37 @@ fn dart_fn_future_callback_type(
     _type_paths: &std::collections::HashMap<String, String>,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
+    let (params_str, dart_fn_ret) =
+        dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
+    format!("Box<dyn Fn({params_str}) -> {dart_fn_ret} + Send + Sync>")
+}
+
+/// Build the factory-parameter closure type for a non-`type_alias` trait bridge.
+///
+/// FRB v2 only generates Dart-callable function types for closure parameters when
+/// the Rust signature uses the bare `impl Fn(...) -> DartFnFuture<R> + Send + Sync
+/// + 'static` shape — `Box<dyn Fn(...)>` parameters render as opaque `BoxFn…`
+/// classes that cannot be constructed from Dart user code. Closure struct fields
+/// stay `Box<dyn Fn(...)>` (see `dart_fn_future_callback_type`); the factory
+/// boxes each `impl Fn` argument as it stores it.
+///
+/// Example: `impl Fn(Vec<u8>, OcrConfig) -> DartFnFuture<ExtractionResult> + Send + Sync + 'static`
+fn dart_fn_future_factory_param_type(
+    method: &MethodDef,
+    source_crate_name: &str,
+    _type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    let (params_str, dart_fn_ret) =
+        dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
+    format!("impl Fn({params_str}) -> {dart_fn_ret} + Send + Sync + 'static")
+}
+
+fn dart_fn_future_params_and_ret(
+    method: &MethodDef,
+    source_crate_name: &str,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> (String, String) {
     // Closures take owned FRB mirror types — use frb_rust_type (no source prefix)
     // for types with an in-scope mirror, and the qualified source-crate path for
     // excluded internal types (e.g. `InternalDocument`) that have no mirror struct.
@@ -572,8 +605,7 @@ fn dart_fn_future_callback_type(
     let ret_substituted = substitute_internal_document_in_rust_type(&ret, source_crate_name);
     let dart_fn_ret = format!("flutter_rust_bridge::DartFnFuture<{ret_substituted}>");
 
-    let params_str = params.join(", ");
-    format!("Box<dyn Fn({params_str}) -> {dart_fn_ret} + Send + Sync>")
+    (params.join(", "), dart_fn_ret)
 }
 
 /// Emit one method implementation on the bridge struct.

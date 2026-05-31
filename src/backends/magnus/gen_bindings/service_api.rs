@@ -774,13 +774,14 @@ fn gen_run_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build the function signature: registrations + entrypoint params
-    let mut rust_params = vec!["registrations: &Opaque<Value>".to_owned()];
+    // Build parameter list: ruby parameter + registrations + entrypoint params
+    let mut fn_params = vec!["ruby: &Ruby".to_owned()];
+    fn_params.push("registrations: &Opaque<Value>".to_owned());
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
-        rust_params.push(format!("{}: {}", p.name, rust_ty));
+        fn_params.push(format!("{}: {}", p.name, rust_ty));
     }
-    let param_sig = rust_params.join(", ");
+    let fn_param_sig = fn_params.join(", ");
 
     out.push_str(&format!(
         "/// Drive `{owner_path}::{ep_method}` from Ruby.\n\
@@ -792,15 +793,12 @@ fn gen_run_function(
          ///\n\
          /// This function runs on a Ruby thread (via #[magnus::function]), so the GVL is already held.\n\
          #[magnus::function]\n\
-         pub fn {fn_name}({param_sig}) -> magnus::error::Result<()> {{\n"
+         pub fn {fn_name}({fn_param_sig}) -> magnus::error::Result<()> {{\n"
     ));
 
     // Build the owner instance as a mutable owned value (no Arc<Mutex<…>> wrapping)
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
-
-    // Get the Ruby handle (we are on a Ruby thread via #[magnus::function])
-    out.push_str("    let ruby = Ruby::get().expect(\"#[magnus::function] callbacks run on a Ruby thread\");\n\n");
 
     // Iterate registrations and dispatch (GVL is held)
     out.push_str("    let regs_value = registrations.get_inner_with(&ruby);\n");
