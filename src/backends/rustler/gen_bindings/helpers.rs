@@ -676,9 +676,11 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
     // Native alias and reference-only struct. Only emit the alias when the
     // body actually references Native.foo — otherwise mix compile
     // --warnings-as-errors flags an unused-alias warning. The body uses
-    // Native for the default-constructor body or for any method wrapper, so
-    // gate the alias on either condition.
-    let needs_native_alias = typ.has_default || !typ.methods.is_empty();
+    // Native for the default-constructor body, for any method wrapper, or for
+    // the variant-wrapper static `new` constructor (emitted by the general
+    // method loop below — no special-case is needed because the IR already
+    // places the static `new` in `typ.methods`).
+    let needs_native_alias = typ.has_default || !typ.methods.is_empty() || typ.is_variant_wrapper;
     if needs_native_alias {
         out.push_str(&format!("  alias {app_module}.Native\n\n"));
     }
