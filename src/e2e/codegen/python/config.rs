@@ -165,7 +165,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
 
     let imports = &e2e_config.harness.imports;
     let app_class = &e2e_config.harness.app_class;
-    let register_method = &e2e_config.harness.register_method;
+    let register_route_method = &e2e_config.harness.register_method;
     let body_schema_setter = &e2e_config.harness.body_schema_setter;
     let method_enum = &e2e_config.harness.method_enum;
     let run_method = &e2e_config.harness.run_method;
@@ -174,13 +174,25 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
 
     let header = hash::header(CommentStyle::Hash);
 
+    let route_builder_import = if !imports.is_empty() {
+        let module_leaf = imports[0].rsplit('.').next().unwrap_or(&imports[0]).replace('-', "_");
+        format!("{}._{}", &imports[0], module_leaf)
+    } else {
+        "app._app".to_string()
+    };
+    let method_enum_import = route_builder_import.clone();
+
     let ctx = minijinja::context! {
         header => header,
         imports => imports,
         app_class => app_class.as_deref().unwrap_or("App"),
-        register_method => register_method.as_deref().unwrap_or("route"),
-        body_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
-        method_enum => method_enum.as_deref().unwrap_or("Method"),
+        route_builder_import => route_builder_import,
+        route_builder_class => "RouteBuilder",
+        route_builder_constructor => "__init__",
+        route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
+        method_enum_import => method_enum_import,
+        method_enum_class => method_enum.as_deref().unwrap_or("Method"),
+        register_route_method => register_route_method.as_deref().unwrap_or("register_route"),
         run_method => run_method.as_deref().unwrap_or("run"),
         host => host,
         port => port,
