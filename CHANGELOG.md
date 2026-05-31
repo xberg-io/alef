@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in a documented comment. Full JSON serialization for these types is a future enhancement.
   (`src/backends/zig/templates/thunk_if_fallible.jinja`, `src/backends/zig/trait_bridge.rs`)
 
+- **zig trait bridge thunk stubs missing return statement.**
+  The trait bridge fallible thunk stub for complex return types had a missing `return 0;`
+  statement in the success path, causing "function with non-void return type 'i32'
+  implicitly returns" compile errors. The template now emits `return 0;` after setting
+  `out_result` to null, matching the error path pattern.
+  (`src/backends/zig/templates/thunk_if_fallible.jinja`)
+
 - **swift trait bridge: marshal opaque FFI types (InternalDocument, ExtractionResult) as JSON strings.**
   Protocol methods were using native Swift type names for excluded/opaque types, causing:
   1. "InternalDocument not in scope" compiler errors when the type doesn't exist in the binding.
