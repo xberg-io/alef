@@ -2998,15 +2998,27 @@ pub fn emit_test_backend(
     // Emit method callbacks for all methods (required and optional). The factory wrapper
     // requires callbacks for all trait methods to satisfy the Rust bridge signature.
     // Skip binding_excluded methods — these are not part of the FRB-generated factory.
+    // Closure parameters are emitted with explicit Dart types so they satisfy the
+    // typed `BoxFn…` parameter of the FRB-generated factory; bare `(a, b) => …`
+    // closures infer `dynamic` and fail Dart strong-mode type checks.
     let emitted_methods: Vec<_> = methods.iter().filter(|m| !m.binding_excluded).collect();
     for (i, method) in emitted_methods.iter().enumerate() {
         let method_name = method.name.to_lower_camel_case();
+        let typed_params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let ty = map_dart_type_with_fallback(&mapper, &p.ty);
+                format!("{} {}", ty, p.name.to_lower_camel_case())
+            })
+            .collect();
+        let typed_params_str = typed_params.join(", ");
         let param_names: Vec<String> = method.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
-        let params_str = param_names.join(", ");
-        let binding = if params_str.is_empty() {
+        let arg_pass = param_names.join(", ");
+        let binding = if param_names.is_empty() {
             format!("{method_name}: () => {instance_name}.{method_name}()")
         } else {
-            format!("{method_name}: ({params_str}) => {instance_name}.{method_name}({params_str})")
+            format!("{method_name}: ({typed_params_str}) => {instance_name}.{method_name}({arg_pass})")
         };
         let comma = if i < emitted_methods.len() - 1 { "," } else { "" };
         let _ = writeln!(setup, "  {binding}{comma}");
@@ -3072,6 +3084,12 @@ fn emit_dart_default_for_type(
                 return "ProcessingStage.preProcessing".to_string();
             }
         }
+        // Any other Named class: avoid `T()` default because the FRB-generated class
+        // may require named ctor params we cannot enumerate generically. Stubs in the
+        // generated e2e plugin tests are registration-only — methods are never invoked —
+        // so a `throw UnimplementedError()` body is type-safe (Never assignable to T)
+        // and semantically correct.
+        return "throw UnimplementedError()".to_string();
     }
     defaults.emit_default(&effective_ty).to_string()
 }
