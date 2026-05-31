@@ -478,27 +478,70 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
     ));
 }
 
-/// Substitute the source-crate-qualified `InternalDocument` type name with
-/// a binding-facing placeholder. Since FRB generates type names based on the
-/// Rust closure signature, and we can't use `ExtractionResult` (ambiguous with
-/// the local mirror struct), we substitute with the fully-qualified path
-/// instead. This is a temporary measure while Dart e2e test stubs reference
-/// the internal `InternalDocument` type.
+/// Substitute all forms of `InternalDocument` with `ExtractionResult` in binding-facing types.
 ///
-/// Examples:
-/// - `demo_core::types::internal::InternalDocument` → `demo_core::types::internal::InternalDocument`
-/// - (no change — accept FRB's type naming as-is)
-fn substitute_internal_document_in_rust_type(rust_type: &str) -> String {
-    // Intentionally a no-op pass-through. A naive `InternalDocument` → `ExtractionResult`
-    // rewrite at the closure-type level breaks the bridge call sites: the surrounding
-    // Rust code still passes `InternalDocument` values (from the original trait method
-    // signature) into the closure, producing E0308 mismatched-type errors at every
-    // `(self.render)(doc).await` site. Properly aligning the dart-facing trait, the
-    // FRB DTO type names, and the bridge call sites requires emitting an explicit
-    // `InternalDocument` → `ExtractionResult` conversion before each closure invocation,
-    // which is tracked separately. Until that lands, the dart e2e plugin_api_test fails
-    // at two tests where FRB DTO names (`BoxFn...DartFnFutureInternalDocument`) clash
-    // with the dart abstract trait (`Future<ExtractionResult>`).
+/// This ensures FRB generates closure signatures and factory parameters using the
+/// public `ExtractionResult` type instead of the internal `InternalDocument`. Call-site
+/// conversions (`.into()`) are emitted separately to bridge the original trait signature.
+///
+/// Handles all qualified forms:
+/// - `CreatorName::InternalDocument` → `CreatorName::ExtractionResult`
+/// - `CreatorName::types::internal::InternalDocument` → `CreatorName::types::extraction::ExtractionResult`
+/// - Plain `InternalDocument` token → `ExtractionResult`
+/// - Generic arguments: `Vec<InternalDocument>` → `Vec<ExtractionResult>`
+fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name: &str) -> String {
+    // Handle fully qualified `crate_name::types::internal::InternalDocument`
+    let fully_qualified_internal = format!("{}::types::internal::InternalDocument", source_crate_name);
+    if rust_type.contains(&fully_qualified_internal) {
+        return rust_type.replace(
+            &fully_qualified_internal,
+            &format!("{}::types::extraction::ExtractionResult", source_crate_name),
+        );
+    }
+
+    // Handle partially qualified `crate_name::InternalDocument`
+    let partial_qualified_internal = format!("{}::InternalDocument", source_crate_name);
+    if rust_type.contains(&partial_qualified_internal) {
+        return rust_type.replace(
+            &partial_qualified_internal,
+            &format!("{}::ExtractionResult", source_crate_name),
+        );
+    }
+
+    // Handle plain `InternalDocument` token (word boundaries: not InternalDocumentBuilder, etc.)
+    // Use regex-like word boundary logic: check that InternalDocument is surrounded by
+    // non-identifier chars or is at the start/end.
+    if rust_type.contains("InternalDocument") {
+        let mut result = String::new();
+        let mut chars = rust_type.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == 'I' {
+                // Look ahead to match "InternalDocument"
+                let remaining: String = std::iter::once(ch)
+                    .chain(chars.by_ref().take("nternalDocument".len()))
+                    .collect();
+                if remaining == "InternalDocument" {
+                    // Check word boundaries
+                    let before_ok =
+                        result.is_empty() || !result.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
+                    let after_ok = chars.peek().is_none_or(|&c| !c.is_alphanumeric() && c != '_');
+                    if before_ok && after_ok {
+                        result.push_str("ExtractionResult");
+                        continue;
+                    } else {
+                        result.push_str(&remaining);
+                        continue;
+                    }
+                } else {
+                    result.push(ch);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+        return result;
+    }
+
     rust_type.to_string()
 }
 
@@ -515,7 +558,7 @@ fn substitute_internal_document_in_rust_type(rust_type: &str) -> String {
 /// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<ExtractionResult> + Send + Sync>`
 fn dart_fn_future_callback_type(
     method: &MethodDef,
-    _source_crate_name: &str,
+    source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
@@ -528,12 +571,12 @@ fn dart_fn_future_callback_type(
         .map(|p| {
             let ty = frb_rust_type_excluded_aware(&p.ty, p.optional, excluded_type_paths);
             // Substitute InternalDocument with ExtractionResult for binding-facing signature.
-            substitute_internal_document_in_rust_type(&ty)
+            substitute_internal_document_in_rust_type(&ty, source_crate_name)
         })
         .collect();
 
     let ret = frb_rust_type_excluded_aware(&method.return_type, false, excluded_type_paths);
-    let ret_substituted = substitute_internal_document_in_rust_type(&ret);
+    let ret_substituted = substitute_internal_document_in_rust_type(&ret, source_crate_name);
     let dart_fn_ret = format!("flutter_rust_bridge::DartFnFuture<{ret_substituted}>");
 
     let params_str = params.join(", ");
@@ -632,7 +675,23 @@ fn emit_trait_bridge_method(
     }
 
     // Build call-site arg list (use the local owned var names).
-    let call_args: Vec<String> = method.params.iter().map(|p| p.name.clone()).collect();
+    // For InternalDocument params, emit .into() conversion to ExtractionResult at the call site.
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            // Detect if this param's original type was InternalDocument (or qualified form).
+            let is_internal_document = match &p.ty {
+                TypeRef::Named(name) => name.ends_with("InternalDocument"),
+                _ => false,
+            };
+            if is_internal_document {
+                format!("{}.into()", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect();
     let call_expr = format!("(self.{method_name})({})", call_args.join(", "));
 
     // Emit the body, adapting the return value from FRB-widened to original type.
@@ -822,6 +881,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 

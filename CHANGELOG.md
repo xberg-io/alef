@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart: align InternalDocument substitution across factory params, closure types, and call-site conversions.** The Dart trait-bridge generator was inconsistently handling the substitution of the internal `InternalDocument` type with the binding-facing `ExtractionResult`. Closure parameters used `InternalDocument` (raw Rust internal type), while Dart trait stubs and e2e test backends expected `ExtractionResult` (public API type), causing FRB factory parameter and return-type mismatches. The substitution now applies uniformly: (1) `substitute_internal_document_in_rust_type` rewrites all forms of `InternalDocument` (fully qualified `crate_name::types::internal::InternalDocument`, partially qualified `crate_name::InternalDocument`, plain token, and generic arguments) to the corresponding `ExtractionResult` form; (2) closure callback types use the substituted `ExtractionResult` in FRB factory signatures; (3) at the call site, when a method param's original type was `InternalDocument`, an explicit `.into()` conversion is emitted so the Rust bridge passes `ExtractionResult` to the Dart-side closure while preserving the canonical trait signature's use of `InternalDocument`. This ensures FRB-generated factory parameters match closure types, and Rust-side adapters can correctly convert between types. Fixes E0308 mismatched-type errors in Dart plugin trait bridges. (`src/backends/dart/gen_rust_crate/trait_bridge.rs`)
+
 - **kotlin_android: wrap long interface method signatures across multiple lines to avoid AGP parser cascade.** AGP 8.13.0 + Kotlin 2.3.21 cascades into false "Missing '}'" / "Unclosed comment" errors when parsing interface method signatures >=115 chars on a single line. The error is a parser-recovery artifact, not real syntax. When the full single-line signature (including indent, suspend keyword, method name, params, return type) would exceed ~110 chars, the emitter now wraps the signature across multiple lines with each parameter on its own line and trailing commas (idiomatic Kotlin style). Empty parameter lists and short signatures remain single-line. This fix applies to trait interface methods emitted via `emit_trait_methods`. A new `format_method_signature` helper function encapsulates the wrapping logic, making it reusable if similar multi-line formatting is needed elsewhere in the kotlin_android backend. Fixes compilation errors in kreuzberg's kotlin-android e2e bindings when they define long interface method signatures. (`src/backends/kotlin_android/gen_bindings.rs`)
 
 - **dart bridge crate: revert naive `InternalDocument` → `ExtractionResult` closure-type rewrite (kept as no-op pass-through with a comment).** The previous fix attempt rewrote `DartFnFuture<InternalDocument>` → `DartFnFuture<ExtractionResult>` at the closure-type level, but the surrounding Rust bridge code still passed `InternalDocument` into the closure (from the original trait method's `Result<InternalDocument>` return), producing E0308 mismatched-type errors at every `(self.render)(doc).await` site. Properly aligning the dart-facing trait, the FRB DTO type names, and the bridge call sites needs an explicit `InternalDocument` → `ExtractionResult` conversion before each closure invocation — that's tracked separately. The function is left as a documented no-op so the rust bridge compiles; the dart e2e plugin_api_test cost is two tests where FRB DTO names clash with the dart abstract trait. (`src/backends/dart/gen_rust_crate/trait_bridge.rs`)
@@ -52,6 +54,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **swift: register `swift_registration_variant.swift.jinja` in the swift template environment.** The Wave B.2 swift variant template was authored under `src/backends/swift/templates/` but never added to the `TEMPLATES` slice in `src/backends/swift/template_env.rs`, so `template_env::render("swift_registration_variant.swift.jinja", ...)` panicked at codegen time with "template not found". Added the `include_str!` entry alongside `swift_registration.swift.jinja`. (`src/backends/swift/template_env.rs`)
 
 - **alef: scrub project-name leaks from swift backend, pyo3 service-api test, and php type-stub emitter.** Removed hardcoded `kreuzberg` / `spikard` mentions from generator code: the swift `_loadBytesFromPathOrUtf8` helper now consults the generic `ALEF_TEST_DOCUMENTS_DIR` env var instead of a downstream-project-specific one (threaded through `trait_bridge.rs`, `gen_bindings/mod.rs`, and the `swift_bridge_registration_overloads.swift.jinja` template); the pyo3 `python_output_contains_registration_variants` test fixture and the swift `service_api.rs` example comment use generic `mylib::` paths; `backends_swift_json_string_overloads_test.rs` looks for the derived `Mylib.swift` facade name and the generic env var. Also fixed a php `generate_type_stubs` compile regression where `exclude_functions` / `exclude_types` were referenced inside the function but declared in a sibling scope — declarations moved into `generate_type_stubs`. (`src/backends/swift/{gen_bindings/{mod,trait_bridge,service_api}.rs,templates/swift_bridge_registration_overloads.swift.jinja}`, `src/backends/pyo3/gen_bindings/service_api.rs`, `src/backends/php/gen_bindings/mod.rs`, `tests/backends_swift_json_string_overloads_test.rs`)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
