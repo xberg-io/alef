@@ -98,7 +98,55 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     }
 
     // Emit external funs for instance methods on opaque client types.
+    let methods_emitted_before = body.matches("// JNI external funs for client instance methods").count();
     emit_method_jni_external_funs(&mut body, api, &exclude_functions, &exception_class);
+    let methods_emitted_after = body.matches("// JNI external funs for client instance methods").count();
+
+    // Fallback: if emit_method_jni_external_funs didn't emit the comment (no client types found),
+    // manually emit declarations for any opaque types with methods that the client generator found.
+    if methods_emitted_before == methods_emitted_after {
+        // Try to find opaque client types by looking for those with methods
+        let opaque_with_methods: Vec<_> = api
+            .types
+            .iter()
+            .filter(|t| {
+                t.is_opaque && !t.is_trait &&
+                !t.methods.is_empty() &&
+                !exclude_functions.iter().all(|&excluded| {
+                    t.methods.iter().all(|m| excluded == m.name.as_str())
+                })
+            })
+            .collect();
+        if !opaque_with_methods.is_empty() {
+            body.push_str("\n    // JNI external funs for client instance methods (fallback).\n");
+            for ty in &opaque_with_methods {
+                let owner_pascal = to_pascal_case(&ty.name);
+                for method in &ty.methods {
+                    if exclude_functions.contains(method.name.as_str()) {
+                        continue;
+                    }
+                    let native_name = format!("native{owner_pascal}{}", to_pascal_case(&method.name));
+                    let return_ty = jni_return_type(&method.return_type);
+                    let params = if method.params.is_empty() {
+                        "handle: Long".to_string()
+                    } else if method.params.len() == 1 && is_binary_param_type(&method.params[0].ty) {
+                        format!("handle: Long, {}: ByteArray", to_lower_camel(&method.params[0].name))
+                    } else {
+                        "handle: Long, requestJson: String".to_string()
+                    };
+                    if matches!(method.return_type, TypeRef::Unit) {
+                        body.push_str(&format!(
+                            "    @Throws({exception_class}::class)\n    external fun {native_name}({params})\n"
+                        ));
+                    } else {
+                        body.push_str(&format!(
+                            "    @Throws({exception_class}::class)\n    external fun {native_name}({params}): {return_ty}\n"
+                        ));
+                    }
+                }
+            }
+        }
+    }
 
     // Emit streaming external funs.
     emit_streaming_jni_external_funs(&mut body, config, &exception_class);
@@ -111,10 +159,9 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // does not exclude `kotlin_android`. Skip duplicates already emitted from the API.
     emit_trait_bridge_jni_external_funs(&mut body, config, &exception_class, &package, &emitted_native_names);
 
-    // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
-    // that do NOT have instance methods (those are handled via emit_method_jni_external_funs
-    // which already emits the destructor in the paired Kotlin client class, while the
-    // bridge external fun for the destructor is emitted here for the handle-only case).
+    // Emit nativeFreeXxx destructors for opaque types.
+    // - For types with instance methods (client types): destructor is called from close()
+    // - For types returned by top-level functions: destructor is called after extraction
     let client_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -134,9 +181,17 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         })
         .collect();
 
-    if !top_level_opaque_returns.is_empty() {
+    // Emit destructors for all opaque types: client types (emitted by emit_method_jni_external_funs
+    // and called from close()) and handle-only types (emitted here for top-level returns).
+    let all_opaque_with_destructors: std::collections::BTreeSet<&str> = client_type_names
+        .iter()
+        .copied()
+        .chain(top_level_opaque_returns.iter().copied())
+        .collect();
+
+    if !all_opaque_with_destructors.is_empty() {
         body.push_str("\n    // Destructor external funs for opaque handle types.\n");
-        for type_name in &top_level_opaque_returns {
+        for type_name in &all_opaque_with_destructors {
             let free_name = format!("nativeFree{}", to_pascal_case(type_name));
             body.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
         }

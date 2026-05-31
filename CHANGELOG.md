@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift trait bridge: marshal opaque FFI types (InternalDocument, ExtractionResult) as JSON strings.**
+  Protocol methods were using native Swift type names for excluded/opaque types, causing:
+  1. "InternalDocument not in scope" compiler errors when the type doesn't exist in the binding.
+  2. "ExtractionResult does not conform to Encodable" when trying to JSON-encode an opaque swift-bridge reference.
+  The fix applies JSON marshalling (as used for other excluded types) to protocol method parameters and
+  return types, converting opaque types to String at trait boundaries. Updated both the protocol declaration
+  (parameters now use `swift_method_params` instead of `swift_method_params_native`) and the trait bridge
+  codegen to augment `exclude_types` with opaque types like `ExtractionResult` that cannot be encoded directly.
+  (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
+- **kotlin android JNI bridge: emit missing instance method and destructor external fun declarations.**
+  The Kotlin Android backend generated `DefaultClient.kt` with method calls to native functions
+  (e.g. `KreuzbergBridge.nativeDocumentTablePageNumbers(handle)`, `KreuzbergBridge.nativeFreeDocument(handle)`)
+  but `emit_method_jni_external_funs` was not emitting the corresponding `external fun` declarations in
+  `KreuzbergBridge.kt`, causing unresolved reference errors. The fix adds two changes:
+  1. Include all client type names (opaque types with instance methods) in the destructor emission,
+     not just those returned from top-level functions.
+  2. Add fallback logic that manually emits instance method declarations if the primary emitter
+     doesn't find any client types (due to filters or IR metadata issues).
+  (`src/backends/kotlin/gen_bindings/jni_emitter.rs`)
+
 - **rustler async function result propagation: fix Result<Result<_,_>, String> flattening.**
   Async NIF functions wrapping sync operations via `std::thread::spawn` + runtime
   produced nested Result types (from `spawn().join()` + `block_on()` error handling).

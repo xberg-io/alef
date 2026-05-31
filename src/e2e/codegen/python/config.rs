@@ -257,8 +257,7 @@ import pytest
 # The {module} package is expected to be installed in the current environment.
 
 _HERE = Path(__file__).parent
-_E2E_DIR = _HERE.parent
-_APP_HARNESS = _E2E_DIR / "app_harness.py"
+_APP_HARNESS = _HERE / "app_harness.py"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -268,6 +267,8 @@ def sut_server() -> Generator[str, None, None]:
     If SUT_URL is already set, a parent process started a shared harness.
     Use it as-is and do NOT spawn our own.
     """
+    import socket  # noqa: PLC0415
+
     existing = os.environ.get("SUT_URL")
     if existing:
         yield existing
@@ -281,17 +282,30 @@ def sut_server() -> Generator[str, None, None]:
         stdin=subprocess.PIPE,
     )
 
-    # Wait for the harness to start and emit the listening message.
     url = f"http://{host}:{port}"
-    assert proc.stdout is not None
-    for _ in range(50):  # ~5 second timeout
-        raw_line = proc.stdout.readline()
-        if not raw_line:
+    # Poll until the harness actually accepts TCP connections. The harness
+    # may print a listening banner before the runtime has finished binding,
+    # so port availability is the authoritative readiness signal.
+    deadline = time.time() + 15.0
+    ready = False
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            # Process died early; surface stderr in the failure path.
             break
-        line = raw_line.decode().strip()
-        if "Harness listening" in line:
-            break
-        time.sleep(0.1)
+        try:
+            with socket.create_connection(("{host}", {port}), timeout=0.5):
+                ready = True
+                break
+        except OSError:
+            time.sleep(0.1)
+
+    if not ready:
+        stderr_bytes = proc.stderr.read() if proc.stderr else b""
+        proc.terminate()
+        raise RuntimeError(
+            f"App harness did not become reachable on {host}:{port} within 15s; "
+            f"stderr={{stderr_bytes[:1000]!r}}"
+        )
 
     os.environ["SUT_URL"] = url
     yield url
