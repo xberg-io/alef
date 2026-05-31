@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **e2e: `HarnessConfig.overrides` for per-language harness method names.**
+  Adds a `HarnessOverride { register_method, app_class, body_schema_setter,
+  method_enum, run_method }` struct keyed by language slug under
+  `[crates.e2e.harness.overrides.<lang>]`. Helper accessors resolve language
+  overrides with fallback to the base `HarnessConfig`, so libraries whose
+  binding API differs per language (e.g. `route()` vs `register_route()`) keep
+  a single shared harness configuration.
+  (`src/core/config/e2e.rs`)
+- **e2e client: namespaced fixture path now includes `handler.route`.**
+  The shared `render_http_test` helper used by per-language test renderers
+  previously built `/fixtures/<id>` only, which collided across fixtures
+  sharing `(method, route)`. The path is now `/fixtures/<id>{handler.route}`
+  so each fixture's handler registration is uniquely addressable under the
+  server-pattern harness. (`src/e2e/codegen/client/http_call.rs`)
+
+### Fixed
+
+- **e2e ruby: format-string arity mismatch in harness setup emission.**
+  The RSpec `before(:suite)` harness emission used `{{}}` in one of three
+  `format!` placeholder slots, leaving the trailing `harness_port` argument
+  unused. Replaced with `{}` so all six arguments slot into the emitted Ruby
+  source. (`src/e2e/codegen/ruby.rs`)
+
 - **e2e python harness: surface `expected_response.headers` into the SUT.**
   The server-pattern harness previously hardcoded the response headers as an empty dict,
   causing fixtures that asserted on response headers (e.g. `Content-Length`, `Content-Type`)
