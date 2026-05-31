@@ -246,7 +246,7 @@ pub fn constructor_parts_with_renames_and_cfg_restore(
                 return format!("{}: Default::default()", binding_name);
             }
             if binding_name != f.name {
-                return format!("{}: {}", binding_name, f.name);
+                return format!("{}: {}", f.name, binding_name);
             }
             f.name.clone()
         })
@@ -474,27 +474,27 @@ fn config_constructor_parts_inner(
                     // (per the param-list generation above). For non-Optional bound fields
                     // we still need to unwrap to the bound field's type.
                     if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
-                        return format!("{}: {}", binding_name, f.name);
+                        return format!("{}: {}", f.name, binding_name);
                     }
-                    return format!("{}: {}.unwrap_or_default()", binding_name, f.name);
+                    return format!("{}: {}.unwrap_or_default()", f.name, binding_name);
                 }
-                return format!("{}: Default::default()", binding_name);
+                return format!("{}: Default::default()", f.name);
             }
             // Duration fields on has_default types are stored as Option<u64> when
             // option_duration_on_defaults is set — treat them as passthrough.
             // When optionalize_all_defaults is set, all non-optional fields are Option<T> and passthrough.
             if (option_duration_on_defaults && matches!(f.ty, TypeRef::Duration)) || optionalize_all_defaults {
-                return format!("{}: {}", binding_name, f.name);
+                return format!("{}: {}", f.name, binding_name);
             }
             if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
                 // Optional fields: passthrough (both param and field are Option<T>)
-                format!("{}: {}", binding_name, f.name)
+                format!("{}: {}", f.name, binding_name)
             } else if let Some(ref typed_default) = f.typed_default {
                 // For EnumVariant and Empty defaults, use unwrap_or_default()
                 // because we can't generate qualified Rust paths here.
                 match typed_default {
                     DefaultValue::EnumVariant(_) | DefaultValue::Empty => {
-                        format!("{}: {}.unwrap_or_default()", binding_name, f.name)
+                        format!("{}: {}.unwrap_or_default()", f.name, binding_name)
                     }
                     _ => {
                         let default_val = format_default_value(typed_default);
@@ -504,10 +504,10 @@ fn config_constructor_parts_inner(
                             DefaultValue::BoolLiteral(_)
                             | DefaultValue::IntLiteral(_)
                             | DefaultValue::FloatLiteral(_) => {
-                                format!("{}: {}.unwrap_or({})", binding_name, f.name, default_val)
+                                format!("{}: {}.unwrap_or({})", f.name, binding_name, default_val)
                             }
                             _ => {
-                                format!("{}: {}.unwrap_or_else(|| {})", binding_name, f.name, default_val)
+                                format!("{}: {}.unwrap_or_else(|| {})", f.name, binding_name, default_val)
                             }
                         }
                     }
@@ -515,7 +515,7 @@ fn config_constructor_parts_inner(
             } else {
                 // All binding types should impl Default (enums default to first variant,
                 // structs default via From<CoreType::default()>). unwrap_or_default() works.
-                format!("{}: {}.unwrap_or_default()", binding_name, f.name)
+                format!("{}: {}.unwrap_or_default()", f.name, binding_name)
             }
         })
         .collect();

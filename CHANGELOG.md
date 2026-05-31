@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **constructor field name mangling: use original Rust field name on left side of struct literal.**
+  Fixed a bug where field renaming for reserved words (e.g., `from` → `from_`) was applied to
+  the left side of struct literal assignments in generated constructors. The left side must
+  always use the original Rust field name, while the right side uses the mangled parameter
+  name. This affected all languages that use constructor field assignment (PyO3, PHP, NAPI,
+  Magnus, Rustler, etc.) when struct fields matched reserved words. (`src/codegen/shared.rs`)
 - **kotlin-android JNI: emit external fun declarations for all opaque client methods.**
   Removed `!m.sanitized` filter from `emit_method_jni_external_funs` so that opaque
   types with sanitized instance methods (e.g., Document.tablePageNumbers) still get
