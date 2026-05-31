@@ -11,6 +11,6 @@
             .map_err(|_| "thread panicked".to_string())
     }));
     match result {
-        Ok(inner_result) => inner_result,
+        Ok(inner_result) => inner_result?,
         Err(_) => Err("thread panic during async operation".to_string()),
     }

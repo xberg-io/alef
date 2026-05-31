@@ -1577,17 +1577,20 @@ impl Backend for RustlerBackend {
                 content.push_str("  end\n\n");
             }
 
-            // Emit clear_* delegate
+            // Emit clear_* delegate only if not already in api.functions (would create duplicate clauses).
+            // If the function is in api.functions, it's already emitted from the main loop.
             if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
                 let fn_name = clear_fn.to_snake_case();
-                content.push_str(&format!(
-                    "  @doc \"Clear all {} plugins from the global registry.\"\n",
-                    bridge_cfg.trait_name
-                ));
-                content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
-                content.push_str(&format!("  def {fn_name} do\n"));
-                content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
-                content.push_str("  end\n\n");
+                if !exclude_functions.contains(fn_name.as_str()) {
+                    content.push_str(&format!(
+                        "  @doc \"Clear all {} plugins from the global registry.\"\n",
+                        bridge_cfg.trait_name
+                    ));
+                    content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
+                    content.push_str(&format!("  def {fn_name} do\n"));
+                    content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
+                    content.push_str("  end\n\n");
+                }
             }
         }
 

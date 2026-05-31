@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **rustler async function result propagation: fix Result<Result<_,_>, String> flattening.**
+  Async NIF functions wrapping sync operations via `std::thread::spawn` + runtime
+  produced nested Result types (from `spawn().join()` + `block_on()` error handling).
+  The match arm on JoinHandle result was dropping the `?` operator, leaving the
+  compiler to complain: "expected `Result<T, String>`, found `Result<Result<_, _>, String>`".
+  The fix adds `?` to flatten the nested Result: `Ok(inner_result) => inner_result?`.
+  This propagates any nested `Err` immediately while preserving outer error semantics.
+  (`src/backends/rustler/templates/async_result_body.rs.jinja`)
+
+- **rustler elixir duplicate clear_* function clauses: skip when already in api.functions.**
+  When trait bridges expose registry methods like `clear_embedding_backends`,
+  and those same functions also exist in the Rust API surface with a different
+  return type (wrapped in `Result<()>` vs a simpler `:ok | :error`), alef was
+  emitting both versions to the public Elixir module. Elixir saw two `def` clauses
+  with identical name and arity, triggering: "this clause cannot match because a
+  previous clause always matches" (fatal under strict linting). The fix checks if
+  a `clear_fn` is already in `api.functions` (NOT in `exclude_functions`), and
+  skips the trait bridge version to avoid the duplicate clause.
+  (`src/backends/rustler/gen_bindings/mod.rs`)
+
+- **csharp trait bridge lifecycle: fix GCHandle collection during callbacks.**
+  The trait registry's `Register` method allocated a GCHandle for the bridge via
+  `GCHandle.Alloc(bridge)`, but then discarded the handle reference and only
+  stored the bridge in a weak dictionary keyed by name. When the native FFI
+  layer called back into managed code, `GCHandle.FromIntPtr(userData)` attempted
+  to access an already-freed handle, causing `NullReferenceException: Object
+  reference not set to an instance of an object` in all plugin callback paths.
+  The fix replaces the name-keyed bridge dictionary with a bridge ID–keyed
+  registry where each bridge holds a unique `IntPtr` ID (internal `_bridgeId`
+  field). The bridge is now stored in the static `_bridgeRegistry` keyed by
+  this ID for the entire plugin lifetime, preventing GC collection and ensuring
+  callbacks can always recover the bridge instance safely.
+  (`src/backends/csharp/templates/trait_registry_class.jinja`)
+
+- **csharp trait bridge callbacks: allow JSON number-from-string deserialization.**
+  When callback parameters are deserialized from JSON, some properties
+  (e.g., `code_intelligence`, `metadata`) in known types are declared as numeric
+  but arrive as quoted strings in the JSON wire form (e.g., `"42"`).
+  `JsonSerializer.Deserialize<T>()` without `JsonNumberHandling.AllowReadingFromString`
+  rejects this mismatch with `JsonException: The JSON value could not be
+  converted to System.Int32`. The fix adds a static `FfiJsonOptions` field to
+  the `{TraitName}Bridge` class with `NumberHandling =
+  JsonNumberHandling.AllowReadingFromString`, and passes it to all
+  `JsonSerializer.Deserialize<T>()` calls in callback parameter marshalling.
+  (`src/backends/csharp/templates/trait_bridge_class.jinja`,
+  `src/backends/csharp/templates/callback_json_deserialize.jinja`,
+  `src/backends/csharp/templates/trait_bridges_header.jinja`)
+
 ### Added
 
 - **e2e server-pattern harness config IR:** `HarnessConfig` struct in
