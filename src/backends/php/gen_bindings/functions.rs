@@ -15,6 +15,11 @@ use super::helpers::{
     gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
 };
 
+pub(crate) struct PhpParamTypeSets<'a> {
+    pub(crate) opaque: &'a AHashSet<String>,
+    pub(crate) default: &'a AHashSet<String>,
+}
+
 /// Format the `-> ReturnType` part of a function signature.
 /// Returns an empty string for unit `()` return types to avoid
 /// emitting `-> ()` which triggers `clippy::unused_unit`.
@@ -701,8 +706,7 @@ pub(crate) fn gen_static_method(
 pub(crate) fn gen_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
+    type_sets: PhpParamTypeSets<'_>,
     core_import: &str,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
@@ -710,8 +714,7 @@ pub(crate) fn gen_function_as_static_method(
 ) -> String {
     let body = gen_function_body(
         func,
-        opaque_types,
-        default_types,
+        &type_sets,
         core_import,
         &mapper.enum_names,
         bridges,
@@ -725,8 +728,8 @@ pub(crate) fn gen_function_as_static_method(
         .filter(|p| !bridge_names.contains(p.name.as_str()))
         .cloned()
         .collect();
-    let visible_params = promote_default_params(&visible_params, default_types, opaque_types);
-    let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
+    let visible_params = promote_default_params(&visible_params, type_sets.default, type_sets.opaque);
+    let params = gen_php_function_params(&visible_params, mapper, type_sets.opaque, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
     // For Bytes returns, convert Vec<u8> to String in the type annotation
@@ -769,8 +772,7 @@ pub(crate) fn gen_function_as_static_method(
 /// Shared body generation for sync free functions.
 fn gen_function_body(
     func: &FunctionDef,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
+    type_sets: &PhpParamTypeSets<'_>,
     core_import: &str,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
@@ -778,12 +780,12 @@ fn gen_function_body(
     mutex_types: &AHashSet<String>,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
     if can_delegate {
-        let promoted_params = promote_default_params(&func.params, default_types, opaque_types);
-        let promoted_names = promoted_default_param_names(&func.params, default_types, opaque_types);
-        let let_bindings = gen_php_named_let_bindings(&promoted_params, opaque_types, core_import);
-        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, opaque_types);
+        let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
+        let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
+        let let_bindings = gen_php_named_let_bindings(&promoted_params, type_sets.opaque, core_import);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -810,7 +812,7 @@ fn gen_function_body(
                     "result",
                     &func.return_type,
                     "",
-                    opaque_types,
+                    type_sets.opaque,
                     false,
                     func.returns_ref,
                     false,
@@ -838,7 +840,7 @@ fn gen_function_body(
                 &core_call,
                 &func.return_type,
                 "",
-                opaque_types,
+                type_sets.opaque,
                 false,
                 func.returns_ref,
                 false,
@@ -854,7 +856,7 @@ fn gen_function_body(
         }
     } else if func.sanitized
         && !has_sanitized_recoverable(&func.params)
-        && !(has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types))
+        && !(has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, type_sets.opaque))
     {
         // Sanitized functions cannot be auto-delegated AND we have no recoverable serde path —
         // emit a safe stub: Err(...) when the signature is PhpResult<T>, default value otherwise.
@@ -863,16 +865,16 @@ fn gen_function_body(
         // Not auto-delegatable: use serde round-trip for Named params with is_ref=true and for
         // sanitized Vec<tuple> params (decoded as Vec<String>). The serde path requires the
         // function to return Result (uses `?` operator).
-        let promoted_params = promote_default_params(&func.params, default_types, opaque_types);
-        let promoted_names = promoted_default_param_names(&func.params, default_types, opaque_types);
+        let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
+        let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
         let needs_serde = func.error_type.is_some()
-            && (has_ref_named_params(&func.params, opaque_types) || has_sanitized_recoverable(&func.params));
+            && (has_ref_named_params(&func.params, type_sets.opaque) || has_sanitized_recoverable(&func.params));
         let let_bindings = if has_serde && needs_serde {
-            gen_php_serde_let_bindings(&promoted_params, opaque_types, core_import)
+            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, core_import)
         } else {
-            gen_php_named_let_bindings(&promoted_params, opaque_types, core_import)
+            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, core_import)
         };
-        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -889,7 +891,7 @@ fn gen_function_body(
                 "result",
                 &func.return_type,
                 "",
-                opaque_types,
+                type_sets.opaque,
                 false,
                 func.returns_ref,
                 false,
@@ -908,7 +910,7 @@ fn gen_function_body(
                 &core_call,
                 &func.return_type,
                 "",
-                opaque_types,
+                type_sets.opaque,
                 false,
                 func.returns_ref,
                 false,
@@ -930,21 +932,12 @@ fn gen_function_body(
 pub(crate) fn gen_async_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
+    type_sets: PhpParamTypeSets<'_>,
     core_import: &str,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
 ) -> String {
-    let body = gen_async_function_body(
-        func,
-        opaque_types,
-        default_types,
-        core_import,
-        &mapper.enum_names,
-        bridges,
-        mutex_types,
-    );
+    let body = gen_async_function_body(func, &type_sets, core_import, &mapper.enum_names, bridges, mutex_types);
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
@@ -952,8 +945,8 @@ pub(crate) fn gen_async_function_as_static_method(
         .filter(|p| !bridge_names.contains(p.name.as_str()))
         .cloned()
         .collect();
-    let visible_params = promote_default_params(&visible_params, default_types, opaque_types);
-    let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
+    let visible_params = promote_default_params(&visible_params, type_sets.default, type_sets.opaque);
+    let params = gen_php_function_params(&visible_params, mapper, type_sets.opaque, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
     // For Bytes returns, convert Vec<u8> to String in the type annotation
@@ -996,26 +989,25 @@ pub(crate) fn gen_async_function_as_static_method(
 /// Shared body generation for async free functions (block_on variant).
 fn gen_async_function_body(
     func: &FunctionDef,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
+    type_sets: &PhpParamTypeSets<'_>,
     core_import: &str,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
     let needs_serde = func.error_type.is_some()
-        && (has_ref_named_params(&func.params, opaque_types) || has_sanitized_recoverable(&func.params));
+        && (has_ref_named_params(&func.params, type_sets.opaque) || has_sanitized_recoverable(&func.params));
     if can_delegate || needs_serde {
-        let promoted_params = promote_default_params(&func.params, default_types, opaque_types);
-        let promoted_names = promoted_default_param_names(&func.params, default_types, opaque_types);
+        let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
+        let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
         let let_bindings = if needs_serde && !can_delegate {
-            gen_php_serde_let_bindings(&promoted_params, opaque_types, core_import)
+            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, core_import)
         } else {
-            gen_php_named_let_bindings(&promoted_params, opaque_types, core_import)
+            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, core_import)
         };
-        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, opaque_types);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -1035,7 +1027,7 @@ fn gen_async_function_body(
                 "result",
                 &func.return_type,
                 "",
-                opaque_types,
+                type_sets.opaque,
                 false,
                 func.returns_ref,
                 false,
