@@ -86,8 +86,21 @@ impl E2eCodegen for RubyCodegen {
             generated_header: false,
         });
 
+        // Check if there are HTTP fixtures that need server-pattern harness
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+        let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+
+        // Emit app_harness.rb when using server-pattern
+        if uses_harness {
+            files.push(GeneratedFile {
+                path: output_base.join("app_harness.rb"),
+                content: render_app_harness(e2e_config, groups),
+                generated_header: true,
+            });
+        }
+
         // Check if any fixture is an HTTP test (needs mock server bootstrap).
-        let has_http_fixtures = groups
+        let has_mock_server_fixtures = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
             .any(|f| f.needs_mock_server());
@@ -106,16 +119,19 @@ impl E2eCodegen for RubyCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
-        // Always generate spec/spec_helper.rb when file-based or HTTP fixtures are present.
-        if has_file_fixtures || has_http_fixtures {
+        // Always generate spec/spec_helper.rb when file-based, HTTP, or server-pattern fixtures are present.
+        if has_file_fixtures || has_mock_server_fixtures || uses_harness {
             files.push(GeneratedFile {
                 path: output_base.join("spec").join("spec_helper.rb"),
                 content: render_spec_helper(
                     has_file_fixtures,
-                    has_http_fixtures,
+                    has_mock_server_fixtures,
+                    uses_harness,
                     &e2e_config.test_documents_relative_from(1),
                     &gem_name,
                     &module_path,
+                    &e2e_config.harness.host,
+                    e2e_config.harness.port,
                 ),
                 generated_header: true,
             });
@@ -174,7 +190,8 @@ impl E2eCodegen for RubyCodegen {
                 enum_fields,
                 result_is_simple,
                 e2e_config,
-                has_file_fixtures || has_http_fixtures,
+                has_file_fixtures || has_mock_server_fixtures,
+                uses_harness,
                 &config.adapters,
                 config,
                 type_defs,
@@ -197,6 +214,75 @@ impl E2eCodegen for RubyCodegen {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+
+fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            // Convert the fixture to JSON for the harness to load.
+            let http_data = &fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+
+    let imports = &e2e_config.harness.imports;
+    let app_class = &e2e_config.harness.app_class;
+    let register_route_method = &e2e_config.harness.register_method;
+    let body_schema_setter = &e2e_config.harness.body_schema_setter;
+    let method_enum = &e2e_config.harness.method_enum;
+    let run_method = &e2e_config.harness.run_method;
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+
+    let header = hash::header(CommentStyle::Hash);
+
+    // For Ruby, derive the Method enum from the method_enum config or use Spikard::Method
+    let method_enum_module = method_enum
+        .as_deref()
+        .unwrap_or("Spikard::Method")
+        .to_string();
+
+    let ctx = minijinja::context! {
+        header => header,
+        imports => imports,
+        app_class => app_class.as_deref().unwrap_or("Spikard::App"),
+        route_builder_class => "Spikard::RouteBuilder",
+        route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
+        method_enum_module => method_enum_module,
+        register_route_method => register_route_method.as_deref().unwrap_or("register_route"),
+        run_method => run_method.as_deref().unwrap_or("run"),
+        response_body_field => e2e_config.harness.response_body_field.as_str(),
+        host => host,
+        port => port,
+        fixtures_json => fixtures_json,
+    };
+
+    crate::e2e::template_env::render("ruby/app_harness.rb.jinja", ctx)
+}
 
 fn render_gemfile(
     gem_name: &str,
@@ -222,10 +308,13 @@ fn render_gemfile(
 
 fn render_spec_helper(
     has_file_fixtures: bool,
-    has_http_fixtures: bool,
+    has_mock_server_fixtures: bool,
+    uses_harness: bool,
     test_documents_path: &str,
     gem_name: &str,
     module_path: &str,
+    harness_host: &str,
+    harness_port: u16,
 ) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
@@ -321,7 +410,66 @@ end
         let _ = writeln!(out, "Dir.chdir(_test_documents) if Dir.exist?(_test_documents)");
     }
 
-    if has_http_fixtures {
+    if uses_harness {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "require 'socket'");
+        let _ = writeln!(out);
+        let harness_setup = format!(
+            r#"# Spawn the app harness for server-pattern e2e tests.
+# If SUT_URL is already set, a parent process started a shared harness.
+# Use it as-is and do NOT spawn our own.
+RSpec.configure do |config|
+  config.before(:suite) do
+    next if ENV['SUT_URL'] && !ENV['SUT_URL'].empty?
+    harness_bin = File.expand_path('../app_harness.rb', __dir__)
+    unless File.exist?(harness_bin)
+      raise "app_harness.rb not found at #{{harness_bin}}"
+    end
+    proc = Process.spawn('ruby', harness_bin, out: :pipe, err: :pipe, in: :pipe)
+    @_harness_pid = proc
+    url = "http://{}:{}"
+    # Poll until the harness accepts TCP connections. The harness
+    # may print a listening banner before the runtime has finished binding,
+    # so port availability is the authoritative readiness signal.
+    deadline = Time.now + 15.0
+    ready = false
+    while Time.now < deadline
+      if !Process.waitpid(@_harness_pid, Process::WNOHANG).nil?
+        # Process died early
+        break
+      end
+      begin
+        TCPSocket.new('{}', {}).close
+        ready = true
+        break
+      rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH
+        sleep(0.1)
+      end
+    end
+    unless ready
+      Process.kill('TERM', @_harness_pid) rescue nil
+      raise "App harness did not become reachable on {}:{} within 15s"
+    end
+    ENV['SUT_URL'] = url
+  end
+
+  config.after(:suite) do
+    if @_harness_pid
+      Process.kill('TERM', @_harness_pid) rescue nil
+      Process.wait(@_harness_pid, 5) rescue nil
+    end
+  end
+end
+"#,
+            harness_host,
+            harness_port,
+            harness_host,
+            harness_port,
+            harness_host,
+            harness_port
+        );
+        out.push_str(&harness_setup);
+    } else if has_mock_server_fixtures {
         out.push_str(
             r#"
 require 'json'
@@ -392,6 +540,7 @@ fn render_spec_file(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
     needs_spec_helper: bool,
+    uses_harness: bool,
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
@@ -444,9 +593,13 @@ fn render_spec_file(
     let mut examples = Vec::new();
     for fixture in fixtures {
         if fixture.http.is_some() {
-            // HTTP example is handled separately (uses shared driver)
+            // HTTP example is handled separately (uses shared driver or server-pattern)
             let mut out = String::new();
-            render_http_example(&mut out, fixture);
+            if uses_harness {
+                render_http_example_sut(&mut out, fixture);
+            } else {
+                render_http_example(&mut out, fixture);
+            }
             examples.push(out);
         } else {
             // Resolve per-fixture call config so we can detect streaming up front.
@@ -813,6 +966,179 @@ fn render_http_example(out: &mut String, fixture: &Fixture) {
     }
 
     client::http_call::render_http_test(out, &RubyTestClientRenderer, fixture);
+}
+
+/// Render an RSpec example for an HTTP server-pattern test fixture (SUT harness).
+///
+/// Uses the server-pattern template to hit the actual SUT harness listening on
+/// a configured host:port, rather than the shared mock-server driver.
+fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
+    let Some(http) = &fixture.http else {
+        return;
+    };
+
+    // HTTP 101 (WebSocket upgrade) cannot be tested via Net::HTTP.
+    if http.expected_response.status_code == 101 {
+        let description = fixture.description.replace('\'', "\\'");
+        let method = http.request.method.to_uppercase();
+        let path = &http.request.path;
+        let rendered = crate::e2e::template_env::render(
+            "ruby/http_101_skip.jinja",
+            minijinja::context! {
+                method => method,
+                path => path,
+                description => description,
+            },
+        );
+        out.push_str(&rendered);
+        return;
+    }
+
+    let fn_name = sanitize_ident(&fixture.id);
+    let description = &fixture.description;
+    let desc_with_period = if description.ends_with('.') {
+        description.to_string()
+    } else {
+        format!("{description}.")
+    };
+
+    // Build request headers dict literal
+    let mut header_entries: Vec<String> = http
+        .request
+        .headers
+        .iter()
+        .map(|(k, v)| format!("      '{}' => '{}',", k, v))
+        .collect();
+    header_entries.sort();
+    let headers_ruby = if header_entries.is_empty() {
+        "{}".to_string()
+    } else {
+        format!("{{\n{}\n    }}", header_entries.join("\n"))
+    };
+
+    let method = http.request.method.to_uppercase();
+    let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
+
+    // Determine request body
+    let (has_body, body_ruby) = if let Some(body) = &http.request.body {
+        (true, json_to_ruby(body))
+    } else {
+        (false, String::new())
+    };
+
+    // Determine response body expectations
+    let (has_text_body, text_ruby) = if let Some(serde_json::Value::String(s)) = &http.expected_response.body {
+        (true, format!("\"{}\"", s))
+    } else {
+        (false, String::new())
+    };
+
+    let (has_json_body, json_ruby) = if let Some(body) = &http.expected_response.body {
+        if !(body.is_null() || body.is_string() && body.as_str() == Some("")) {
+            if !matches!(body, serde_json::Value::String(_)) {
+                (true, json_to_ruby(body))
+            } else {
+                (false, String::new())
+            }
+        } else {
+            (false, String::new())
+        }
+    } else {
+        (false, String::new())
+    };
+
+    let (has_partial_body, partial_body_checks) = if let Some(partial) = &http.expected_response.body_partial {
+        if let Some(obj) = partial.as_object() {
+            let checks: Vec<minijinja::Value> = obj
+                .iter()
+                .map(|(key, val)| {
+                    let ruby_val = json_to_ruby(val);
+                    minijinja::context! {
+                        key => key,
+                        value => ruby_val,
+                    }
+                })
+                .collect();
+            (true, checks)
+        } else {
+            (false, Vec::new())
+        }
+    } else {
+        (false, Vec::new())
+    };
+
+    // Build header assertions
+    let mut header_assertions: Vec<minijinja::Value> = Vec::new();
+    let mut header_names: Vec<String> = http.expected_response.headers.keys().cloned().collect();
+    header_names.sort();
+
+    for name in header_names {
+        let value = &http.expected_response.headers[&name];
+        header_assertions.push(minijinja::context! {
+            name => name,
+            assertion_type => "eq",
+            value => value,
+        });
+    }
+
+    // Build validation error expectations
+    let (has_validation_errors, validation_errors) = if http.expected_response.status_code == 422 {
+        if let Some(body) = &http.expected_response.body {
+            if let Some(obj) = body.as_object() {
+                if let Some(errs) = obj.get("errors").and_then(|v| v.as_array()) {
+                    let ve: Vec<minijinja::Value> = errs
+                        .iter()
+                        .filter_map(|err| {
+                            let loc = err.get("loc").and_then(|l| l.as_array())?;
+                            let msg = err.get("msg").and_then(|m| m.as_str())?;
+                            let loc_ruby = if loc.len() == 1 {
+                                json_to_ruby(&loc[0])
+                            } else {
+                                json_to_ruby(&serde_json::Value::Array(loc.clone()))
+                            };
+                            Some(minijinja::context! {
+                                loc_ruby => loc_ruby,
+                                escaped_msg => msg,
+                            })
+                        })
+                        .collect();
+                    (true, ve)
+                } else {
+                    (false, Vec::new())
+                }
+            } else {
+                (false, Vec::new())
+            }
+        } else {
+            (false, Vec::new())
+        }
+    } else {
+        (false, Vec::new())
+    };
+
+    let rendered = crate::e2e::template_env::render(
+        "ruby/http_test_sut.jinja",
+        minijinja::context! {
+            fn_name => fn_name,
+            description => desc_with_period,
+            method => method,
+            path => path,
+            headers_ruby => headers_ruby,
+            has_body => has_body,
+            body_ruby => body_ruby,
+            expected_status => http.expected_response.status_code,
+            has_text_body => has_text_body,
+            text_ruby => text_ruby,
+            has_json_body => has_json_body,
+            json_ruby => json_ruby,
+            has_partial_body => has_partial_body,
+            partial_body_checks => partial_body_checks,
+            header_assertions => header_assertions,
+            has_validation_errors => has_validation_errors,
+            validation_errors => validation_errors,
+        },
+    );
+    out.push_str(&rendered);
 }
 
 /// Convert an uppercase HTTP method string to Ruby's Net::HTTP class name.

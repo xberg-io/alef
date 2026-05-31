@@ -62,6 +62,26 @@ fn default_test_apps_dir() -> String {
     "test_apps".to_string()
 }
 
+/// Per-language harness config overrides.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarnessOverride {
+    /// Method to register handlers (overrides HarnessConfig.register_method)
+    #[serde(default)]
+    pub register_method: Option<String>,
+    /// SUT app class name (overrides HarnessConfig.app_class)
+    #[serde(default)]
+    pub app_class: Option<String>,
+    /// Method/field on RouteBuilder to set request body schema
+    #[serde(default)]
+    pub body_schema_setter: Option<String>,
+    /// HTTP method enum/type name
+    #[serde(default)]
+    pub method_enum: Option<String>,
+    /// Serve entrypoint method name (overrides HarnessConfig.run_method)
+    #[serde(default)]
+    pub run_method: Option<String>,
+}
+
 /// Server-shaped e2e harness configuration for HTTP fixtures.
 ///
 /// When HTTP fixtures are present (server-pattern testing), alef generates
@@ -102,6 +122,9 @@ pub struct HarnessConfig {
     /// Default port for SUT binding (e.g., 8000)
     #[serde(default = "default_harness_port")]
     pub port: u16,
+    /// Per-language harness overrides
+    #[serde(default)]
+    pub overrides: HashMap<String, HarnessOverride>,
 }
 
 fn default_response_body_field() -> String {
@@ -129,7 +152,34 @@ impl Default for HarnessConfig {
             response_body_field: default_response_body_field(),
             host: default_harness_host(),
             port: default_harness_port(),
+            overrides: HashMap::new(),
         }
+    }
+}
+
+impl HarnessConfig {
+    /// Get the effective register_method for a language, applying language-specific overrides.
+    pub fn register_method_for_lang(&self, lang: &str) -> Option<String> {
+        self.overrides
+            .get(lang)
+            .and_then(|o| o.register_method.clone())
+            .or_else(|| self.register_method.clone())
+    }
+
+    /// Get the effective run_method for a language, applying language-specific overrides.
+    pub fn run_method_for_lang(&self, lang: &str) -> Option<String> {
+        self.overrides
+            .get(lang)
+            .and_then(|o| o.run_method.clone())
+            .or_else(|| self.run_method.clone())
+    }
+
+    /// Get the effective app_class for a language, applying language-specific overrides.
+    pub fn app_class_for_lang(&self, lang: &str) -> Option<String> {
+        self.overrides
+            .get(lang)
+            .and_then(|o| o.app_class.clone())
+            .or_else(|| self.app_class.clone())
     }
 }
 
