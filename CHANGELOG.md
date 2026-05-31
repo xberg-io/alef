@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Backends can now emit harness scripts that start the SUT, register handlers
   per fixture, and handle requests without hardcoding domain-specific knowledge.
 
+- **python e2e: server-pattern harness emission:** When HTTP fixtures are present
+  and `[e2e.harness]` config is set, Python codegen now emits `app_harness.py`
+  that spawns the SUT app and registers handlers per fixture. The conftest
+  launches this harness as a session-scoped subprocess. Tests hit the SUT directly
+  via `SUT_URL` instead of the mock-server bridge.
+
 ### Fixed
 
 - **python/php e2e: honour the call-level `result_is_simple` flag.** The python
