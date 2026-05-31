@@ -716,12 +716,15 @@ fn gen_variant_match_arm(
                     TypeRef::Named(_) => {
                         // For named types (wrapper types), extract as Value and convert via try_convert
                         out.push_str(&format!(
-                            "                let {} = magnus::TryConvert::try_convert::<&{}>(meta_array.entry::<Value>({})\n",
+                            "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
                             param.name, rust_ty, i as isize
                         ));
                         out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                        out.push_str("                    .clone();\n");
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                        out.push_str(&format!(
+                            "                let {} = (*{}).clone();\n",
+                            param.name, param.name
+                        ));
                     }
                     _ => {
                         // Fallback for other types
@@ -901,12 +904,15 @@ fn gen_run_function(
                         TypeRef::Named(_) => {
                             // For named types (wrapper types), extract as Value and convert via try_convert
                             out.push_str(&format!(
-                                "                let {} = magnus::TryConvert::try_convert::<&{}>(meta_array.entry::<Value>({})\n",
+                                "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
                                 meta_param.name, rust_ty, i as isize
                             ));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
-                            out.push_str("                    .clone();\n");
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                            out.push_str(&format!(
+                                "                let {} = (*{}).clone();\n",
+                                meta_param.name, meta_param.name
+                            ));
                         }
                         _ => {
                             // Fallback for other types
