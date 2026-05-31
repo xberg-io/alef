@@ -214,19 +214,35 @@ pub(crate) fn emit_trait_bridge(
     // already constructed by the factory. The closure-bearing struct above stays
     // invisible to FRB. The wrapper is what Dart user code holds and what the
     // register forwarder consumes.
+    //
+    // The trait name inside `Arc<dyn …>` is emitted UNQUALIFIED. FRB v2 strips
+    // `dyn` and the qualified path when copying the inner type into the generated
+    // `frb_generated.rs` (it writes `Arc<DocumentExtractor + Send + Sync>` not
+    // `Arc<dyn example_crate::plugins::DocumentExtractor + …>`). `frb_generated.rs`
+    // imports `use crate::*;` at its top, so a sibling `pub use {trait_path};`
+    // at this site makes the bare trait ident resolvable from inside FRB's code.
     if !uses_type_alias {
+        out.push_str("/// Re-exported so FRB's generated `frb_generated.rs` (which strips `dyn` and the\n");
+        out.push_str(&format!(
+            "/// qualified path when copying the wrapper's inner type) can resolve `{trait_name}`\n"
+        ));
+        out.push_str("/// as a bare ident via its `use crate::*;` preamble.\n");
+        out.push_str(&format!("pub use {trait_path};\n\n"));
         out.push_str(&format!(
             "/// Public opaque handle returned by `create_{trait_snake}_dart_impl(...)`.\n"
         ));
         out.push_str(&format!(
-            "/// Wraps an `Arc<dyn {trait_path} + Send + Sync>` whose backing object carries the\n"
+            "/// Wraps an `Arc<dyn {trait_name} + Send + Sync>` whose backing object carries the\n"
         ));
         out.push_str("/// Dart-side callbacks (private to this crate). The wrapper has no closure\n");
         out.push_str("/// fields itself, so FRB can bridge it as an opaque type without seeing the\n");
         out.push_str("/// callbacks.\n");
+        // Named field literally `field0` to match FRB v2's auto-opaque accessor
+        // codegen, which references `api_that_guard.field0` regardless of whether
+        // the source was a tuple struct (`.0`) or a single-field named struct.
         out.push_str("#[frb(opaque)]\n");
         out.push_str(&format!(
-            "pub struct {struct_name}(pub std::sync::Arc<dyn {trait_path} + Send + Sync>);\n"
+            "pub struct {struct_name} {{\n    pub field0: std::sync::Arc<dyn {trait_name} + Send + Sync>,\n}}\n"
         ));
         out.push('\n');
     }
@@ -395,7 +411,9 @@ pub(crate) fn emit_trait_bridge(
             out.push_str(&format!("        {name}: Box::new({name}),\n", name = method.name));
         }
         out.push_str("    };\n");
-        out.push_str(&format!("    {struct_name}(std::sync::Arc::new(__impl))\n"));
+        out.push_str(&format!(
+            "    {struct_name} {{ field0: std::sync::Arc::new(__impl) }}\n"
+        ));
         out.push_str("}\n");
     }
 
