@@ -915,19 +915,26 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
         .and_then(|a| resolve_field(&fixture.input, &a.field).as_str());
 
     // Detect whether this call converts a file_path arg to bytes at test-run time.
-    // Dart cannot pass OS-level file paths through the FRB bridge — the idiomatic API
-    // is always bytes. When a file_path arg is present (and no caller-supplied dart
-    // function override has already been applied), remap the function name:
-    //   extractFile      → extractBytes
-    //   extractFileSync  → extractBytesSync
+    // Most dart fixtures take the bytes path historically (`extractFile` →
+    // `extractBytes`), but source-code files need the path-based variant to reach
+    // CodeExtractor's `extract_file` implementation (its `extract_bytes` path
+    // requires a shebang line for language detection, so `code/hello.py` fed as
+    // bytes errors out with "Cannot detect programming language from content").
+    // We therefore keep the bytes remap for ordinary file types and skip it for
+    // source-code extensions, letting the binding's own `extractFileSync` /
+    // `extractFile` accept the path directly.
     let has_file_path_arg = fixture
         .resolved_args(call_config)
         .iter()
         .any(|a| a.arg_type == "file_path");
+    let routes_to_source_code = file_path_for_mime
+        .and_then(mime_from_extension)
+        .map(|m| m == "text/x-source-code")
+        .unwrap_or(false);
     // Apply the remap only when no per-fixture dart override has already specified the
     // function — if the fixture author set a dart-specific function name we trust it.
     let caller_supplied_override = call_overrides.and_then(|o| o.function.as_ref()).is_some();
-    if has_file_path_arg && !caller_supplied_override {
+    if has_file_path_arg && !caller_supplied_override && !routes_to_source_code {
         function_name = match function_name.as_str() {
             "extractFile" => "extractBytes".to_string(),
             "extractFileSync" => "extractBytesSync".to_string(),
@@ -1092,11 +1099,17 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
         match arg_def.arg_type.as_str() {
             "bytes" | "file_path" => {
                 // `bytes`: value is a file path string; load file contents at test-run time.
-                // `file_path`: also loaded as bytes for dart — extractBytes/extractBytesSync is
-                // the idiomatic Dart API since the Dart runtime cannot pass OS-level file paths
-                // through the FFI bridge.
+                // `file_path`: for dart, normally remapped to bytes via the extract
+                // facade convention. The exception is source-code paths — those
+                // route through extractFile/extractFileSync directly (see
+                // `routes_to_source_code` above), so the path string must be
+                // passed verbatim instead of materialised as bytes.
                 if let serde_json::Value::String(file_path) = arg_value {
-                    args.push(format!("File('{}').readAsBytesSync()", file_path));
+                    if arg_def.arg_type == "file_path" && routes_to_source_code {
+                        args.push(format!("'{file_path}'"));
+                    } else {
+                        args.push(format!("File('{}').readAsBytesSync()", file_path));
+                    }
                 }
             }
             "int" | "integer" | "i64" => {
@@ -2560,12 +2573,12 @@ fn mime_from_extension(path: &str) -> Option<&'static str> {
         "epub" => Some("application/epub+zip"),
         "msg" => Some("application/vnd.ms-outlook"),
         "eml" => Some("message/rfc822"),
-        // Source-code extensions: the kreuzberg tree-sitter extractor registers under
-        // the internal `text/x-source-code` MIME, so route any recognised code file
-        // there directly. The `application/octet-stream` fallback only triggers
-        // tree-sitter's content-based language detection for shebang scripts, so
-        // non-shebang files (`hello.py`, `lib.rs`, …) need this explicit extension
-        // → source-code mapping to reach the CodeExtractor.
+        // Source-code extensions resolve to the internal `text/x-source-code` MIME.
+        // The bytes-path can't extract these (CodeExtractor::extract_bytes needs a
+        // shebang for language detection), so the caller code in this module
+        // checks the inferred MIME and routes source-code files through
+        // `extractFileSync`/`extractFile` (path-based) instead of remapping to
+        // the bytes facade.
         "py" | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rb"
         | "php" | "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cs" | "scala" | "ex" | "exs" | "erl"
         | "hrl" | "elm" | "ml" | "mli" | "fs" | "fsx" | "hs" | "lhs" | "lua" | "pl" | "pm" | "r" | "R" | "sh"
