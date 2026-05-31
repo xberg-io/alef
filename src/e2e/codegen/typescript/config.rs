@@ -117,7 +117,10 @@ pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
     )
 }
 
-pub fn render_app_harness(e2e_config: &crate::e2e::config::E2eConfig, groups: &[crate::e2e::fixture::FixtureGroup]) -> String {
+pub fn render_app_harness(
+    e2e_config: &crate::e2e::config::E2eConfig,
+    groups: &[crate::e2e::fixture::FixtureGroup],
+) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
@@ -155,7 +158,7 @@ pub fn render_app_harness(e2e_config: &crate::e2e::config::E2eConfig, groups: &[
     let port = e2e_config.harness.port;
     let header = hash::header(CommentStyle::DoubleSlash);
 
-    let imports = &e2e_config.harness.imports;
+    let imports = e2e_config.harness.imports_for_lang("node");
     let app_class = &e2e_config.harness.app_class;
     let method_enum = &e2e_config.harness.method_enum;
     let run_method = &e2e_config.harness.run_method;
@@ -325,7 +328,13 @@ mod tests {
     fn render_global_setup_server_pattern_polls_for_tcp_readiness() {
         let out = render_global_setup(true);
         assert!(out.contains("SUT_URL"), "server-pattern should use SUT_URL");
-        assert!(out.contains("app_harness.mjs"), "server-pattern should spawn app_harness.mjs");
-        assert!(out.contains("createConnection"), "server-pattern should check TCP readiness");
+        assert!(
+            out.contains("app_harness.mjs"),
+            "server-pattern should spawn app_harness.mjs"
+        );
+        assert!(
+            out.contains("createConnection"),
+            "server-pattern should check TCP readiness"
+        );
     }
 }

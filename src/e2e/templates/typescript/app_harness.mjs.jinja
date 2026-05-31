@@ -8,8 +8,9 @@
  */
 
 {% for import_name in imports %}
-import { {{ app_class }}, {{ method_enum }}, ServerConfig } from '{{ import_name }}';
+import _pkg from '{{ import_name }}';
 {% endfor %}
+const { {{ app_class }}, {{ method_enum }}, ServerConfig } = _pkg;
 
 // Load fixtures from the inline JSON payload.
 const _FIXTURES = {{fixtures_json}};
