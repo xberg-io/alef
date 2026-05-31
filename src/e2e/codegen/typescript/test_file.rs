@@ -1298,9 +1298,23 @@ fn ts_builder_expression_inner(
                 // and arrays so that tagged-enum elements inside arrays also get
                 // their discriminant renamed to "kind".
                 let preprocessed = rename_napi_serde_tags_to_kind(val, enums);
-                match val {
-                    serde_json::Value::Object(_) => json_to_js_camel(&preprocessed),
-                    _ => json_to_js(&preprocessed),
+                // If the field is an enum (e.g. urlEscapeStyle, codeBlockStyle),
+                // napi-rs constants are PascalCase variant names. Fixtures may
+                // use the lowercase wire form (e.g. "percent"); convert it.
+                let camel_key = snake_to_camel(key);
+                let is_enum_field =
+                    enum_fields.contains_key(key.as_str()) || enum_fields.contains_key(camel_key.as_str());
+                if is_enum_field {
+                    if let serde_json::Value::String(s) = &preprocessed {
+                        format!("\"{}\"", escape_js(&s.to_upper_camel_case()))
+                    } else {
+                        json_to_js(&preprocessed)
+                    }
+                } else {
+                    match val {
+                        serde_json::Value::Object(_) => json_to_js_camel(&preprocessed),
+                        _ => json_to_js(&preprocessed),
+                    }
                 }
             } else {
                 match val {

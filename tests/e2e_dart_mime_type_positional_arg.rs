@@ -97,8 +97,8 @@ fn render(fixture_id: &str, input: serde_json::Value) -> String {
 }
 
 /// An explicit `mime_type` value in the fixture must be emitted positionally,
-/// not as the named argument `mimeType:`. The `file_path` arg also triggers the
-/// `extractFileSync` → `extractBytesSync` facade remap.
+/// not as the named argument `mimeType:`. Source-code file fixtures stay on the
+/// file facade so extension-based language detection can run in the core.
 #[test]
 fn mime_type_string_arg_emitted_positionally_for_facade_extract() {
     let rendered = render(
@@ -115,8 +115,8 @@ fn mime_type_string_arg_emitted_positionally_for_facade_extract() {
         "mime_type must NOT be emitted as a named argument for the facade extract method. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("extractBytesSync("),
-        "file_path arg must remap extractFileSync -> extractBytesSync. Rendered:\n{rendered}"
+        rendered.contains("extractFileSync("),
+        "source-code file_path arg must keep extractFileSync. Rendered:\n{rendered}"
     );
 }
 
@@ -131,7 +131,7 @@ fn inferred_mime_type_emitted_positionally_for_facade_extract() {
         "inferred mime_type must NOT be emitted as a named argument. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("extractBytesSync("),
-        "file_path arg must remap extractFileSync -> extractBytesSync. Rendered:\n{rendered}"
+        rendered.contains("extractFileSync("),
+        "source-code file_path arg must keep extractFileSync. Rendered:\n{rendered}"
     );
 }

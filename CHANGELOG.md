@@ -167,7 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expr` arms so both casings are recognised without forcing every core enum
   to add `#[serde(rename_all = "lowercase")]`.
   (`src/backends/php/gen_bindings/helpers.rs`,
-   `src/backends/php/templates/php_enum_string_match_arm.jinja`)
+  `src/backends/php/templates/php_enum_string_match_arm.jinja`)
 
 - **swift JSON-string convenience overloads: pass through the original parameter
   label instead of a hardcoded `config:`.** The Swift JSON-overload codegen

@@ -7,9 +7,13 @@
    Context variables (passed from Python codegen):
    - imports: list of module names to import (e.g., ["my_app"])
    - app_class: class name for SUT app (e.g., "App")
-   - register_method: method name to register handlers per HTTP method (e.g., "get", "post", "delete")
-   - body_schema_setter: method to set request schema (e.g., "request_schema_json")
-   - method_enum: HTTP method enum name (e.g., "Method")
+   - route_builder_import: import path for RouteBuilder (e.g., "my_app._my_app")
+   - route_builder_class: class name for route builder (e.g., "RouteBuilder")
+   - route_builder_constructor: constructor method (e.g., "__init__" or "new")
+   - route_builder_schema_setter: method to set request schema (e.g., "request_schema_json")
+   - method_enum_import: import path for Method enum (e.g., "my_app._my_app")
+   - method_enum_class: class name for method enum (e.g., "Method")
+   - register_route_method: app method to register routes (e.g., "register_route")
    - run_method: serve entrypoint (e.g., "run")
    - host: binding host (e.g., "127.0.0.1")
    - port: binding port (e.g., 8000)
@@ -28,10 +32,9 @@ import sys
 {% for import_name in imports %}
 from {{ import_name }} import {{ app_class }}
 from {{ import_name }} import ServerConfig
-{% if method_enum %}
-from {{ import_name }} import {{ method_enum }}
-{% endif %}
 {% endfor %}
+from {{ route_builder_import }} import {{ route_builder_class }}
+from {{ method_enum_import }} import {{ method_enum_class }}
 
 # Load fixtures from the JSON payload.
 # The fixtures dict contains per-fixture data with handler route, method, body_schema, etc.
@@ -49,7 +52,7 @@ for fixture_id, fixture in _FIXTURES.items():
 
     handler = http.get("handler", {})
     route = handler.get("route", "/")
-    method_str = handler.get("method", "GET").lower()
+    method_str = handler.get("method", "GET").upper()
     body_schema = handler.get("body_schema")
     expected = http.get("expected_response", {})
 
@@ -59,23 +62,28 @@ for fixture_id, fixture in _FIXTURES.items():
 
     def make_handler(status, body):
         def handler_fn(*args, **kwargs):
-            # Return the expected response directly.
-            # The framework will handle validation based on body_schema.
-            # Args are path parameters (e.g., id={id}), which we ignore.
-            return body if body is not None else {}
+            # Return the expected response wrapped in the framework's response shape:
+            # {status_code, body, headers}. Args are path parameters (e.g., id={id}),
+            # which we ignore.
+            return {"status_code": status, "body": body, "headers": {}}
         return handler_fn
 
     # Register the handler at /fixtures/<fixture_id>{route}
     full_route = f"/fixtures/{fixture_id}{route}"
 
-    # Get the verb method (e.g., app.get, app.post, app.delete)
-    verb_method = getattr(app, method_str, None)
-    if verb_method is None:
+    # Build the RouteBuilder with the method and path.
+    method_enum_val = getattr({{ method_enum_class }}, method_str, None)
+    if method_enum_val is None:
         continue
 
-    # Call app.{verb}(path, handler). The framework handles body validation
-    # through the route configuration.
-    verb_method(full_route, make_handler(expected_status, expected_body))
+    builder = {{ route_builder_class }}(method_enum_val, full_route)
+
+    # If there's a body schema, attach it to the builder.
+    if body_schema is not None:
+        builder = builder.{{ route_builder_schema_setter }}(json.dumps(body_schema))
+
+    # Register the route with the handler.
+    app.{{ register_route_method }}(builder, make_handler(expected_status, expected_body))
 
 # Configure and start the server.
 _config = ServerConfig(host="{{ host }}", port={{ port }})
