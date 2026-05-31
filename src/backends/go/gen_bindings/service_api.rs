@@ -497,7 +497,6 @@ fn gen_registration_variant(
     let service_lower = ffi_prefix.to_lowercase();
     let variant_name_pascal = variant.name.to_upper_camel_case();
     let variant_name_snake = variant.name.to_snake_case();
-    let reg_method_snake = reg.method.to_snake_case();
 
     // Build method signature with variant's signature_params + handler
     let mut params = vec!["handler HandlerFunc".to_owned()];
@@ -545,12 +544,14 @@ fn gen_registration_variant(
 
     // Call the C variant function with fixed overrides + free args
     let upper_prefix = ffi_prefix.to_uppercase();
+    // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
+    // the registration method name is NOT included in the variant symbol name.
     out.push_str(&format!(
-        "\tret := C.{}_{}_{}_{} (\n\
+        "\tret := C.{}_{}_{} (\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
          \t\t(*[0]byte)(C.service_handler_trampoline),\n\
          \t\tunsafe.Pointer(ctxID),\n",
-        service_lower, service_snake, reg_method_snake, variant_name_snake
+        service_lower, service_snake, variant_name_snake
     ));
 
     // Emit fixed overrides + free args, marshaling each
@@ -1035,7 +1036,9 @@ mod tests {
         assert!(go.contains("func (s *TestService) Get("));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("path string"));
-        // Verify it calls the variant C function with C symbol naming (no reg_method_snake in variant symbol)
-        assert!(go.contains("C.test_crate_test_service_add_handler_get"));
+        // Verify it calls the variant C function: symbol is {prefix}_{service}_{variant},
+        // WITHOUT the registration method name in between.
+        assert!(go.contains("C.test_crate_test_service_get"));
+        assert!(!go.contains("C.test_crate_test_service_add_handler_get"));
     }
 }
