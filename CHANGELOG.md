@@ -21,7 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   launches this harness as a session-scoped subprocess. Tests hit the SUT directly
   via `SUT_URL` instead of the mock-server bridge.
 
+- **python e2e: preserve configured HTTP fixture paths.** Generated HTTP tests
+  now append the fixture request path after `/fixtures/{id}` so path-sensitive
+  mock server cases exercise the configured route instead of always hitting the
+  fixture root.
+
 ### Fixed
+
+- **typescript e2e: deduplicate type imports.** When a fixture's call override
+  declared a `ConversionOptions` parameter and the test file separately needed
+  the same type for an options literal, the generator emitted
+  `import { ..., type ConversionOptions, type ConversionOptions }` and oxc
+  rejected the duplicate identifier. The options-type emission loop now skips
+  imports already present in the import list. Fixes node e2e
+  `tests/structure.test.ts` build failure.
 
 - **extendr struct decoder: generate generic list decoders for all struct fields.**
   The `decode_options` function in extendr bindings now accepts R named lists

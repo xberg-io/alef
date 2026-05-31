@@ -256,7 +256,10 @@ pub fn render_test_file(
                 // ConversionOptions is a TypeScript interface — type-only import.
                 // No Update class exists; options are constructed as plain object literals.
                 for opts_type in &all_options_types {
-                    imports.push(format!("type {opts_type}"));
+                    let type_import = format!("type {opts_type}");
+                    if !imports.contains(&type_import) {
+                        imports.push(type_import);
+                    }
                 }
             } else {
                 // WASM: value import needed for runtime construction. The
