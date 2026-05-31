@@ -489,10 +489,15 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
 /// - `demo_core::types::internal::InternalDocument` → `demo_core::types::internal::InternalDocument`
 /// - (no change — accept FRB's type naming as-is)
 fn substitute_internal_document_in_rust_type(rust_type: &str) -> String {
-    // For now, don't substitute — FRB will use the qualified path in type names
-    // (e.g. `BoxFnInternalDocumentDartFnFutureString`). The Dart test generation
-    // will import/reference these names correctly.
-    rust_type.to_string()
+    // Replace any qualified `::InternalDocument` (and the bare `InternalDocument` token)
+    // with `kreuzberg::ExtractionResult` so FRB derives factory parameter type names
+    // ending in `...ExtractionResult` rather than `...InternalDocument`. This keeps the
+    // dart-side abstract trait (which substitutes `InternalDocument` → `ExtractionResult`
+    // in dart_traits.rs) in sync with the FRB-generated callback DTO names — without
+    // matching names, every callback assignment fails to compile with
+    // `'Future<ExtractionResult> Function(...)' can't be assigned to
+    // 'BoxFn...DartFnFutureInternalDocument'`.
+    rust_type.replace("InternalDocument", "ExtractionResult")
 }
 
 /// Build the callback closure type stored in the bridge struct field.
