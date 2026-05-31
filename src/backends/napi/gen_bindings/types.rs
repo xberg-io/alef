@@ -188,7 +188,7 @@ pub(super) fn gen_struct(
         };
         // Emit `#[serde(skip)]` for opaque fields and cfg-gated trait-bridge fields (their
         // wrapper types don't impl serde). Other cfg-gated fields remain serializable.
-        let skip_cfg_bridge_field = field.cfg.is_some() && never_skip_cfg_field_names.contains(&field.name);
+        let skip_cfg_bridge_field = field.cfg.is_some() && !never_skip_cfg_field_names.contains(&field.name);
         if has_serde && (is_opaque_field || skip_cfg_bridge_field) {
             attrs.push("serde(skip)".to_string());
         }
