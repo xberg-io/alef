@@ -1005,10 +1005,14 @@ fn magnus_variant_wrapper_constructor(
     let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+    // Wrap every constructor argument in `.into()` so binding-side newtypes
+    // (e.g. the magnus `Method` mirror) are coerced to their core counterpart
+    // before being passed to `<core>::new`. For primitives / `String` / other
+    // identity-into types this is a no-op, so the heuristic is uniformly safe.
     let call_args = ctor
         .params
         .iter()
-        .map(|p| p.name.as_str())
+        .map(|p| format!("{}.into()", p.name))
         .collect::<Vec<_>>()
         .join(", ");
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
