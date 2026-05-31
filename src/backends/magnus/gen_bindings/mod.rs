@@ -172,6 +172,13 @@ impl Backend for MagnusBackend {
             builder.add_item(&format!("pub mod {module};"));
         }
 
+        // Service-API glue lives in the generated `service.rs`; declare it so its
+        // `#[magnus::function]` entrypoints are compiled and can be registered in
+        // the module init.
+        if !api.services.is_empty() {
+            builder.add_item("pub mod service;");
+        }
+
         // Check if we have opaque types and add Arc import if needed
         let opaque_types: AHashSet<String> = api
             .types

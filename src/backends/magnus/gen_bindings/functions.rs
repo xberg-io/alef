@@ -1255,6 +1255,30 @@ pub(super) fn gen_module_init(
         }
     }
 
+    // Register service-API entrypoint functions (generated in `service.rs`).
+    // Each entrypoint takes `registrations` (1 param) plus any entrypoint-specific
+    // params, so arity = 1 + ep.params.len().
+    if !api.services.is_empty() {
+        use heck::ToSnakeCase as _;
+        lines.push("    // Service entrypoints".to_string());
+        for service in &api.services {
+            let service_snake = service.name.to_snake_case();
+            for ep in &service.entrypoints {
+                let fn_name = format!("{service_snake}_{}", ep.method);
+                let arity = 1 + ep.params.len() as i32;
+                lines.push(crate::backends::magnus::template_env::render(
+                    "module_function_register.rs.jinja",
+                    minijinja::context! {
+                        ruby_name => &fn_name,
+                        function_name => format!("service::{fn_name}"),
+                        arity => arity,
+                    },
+                ));
+            }
+        }
+        lines.push("".to_string());
+    }
+
     lines.push("".to_string());
     lines.push("    Ok(())".to_string());
     lines.push("}".to_string());
