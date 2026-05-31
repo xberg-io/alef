@@ -721,7 +721,7 @@ fn gen_variant_match_arm(
                         if is_variant_wrapper_type(api, n) {
                             // Variant wrapper: use local type name for TryConvert
                             out.push_str(&format!(
-                                "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
+                                "                let {}: &crate::{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
                                 param.name, n, i as isize
                             ));
                             out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
@@ -931,7 +931,7 @@ fn gen_run_function(
                             if is_variant_wrapper_type(api, n) {
                                 // Variant wrapper: use local type name for TryConvert
                                 out.push_str(&format!(
-                                    "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
+                                    "                let {}: &crate::{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
                                     meta_param.name, n, i as isize
                                 ));
                                 out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
