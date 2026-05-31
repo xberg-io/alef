@@ -3907,8 +3907,7 @@ fn emit_async_free_function_forwarder(
     } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
         out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
-    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
-    {
+    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
         // Vec<Named> return: apply the .map conversion suffix (applies even if Named is not
         // in known_dto_names, because swift-bridge bridges the whole RustVec<T> regardless)
         let suffix = forwarder_return_conversion_suffix_with_throws(
@@ -4256,7 +4255,15 @@ fn forwarder_return_conversion_suffix_inner(
             // This is safe because the RustVec maintains ownership of the underlying memory.
             TypeRef::Named(name) => {
                 let struct_name = swift_ident(name);
-                format!(".map {{ ref in var item = try {struct_name}(ref); item.isOwned = false; return item }}")
+                // For first-class DTOs (in known_dto_names), use the custom init(_ rb:) initializer.
+                // For typealias'd types (swift-bridge opaque classes), use RustBridge.{Name}(ptr: ref.ptr).
+                if known_dto_names.contains(name) {
+                    format!(".map {{ ref in var item = try {struct_name}(ref); item.isOwned = false; return item }}")
+                } else {
+                    // Typealias'd type: RustBridge.{Name} is the actual class, ref is {Name}Ref.
+                    // Use the ptr-based init to convert Ref → owned instance without calling a nonexistent init.
+                    format!(".map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}")
+                }
             }
             _ => String::new(),
         },
