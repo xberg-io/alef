@@ -45,7 +45,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     };
 
     let method = http.request.method.to_uppercase();
-    let path = format!("/fixtures/{}", &fixture.id);
+    let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
     // Determine body context
     let (has_body, body_py) = if let Some(body) = &http.request.body {

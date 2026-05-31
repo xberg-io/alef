@@ -139,7 +139,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
                 continue;
             }
             // Convert the fixture to JSON for the harness to load.
-            // We only need the http field, handler, and expected_response.
+            // We only need the http field, handler, request, and expected_response.
             let http_data = &fixture.http.as_ref().unwrap();
             let fixture_json = json!({
                 "http": {
@@ -147,6 +147,9 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
                         "route": &http_data.handler.route,
                         "method": &http_data.handler.method,
                         "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
                     },
                     "expected_response": {
                         "status_code": http_data.expected_response.status_code,

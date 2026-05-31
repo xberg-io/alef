@@ -5,7 +5,7 @@
    handlers that return expected responses, and serves on a configured port.
 
    Context variables (passed from Python codegen):
-   - imports: list of module names to import (e.g., ["spikard"])
+   - imports: list of module names to import (e.g., ["my_app"])
    - app_class: class name for SUT app (e.g., "App")
    - register_method: method name to register handlers per HTTP method (e.g., "get", "post", "delete")
    - body_schema_setter: method to set request schema (e.g., "request_schema_json")
@@ -58,9 +58,10 @@ for fixture_id, fixture in _FIXTURES.items():
     expected_body = expected.get("body")
 
     def make_handler(status, body):
-        def handler_fn():
+        def handler_fn(*args, **kwargs):
             # Return the expected response directly.
             # The framework will handle validation based on body_schema.
+            # Args are path parameters (e.g., id={id}), which we ignore.
             return body if body is not None else {}
         return handler_fn
 
@@ -72,9 +73,8 @@ for fixture_id, fixture in _FIXTURES.items():
     if verb_method is None:
         continue
 
-    # Call app.{verb}(path, handler)
-    # For spikard, this registers the route directly.
-    # The framework will handle body validation via the route configuration.
+    # Call app.{verb}(path, handler). The framework handles body validation
+    # through the route configuration.
     verb_method(full_route, make_handler(expected_status, expected_body))
 
 # Configure and start the server.

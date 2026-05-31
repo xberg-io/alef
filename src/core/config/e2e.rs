@@ -70,7 +70,7 @@ fn default_test_apps_dir() -> String {
 /// control harness code generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HarnessConfig {
-    /// Module/package to import the SUT app from (e.g., "spikard")
+    /// Module/package to import the SUT app from (e.g., "my_app")
     #[serde(default)]
     pub imports: Vec<String>,
     /// SUT app class name (e.g., "App")
