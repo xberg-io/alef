@@ -489,15 +489,17 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
 /// - `demo_core::types::internal::InternalDocument` → `demo_core::types::internal::InternalDocument`
 /// - (no change — accept FRB's type naming as-is)
 fn substitute_internal_document_in_rust_type(rust_type: &str) -> String {
-    // Replace any qualified `::InternalDocument` (and the bare `InternalDocument` token)
-    // with `kreuzberg::ExtractionResult` so FRB derives factory parameter type names
-    // ending in `...ExtractionResult` rather than `...InternalDocument`. This keeps the
-    // dart-side abstract trait (which substitutes `InternalDocument` → `ExtractionResult`
-    // in dart_traits.rs) in sync with the FRB-generated callback DTO names — without
-    // matching names, every callback assignment fails to compile with
-    // `'Future<ExtractionResult> Function(...)' can't be assigned to
-    // 'BoxFn...DartFnFutureInternalDocument'`.
-    rust_type.replace("InternalDocument", "ExtractionResult")
+    // Intentionally a no-op pass-through. A naive `InternalDocument` → `ExtractionResult`
+    // rewrite at the closure-type level breaks the bridge call sites: the surrounding
+    // Rust code still passes `InternalDocument` values (from the original trait method
+    // signature) into the closure, producing E0308 mismatched-type errors at every
+    // `(self.render)(doc).await` site. Properly aligning the dart-facing trait, the
+    // FRB DTO type names, and the bridge call sites requires emitting an explicit
+    // `InternalDocument` → `ExtractionResult` conversion before each closure invocation,
+    // which is tracked separately. Until that lands, the dart e2e plugin_api_test fails
+    // at two tests where FRB DTO names (`BoxFn...DartFnFutureInternalDocument`) clash
+    // with the dart abstract trait (`Future<ExtractionResult>`).
+    rust_type.to_string()
 }
 
 /// Build the callback closure type stored in the bridge struct field.
