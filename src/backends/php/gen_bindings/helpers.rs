@@ -1304,10 +1304,18 @@ fn gen_string_to_enum_expr(
         } else {
             variant.name.clone()
         };
+        // Accept both the serde-renamed wire form (e.g. "Angle") and its lowercase
+        // variant (e.g. "angle"). Some core enums implement Serialize/Deserialize
+        // manually via a token normaliser (see UrlEscapeStyle), so the wire form on
+        // the JSON boundary may be lowercase even when alef's IR sees the raw
+        // PascalCase variant name. Matching both keeps the binding robust against
+        // either convention without forcing the core to add `#[serde(rename_all)]`.
+        let variant_lower = wire_name.to_lowercase();
         match_arms.push_str(&crate::backends::php::template_env::render(
             "php_enum_string_match_arm.jinja",
             context! {
                 variant_name => &wire_name,
+                variant_name_lower => &variant_lower,
                 expr => &expr,
             },
         ));

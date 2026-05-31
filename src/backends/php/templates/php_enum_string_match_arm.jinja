@@ -1,1 +1,5 @@
+{%- if variant_name != variant_name_lower %}
+"{{ variant_name }}" | "{{ variant_name_lower }}" => {{ expr }},
+{%- else %}
 "{{ variant_name }}" => {{ expr }},
+{%- endif %}
