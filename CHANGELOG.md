@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **go e2e `main_test.go`: only spawn the harness binary when HTTP fixtures are present.**
+  The previous codegen unconditionally emitted `exec.Command(harnessBin)` in `TestMain`, but the harness
+  binary (`cmd/harness/main.go`) is only generated when at least one fixture has `http` set. For repos with
+  no HTTP fixtures (e.g. html-to-markdown), running `go test` panicked at
+  `fork/exec .../cmd/harness/harness: no such file or directory`. The TestMain now branches on
+  `has_http_fixtures`: when false, it does the test_documents chdir and immediately calls `m.Run()`;
+  when true, it keeps the full harness-spawn + port-poll dance. Imports are emitted conditionally to
+  avoid unused-import errors. (`src/e2e/codegen/go.rs`)
+
+- **csharp trait-bridge GCHandle: use `Normal`, not `Pinned`, for the `impl` and `_delegates` handles.**
+  `GCHandle.Alloc(obj, Pinned)` throws `ArgumentException: Object contains references` for any reference
+  type (interfaces, classes, `object[]`). Only blittable types are pinnable. The previous code crashed at
+  bridge construction for every visitor, masking the real codegen issue. `Normal` keeps the objects alive
+  across GC; function pointers obtained via `GetFunctionPointerForDelegate` remain valid for the lifetime
+  of the underlying delegate regardless of GC compaction.
+
+- **csharp callback JSON deserialization: qualify `FfiJsonOptions` as `FfiJsonExtensions.FfiJsonOptions`.**
+  Every callback's `JsonSerializer.Deserialize<T>(json, FfiJsonOptions)` failed to compile because the unqualified
+  symbol is not visible in `HtmlVisitorBridge` scope — only the static class `FfiJsonExtensions.FfiJsonOptions` is.
+
+- **swift batch-extract trait-bridge returns: use `RustBridge.{Type}(ptr: ref.ptr)` for typealias'd types.**
+  The previous codegen generated `.map { ref in var item = try {Type}(ref) }` unconditionally for `Vec<T>` returns,
+  but this only works if `{Type}` is a first-class DTO struct with a `Ref`-accepting initializer. For typealias'd
+  types like `ExtractionResult` (which is `typealias = RustBridge.ExtractionResult`), the typealias doesn't have
+  a custom initializer — only the underlying class does, via `init(ptr: UnsafeMutableRawPointer)`. The codegen now
+  checks `known_dto_names`: first-class DTOs use the direct `.map { try Type($0) }` pattern; typealias'd types use
+  `.map { ref in var item = try RustBridge.{Type}(ptr: ref.ptr) }` to access the ptr property from the Ref and
+  call the real init.
+  Fixed by qualifying the reference in `callback_json_deserialize.jinja`. (Without this fix, no C# binding using
+  trait callbacks compiles at all.)
+
+- **csharp visitor bridge dispatch: register bridge in static registry and pass `bridge._bridgeId` (not `IntPtr.Zero`)
+  as userData to `HtmlVisitorBridgeNew`.** The generated `Convert(string, ConversionOptions?)` method created a
+  `HtmlVisitorBridge` but neither inserted it into `_bridgeRegistry` nor passed its ID across the FFI boundary.
+  As a result every callback's `_bridgeRegistry.TryGetValue(userData, ...)` returned false, the callback returned
+  error code 1, and the Rust side silently fell back to default behavior — dropping every visitor customization
+  (custom links, headings, code blocks, etc.). The bridge entry is now inserted before `HtmlVisitorBridgeNew`,
+  `bridge._bridgeId` is forwarded as userData, and the entry is removed in the `finally` after
+  `HtmlVisitorBridgeFree`. Affects both the bespoke `convert` codepath and the generic
+  `gen_method_with_options_bridge` codepath. (`src/backends/csharp/gen_bindings/methods.rs`)
+
 - **swift trait-bridge vector-return initialization: pass Ref directly instead of accessing inaccessible .ptr field.**
   Trait-bridge batch-extraction forwarders return `RustVec<ExtractionResultRef>` and map each borrowed ref to
   an owned `ExtractionResult`. The code attempted to construct `ExtractionResult(ptr: ref.ptr)`, but swift-bridge's
