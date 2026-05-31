@@ -67,6 +67,8 @@ fn gen_single_trait_bridge_file(
     let mut aug_exclude_types = exclude_types.clone();
     // ExtractionResult is an opaque FFI handle; marshal as JSON in trait bridges
     aug_exclude_types.insert("ExtractionResult".to_string());
+    // InternalDocument is an internal non-serde type; marshal as JSON string at boundaries
+    aug_exclude_types.insert("InternalDocument".to_string());
 
     let mut out = String::new();
 
@@ -454,43 +456,8 @@ pub fn gen_bridge_registration_overloads_file(
     content.push_str("import Foundation\n");
     content.push_str("import RustBridge\n\n");
 
-    // MARK: Path/UTF-8 helper
-    content.push_str("// MARK: - Path/UTF-8 helper used by the String overloads of extractBytes(Sync).\n\n");
-    content.push_str(
-        "/// Treat the input as a filesystem path first (resolved against the test\n\
-         /// fixtures directory if relative); fall back to the raw UTF-8 bytes if no\n\
-         /// such file exists. The alef e2e generator emits fixture paths into\n\
-         /// `extract_bytes` calls, but third-party callers may still want to pass\n\
-         /// inline string content.\n",
-    );
-    content.push_str("public func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] {\n");
-    content.push_str("    let fm = FileManager.default\n");
-    content.push_str("    var roots: [String] = [\n");
-    content.push_str("        fm.currentDirectoryPath,\n");
-    content.push_str("    ]\n");
-    content.push_str("    if let envRoot = ProcessInfo.processInfo.environment[\"ALEF_TEST_DOCUMENTS_DIR\"] {\n");
-    content.push_str("        roots.append(envRoot)\n");
-    content.push_str("    }\n");
-    content.push_str("    var walker = URL(fileURLWithPath: fm.currentDirectoryPath)\n");
-    content.push_str("    for _ in 0..<16 {\n");
-    content.push_str("        roots.append(walker.appendingPathComponent(\"test_documents\").path)\n");
-    content.push_str("        roots.append(walker.appendingPathComponent(\"fixtures\").path)\n");
-    content.push_str("        let parent = walker.deletingLastPathComponent()\n");
-    content.push_str("        if parent.path == walker.path { break }\n");
-    content.push_str("        walker = parent\n");
-    content.push_str("    }\n");
-    content.push_str(
-        "    let candidates = [pathOrContent] + roots.map { ($0 as NSString).appendingPathComponent(pathOrContent) }\n",
-    );
-    content.push_str("    for path in candidates {\n");
-    content.push_str(
-        "        if fm.fileExists(atPath: path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {\n",
-    );
-    content.push_str("            return [UInt8](data)\n");
-    content.push_str("        }\n");
-    content.push_str("    }\n");
-    content.push_str("    return [UInt8](pathOrContent.utf8)\n");
-    content.push_str("}\n\n");
+    // Note: _loadBytesFromPathOrUtf8 is emitted by the swift_bridge_registration_overloads template,
+    // not here, to avoid duplication.
 
     // MARK: Unregister name: label overloads
     content.push_str("// MARK: - Unregister name: label overloads\n\n");

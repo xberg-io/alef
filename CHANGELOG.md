@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **kotlin-android JNI: emit external fun declarations for all opaque client methods.**
+  Removed `!m.sanitized` filter from `emit_method_jni_external_funs` so that opaque
+  types with sanitized instance methods (e.g., Document.tablePageNumbers) still get
+  JNI external fun declarations in the Bridge object. DefaultClient.kt calls these
+  functions for all instance methods, regardless of sanitization flag; the Bridge
+  must declare them. (`src/backends/kotlin/gen_bindings/jni_emitter.rs`)
+- **swift trait bridge: restore InternalDocument type in scope and dedup helper emission.**
+  Added `InternalDocument` to the excluded types set in `gen_single_trait_bridge_file`
+  so trait bridge protocols and adapters properly marshal it as a JSON string when
+  it appears in method signatures. Removed duplicate emission of `_loadBytesFromPathOrUtf8`
+  from `gen_bridge_registration_overloads_file` — the function was already being emitted
+  by the `swift_bridge_registration_overloads.swift.jinja` template, causing a
+  redeclaration error. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
 ### Added
 
 - **e2e: `HarnessConfig.overrides` for per-language harness method names.**
