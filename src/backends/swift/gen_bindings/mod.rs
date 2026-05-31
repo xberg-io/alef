@@ -765,7 +765,7 @@ fn emit_first_class_struct(
             };
             format!(
                 "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
-                 (rb.{rust_accessor}().toString().data(using: .utf8) ?? Data(\"null\".utf8)))"
+                 ((rb.{rust_accessor}()?.toString() ?? \"null\").data(using: .utf8) ?? Data(\"null\".utf8)))"
             )
         } else if needs_json_bridge_for_swift(&field.ty) {
             // Field is bridged as a JSON string at the Rust boundary — the getter
@@ -780,7 +780,7 @@ fn emit_first_class_struct(
             };
             format!(
                 "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
-                 (rb.{rust_accessor}().toString().data(using: .utf8) ?? Data(\"null\".utf8)))"
+                 ((rb.{rust_accessor}()?.toString() ?? \"null\").data(using: .utf8) ?? Data(\"null\".utf8)))"
             )
         } else {
             swift_ffi_read_expr(
@@ -4256,7 +4256,7 @@ fn forwarder_return_conversion_suffix_inner(
             // This is safe because the RustVec maintains ownership of the underlying memory.
             TypeRef::Named(name) => {
                 let struct_name = swift_ident(name);
-                format!(".map {{ ref in var item = {struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}")
+                format!(".map {{ ref in var item = try {struct_name}(ref); item.isOwned = false; return item }}")
             }
             _ => String::new(),
         },

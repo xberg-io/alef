@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift trait-bridge vector-return initialization: pass Ref directly instead of accessing inaccessible .ptr field.**
+  Trait-bridge batch-extraction forwarders return `RustVec<ExtractionResultRef>` and map each borrowed ref to
+  an owned `ExtractionResult`. The code attempted to construct `ExtractionResult(ptr: ref.ptr)`, but swift-bridge's
+  generated Ref types declare `ptr` as `internal` (not public). Instead, pass the Ref directly to the existing
+  `init(_ rb: RustBridge.ExtractionResultRef)` initializer: `try ExtractionResult(ref)`. This fixes 4 compile
+  errors at lines 7881, 7910, 7978, 8039 of kreuzberg's packages/swift/Sources/Kreuzberg/Kreuzberg.swift.
+  (`src/backends/swift/gen_bindings/mod.rs`)
+
+- **swift json-bridge field initialization: use optional chaining for potentially-optional string accessors.**
+  When a struct field is optional and uses json-bridge encoding, the swift-bridge accessor returns `Optional<RustString>`.
+  The code attempted to call `.toString()` directly on the Optional, causing "Value of optional type must be unwrapped"
+  errors. Use optional chaining `?.toString()` with a default fallback `"null"`: `(rb.accessor()?.toString() ?? "null")`.
+  This fixes compile errors for optional untagged-enum and json-bridge fields (e.g., DocumentRevision.anchor at
+  kreuzberg line 4512). (`src/backends/swift/gen_bindings/mod.rs`)
+
 - **rustler elixir public clear_* API functions: restore after aggressive duplicate-suppression fix.**
   A previous fix (commit cbc276a02) added trait-bridge function names (register_*, unregister_*, clear_*) to
   `exclude_functions` to suppress what was thought to be duplicate emissions in the Elixir wrapper. However,
