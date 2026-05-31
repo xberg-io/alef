@@ -115,7 +115,7 @@ mod plugin_trait_stub_generation {
     }
 
     #[test]
-    fn sync_method_generates_no_async_keyword() {
+    fn sync_method_generates_future_stub_for_trait_bridge_factory() {
         let bridge = make_trait_bridge("TestValidator", Some("Plugin"));
         let sync_method = make_method(
             "validate",
@@ -128,13 +128,13 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // Sync method should NOT have async keyword or Future wrapper
+        // Generated Dart trait factories expect Future-returning callbacks even
+        // for sync Rust trait methods.
         assert!(
-            emission.setup_block.contains("bool validate()") || emission.setup_block.contains("bool validate(  )"),
-            "sync method must have plain return type, got:\n{}",
+            emission.setup_block.contains("Future<bool> validate()"),
+            "sync method must be adapted to Future<T>, got:\n{}",
             emission.setup_block
         );
-        // Make sure there's no `Future<bool>` or `async =>` for this method
         let validate_section = emission
             .setup_block
             .lines()
@@ -142,13 +142,8 @@ mod plugin_trait_stub_generation {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            !validate_section.contains("Future<"),
-            "sync method must not have Future wrapper, got:\n{}",
-            validate_section
-        );
-        assert!(
-            !validate_section.contains("async =>"),
-            "sync method must not have async keyword, got:\n{}",
+            validate_section.contains("async =>"),
+            "sync method stub must be async for the factory callback, got:\n{}",
             validate_section
         );
     }
@@ -178,7 +173,7 @@ mod plugin_trait_stub_generation {
     }
 
     #[test]
-    fn wrapper_instance_uses_non_awaited_factory_call() {
+    fn wrapper_instance_awaits_async_factory_call() {
         let bridge = make_trait_bridge("OcrBackend", Some("Plugin"));
         let method = make_method("process", true, TypeRef::Named("String".to_string()), vec![]);
         let methods = [&method];
@@ -186,10 +181,10 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // The factory call should not have `await` keyword
+        // FRB factory helpers are async, so wrapper creation must await them.
         assert!(
-            !emission.setup_block.contains("await createOcrBackendDartImpl"),
-            "factory call must not be awaited, got:\n{}",
+            emission.setup_block.contains("await createOcrBackendDartImpl"),
+            "factory call must be awaited, got:\n{}",
             emission.setup_block
         );
         // But the factory should be called
