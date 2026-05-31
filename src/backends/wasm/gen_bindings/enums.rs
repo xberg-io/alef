@@ -100,6 +100,8 @@ fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field
     if field_optional {
         return match field_ty {
             TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into)"),
+            // Path (PathBuf): String → PathBuf via Into::into
+            TypeRef::Path => format!("val.{field_ident}.clone().map(Into::into)"),
             // Map fields ride as `Option<JsValue>` in the binding (map_uses_jsvalue);
             // deserialize back to the core HashMap via serde_wasm_bindgen.
             TypeRef::Map(_, _) => {
@@ -111,12 +113,16 @@ fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field
     match field_ty {
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into)"),
+            // Path (PathBuf): String → PathBuf via Into::into
+            TypeRef::Path => format!("val.{field_ident}.clone().map(Into::into)"),
             TypeRef::Map(_, _) => {
                 format!("val.{field_ident}.clone().and_then(|v| serde_wasm_bindgen::from_value(v).ok())")
             }
             _ => format!("val.{field_ident}.clone()"),
         },
         TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into).unwrap_or_default()"),
+        // Path (PathBuf): String → PathBuf via Into::into
+        TypeRef::Path => format!("val.{field_ident}.clone().map(Into::into).unwrap_or_default()"),
         // Non-optional Map field on a tagged-enum variant: binding holds Option<JsValue>;
         // deserialize via serde_wasm_bindgen with a Default fallback when None / parse fails.
         TypeRef::Map(_, _) => format!(
@@ -135,6 +141,10 @@ fn tagged_enum_core_to_binding_expr(
     if field_optional {
         return match field_ty {
             TypeRef::Named(_) => format!("                {field_ident}: {local}.map(Into::into)"),
+            // Path (PathBuf): PathBuf → String via to_string_lossy
+            TypeRef::Path => format!(
+                "                {field_ident}: {local}.map(|p| p.to_string_lossy().to_string())"
+            ),
             // Map fields in the binding struct become `Option<JsValue>` (per
             // ConversionConfig::map_uses_jsvalue); convert the destructured HashMap into a
             // JsValue via serde_wasm_bindgen rather than passing the raw HashMap.
@@ -149,6 +159,10 @@ fn tagged_enum_core_to_binding_expr(
     match field_ty {
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(_) => format!("                {field_ident}: {local}.map(Into::into)"),
+            // Path (PathBuf): PathBuf → String via to_string_lossy
+            TypeRef::Path => format!(
+                "                {field_ident}: {local}.map(|p| p.to_string_lossy().to_string())"
+            ),
             TypeRef::Map(_, _) => {
                 format!(
                     "                {field_ident}: {local}.as_ref().and_then(|m| serde_wasm_bindgen::to_value(m).ok())"
@@ -157,6 +171,8 @@ fn tagged_enum_core_to_binding_expr(
             _ => format!("                {field_ident}: {local}"),
         },
         TypeRef::Named(_) => format!("                {field_ident}: Some({local}.into())"),
+        // Path (PathBuf): PathBuf → String via to_string_lossy
+        TypeRef::Path => format!("                {field_ident}: Some({local}.to_string_lossy().to_string())"),
         // Non-optional Map field on a tagged-enum variant: binding holds Option<JsValue>, so
         // serialize the HashMap via serde_wasm_bindgen and wrap with Some.
         TypeRef::Map(_, _) => format!("                {field_ident}: serde_wasm_bindgen::to_value(&{local}).ok()"),

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm: tagged-enum field conversions for `Option<PathBuf>` fields.**
+  Added explicit `TypeRef::Path` matching in `tagged_enum_binding_to_core_expr` and
+  `tagged_enum_core_to_binding_expr` to handle PathBuf↔String conversions. Previously,
+  optional PathBuf fields in tagged data enum variants (e.g., `ChunkSizing { cache_dir: Option<PathBuf> }`)
+  were passing through unchanged instead of applying `.map(Into::into)` (binding→core)
+  or `.map(|p| p.to_string_lossy().to_string())` (core→binding). This affected all
+  tagged data enums with Option<PathBuf> fields in WASM bindings. (`src/backends/wasm/gen_bindings/enums.rs`)
 - **constructor field name mangling: use original Rust field name on left side of struct literal.**
   Fixed a bug where field renaming for reserved words (e.g., `from` → `from_`) was applied to
   the left side of struct literal assignments in generated constructors. The left side must
