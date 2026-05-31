@@ -2719,6 +2719,14 @@ fn gen_namespace(
         ));
     }
 
+    // Export the conversion_options helper function if ConversionOptions type exists
+    if api.types.iter().any(|t| t.name == "ConversionOptions" && !t.is_trait) {
+        out.push_str(&crate::backends::extendr::template_env::render(
+            "r_namespace_export.jinja",
+            minijinja::context! { name => "conversion_options" },
+        ));
+    }
+
     let excluded = collect_excluded_class_types(api);
     for typ in &api.types {
         if typ.is_trait || excluded.contains(&typ.name) {
