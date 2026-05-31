@@ -90,6 +90,7 @@ fn test_generated_code_example() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),

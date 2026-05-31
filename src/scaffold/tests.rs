@@ -2288,6 +2288,7 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     });
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);

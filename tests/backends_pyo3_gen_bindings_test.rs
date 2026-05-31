@@ -78,6 +78,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -223,6 +224,7 @@ fn public_api_converters_accept_json_string_for_dict_coercion() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "extract_structured".to_string(),
@@ -313,6 +315,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -617,6 +620,7 @@ fn test_module_registration() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "get_type".to_string(),
@@ -924,6 +928,7 @@ fn test_methods_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1008,6 +1013,7 @@ fn test_async_method() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1151,6 +1157,7 @@ fn test_opaque_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1223,6 +1230,7 @@ fn test_optional_and_vec_fields() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1307,6 +1315,7 @@ fn test_static_method() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1472,6 +1481,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let conversion_options = TypeDef {
@@ -1494,6 +1504,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1664,6 +1675,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // ConversionOptions: input/config DTO with `Self`-returning builder methods.
@@ -1729,6 +1741,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -1891,6 +1904,7 @@ fn make_trait_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeD
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -2691,6 +2705,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2784,6 +2799,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ConversionOptionsUpdate".to_string(),
@@ -2809,6 +2825,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -2890,6 +2907,7 @@ fn test_sanitized_field_gets_serde_skip() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2958,6 +2976,7 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3398,6 +3417,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -3482,6 +3502,7 @@ fn test_capsule_types_end_to_end() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             // Parser — ConstructFrom type (no into_raw; built via sample_language.Parser(language))
             TypeDef {
@@ -3504,6 +3525,7 @@ fn test_capsule_types_end_to_end() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![
@@ -3847,6 +3869,7 @@ fn test_capsule_types_in_methods() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             // Language — capsule round-trip type (no #[pyclass] emitted)
             TypeDef {
@@ -3869,6 +3892,7 @@ fn test_capsule_types_in_methods() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -4109,6 +4133,7 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![make_unit_enum_def("BatchStatus", &["Validating", "InProgress"])],
@@ -4175,6 +4200,7 @@ fn test_options_py_escapes_python_keyword_variant_names() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![
@@ -4508,6 +4534,7 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -4594,6 +4621,7 @@ fn test_adapter_wrapper_functions() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "StreamEvent".to_string(),
@@ -4615,6 +4643,7 @@ fn test_adapter_wrapper_functions() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -4733,6 +4762,7 @@ fn test_async_method_adapter_wrapper() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -4835,6 +4865,7 @@ fn test_serde_rename_in_constructor_and_properties() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -4928,6 +4959,7 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -5015,6 +5047,7 @@ fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -5098,6 +5131,7 @@ fn test_option_fields_in_constructor_signature() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -5193,6 +5227,7 @@ fn test_option_fields_on_has_default_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -5267,6 +5302,7 @@ fn test_option_fields_with_serde_rename_on_has_default() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -5339,6 +5375,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             // Parent struct with has_default=true owning non-optional PreprocessingOptions
             TypeDef {
@@ -5370,6 +5407,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -5453,6 +5491,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ConversionOptions".to_string(),
@@ -5474,6 +5513,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],

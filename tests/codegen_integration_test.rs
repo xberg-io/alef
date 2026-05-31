@@ -127,6 +127,7 @@ fn simple_type_def() -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -304,6 +305,7 @@ fn test_gen_struct_with_empty_fields() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -2134,6 +2136,7 @@ fn test_gen_opaque_struct_arc_inner() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let cfg = default_cfg();
 
@@ -2189,6 +2192,7 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     typ.is_opaque = true;
     let cfg = default_cfg();
@@ -2227,6 +2231,7 @@ fn test_gen_opaque_struct_trait_uses_dyn() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let cfg = default_cfg();
 
@@ -2315,6 +2320,7 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let result = gen_struct_default_impl(&typ, "");
@@ -2376,6 +2382,7 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
     assert!(
@@ -2425,6 +2432,7 @@ fn test_can_generate_default_impl_named_in_known_set() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let mut known: std::collections::HashSet<&str> = std::collections::HashSet::new();
     known.insert("KnownType");
@@ -2479,6 +2487,7 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let mapper = RustMapper;
 
@@ -3295,6 +3304,7 @@ fn simple_trait_def() -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 

@@ -920,6 +920,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 
@@ -1830,6 +1831,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
 
@@ -2256,6 +2258,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
         // Vec<String> is a generic type; must use <Vec<String>>::try_convert
@@ -2340,6 +2343,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
         // The try_convert call must be for the inner type (i64, as mapped by simple_type_mapper),

@@ -83,6 +83,7 @@ fn print_generated_java_code() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ExtractionResult".to_string(),
@@ -145,6 +146,7 @@ fn print_generated_java_code() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![

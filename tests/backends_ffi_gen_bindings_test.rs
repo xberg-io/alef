@@ -50,6 +50,7 @@ fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 

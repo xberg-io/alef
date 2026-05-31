@@ -241,6 +241,7 @@ fn inject_declared_opaque_types(api: &mut ApiSurface, config: &ResolvedCrateConf
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             });
             debug!("Injected declared opaque type: {name} -> {rust_path}");
         }
@@ -1261,6 +1262,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 

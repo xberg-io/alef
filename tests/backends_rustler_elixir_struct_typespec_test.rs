@@ -80,6 +80,7 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let config = make_config("test_app");
@@ -198,6 +199,7 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let config = make_config("test_app");
@@ -300,6 +302,7 @@ fn test_struct_module_with_named_type_field() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let config = make_config("test_app");
@@ -377,6 +380,7 @@ fn test_struct_module_with_vec_fields() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let config = make_config("test_app");

@@ -159,6 +159,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
         super_traits: vec![],
         binding_excluded,
         binding_exclusion_reason,
+        is_variant_wrapper: false,
     })
 }
 

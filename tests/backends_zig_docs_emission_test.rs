@@ -100,6 +100,7 @@ fn struct_fields_emit_zig_doc_comments_above_declaration() {
             super_traits: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],

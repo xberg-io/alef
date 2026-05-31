@@ -55,6 +55,7 @@ fn test_visitor_file_emits_prefixed_struct() {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let output = gen_visitor_file(

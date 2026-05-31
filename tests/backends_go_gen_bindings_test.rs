@@ -85,6 +85,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -255,6 +256,7 @@ module = "github.com/test/test-lib"
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let visible_type = TypeDef {
         name: "VisibleHandle".to_string(),
@@ -293,6 +295,7 @@ module = "github.com/test/test-lib"
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -365,6 +368,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -629,6 +633,7 @@ fn test_methods_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -835,6 +840,7 @@ fn test_opaque_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -922,6 +928,7 @@ fn test_default_config() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1145,6 +1152,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -1881,6 +1889,7 @@ fn test_opaque_error_type_uses_value_semantics() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2000,6 +2009,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2165,6 +2175,7 @@ fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     });
     api.types.push(TypeDef {
         name: "OcrResult".to_string(),
@@ -2186,6 +2197,7 @@ fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     });
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");

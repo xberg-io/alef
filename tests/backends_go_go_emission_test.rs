@@ -162,6 +162,7 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -240,6 +241,7 @@ fn test_zero_default_dto_skips_functional_options() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -550,6 +552,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {
@@ -674,6 +677,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let api = ApiSurface {

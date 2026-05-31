@@ -90,6 +90,7 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     let config = make_config("test_app");
@@ -155,6 +156,7 @@ fn test_struct_module_emits_moduledoc_false_when_doc_empty() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
     let config = make_config("test_app");
     let api = ApiSurface {

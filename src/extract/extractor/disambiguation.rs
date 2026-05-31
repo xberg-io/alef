@@ -216,6 +216,7 @@ mod tests {
             super_traits: vec![],
             binding_excluded,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }
     }
 

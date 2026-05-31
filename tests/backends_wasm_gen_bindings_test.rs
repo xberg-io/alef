@@ -77,6 +77,7 @@ fn test_basic_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -226,6 +227,7 @@ fn test_type_mapping() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -367,6 +369,7 @@ fn test_generated_header() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -599,6 +602,7 @@ fn test_methods_generation() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -685,6 +689,7 @@ fn test_async_methods() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -796,6 +801,7 @@ fn test_opaque_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -925,6 +931,7 @@ fn test_exclude_types() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "HiddenType".to_string(),
@@ -946,6 +953,7 @@ fn test_exclude_types() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1008,6 +1016,7 @@ fn test_exclude_fields_removes_wasm_struct_field() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1061,6 +1070,7 @@ fn make_trait_def_wasm(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -1512,6 +1522,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1684,6 +1695,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -1778,6 +1790,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
             TypeDef {
                 name: "ConversionOptionsUpdate".to_string(),
@@ -1803,6 +1816,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_variant_wrapper: false,
             },
         ],
         functions: vec![],
@@ -1938,6 +1952,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // ParentStruct: has Map<String, ChildStruct> and Option<Map<String, ChildStruct>> fields.
@@ -1978,6 +1993,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // A function that accepts ParentStruct as a parameter forces the codegen to emit a
@@ -2266,6 +2282,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -2379,6 +2396,7 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -2458,6 +2476,7 @@ fn make_type_def(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
@@ -3009,6 +3028,7 @@ fn test_constructor_params_camel_case() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3074,6 +3094,7 @@ fn test_wasm_js_name_on_non_opaque_struct() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3149,6 +3170,7 @@ fn test_wasm_js_name_on_opaque_struct() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3287,6 +3309,7 @@ fn test_constructor_camel_case_param_sync_with_snake_case_field_init() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3348,6 +3371,7 @@ fn test_constructor_camel_case_required_multi_word_field() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3408,6 +3432,7 @@ fn test_from_impl_uses_snake_case_field_names() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            is_variant_wrapper: false,
         }],
         functions: vec![],
         enums: vec![],
@@ -3652,6 +3677,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     };
 
     // The clear_fn is a zero-parameter function in the public API surface.

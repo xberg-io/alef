@@ -66,6 +66,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>, has_serde: bool) -> TypeDef {
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_variant_wrapper: false,
     }
 }
 
