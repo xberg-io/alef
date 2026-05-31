@@ -737,7 +737,12 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         .unwrap();
     let bridge_content = &files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("Bridge.kt")))
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with("Bridge.kt"))
+        })
         .expect("bridge file")
         .content;
     let client_content = &files

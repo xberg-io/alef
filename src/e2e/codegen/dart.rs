@@ -2987,7 +2987,10 @@ pub fn emit_test_backend(
     // The actual test will call this factory function when needed.
     let _ = writeln!(setup, "final {instance_name} = {class_name}();");
     let trait_name = &trait_bridge.trait_name;
-    let _ = writeln!(setup, "Future<{trait_name}DartImpl> {factory_fn}() async => await {create_fn}(");
+    let _ = writeln!(
+        setup,
+        "Future<{trait_name}DartImpl> {factory_fn}() async => await {create_fn}("
+    );
     let escaped_plugin_name = escape_dart(plugin_name);
     let _ = writeln!(setup, "  pluginName: '{escaped_plugin_name}',");
     let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
