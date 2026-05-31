@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3 binding constructor: LEFT side of struct literal now matches python-escaped binding field name.**
+  `replace_constructor_with_serde_rename` was emitting `Self { from: from_, ... }` for keyword-escaped
+  fields (e.g. `from` → `from_`), but the binding struct's actual Rust field is `from_`, not `from`.
+  This caused E0560 "struct has no field named 'from'" for any type with a Python-keyword field name
+  (e.g. `CellChange`). Use `python_ident(&f.name)` for the LEFT side, falling back to shorthand when
+  it equals `param_ident`. (`src/backends/pyo3/gen_bindings/mod.rs`)
 - **dart trait bridge: drop redundant `.map_err(|e| e.to_string())` that broke `?` conversion to `KreuzbergError`.**
   The Dart trait-bridge code generator was emitting `.map_err(|e| e.to_string())` on `serde_json` operations,
   converting `serde_json::Error` → `String`. When the method returned `Result<T, KreuzbergError>`, the `?`

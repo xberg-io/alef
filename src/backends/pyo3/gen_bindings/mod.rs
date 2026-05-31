@@ -297,20 +297,23 @@ fn replace_constructor_with_serde_rename(
                 // use unwrap_or_else to fall back to the nested type's default.
                 let nested_default_optional = should_option_for_nested_default(typ, f, api);
 
-                // Use the bare Rust field name for struct literal (never renamed in Rust)
+                // The binding struct's Rust field name is python-keyword-escaped
+                // (e.g. `from` -> `from_`), so the LEFT side of the struct literal must
+                // match that escaped name, not the core IR field name.
+                let binding_field = crate::core::keywords::python_ident(&f.name);
                 if nested_default_optional {
                     // Use unwrap_or_else for nested default optional fields
                     format!(
                         "{}: {}.unwrap_or_else(|| Self::default().{})",
-                        f.name, param_ident, f.name
+                        binding_field, param_ident, binding_field
                     )
-                } else if param_ident != f.name {
-                    // Parameter name differs from Rust field name (serde_rename or config rename):
+                } else if param_ident != binding_field {
+                    // Parameter name differs from binding struct field name:
                     // use explicit form to match the parameter variable
-                    format!("{}: {}", f.name, param_ident)
+                    format!("{}: {}", binding_field, param_ident)
                 } else {
-                    // No rename: use shorthand
-                    f.name.clone()
+                    // Names match: use shorthand
+                    binding_field
                 }
             }
         })
