@@ -80,6 +80,9 @@ pub struct HarnessOverride {
     /// Serve entrypoint method name (overrides HarnessConfig.run_method)
     #[serde(default)]
     pub run_method: Option<String>,
+    /// Modules/packages to import the SUT app from (overrides HarnessConfig.imports)
+    #[serde(default)]
+    pub imports: Option<Vec<String>>,
 }
 
 /// Server-shaped e2e harness configuration for HTTP fixtures.
@@ -180,6 +183,14 @@ impl HarnessConfig {
             .get(lang)
             .and_then(|o| o.app_class.clone())
             .or_else(|| self.app_class.clone())
+    }
+
+    /// Get the effective imports for a language, applying language-specific overrides.
+    pub fn imports_for_lang(&self, lang: &str) -> Vec<String> {
+        self.overrides
+            .get(lang)
+            .and_then(|o| o.imports.clone())
+            .unwrap_or_else(|| self.imports.clone())
     }
 }
 

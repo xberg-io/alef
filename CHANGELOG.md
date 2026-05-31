@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`HarnessConfig.overrides.<lang>.imports` + `HarnessConfig::imports_for_lang(lang)` helper.**
+  Per-language override for the SUT import module path, mirroring the existing `register_method`,
+  `app_class`, `run_method` per-lang overrides. Needed when the host-language package is published
+  under a name distinct from the canonical Rust crate (e.g. `@scope/foo-node` vs the default
+  `foo` import in other bindings). Consumed by the typescript backend's `render_app_harness`.
+  (`src/core/config/e2e.rs`, `src/e2e/codegen/typescript/config.rs`)
+
 ### Fixed
+
+- **typescript e2e harness: use default-import + destructure for CommonJS interop.**
+  napi-rs ships CommonJS by default; named ESM imports (`import { App } from '@spikard/node'`)
+  fail at module load with `SyntaxError: Named export 'App' not found`. The harness now imports
+  the package default and destructures the App/Method/ServerConfig bindings:
+  `import _pkg from '<name>'; const { App, Method, ServerConfig } = _pkg;`.
+  (`src/e2e/templates/typescript/app_harness.mjs.jinja`)
 
 - **elixir clear_* function duplication: emit exactly once with correct spec.**
   When the Rust API surface exports a `clear_*` function (e.g., `clear_embedding_backends`) AND the trait bridge
