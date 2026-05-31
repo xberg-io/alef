@@ -62,6 +62,67 @@ fn default_test_apps_dir() -> String {
     "test_apps".to_string()
 }
 
+/// Server-shaped e2e harness configuration for HTTP fixtures.
+///
+/// When HTTP fixtures are present (server-pattern testing), alef generates
+/// a harness script that starts the SUT app, registers handlers per fixture,
+/// and serves requests. This config provides the language-agnostic knobs that
+/// control harness code generation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarnessConfig {
+    /// Module/package to import the SUT app from (e.g., "spikard")
+    #[serde(default)]
+    pub imports: Vec<String>,
+    /// SUT app class name (e.g., "App")
+    #[serde(default)]
+    pub app_class: Option<String>,
+    /// Method to register handlers on the app (e.g., "route" or "get"/"post"/etc.)
+    #[serde(default)]
+    pub register_method: Option<String>,
+    /// Method/field on RouteBuilder to set request body schema (e.g., "request_schema_json")
+    #[serde(default)]
+    pub body_schema_setter: Option<String>,
+    /// RouteBuilder class name (if distinct from return type of register_method)
+    #[serde(default)]
+    pub route_builder: Option<String>,
+    /// HTTP method enum/type name (e.g., "Method")
+    #[serde(default)]
+    pub method_enum: Option<String>,
+    /// Serve entrypoint method name (e.g., "run")
+    #[serde(default)]
+    pub run_method: Option<String>,
+    /// Default host for SUT binding (e.g., "127.0.0.1")
+    #[serde(default = "default_harness_host")]
+    pub host: String,
+    /// Default port for SUT binding (e.g., 8000)
+    #[serde(default = "default_harness_port")]
+    pub port: u16,
+}
+
+fn default_harness_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_harness_port() -> u16 {
+    8000
+}
+
+impl Default for HarnessConfig {
+    fn default() -> Self {
+        Self {
+            imports: Vec::new(),
+            app_class: None,
+            register_method: None,
+            body_schema_setter: None,
+            route_builder: None,
+            method_enum: None,
+            run_method: None,
+            host: default_harness_host(),
+            port: default_harness_port(),
+        }
+    }
+}
+
 /// Root e2e configuration from `[e2e]` section of alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct E2eConfig {
@@ -189,6 +250,10 @@ pub struct E2eConfig {
     /// ```
     #[serde(default)]
     pub fields_enum: HashSet<String>,
+    /// Server-shaped e2e harness configuration for HTTP fixtures.
+    /// Knobs for code generation that spawn the SUT app and register handlers.
+    #[serde(default)]
+    pub harness: HarnessConfig,
     /// Dependency mode: `Local` (default) or `Registry`.
     /// Set at runtime via `--registry` CLI flag; not serialized from TOML.
     #[serde(skip)]
@@ -411,6 +476,7 @@ impl Default for E2eConfig {
             exclude_categories: HashSet::new(),
             fields_c_types: HashMap::new(),
             fields_enum: HashSet::new(),
+            harness: HarnessConfig::default(),
             dep_mode: DependencyMode::default(),
             registry: RegistryConfig::default(),
         }
