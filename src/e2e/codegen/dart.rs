@@ -2979,12 +2979,14 @@ pub fn emit_test_backend(
         .unwrap_or(&fixture.id);
 
     let instance_name = format!("_{class_name}_instance");
-    let wrapped_var = format!("_{class_name}_wrapped");
+    let factory_fn = format!("_create{class_name}Wrapper");
 
-    // Emit the instance creation and wrapper call in the setup block.
+    // Emit the instance creation and factory initialization.
+    // For module-level scope: declare a factory function that does the async work.
+    // The actual test will call this factory function when needed.
     let _ = writeln!(setup, "final {instance_name} = {class_name}();");
-    // The factory wrapper is sync (not awaited); trait factory callbacks return T directly.
-    let _ = writeln!(setup, "final {wrapped_var} = {create_fn}(");
+    let trait_name = &trait_bridge.trait_name;
+    let _ = writeln!(setup, "Future<{trait_name}DartImpl> {factory_fn}() async => await {create_fn}(");
     let escaped_plugin_name = escape_dart(plugin_name);
     let _ = writeln!(setup, "  pluginName: '{escaped_plugin_name}',");
     let _ = writeln!(setup, "  pluginVersion: '0.0.1',");
@@ -3012,9 +3014,13 @@ pub fn emit_test_backend(
         type_imports.push("dart:typed_data".to_string());
     }
 
+    // The arg_expr is a call to the factory function, which returns a Future.
+    let factory_fn = format!("_create{class_name}Wrapper");
+    let arg_expr = format!("await {factory_fn}()");
+
     super::TestBackendEmission {
         setup_block: setup,
-        arg_expr: wrapped_var,
+        arg_expr,
         type_imports,
         teardown_block: String::new(),
     }
