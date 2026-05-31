@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pointers — fixes silently dropped callbacks.** The previous bridge struct stored
   raw `napi_env`/`napi_value` pointers extracted via `transmute_copy` from the
   `Object<'_>` constructor argument, then reconstructed an `Object` per callback
-  via `Object::from_raw`. The `napi_value` is a *local handle* tied to the
+  via `Object::from_raw`. The `napi_value` is a _local handle_ tied to the
   HandleScope active at the time the bridge was constructed; by the time visitor
   methods fired deep inside the `convert()` call, the scope had moved and
   `get_named_property("visitText")` silently returned `Err`, so every callback

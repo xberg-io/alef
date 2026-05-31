@@ -1185,21 +1185,24 @@ fn gen_extendr_bridge_field_function(
         "        .map(|v| Arc::new(Mutex::new(RHtmlVisitorBridge::new(v))) as {core_import}::visitor::VisitorHandle);\n"
     ));
 
-    // Decode options and inject the bridge
+    // Decode options into the R-local `ConversionOptions`, convert to the core type via the
+    // generated `From` impl, then inject the visitor handle. The visitor field exists only on
+    // the core `ConversionOptions`, so we convert first and assign after.
     body.push_str(&format!(
-        "    let mut opts = crate::options::decode_options({options_param})\n"
+        "    let opts_local = crate::options::decode_options({options_param})\n"
     ));
     body.push_str("        .map_err(|e| extendr_api::Error::Other(e))?;\n");
+    body.push_str(&format!(
+        "    let mut opts: {core_import}::ConversionOptions = opts_local.into();\n"
+    ));
     body.push_str(&format!("    opts.{field_name} = {field_name}_handle;\n"));
 
     // Build the core function call. For `String` params we pass `&name` (deref-coerces to `&str`);
-    // for `Robj` fall back to passing by reference as before. Options always becomes
-    // `Some(opts.into())` since `opts` is the R-local `ConversionOptions` and the core function
-    // expects `html_to_markdown_rs::ConversionOptions` — the generated `From` impl bridges them.
+    // for `Robj` fall back to passing by reference as before. `opts` is already the core type.
     let mut call_args = Vec::new();
     for param in &func.params {
         if param.name == *options_param {
-            call_args.push("Some(opts.into())".to_string());
+            call_args.push("Some(opts)".to_string());
         } else {
             call_args.push(format!("&{}", param.name));
         }

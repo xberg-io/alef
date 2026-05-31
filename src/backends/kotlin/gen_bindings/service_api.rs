@@ -149,16 +149,11 @@ fn gen_registration_variant(
                 crate::core::ir::WrapperConstructorArg::Fixed { value_expr, .. } => {
                     rust_enum_expr_to_kotlin(value_expr)
                 }
-                crate::core::ir::WrapperConstructorArg::Free { param } => {
-                    param.name.to_lower_camel_case()
-                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => param.name.to_lower_camel_case(),
             })
             .collect();
         let type_name = &wc.wrapper_type_name;
-        let java_factory = format!(
-            "{java_package}.{type_name}.create({})",
-            ctor_args.join(", ")
-        );
+        let java_factory = format!("{java_package}.{type_name}.create({})", ctor_args.join(", "));
         let wrapper_expr = format!("{type_name}({java_factory})");
         format!("handler, {wrapper_expr}")
     } else {
