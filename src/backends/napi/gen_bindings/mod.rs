@@ -1140,23 +1140,21 @@ fn napi_variant_wrapper_constructor(
     prefix: &str,
 ) -> Option<String> {
     use crate::codegen::type_mapper::TypeMapper as _;
-    let ctor = typ
-        .methods
-        .iter()
-        .find(|m| m.name == "new" && m.receiver.is_none())?;
+    let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
-    let call_args = ctor.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+    let call_args = ctor
+        .params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
     let body = if call_args.is_empty() {
-        format!(
-            "Self {{ inner: std::sync::Arc::new({core_path}::new()) }}"
-        )
+        format!("Self {{ inner: std::sync::Arc::new({core_path}::new()) }}")
     } else {
-        format!(
-            "Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}"
-        )
+        format!("Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}")
     };
     let fn_sig = if sig_params.is_empty() {
         "pub fn new_constructor() -> Self".to_string()
