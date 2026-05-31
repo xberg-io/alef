@@ -1982,7 +1982,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
     let public = backend.generate_public_api(&api, &config).unwrap();
     let facade = &public[0].content;
     assert!(
-        facade.contains("public static function registerOcrBackend(OcrBackend $backend) : void")
+        facade.contains("public static function registerOcrBackend(\nOcrBackend $backend) : void")
             && facade.contains("\\Test\\Lib\\TestLibApi::registerOcrBackend($backend)")
             && facade.contains("\\Test\\Lib\\TestLibApi::unregisterOcrBackend($name)")
             && facade.contains("\\Test\\Lib\\TestLibApi::clearOcrBackends()"),

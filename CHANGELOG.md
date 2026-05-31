@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **native/ABI generators: harden byte, string-length, and handle-lifetime paths.**
+  Kotlin/JNI byte API pairing is covered by focused generator tests to keep Kotlin
+  `ByteArray` declarations matched to Rust `jbyteArray` symbols. Java/Panama now
+  binds FFI `_len` companions for C-string returns, decodes through bounded memory
+  segments, and checks `_from_json` handle creation before invoking the primary FFI
+  function. Zig now checks `_from_json` handles immediately and defers non-null
+  handle cleanup across fallible returns. FFI error/clear paths reset
+  `LAST_RETURN_LEN`, and Go pins byte-slice params with `runtime.Pinner` before
+  passing pointers to C. (`src/backends/{ffi,go,java,zig}`, `tests/backends_{ffi,go,java,zig,kotlin_jni,jni}_*`)
+
 - **swift/dart generators: close Swift unregister and Dart `InternalDocument` trait-bridge regressions.** Swift
   bridge-registration `name:` overloads now delegate explicitly to `RustBridge.unregister*`
   instead of relying on overload resolution that can recurse into the helper itself.

@@ -416,7 +416,7 @@ impl Backend for PhpBackend {
             .iter()
             .filter(|f| !exclude_functions.contains(&f.name))
             .collect();
-        if !included_functions.is_empty() {
+        if !included_functions.is_empty() || !config.trait_bridges.is_empty() {
             let facade_class_name = extension_name.to_pascal_case();
             // Build each static method body (no #[php_function] attribute — they live inside
             // a #[php_impl] block which handles registration via the class machinery).
@@ -1216,7 +1216,7 @@ impl Backend for PhpBackend {
                     "php_method_signature_start.jinja",
                     context! { method_name => &method_name },
                 ));
-                content.push_str(&format!("?{} $backend = null) : void\n    {{\n", interface_name));
+                content.push_str(&format!("{} $backend) : void\n    {{\n", interface_name));
                 let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($backend)");
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_method_call_statement.jinja",
@@ -1608,7 +1608,7 @@ impl Backend for PhpBackend {
         // methods. The PHP facade (`{ClassName}`) delegates to `{ClassName}Api::method()`.
         // Using a class instead of global functions avoids the `inventory` crate registration
         // issue on macOS (cdylib builds do not collect `#[php_function]` entries there).
-        if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) {
+        if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
             // Bridge params are hidden from the PHP-visible API in stubs too.
             let bridge_param_names_stubs: ahash::AHashSet<&str> = config
                 .trait_bridges
@@ -1706,7 +1706,7 @@ impl Backend for PhpBackend {
                 if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
                     let method_name = register_fn.to_lower_camel_case();
                     let interface_name = php_type_fq(&TypeRef::Named(bridge_cfg.trait_name.clone()), &namespace);
-                    let params = format!("?{interface_name} $backend = null");
+                    let params = format!("{interface_name} $backend");
                     content.push_str(&crate::backends::php::template_env::render(
                         "php_static_method_stub.jinja",
                         context! {

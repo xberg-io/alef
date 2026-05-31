@@ -228,8 +228,8 @@ fn string_return_uses_len_companion_and_bounded_decode() {
         .as_str();
     let main = files
         .iter()
-        .find(|f| f.path.ends_with("TestLib.java"))
-        .expect("TestLib.java")
+        .find(|f| f.content.contains("long resultLen = (long)"))
+        .expect("Java FFI facade with bounded string decode")
         .content
         .as_str();
 
@@ -238,7 +238,7 @@ fn string_return_uses_len_companion_and_bounded_decode() {
         "NativeLib must bind the _len companion: {native_lib}"
     );
     assert!(
-        main.contains("long resultLen = (long) NativeLib.TEST_DESCRIBE_LEN.invoke(cTopic);"),
+        main.contains("long resultLen = (long) NativeLib.TEST_DESCRIBE_LEN.invoke(ctopic);"),
         "Java wrapper must call _len with the same args: {main}"
     );
     assert!(
@@ -346,14 +346,14 @@ fn named_param_from_json_is_checked_before_primary_call() {
         .unwrap();
     let main = files
         .iter()
-        .find(|f| f.path.ends_with("TestLib.java"))
-        .expect("TestLib.java")
+        .find(|f| f.content.contains("NativeLib.TEST_CONFIGURE.invoke"))
+        .expect("Java FFI facade with configure")
         .content
         .as_str();
     let check_pos = main
-        .find("if (cConfigJson != null && cConfig.equals(MemorySegment.NULL))")
+        .find("if (cconfigJson != null && cconfig.equals(MemorySegment.NULL))")
         .unwrap();
-    let call_pos = main.find("NativeLib.TEST_CONFIGURE.invoke(cConfig)").unwrap();
+    let call_pos = main.find("NativeLib.TEST_CONFIGURE.invoke(cconfig)").unwrap();
 
     assert!(
         check_pos < call_pos,

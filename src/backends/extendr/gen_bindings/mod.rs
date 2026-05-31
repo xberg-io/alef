@@ -3134,6 +3134,84 @@ package_name = "testlib"
     }
 
     #[test]
+    fn extendr_wrappers_default_required_config_objects_in_r() {
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "ExtractionConfig".to_string(),
+                rust_path: "test_lib::ExtractionConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+            }],
+            functions: vec![FunctionDef {
+                name: "extract_bytes".to_string(),
+                rust_path: "test_lib::extract_bytes".to_string(),
+                original_rust_path: String::new(),
+                params: vec![
+                    ParamDef {
+                        name: "bytes".to_string(),
+                        ty: TypeRef::Bytes,
+                        ..Default::default()
+                    },
+                    ParamDef {
+                        name: "config".to_string(),
+                        ty: TypeRef::Named("ExtractionConfig".to_string()),
+                        ..Default::default()
+                    },
+                ],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+
+        assert!(
+            content.contains("extract_bytes <- function(bytes, config = ExtractionConfig$default())"),
+            "R wrapper must synthesize default objects instead of advertising NULL for required config:\n{content}"
+        );
+    }
+
+    #[test]
     fn extendr_wrappers_emits_placeholder_title_when_doc_is_empty() {
         // Functions with no Rust doc comment must still produce a complete
         // roxygen block — title falls back to the function name, description

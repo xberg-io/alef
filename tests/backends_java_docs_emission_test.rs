@@ -225,6 +225,61 @@ fn opaque_handle_instance_method_emits_javadoc_above_signature() {
 }
 
 #[test]
+fn free_function_javadoc_uses_generated_exception_name() {
+    let backend = JavaBackend;
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "extract_text".to_string(),
+            rust_path: "demo::extract_text".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "input".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("DemoError".to_string()),
+            doc: "Extract text.\n\n# Errors\nReturns an error when input is invalid.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let joined = files
+        .iter()
+        .filter(|f| f.path.extension().is_some_and(|ext| ext == "java"))
+        .map(|f| f.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        joined.contains("{@literal @}throws DemoRsException Returns an error when input is invalid."),
+        "Javadoc must use the generated exception name:\n{joined}"
+    );
+    assert!(
+        !joined.contains("SampleCrateRsException"),
+        "Javadoc must not leak sample exception names:\n{joined}"
+    );
+}
+
+#[test]
 fn plain_enum_variants_carry_summary_javadoc() {
     let backend = JavaBackend;
     let api = ApiSurface {

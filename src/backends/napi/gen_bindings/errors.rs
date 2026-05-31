@@ -240,8 +240,8 @@ pub(super) fn gen_dts(
                     let params = dts_params(&method.params, no_prefix, default_types);
                     let ret = trait_bridge_dts_return_type(&method.return_type);
                     lines.extend(format_jsdoc(&method.doc, "  "));
-                    // Visitor methods are all optional callbacks
-                    lines.push(format!("  {js_name}?({params}): {ret}"));
+                    let optional_marker = if method.has_default_impl { "?" } else { "" };
+                    lines.push(format!("  {js_name}{optional_marker}({params}): {ret}"));
                 }
                 lines.push("}".to_string());
             }
@@ -541,18 +541,6 @@ fn required_after_optional(params: &[ParamDef], default_types: &ahash::AHashSet<
 
 fn preserves_native_param_order(func: &FunctionDef) -> bool {
     matches!(func.name.as_str(), "extract_file" | "extract_file_sync")
-}
-
-/// Render the TypeScript return type for a function/method in `.d.ts`.
-///
-/// Async functions return `Promise<T>`. Functions that can error still return `T`
-/// (NAPI throws JS exceptions on error, so the `.d.ts` signature just shows the success type).
-pub(super) fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool, prefix: &str) -> String {
-    let base = match ret {
-        TypeRef::Unit => "void".to_string(),
-        other => dts_type(other, prefix),
-    };
-    if is_async { format!("Promise<{base}>") } else { base }
 }
 
 /// Render the TypeScript return type for a function/method in `.d.ts`, substituting
