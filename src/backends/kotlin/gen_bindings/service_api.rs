@@ -79,32 +79,36 @@ fn kotlin_return_type(ty: &TypeRef, api: &ApiSurface) -> String {
     kotlin_type_for_param(ty, api)
 }
 
-/// Translate a Rust enum path expression to a Kotlin enum access expression.
+/// Translate a Rust enum path expression to a Kotlin/JVM enum access expression.
 ///
 /// The `value_expr` stored on `RegistrationVariantOverride` is a fully-qualified
-/// Rust path (e.g. `my_crate::Method::Get`).  Kotlin enum entries use
-/// `SCREAMING_SNAKE_CASE` and dot-access (`Method.GET`).  This function strips
-/// the leading crate/module segments and converts the final component to the
-/// Kotlin convention.
+/// Rust path (e.g. `my_crate::Method::Get`).  The generated Java/Kotlin enum
+/// keeps the Rust variant name as-is in PascalCase (`Method.Get`) because the
+/// JVM codegen preserves Rust variant casing rather than converting to
+/// `SCREAMING_SNAKE_CASE`.  This function strips the leading crate/module
+/// segments and emits `{TypeName}.{VariantName}`.
 fn rust_enum_expr_to_kotlin(value_expr: &str) -> String {
     // Split on `::` and take the last two segments: TypeName and VariantName.
     let parts: Vec<&str> = value_expr.split("::").collect();
     match parts.as_slice() {
-        [.., type_name, variant] => {
-            use crate::backends::kotlin::gen_bindings::shared::to_screaming_snake;
-            format!("{}.{}", type_name, to_screaming_snake(variant))
-        }
+        [.., type_name, variant] => format!("{}.{}", type_name, variant),
         // Single segment or empty — return as-is (already a plain literal).
         _ => value_expr.to_owned(),
     }
 }
 
 /// Emit a registration variant (shortcut method) for the given variant.
+///
+/// `java_package` is needed when the variant has a wrapper constructor: the
+/// wrapper's Java factory method is called via the fully-qualified Java class
+/// (`{java_package}.{TypeName}.create(...)`) and the result is wrapped in the
+/// Kotlin coroutine wrapper (`{TypeName}(javaInstance)`).
 fn gen_registration_variant(
     out: &mut String,
     variant: &RegistrationVariant,
     base_reg: &crate::core::ir::RegistrationDef,
     _class_name: &str,
+    java_package: &str,
 ) {
     let variant_method_kt = variant.name.to_lower_camel_case();
     let base_method_kt = base_reg.method.to_lower_camel_case();
@@ -125,9 +129,19 @@ fn gen_registration_variant(
 
     // Build argument list forwarded to the base registration method.
     let args_str = if let Some(wc) = &variant.wrapper_call {
-        // Wrapper-constructor mode: build `TypeName(arg1, arg2, ...)` in Kotlin.
-        // Fixed args are translated from Rust enum path to Kotlin; Free args come
-        // from the variant's own signature params by name.
+        // Wrapper-constructor mode.
+        //
+        // The JVM binding generates a static factory `{TypeName}.create(...)` on the
+        // Java class (alef maps Rust `fn new(...)` to a Java `create(...)` static
+        // method). The Kotlin coroutine wrapper expects the Kotlin wrapper type, so
+        // the call sequence is:
+        //
+        //   val javaInstance = {java_package}.{TypeName}.create({ctor_args})
+        //   route(handler, {TypeName}(javaInstance))
+        //
+        // Fixed args are translated from Rust enum path to Kotlin/JVM form
+        // (PascalCase variant, no crate prefix). Free args come from the variant's
+        // own signature params.
         let ctor_args: Vec<String> = wc
             .args
             .iter()
@@ -140,7 +154,12 @@ fn gen_registration_variant(
                 }
             })
             .collect();
-        let wrapper_expr = format!("{}({})", wc.wrapper_type_name, ctor_args.join(", "));
+        let type_name = &wc.wrapper_type_name;
+        let java_factory = format!(
+            "{java_package}.{type_name}.create({})",
+            ctor_args.join(", ")
+        );
+        let wrapper_expr = format!("{type_name}({java_factory})");
         format!("handler, {wrapper_expr}")
     } else {
         // Direct override mode: handler + translated overrides + free params.
@@ -250,7 +269,7 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
         // Emit registration variants (shortcuts for common patterns)
         for variant in &reg.variants {
-            gen_registration_variant(&mut out, variant, reg, &class_name);
+            gen_registration_variant(&mut out, variant, reg, &class_name, java_package);
         }
     }
 
@@ -752,8 +771,11 @@ mod tests {
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
         assert!(kt.contains("fun get(handler: (String) -> String, path: String): Int"));
-        // Enum value_expr translated: my_crate::Method::Get -> Method.GET
-        assert!(kt.contains("RouteBuilder(Method.GET, path)"));
-        assert!(kt.contains("addHandler(handler, RouteBuilder(Method.GET, path))"));
+        // Enum value_expr translated: my_crate::Method::Get -> Method.Get (PascalCase preserved).
+        // Java factory call: com.example.RouteBuilder.create(Method.Get, path)
+        // Wrapped in Kotlin coroutine wrapper: RouteBuilder(com.example.RouteBuilder.create(...))
+        assert!(kt.contains("com.example.RouteBuilder.create(Method.Get, path)"));
+        assert!(kt.contains("RouteBuilder(com.example.RouteBuilder.create(Method.Get, path))"));
+        assert!(kt.contains("addHandler(handler, RouteBuilder(com.example.RouteBuilder.create(Method.Get, path))"));
     }
 }
