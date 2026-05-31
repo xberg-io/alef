@@ -774,15 +774,12 @@ fn gen_run_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build parameter list: registrations + entrypoint params + _ruby (for #[magnus::function])
-    // The #[magnus::function] macro automatically manages the Ruby parameter, so we just
-    // include it in the signature to match what the macro expects, even though we don't use it.
+    // Build parameter list: registrations + entrypoint params (no &Ruby - use Ruby::get())
     let mut fn_params = vec!["registrations: &Opaque<Value>".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         fn_params.push(format!("{}: {}", p.name, rust_ty));
     }
-    fn_params.push("_ruby: &Ruby".to_owned());
     let fn_param_sig = fn_params.join(", ");
 
     out.push_str(&format!(
