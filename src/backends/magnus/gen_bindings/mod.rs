@@ -1005,14 +1005,31 @@ fn magnus_variant_wrapper_constructor(
     let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
-    // Wrap every constructor argument in `.into()` so binding-side newtypes
-    // (e.g. the magnus `Method` mirror) are coerced to their core counterpart
-    // before being passed to `<core>::new`. For primitives / `String` / other
-    // identity-into types this is a no-op, so the heuristic is uniformly safe.
+    // Wrap binding-side newtype arguments (TypeRef::Named) with `.into()` so
+    // they coerce to the core type before being passed to `<core>::new`.
+    // Skip `String` and primitive types where `.into()` would produce
+    // ambiguous type inference against multi-impl targets like
+    // `impl Into<String>`. Binding-side scalars are already core-shaped, so
+    // a bare pass-through is correct for them.
+    let needs_into = |t: &crate::core::ir::TypeRef| -> bool {
+        matches!(
+            t,
+            crate::core::ir::TypeRef::Named(_)
+                | crate::core::ir::TypeRef::Optional(_)
+                | crate::core::ir::TypeRef::Vec(_)
+                | crate::core::ir::TypeRef::Map(_, _)
+        )
+    };
     let call_args = ctor
         .params
         .iter()
-        .map(|p| format!("{}.into()", p.name))
+        .map(|p| {
+            if needs_into(&p.ty) {
+                format!("{}.into()", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);

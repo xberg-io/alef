@@ -485,7 +485,7 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
 /// struct in the same lib.rs file. FRB's macro generates factory wrappers that pass the
 /// local mirror struct (unqualified) into the factory function, so the closure parameter
 /// type **must** also be unqualified or FRB-generated and hand-emitted code disagree
-/// (rustc reports `expected kreuzberg::ExtractionResult, found ExtractionResult`).
+/// (rustc reports a mismatch between the source-crate type and local mirror type).
 ///
 /// Call-site conversions (`.into()`) are emitted separately to bridge between the local
 /// mirror and the canonical source-crate `InternalDocument` used by the trait signature.
@@ -671,8 +671,8 @@ fn emit_trait_bridge_method(
     //
     // For params whose original type was the excluded `InternalDocument`, the dart-facing
     // closure was substituted to receive the local FRB mirror `ExtractionResult`. The Rust
-    // trait method itself still receives `kreuzberg::InternalDocument`. Two `From` hops
-    // are required to convert: `InternalDocument → kreuzberg::ExtractionResult → local
+    // trait method itself still receives the source-crate `InternalDocument`. Two `From` hops
+    // are required to convert: `InternalDocument → source-crate ExtractionResult → local
     // mirror ExtractionResult`. Inline `.into()` only does one step and Rust cannot infer
     // the intermediate type, so we emit pre-bindings before the closure call.
     let mut pre_bindings = String::new();
