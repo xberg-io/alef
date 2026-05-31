@@ -79,6 +79,26 @@ fn kotlin_return_type(ty: &TypeRef, api: &ApiSurface) -> String {
     kotlin_type_for_param(ty, api)
 }
 
+/// Translate a Rust enum path expression to a Kotlin enum access expression.
+///
+/// The `value_expr` stored on `RegistrationVariantOverride` is a fully-qualified
+/// Rust path (e.g. `my_crate::Method::Get`).  Kotlin enum entries use
+/// `SCREAMING_SNAKE_CASE` and dot-access (`Method.GET`).  This function strips
+/// the leading crate/module segments and converts the final component to the
+/// Kotlin convention.
+fn rust_enum_expr_to_kotlin(value_expr: &str) -> String {
+    // Split on `::` and take the last two segments: TypeName and VariantName.
+    let parts: Vec<&str> = value_expr.split("::").collect();
+    match parts.as_slice() {
+        [.., type_name, variant] => {
+            use crate::backends::kotlin::gen_bindings::shared::to_screaming_snake;
+            format!("{}.{}", type_name, to_screaming_snake(variant))
+        }
+        // Single segment or empty — return as-is (already a plain literal).
+        _ => value_expr.to_owned(),
+    }
+}
+
 /// Emit a registration variant (shortcut method) for the given variant.
 fn gen_registration_variant(
     out: &mut String,
@@ -89,29 +109,50 @@ fn gen_registration_variant(
     let variant_method_kt = variant.name.to_lower_camel_case();
     let base_method_kt = base_reg.method.to_lower_camel_case();
 
-    // Build parameter list from signature_params
-    let params = variant
-        .signature_params
-        .iter()
-        .map(|p| {
-            format!(
-                "{}: {}",
-                p.name.to_lower_camel_case(),
-                kotlin_type_for_param(&p.ty, &ApiSurface::default())
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+    // The variant always takes a handler lambda as the first parameter.
+    let handler_param = "handler: (String) -> String".to_owned();
 
-    // Build argument list: call base method with overridden and free params
-    let mut args = vec!["handler".to_owned()];
-    for ov in &variant.overrides {
-        args.push(ov.value_expr.clone());
-    }
-    for param in &variant.signature_params {
-        args.push(param.name.to_lower_camel_case());
-    }
-    let args_str = args.join(", ");
+    // Build parameter list: handler first, then signature_params.
+    let mut param_parts = vec![handler_param];
+    param_parts.extend(variant.signature_params.iter().map(|p| {
+        format!(
+            "{}: {}",
+            p.name.to_lower_camel_case(),
+            kotlin_type_for_param(&p.ty, &ApiSurface::default()),
+        )
+    }));
+    let params = param_parts.join(", ");
+
+    // Build argument list forwarded to the base registration method.
+    let args_str = if let Some(wc) = &variant.wrapper_call {
+        // Wrapper-constructor mode: build `TypeName(arg1, arg2, ...)` in Kotlin.
+        // Fixed args are translated from Rust enum path to Kotlin; Free args come
+        // from the variant's own signature params by name.
+        let ctor_args: Vec<String> = wc
+            .args
+            .iter()
+            .map(|arg| match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed { value_expr, .. } => {
+                    rust_enum_expr_to_kotlin(value_expr)
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    param.name.to_lower_camel_case()
+                }
+            })
+            .collect();
+        let wrapper_expr = format!("{}({})", wc.wrapper_type_name, ctor_args.join(", "));
+        format!("handler, {wrapper_expr}")
+    } else {
+        // Direct override mode: handler + translated overrides + free params.
+        let mut args = vec!["handler".to_owned()];
+        for ov in &variant.overrides {
+            args.push(rust_enum_expr_to_kotlin(&ov.value_expr));
+        }
+        for param in &variant.signature_params {
+            args.push(param.name.to_lower_camel_case());
+        }
+        args.join(", ")
+    };
 
     // Render via template
     let ctx = minijinja::context! {
@@ -642,7 +683,7 @@ mod tests {
     #[test]
     fn coroutine_wrapper_emits_registration_variants() {
         let mut api = make_fixture_surface();
-        // Add a variant to the first registration
+        // Add a variant to the first registration (direct-override mode, no wrapper_call)
         api.services[0].registrations[0].variants.push(RegistrationVariant {
             name: "get".to_owned(),
             overrides: vec![crate::core::ir::RegistrationVariantOverride {
@@ -662,8 +703,57 @@ mod tests {
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
-        assert!(kt.contains("fun get(path: String): Int"));
+        // Handler is now always included in the variant signature.
+        assert!(kt.contains("fun get(handler: (String) -> String, path: String): Int"));
         assert!(kt.contains("Register a GET handler."));
+        // Doc comment must appear on its own line, not merged with `fun`.
+        assert!(!kt.contains("Register a GET handler.    fun get"));
         assert!(kt.contains("addHandler(handler, HttpMethod.GET, path)"));
+    }
+
+    #[test]
+    fn coroutine_wrapper_variant_with_wrapper_call() {
+        let mut api = make_fixture_surface();
+        // Simulate a wrapper_call variant: RouteBuilder(Method.GET, path)
+        api.services[0].registrations[0].variants.push(RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![],
+            wrapper_call: Some(crate::core::ir::WrapperConstructorCall {
+                metadata_param: "builder".to_owned(),
+                wrapper_type_path: "my_crate::RouteBuilder".to_owned(),
+                wrapper_type_name: "RouteBuilder".to_owned(),
+                constructor_method: "new".to_owned(),
+                args: vec![
+                    crate::core::ir::WrapperConstructorArg::Fixed {
+                        param_name: "method".to_owned(),
+                        value_expr: "my_crate::Method::Get".to_owned(),
+                    },
+                    crate::core::ir::WrapperConstructorArg::Free {
+                        param: ParamDef {
+                            name: "path".to_owned(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            ..ParamDef::default()
+                        },
+                    },
+                ],
+            }),
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: Some("Register a GET route.".to_owned()),
+        });
+        let service = &api.services[0];
+        let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
+
+        assert!(kt.contains("fun get(handler: (String) -> String, path: String): Int"));
+        // Enum value_expr translated: my_crate::Method::Get -> Method.GET
+        assert!(kt.contains("RouteBuilder(Method.GET, path)"));
+        assert!(kt.contains("addHandler(handler, RouteBuilder(Method.GET, path))"));
     }
 }

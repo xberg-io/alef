@@ -1,7 +1,7 @@
 {%- if variant.doc %}
 {%- for line in variant.doc | split("\n") %}
     // {{ line }}
-{%- endfor %}
+{% endfor %}
 {%- endif %}
     fun {{ variant_method_kt }}({{ params }}): Int {
         return {{ base_method_kt }}({{ args }})
