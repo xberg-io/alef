@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **NAPI: emit real method implementations for App + RouteBuilder in service API.**
+  The NAPI backend was unconditionally skipping `Builder`-suffixed types (line 382 in `mod.rs`), preventing `RouteBuilder` generation and forcing App variant methods (get/post/etc) to emit `todo!()` stubs. Removed the filter; generate RouteBuilder as a normal opaque type. Service variant codegen now constructs the wrapper (e.g., `new RouteBuilder(Method.GET, path)`) before registering, matching the handler interface. Added type imports to the TypeScript service class so it can reference `ServerConfig`, `RouteBuilder`, and other types.
+
 - **WASM: pin `getrandom 0.2` with `js` feature in generated Cargo.toml.** Transitive deps
   (`const-random-macro`, `redox_users`, `ring`) pull `getrandom 0.2.x` which fails to build for
   `wasm32-unknown-unknown` without the `js` feature. Already-pinned `getrandom 0.3` (`wasm_js`)

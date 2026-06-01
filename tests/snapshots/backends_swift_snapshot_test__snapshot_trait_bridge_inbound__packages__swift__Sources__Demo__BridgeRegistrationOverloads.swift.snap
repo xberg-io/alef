@@ -17,40 +17,6 @@ public func unregisterOcrBackend(name: String) throws {
 
 // MARK: - Bridge → Box register overloads
 
-public func registerOcrBackend(_ bridge: SwiftOcrBackendBridge) throws {
-    try registerOcrBackend(SwiftOcrBackendBox(_OcrBackendBridgeAdapter(bridge: bridge)))
-}
-
-// MARK: - Internal stub adapters
-//
-// Each adapter conforms to the full plugin protocol expected by the
-// `Swift<Plugin>Box` wrapper and delegates only the methods the bridge
-// exposes. The remaining methods use safe defaults: register/initialize/
-// shutdown are no-ops, processing entrypoints throw, capability queries
-// report false/empty.
-//
-// Adapter stub names (returned by name() method):
-// - _OcrBackendBridgeAdapter → "swift-bridge-ocr-stub"
-//
-// These names are used by e2e test cleanup to unregister stubs after each test.
-
-private struct _BridgeStubError: Error, CustomStringConvertible {
-    let description: String
-}
-
-private final class _OcrBackendBridgeAdapter: OcrBackend {
-    private let bridge: any SwiftOcrBackendBridge
-    init(bridge: any SwiftOcrBackendBridge) { self.bridge = bridge }
-
-    func name() -> String { "swift-bridge-ocr-stub" }
-    func version() -> String { "0.0.0" }
-    func initialize() throws {}
-    func shutdown() throws {}
-
-    func processImage(image_bytes: Data, config: OcrConfig) async throws -> String {
-        throw _BridgeStubError(description: "async bridge processImage cannot be invoked from sync FFI stub")
-    }
-
-    func supportsLanguage(lang: String) -> Bool { false }
-
+public func registerOcrBackend(_ bridge: any SwiftOcrBackendBridge) throws {
+    try registerOcrBackend(SwiftOcrBackendBox(bridge))
 }

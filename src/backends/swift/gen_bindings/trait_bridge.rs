@@ -751,41 +751,16 @@ mod tests {
             "missing register overload section"
         );
         assert!(
-            content.contains("public func registerMyLib(_ bridge: SwiftMyLibBridge) throws"),
+            content.contains("public func registerMyLib(_ bridge: any SwiftMyLibBridge) throws"),
             "missing register overload"
         );
 
-        // Check for adapter class
-        assert!(
-            content.contains("private final class _MyLibBridgeAdapter: MyLib"),
-            "missing adapter class"
-        );
-        assert!(
-            content.contains("func name() -> String { \"swift-bridge-my-lib-stub\" }"),
-            "missing adapter name method"
-        );
-        assert!(
-            content.contains("func version() -> String { \"0.0.0\" }"),
-            "missing adapter version lifecycle method"
-        );
-        assert!(
-            content.contains("func initialize() throws {}"),
-            "missing adapter initialize lifecycle method"
-        );
-        assert!(
-            content.contains("func shutdown() throws {}"),
-            "missing adapter shutdown lifecycle method"
-        );
-
-        // Check for error struct
-        assert!(
-            content.contains("private struct _BridgeStubError"),
-            "missing error struct"
-        );
-
-        // Note: _loadBytesFromPathOrUtf8 helper lives in the
-        // swift_bridge_registration_overloads template, not in this generated
-        // file, so no assertion here.
+        // NOTE: adapter class, lifecycle stub methods (`name()`, `version()`,
+        // `initialize()`, `shutdown()`), and `_BridgeStubError` emission were
+        // removed in commit `23a58ff9e` ("drop async from trait bridge"). Plugins
+        // are now hand-authored in `Plugins.swift` rather than emitted into
+        // `BridgeRegistrationOverloads.swift`, so the corresponding assertions
+        // were retired alongside the codegen.
     }
 
     #[test]
@@ -806,52 +781,10 @@ mod tests {
         assert!(result.is_none(), "should skip bridges excluded from swift");
     }
 
-    #[test]
-    fn test_bridge_registration_overloads_keeps_async_stubs_async() {
-        use crate::core::ir::{MethodDef, ParamDef, TypeRef};
-
-        let mut trait_def = make_trait_def("OcrBackend");
-        trait_def.methods.push(MethodDef {
-            name: "process_image".to_string(),
-            params: vec![ParamDef {
-                name: "image_bytes".to_string(),
-                ty: TypeRef::Bytes,
-                optional: false,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-                map_is_ahash: false,
-                map_key_is_cow: false,
-            }],
-            return_type: TypeRef::String,
-            is_async: true,
-            is_static: false,
-            error_type: Some("Error".to_string()),
-            doc: String::new(),
-            receiver: None,
-            sanitized: false,
-            trait_source: None,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            has_default_impl: false,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-        });
-
-        let bridge_cfg = make_bridge_cfg("OcrBackend");
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let (_filename, content) = gen_bridge_registration_overloads_file(&bridges).expect("file should be emitted");
-
-        assert!(
-            content.contains("func processImage(image_bytes: Data) async throws -> String"),
-            "async trait stubs must remain async:\n{content}"
-        );
-    }
+    // NOTE: previously asserted that async trait methods produced async stubs in
+    // `BridgeRegistrationOverloads.swift`. That stub generation was intentionally
+    // removed in commit `23a58ff9e` ("drop async from trait bridge"), so the
+    // assertion is no longer applicable. The test was retired alongside the feature.
 
     #[test]
     fn test_pascal_case_conversion() {

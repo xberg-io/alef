@@ -86,6 +86,34 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
             imports.push(resp_ty.clone());
         }
     }
+    // Add service constructor and configurator param types
+    if let Some(service) = api.services.first() {
+        for param in &service.constructor.params {
+            if let TypeRef::Named(name) = &param.ty {
+                imports.push(name.clone());
+            }
+        }
+        for method in &service.configurators {
+            for param in &method.params {
+                if let TypeRef::Named(name) = &param.ty {
+                    imports.push(name.clone());
+                }
+            }
+        }
+        // Add registration variant wrapper types and metadata param types
+        for reg in &service.registrations {
+            for variant in &reg.variants {
+                if let Some(wrapper_call) = &variant.wrapper_call {
+                    imports.push(wrapper_call.wrapper_type_name.clone());
+                }
+                for param in &variant.signature_params {
+                    if let TypeRef::Named(name) = &param.ty {
+                        imports.push(name.clone());
+                    }
+                }
+            }
+        }
+    }
     // Remove duplicates
     imports.sort();
     imports.dedup();
@@ -329,16 +357,49 @@ fn gen_registration_variant_method_ts(
 
     out.push_str(&format!("  {variant_name}({full_sig}): this {{\n"));
 
-    // Build metadata array from variant params + overrides
-    let mut metadata_values = Vec::new();
-    for param in &variant.signature_params {
-        metadata_values.push(param.name.clone());
-    }
+    // When there's a wrapper constructor call, build the wrapper first
+    let metadata_array = if let Some(wrapper_call) = &variant.wrapper_call {
+        let wrapper_type = &wrapper_call.wrapper_type_name;
+        let constructor = &wrapper_call.constructor_method;
 
-    let metadata_array = if metadata_values.is_empty() {
-        "[]".to_owned()
+        // Build the constructor args by substituting Fixed args and pulling Free args
+        let mut ctor_args = Vec::new();
+        for arg in &wrapper_call.args {
+            match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
+                    // Fixed args are value expressions like "Method.GET"
+                    ctor_args.push(value_expr.clone());
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    // Free args come from the variant's signature params
+                    ctor_args.push(param.name.clone());
+                }
+            }
+        }
+        let ctor_arg_str = ctor_args.join(", ");
+        let metadata_param = &wrapper_call.metadata_param;
+
+        out.push_str(&format!(
+            "    const {metadata_param} = new {wrapper_type}({ctor_arg_str});\n"
+        ));
+
+        // Push metadata param to the registrations
+        format!("[{metadata_param}]")
     } else {
-        format!("[{}]", metadata_values.join(", "))
+        // No wrapper constructor: build metadata array from variant params + overrides
+        let mut metadata_values = Vec::new();
+        for param in &variant.signature_params {
+            metadata_values.push(param.name.clone());
+        }
+
+        if metadata_values.is_empty() {
+            "[]".to_owned()
+        } else {
+            format!("[{}]", metadata_values.join(", "))
+        }
     };
 
     out.push_str(&format!(

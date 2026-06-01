@@ -379,7 +379,6 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             .types
             .iter()
             .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
-            .filter(|typ| !typ.name.ends_with("Builder") && !typ.name.ends_with("Update"))
         {
             // Capsule types bypass #[napi] class emission entirely — they are exposed
             // as raw External<T> pointers in JsObject wrappers from functions that return them.

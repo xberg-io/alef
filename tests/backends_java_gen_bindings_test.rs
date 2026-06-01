@@ -246,8 +246,12 @@ fn trait_bridge_register_downcall_passes_vtable_struct_by_value() {
         native_lib.contains("import java.lang.foreign.MemoryLayout;"),
         "NativeLib must import MemoryLayout for by-value vtable structs, got:\n{native_lib}"
     );
+    // The vtable descriptor lists one ADDRESS per method slot. After commit
+    // 5fd44ac52 the descriptor includes every trait method, not just two, so assert
+    // on the prefix rather than the exact tuple width — the load-bearing invariant
+    // is that the call passes the struct by value, not its exact arity.
     assert!(
-        native_lib.contains("MemoryLayout.structLayout(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"),
+        native_lib.contains("MemoryLayout.structLayout(ValueLayout.ADDRESS"),
         "register downcall must pass the vtable struct by value, got:\n{native_lib}"
     );
     assert!(
