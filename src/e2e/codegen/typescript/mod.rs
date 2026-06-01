@@ -21,6 +21,7 @@ use config::{
 };
 pub use test_file::render_test_file;
 use test_file::resolve_node_function_name;
+use crate::codegen::generators::trait_bridge::to_camel_case;
 
 /// TypeScript e2e code generator.
 pub struct TypeScriptCodegen;
@@ -344,13 +345,13 @@ fn emit_ts_stub_method(
         let _ = writeln!(
             out,
             "  async {name}({params_str}): Promise<{return_type}> {{ return {default_val}; }}",
-            name = method.name
+            name = to_camel_case(&method.name)
         );
     } else {
         let _ = writeln!(
             out,
             "  {name}({params_str}): {return_type} {{ return {default_val}; }}",
-            name = method.name
+            name = to_camel_case(&method.name)
         );
     }
 }
