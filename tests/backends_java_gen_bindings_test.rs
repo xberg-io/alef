@@ -173,7 +173,7 @@ fn trait_bridge_string_return_is_not_json_quoted() {
 }
 
 #[test]
-fn trait_bridge_register_downcall_passes_vtable_struct_by_value() {
+fn trait_bridge_register_downcall_passes_vtable_address() {
     let renderer = TypeDef {
         name: "Renderer".to_string(),
         rust_path: "test_lib::Renderer".to_string(),
@@ -243,16 +243,12 @@ fn trait_bridge_register_downcall_passes_vtable_struct_by_value() {
         .as_str();
 
     assert!(
-        native_lib.contains("import java.lang.foreign.MemoryLayout;"),
-        "NativeLib must import MemoryLayout for by-value vtable structs, got:\n{native_lib}"
+        !native_lib.contains("import java.lang.foreign.MemoryLayout;"),
+        "NativeLib must not import MemoryLayout for pointer-based vtable registration, got:\n{native_lib}"
     );
-    // The vtable descriptor lists one ADDRESS per method slot. After commit
-    // 5fd44ac52 the descriptor includes every trait method, not just two, so assert
-    // on the prefix rather than the exact tuple width — the load-bearing invariant
-    // is that the call passes the struct by value, not its exact arity.
     assert!(
-        native_lib.contains("MemoryLayout.structLayout(ValueLayout.ADDRESS"),
-        "register downcall must pass the vtable struct by value, got:\n{native_lib}"
+        native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_INT,\n            ValueLayout.ADDRESS"),
+        "register downcall must pass the vtable as an address, got:\n{native_lib}"
     );
     assert!(
         bridge.contains(

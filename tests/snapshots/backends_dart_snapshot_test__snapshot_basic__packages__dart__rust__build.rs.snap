@@ -38,6 +38,7 @@ fn main() {
             // Patch the generated Dart entrypoint so the published package resolves
             // its native library from its own installed location.
             patch_published_loader();
+
         }
         Ok(status) => panic!("flutter_rust_bridge_codegen generate failed (exit code: {status})"),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {

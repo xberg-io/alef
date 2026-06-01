@@ -413,36 +413,20 @@ pub(crate) fn gen_native_lib(
 
         let trait_snake = bridge_cfg.trait_name.to_snake_case();
         let trait_upper = trait_snake.to_uppercase();
-        let vtable_slot_count = api
-            .types
-            .iter()
-            .find(|ty| ty.name == bridge_cfg.trait_name)
-            .map(|ty| {
-                let own_method_count = ty
-                    .methods
-                    .iter()
-                    .filter(|method| {
-                        method.trait_source.is_none()
-                            && !bridge_cfg.ffi_skip_methods.iter().any(|skip| skip == &method.name)
-                    })
-                    .count();
-                let super_slots = if bridge_cfg.super_trait.is_some() { 4 } else { 0 };
-                super_slots + own_method_count + 2
-            })
-            .unwrap_or(1);
         // For wide vtables, wrap the field list across multiple lines so the surrounding
         // `LINKER.downcallHandle(...)` line stays under the checkstyle 200-char limit.
-        let vtable_layout = if vtable_slot_count <= 4 {
-            format!(
-                "MemoryLayout.structLayout({})",
-                vec!["ValueLayout.ADDRESS"; vtable_slot_count].join(", ")
-            )
-        } else {
-            format!(
-                "MemoryLayout.structLayout(\n                {}\n            )",
-                vec!["ValueLayout.ADDRESS"; vtable_slot_count].join(",\n                ")
-            )
-        };
+        // Always pass the vtable as a pointer (ValueLayout.ADDRESS) rather than by value.
+        //
+        // On ARM64 the System V / AAPCS64 ABI requires structs larger than 16 bytes to
+        // be passed via an invisible pointer inserted by the caller. Java Panama FFM does
+        // not apply that invisible-pointer promotion automatically for structs expressed as
+        // MemoryLayout.structLayout(...), so passing a large vtable by value causes a
+        // SIGSEGV when Rust reads a misaligned / garbage struct on the callee side.
+        //
+        // The Rust FFI layer now accepts `*const XxxVTable` (a pointer) for all
+        // `register_*` functions, making the parameter a single ADDRESS regardless of vtable
+        // size. All language bindings were updated accordingly.
+        let vtable_layout = "ValueLayout.ADDRESS".to_string();
 
         // Register handle
         let register_handle_name = format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper);
