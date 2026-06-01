@@ -160,9 +160,10 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // does not exclude `kotlin_android`. Skip duplicates already emitted from the API.
     emit_trait_bridge_jni_external_funs(&mut body, config, &exception_class, &package, &emitted_native_names);
 
-    // Emit nativeFreeXxx destructors for opaque types.
-    // - For types with instance methods (client types): destructor is called from close()
-    // - For types returned by top-level functions: destructor is called after extraction
+    // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
+    // that do NOT have instance methods. Client type destructors are already emitted
+    // by emit_method_jni_external_funs at line 326 for ALL types with methods,
+    // including those that may also be returned by top-level functions.
     let client_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -170,11 +171,11 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .map(|t| t.name.as_str())
         .collect();
 
-    let top_level_opaque_returns: std::collections::BTreeSet<&str> = visible_functions
+    let all_top_level_opaque_returns: std::collections::BTreeSet<&str> = visible_functions
         .iter()
         .filter_map(|f| {
             if let TypeRef::Named(n) = &f.return_type {
-                if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
+                if opaque_type_names.contains(n.as_str()) {
                     return Some(n.as_str());
                 }
             }
@@ -182,17 +183,17 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         })
         .collect();
 
-    // Emit destructors for all opaque types: client types (emitted by emit_method_jni_external_funs
-    // and called from close()) and handle-only types (emitted here for top-level returns).
-    let all_opaque_with_destructors: std::collections::BTreeSet<&str> = client_type_names
-        .iter()
-        .copied()
-        .chain(top_level_opaque_returns.iter().copied())
+    // Only emit destructors for types NOT in the client_type_names set, since
+    // those are already emitted by emit_method_jni_external_funs.
+    let handle_only_opaque_returns: std::collections::BTreeSet<&str> = all_top_level_opaque_returns
+        .into_iter()
+        .filter(|name| !client_type_names.contains(name))
         .collect();
 
-    if !all_opaque_with_destructors.is_empty() {
-        body.push_str("\n    // Destructor external funs for opaque handle types.\n");
-        for type_name in &all_opaque_with_destructors {
+    // Emit destructors ONLY for handle-only types (top-level returns, not client types).
+    if !handle_only_opaque_returns.is_empty() {
+        body.push_str("\n    // Destructor external funs for handle-only opaque types.\n");
+        for type_name in &handle_only_opaque_returns {
             let free_name = format!("nativeFree{}", to_pascal_case(type_name));
             body.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
         }
