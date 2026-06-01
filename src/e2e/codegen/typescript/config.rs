@@ -163,6 +163,15 @@ pub fn render_app_harness(
     let method_enum = &e2e_config.harness.method_enum;
     let run_method = &e2e_config.harness.run_method;
 
+    // For NAPI-RS bindings (Node.js/WASM), detect the constructor pattern.
+    // If imports include "/node" or "wasm", use App.new() factory method.
+    // Otherwise, use traditional new App() constructor.
+    let constructor_method = if imports.iter().any(|imp| imp.contains("/node") || imp.contains("wasm")) {
+        ".new()"
+    } else {
+        "new"
+    };
+
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
         context! {
@@ -175,6 +184,7 @@ pub fn render_app_harness(
             app_class => app_class.as_deref().unwrap_or("App"),
             method_enum => method_enum.as_deref().unwrap_or("Method"),
             run_method => run_method.as_deref().unwrap_or("run"),
+            constructor_method => constructor_method,
         },
     )
 }
