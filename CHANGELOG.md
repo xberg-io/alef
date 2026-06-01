@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Elixir e2e: pass `-pa ebin` code paths when spawning the app harness.** The
+  test helper was spawning the harness subprocess without the compiled library's
+  beam paths on the code search path, causing module-not-found errors at runtime.
+  Both the Jinja template (`test_helper_server.exs.jinja`) and the inline-rendered
+  codegen in `elixir.rs` now enumerate `_build/dev/lib/*/ebin` directories and
+  pass them as `-pa` arguments before the harness script path.
+
+- **TypeScript e2e: replace method-switch route registration with RouteBuilder.**
+  The app harness was emitting a `switch` over `Method` enum values to call
+  per-method registrar shims (`app.get`, `app.post`, etc.). Replace with a
+  `RouteBuilder`-based call: construct a builder with `(methodEnumValue, fullRoute)`
+  and pass it to the configurable `register_route_method` (defaults to
+  `register_route`). The `route_builder_class` variable (defaults to
+  `RouteBuilder`) is destructured from the package import alongside `App` and
+  `Method`. This aligns the TypeScript harness with the RouteBuilder API surface
+  exposed by the binding.
+
 - **C#: layered Json emission for DTO fields vs FFI boundaries.** Introduce context-aware type mapping: DTO fields (records) emit `JsonElement` for proper System.Text.Json deserialization when Rust embeds JSON objects (avoids "Cannot get the value of a token type 'StartObject' as a string" error), while FFI call sites (P/Invoke parameters) remain `string` for marshalling compatibility. New `csharp_type_for_dto_field()` function distinguishes these contexts; `RequestSchemaJson`, `ResponseSchemaJson`, and similar bridge methods continue to accept `string` parameters matching their FFI signatures.
 
 - **Ruby e2e: escape apostrophes in test descriptions with double quotes.** The HTTP

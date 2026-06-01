@@ -10,7 +10,7 @@ ExUnit.start()
 unless System.get_env("SUT_URL") do
   app_harness_bin = Path.expand("../app_harness.exs", __DIR__)
 
-  # Build elixir args with code paths so the harness can access compiled spikard modules
+  # Build elixir args with code paths so the harness can access compiled library modules
   build_dir = Path.expand("../_build/dev/lib", __DIR__)
   code_paths = if File.dir?(build_dir) do
     lib_dirs = File.ls!(build_dir) |> Enum.map(&Path.join(build_dir, &1))
