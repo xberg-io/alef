@@ -117,8 +117,8 @@ client_factory = "create_client"
         "must NOT call static bridge-class method when client_factory is set. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("MOCK_SERVER_URL"),
-        "must include MOCK_SERVER_URL in mock url construction. Rendered:\n{rendered}"
+        rendered.contains("_sutUrl()"),
+        "must include _sutUrl() helper in mock url construction. Rendered:\n{rendered}"
     );
 }
 

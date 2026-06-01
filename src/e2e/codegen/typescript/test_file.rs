@@ -484,8 +484,9 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         init_entries.push(format!("body: JSON.stringify({js_body})"));
     }
 
-    let fixture_id = escape_js(&fixture.id);
     let init_str = init_entries.join(", ");
+    // Server-pattern: construct path as /fixtures/{fixture_id}{request_path}
+    let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
     let status = http.expected_response.status_code;
 
@@ -590,7 +591,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         description => description,
         method => method,
         init_str => init_str,
-        fixture_id => fixture_id,
+        path => path,
         expected_status => status,
         has_text_body => has_text_body,
         text_body => text_body,

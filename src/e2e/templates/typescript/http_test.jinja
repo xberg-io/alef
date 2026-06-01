@@ -5,7 +5,7 @@
    - description: fixture description with escaped quotes
    - method: HTTP method (uppercase)
    - init_str: fetch init parameters as string
-   - fixture_id: escaped fixture ID
+   - path: server-pattern path (/fixtures/{fixture_id}{request_path})
    - expected_status: HTTP status code
    - has_text_body: bool
    - text_body: escaped text body (or empty)
@@ -18,8 +18,9 @@
    - validation_errors: array of {loc_js, escaped_msg} dicts
 #}
   it('{{ test_name }}: {{ description }}', async () => {
-    const mockUrl = `${process.env.MOCK_SERVER_URL}/fixtures/{{ fixture_id }}`;
-    const response = await fetch(mockUrl, { {{ init_str }} });
+    const sutUrl = process.env.SUT_URL || 'http://127.0.0.1:8001';
+    const url = `${sutUrl}{{ path }}`;
+    const response = await fetch(url, { {{ init_str }} });
     expect(response.status).toBe({{ expected_status }});
 {%- if has_text_body %}
     const text = await response.text();

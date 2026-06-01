@@ -105,7 +105,7 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
             for variant in &reg.variants {
                 if let Some(wrapper_call) = &variant.wrapper_call {
                     imports.push(wrapper_call.wrapper_type_name.clone());
-                    // Extract enum types from Fixed args (e.g., "spikard::Method::Get" → "Method")
+                    // Extract enum types from Fixed args (e.g., "mycrate::Method::Get" → "Method")
                     for arg in &wrapper_call.args {
                         if let crate::core::ir::WrapperConstructorArg::Fixed {
                             param_name: _,
@@ -113,7 +113,7 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
                         } = arg
                         {
                             // Split on :: and take the second-to-last part (the type name).
-                            // "spikard::Method::Get" → ["spikard", "Method", "Get"] → "Method"
+                            // "mycrate::Method::Get" → ["mycrate", "Method", "Get"] → "Method"
                             let parts: Vec<&str> = value_expr.split("::").collect();
                             if parts.len() >= 2 {
                                 imports.push(parts[parts.len() - 2].to_string());
@@ -384,8 +384,8 @@ fn gen_registration_variant_method_ts(
                     param_name: _,
                     value_expr,
                 } => {
-                    // Fixed args are Rust value expressions like "spikard::Method::Get".
-                    // Extract the type and variant for TypeScript: "spikard::Method::Get" → "Method.Get"
+                    // Fixed args are Rust value expressions like "mycrate::Method::Get".
+                    // Extract the type and variant for TypeScript: "mycrate::Method::Get" → "Method.Get"
                     let parts: Vec<&str> = value_expr.split("::").collect();
                     let ts_expr = if parts.len() >= 2 {
                         format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
