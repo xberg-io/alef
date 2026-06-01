@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callers like `RustBridge.ExtractionResult(ptr: ref.ptr)` need the pointer public for the
   round-trip. swift-bridge defaults to internal-access, which is module-local only.
 
+- **Swift: correct batch-extract accumulator type from `[[T]]` to `[T]`.** The
+  `emit_async_free_function_forwarder` throwing-`Vec<Named>` branch (mod.rs:3946) declared
+  `var items: [<forwarder_return_type(&func.return_type)>] = []`, which wraps the already-Vec
+  return type in another `[]`, producing `[[ExtractionResult]] = []`. The loop body appends a
+  single `ExtractionResult`, so the type was wrong. Pass the `inner` element type into
+  `forwarder_return_type` so the accumulator is `[ExtractionResult] = []`. Fixes type-check
+  errors on alef-generated `batchExtractFiles` / `batchExtractBytes` in
+  `Sources/Kreuzberg/Kreuzberg.swift`.
+
 - **e2e/python: thread fixture `handler.middleware.{name}` through app_harness as `RouteBuilder.{name}()` calls.** Generic middleware passthrough — no per-middleware special-casing. `build_middleware_value` normalises CORS field names (`allow_*` → `allowed_*`) to match the binding's `CorsConfig.from_json()` contract; other middleware pass through unchanged. The harness template walks the `middleware` dict and dispatches each entry via a name→(ConfigClass, builder_method) table.
 
 - **PHP: fix truncated handler contract types in opaque class stubs.** When generating PHP stub
