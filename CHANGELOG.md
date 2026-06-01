@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **WASM: pin `getrandom 0.2` with `js` feature in generated Cargo.toml.** Transitive deps
+  (`const-random-macro`, `redox_users`, `ring`) pull `getrandom 0.2.x` which fails to build for
+  `wasm32-unknown-unknown` without the `js` feature. Already-pinned `getrandom 0.3` (`wasm_js`)
+  and `getrandom 0.4` (`wasm_js`) don't unify features back to 0.2. New `getrandom_02` package
+  alias forces the right feature on the 0.2 entry without breaking the other versions.
+
 ### Changed
 
 - **Swift: drop `async` from trait bridge protocols and make them fully synchronous.**
