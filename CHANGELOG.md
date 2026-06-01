@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **TypeScript e2e: auto-add Content-Type header for JSON bodies.** When rendering
+  HTTP test fixtures with JSON request bodies, the generated test client was
+  serializing the body with `JSON.stringify()` but not setting the `Content-Type:
+  application/json` header. The server rejected these requests with 415 (Unsupported
+  Media Type). The codegen now detects JSON payloads and auto-injects the header
+  unless explicitly overridden in the fixture. Fixes 65 identical test failures in
+  both Node and WASM e2e suites.
+
 - **C#: revert TypeRef::Json mapping (JsonElement → string).** The earlier
   JsonElement mapping broke RouteBuilder schema-setter wrappers — the P/Invoke
   bridge expects `string` so passing JsonElement fails with CS1503. The DTO
