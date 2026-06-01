@@ -690,23 +690,22 @@ fn render_test_file(
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
 
-    // Close the shared client after all tests in this file complete, and tear
-    // down the SUT app harness we spawned.
-    if has_http_fixtures || needs_sut_spawn {
-        let _ = writeln!(out, "  tearDownAll(() async {{");
-        if has_http_fixtures {
-            let _ = writeln!(out, "    _httpClient.close(force: true);");
-        }
-        if needs_sut_spawn {
-            let _ = writeln!(out, "    final proc = _sutProcess;");
-            let _ = writeln!(out, "    if (proc != null) {{");
-            let _ = writeln!(out, "      proc.kill();");
-            let _ = writeln!(out, "      await proc.exitCode;");
-            let _ = writeln!(out, "    }}");
-        }
-        let _ = writeln!(out, "  }});");
-        let _ = writeln!(out);
+    // Always emit tearDownAll to dispose of RustLib singleton and close resources.
+    // RustLib is initialized in setUpAll and must be cleaned up after all tests,
+    // even if this test file has no HTTP fixtures or SUT spawning.
+    let _ = writeln!(out, "  tearDownAll(() async {{");
+    if has_http_fixtures {
+        let _ = writeln!(out, "    _httpClient.close(force: true);");
     }
+    if needs_sut_spawn {
+        let _ = writeln!(out, "    final proc = _sutProcess;");
+        let _ = writeln!(out, "    if (proc != null) {{");
+        let _ = writeln!(out, "      proc.kill();");
+        let _ = writeln!(out, "      await proc.exitCode;");
+        let _ = writeln!(out, "    }}");
+    }
+    let _ = writeln!(out, "  }});");
+    let _ = writeln!(out);
 
     for fixture in fixtures {
         render_test_case(
