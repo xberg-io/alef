@@ -5,7 +5,7 @@ use super::{
     StreamingMethodMeta, csharp_file_header, emit_named_param_setup, emit_named_param_teardown,
     emit_named_param_teardown_indented, is_tuple_field, returns_ptr,
 };
-use crate::backends::csharp::type_map::csharp_type;
+use crate::backends::csharp::type_map::{csharp_type, csharp_type_for_dto_field};
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::codegen::shared::binding_fields;
 use crate::core::config::workspace::ClientConstructorConfig;
@@ -874,7 +874,7 @@ pub(super) fn gen_record_type(
             let mapped = if is_complex {
                 "JsonElement".to_string()
             } else {
-                csharp_type(&field.ty).to_string()
+                csharp_type_for_dto_field(&field.ty).to_string()
             };
             let field_type = if mapped.ends_with('?') {
                 mapped
@@ -893,7 +893,7 @@ pub(super) fn gen_record_type(
             let base_type = if is_complex {
                 "JsonElement".to_string()
             } else {
-                csharp_type(&field.ty).to_string()
+                csharp_type_for_dto_field(&field.ty).to_string()
             };
 
             // Duration fields are mapped to ulong? so that 0 is distinguishable from
@@ -990,7 +990,9 @@ pub(super) fn gen_record_type(
                     // like (1, 3) was converted to Vec<Usize> and needs the correct default on the Rust side.
                     TypeRef::Vec(_) if field.sanitized => "null".to_string(),
                     TypeRef::Vec(_) => "[]".to_string(),
-                    TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
+                    TypeRef::Map(k, v) => {
+                        format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type_for_dto_field(v))
+                    }
                     TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
                     TypeRef::Json => "null".to_string(),
                     TypeRef::Bytes => "[]".to_string(),
@@ -1034,7 +1036,7 @@ pub(super) fn gen_record_type(
             let field_type = if is_complex {
                 "JsonElement".to_string()
             } else {
-                csharp_type(&field.ty).to_string()
+                csharp_type_for_dto_field(&field.ty).to_string()
             };
 
             // Check if this is a mandatory non-nullable reference type:

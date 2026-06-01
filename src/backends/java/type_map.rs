@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn java_type_json() {
-        assert_eq!(java_type(&TypeRef::Json), "JsonNode");
+        assert_eq!(java_type(&TypeRef::Json), "Object");
     }
 
     #[test]

@@ -3946,15 +3946,11 @@ pub fn emit_test_backend(
     // overloads (derived from reg_fn name) return IntPtr and are not the public API.
     let arg_expr = format!("{}Bridge.Register(new {}())", trait_pascal, stub_class);
 
-    // Teardown: each trait-bridge registration leaks into the kreuzberg-core registry
-    // and pollutes subsequent tests in the same xUnit test run (e.g. registering an
-    // OCR backend named "register_ocr_backend_trait_bridge" displaces the default
-    // tesseract backend used by SmokeTests). Emit a cleanup unregister keyed by the
-    // stub's Name property — same value we wrote into the stub above.
+    // Teardown: each trait-bridge registration leaks into the host registry and
+    // pollutes subsequent tests in the same xUnit test run. Emit a cleanup unregister
+    // keyed by the stub's Name property — same value we wrote into the stub above.
     let escaped_plugin_name = plugin_name.replace('\\', "\\\\").replace('"', "\\\"");
-    let teardown_block = format!(
-        "KreuzbergLib.Unregister{trait_pascal}(\"{escaped_plugin_name}\");"
-    );
+    let teardown_block = format!("KreuzbergLib.Unregister{trait_pascal}(\"{escaped_plugin_name}\");");
 
     super::TestBackendEmission {
         setup_block: setup,

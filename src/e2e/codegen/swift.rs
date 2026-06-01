@@ -3727,9 +3727,9 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify params use concrete Swift types (not `Any`) and return type is concrete.
+    /// Verify params use concrete Swift types (not `Any`) and named return types marshal as JSON strings.
     #[test]
-    fn swift_stub_uses_typed_params_not_any() {
+    fn swift_stub_uses_typed_params_and_marshaled_named_return() {
         let bridge = make_trait_bridge("TestTrait");
         let required_method = make_method_with_params("processImage", true);
         let methods = [&required_method];
@@ -3751,8 +3751,8 @@ mod test_backend_tests {
             "string param must map to String, got:\n{output}"
         );
         assert!(
-            output.contains("-> ExtractionResult"),
-            "return type must be concrete not Any, got:\n{output}"
+            output.contains("-> String"),
+            "named return type must marshal as String, got:\n{output}"
         );
     }
 

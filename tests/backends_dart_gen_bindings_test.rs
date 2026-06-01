@@ -826,7 +826,7 @@ fn find_traits_dart(files: &[alef::core::backend::GeneratedFile]) -> Option<&str
 }
 
 #[test]
-fn no_trait_bridges_does_not_emit_traits_dart() {
+fn no_trait_bridges_emit_empty_traits_dart_stub() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -841,10 +841,14 @@ fn no_trait_bridges_does_not_emit_traits_dart() {
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    // Without trait_bridges config, traits.dart should NOT appear.
+    let content = find_traits_dart(&files).expect("traits.dart should be emitted as an exported stub");
     assert!(
-        find_traits_dart(&files).is_none(),
-        "traits.dart should not be emitted without trait_bridges config"
+        content.contains("Traits module (empty in Dart as Dart does not have trait systems like Rust)."),
+        "traits.dart should be an empty stub without trait_bridges config: {content}"
+    );
+    assert!(
+        !content.contains("abstract class"),
+        "empty traits.dart stub must not declare trait classes: {content}"
     );
 }
 
@@ -1033,7 +1037,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
 }
 
 #[test]
-fn excluded_trait_bridge_does_not_appear_in_traits_dart() {
+fn excluded_trait_bridge_emits_empty_traits_dart_stub() {
     let trait_def = make_trait(
         "OcrBackend",
         "demo_crate::OcrBackend",
@@ -1080,10 +1084,14 @@ fn excluded_trait_bridge_does_not_appear_in_traits_dart() {
     }];
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    // The trait is excluded for dart, so traits.dart should not appear.
+    let content = find_traits_dart(&files).expect("traits.dart should be emitted as an exported stub");
     assert!(
-        find_traits_dart(&files).is_none(),
-        "traits.dart should not be emitted when trait bridge excludes dart"
+        content.contains("Traits module (empty in Dart as Dart does not have trait systems like Rust)."),
+        "traits.dart should be an empty stub when all trait bridges exclude Dart: {content}"
+    );
+    assert!(
+        !content.contains("abstract class OcrBackend"),
+        "excluded Dart trait bridge must not appear in traits.dart: {content}"
     );
 }
 
@@ -1598,11 +1606,11 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        5,
-        "FRB config must have five PostProcessFile steps: (1) exclude_functions on lib.dart, \
+        6,
+        "FRB config must have six PostProcessFile steps: (1) exclude_functions on lib.dart, \
          (2) sealed_variants on lib.dart, (3) optional_fields_with_defaults on lib.dart, \
          (4) exclude_functions on frb_generated.dart, (5) sealed_variants on frb_generated.dart \
-         for the published-package native-lib loader"
+         for the published-package native-lib loader, (6) fix handler executor calls on frb_generated.dart"
     );
 
     let lib_dart_path = PathBuf::from("packages")
@@ -1675,6 +1683,20 @@ fn build_config_for_frb_emits_post_process_file_step() {
             "Fifth PostProcessFile must target frb_generated.dart for the loader injection"
         );
     }
+
+    // (6) fix handler executor calls on frb_generated.dart — rewrites FRB callback handler
+    // invocations that incorrectly call executeSync/executeNormal on function parameters.
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[5] {
+        assert_eq!(
+            *processor,
+            PostProcessor::FrbDartFixHandlerExecutorCalls,
+            "Sixth PostProcessFile must use FrbDartFixHandlerExecutorCalls processor"
+        );
+        assert_eq!(
+            path, &frb_generated_path,
+            "Sixth PostProcessFile must target frb_generated.dart for handler executor fixes"
+        );
+    }
 }
 
 #[test]
@@ -1702,6 +1724,7 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
         steps,
         vec![
             "RunCommand",
+            "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",

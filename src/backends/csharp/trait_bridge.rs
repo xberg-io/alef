@@ -1299,9 +1299,9 @@ mod tests {
         let visible_types: HashSet<&str> = vec!["PostProcessor", "ProcessingStage"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        // The interface method returns ProcessingStage (not string), and the callback
+        // The interface property returns ProcessingStage (not string), and the callback
         // receives the actual enum value. It must serialize using .ToFfiJson().
-        assert!(content.contains("ProcessingStage ProcessingStage()"));
+        assert!(content.contains("ProcessingStage ProcessingStage { get; }"));
         assert!(content.contains("methodResult.ToFfiJson()"));
         assert!(!content.contains("ToJsonString(methodResult)"));
     }

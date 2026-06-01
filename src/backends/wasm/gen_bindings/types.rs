@@ -972,3 +972,99 @@ fn gen_setter(
         field.name, field_type, field.name
     )
 }
+
+/// Generate a RouteBuilder opaque wasm-bindgen struct.
+/// RouteBuilder wraps Arc<core_import::RouteBuilder> and provides builder methods
+/// for defining routes with schema validation.
+pub(super) fn gen_route_builder(core_import: &str, prefix: &str) -> String {
+    let js_name = format!("{}RouteBuilder", prefix);
+
+    let mut out = String::new();
+    out.push_str("/// Builder for defining a route.\n");
+    out.push_str("#[derive(Clone)]\n");
+    out.push_str(&format!("#[wasm_bindgen(js_name = \"{}\")]\n", js_name));
+    out.push_str("pub struct WasmRouteBuilder {\n");
+    out.push_str(&format!("    inner: std::sync::Arc<{}::RouteBuilder>,\n", core_import));
+    out.push_str("}\n\n");
+
+    // Implement the methods
+    out.push_str("#[wasm_bindgen]\n");
+    out.push_str(&format!("impl {} {{\n", js_name));
+
+    // new() static method
+    out.push_str("    /// Create a new builder for the provided HTTP method and path.\n");
+    out.push_str("    #[wasm_bindgen]\n");
+    out.push_str("    pub fn new(method: WasmMethod, path: String) -> WasmRouteBuilder {\n");
+    out.push_str(&format!("        let method_core: {}::Method = method.into();\n", core_import));
+    out.push_str("        Self {\n");
+    out.push_str(&format!("            inner: std::sync::Arc::new({}::RouteBuilder::new(method_core, path)),\n", core_import));
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    // request_schema_json setter
+    out.push_str("    /// Provide a raw JSON schema for the request body.\n");
+    out.push_str("    #[wasm_bindgen(js_name = \"requestSchemaJson\")]\n");
+    out.push_str("    pub fn request_schema_json(&self, schema: JsValue) -> WasmRouteBuilder {\n");
+    out.push_str("        let json_value = if let Ok(json_string) = schema.as_string() {\n");
+    out.push_str("            serde_json::from_str(&json_string).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        } else {\n");
+    out.push_str("            serde_wasm_bindgen::from_value(schema).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        };\n");
+    out.push_str("        Self {\n");
+    out.push_str("            inner: std::sync::Arc::new(\n");
+    out.push_str("                (*self.inner).clone().request_schema_json(json_value)\n");
+    out.push_str("            ),\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    // response_schema_json setter
+    out.push_str("    /// Provide a raw JSON schema for the response body.\n");
+    out.push_str("    #[wasm_bindgen(js_name = \"responseSchemaJson\")]\n");
+    out.push_str("    pub fn response_schema_json(&self, schema: JsValue) -> WasmRouteBuilder {\n");
+    out.push_str("        let json_value = if let Ok(json_string) = schema.as_string() {\n");
+    out.push_str("            serde_json::from_str(&json_string).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        } else {\n");
+    out.push_str("            serde_wasm_bindgen::from_value(schema).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        };\n");
+    out.push_str("        Self {\n");
+    out.push_str("            inner: std::sync::Arc::new(\n");
+    out.push_str("                (*self.inner).clone().response_schema_json(json_value)\n");
+    out.push_str("            ),\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    // params_schema_json setter
+    out.push_str("    /// Provide a raw JSON schema for request parameters.\n");
+    out.push_str("    #[wasm_bindgen(js_name = \"paramsSchemaJson\")]\n");
+    out.push_str("    pub fn params_schema_json(&self, schema: JsValue) -> WasmRouteBuilder {\n");
+    out.push_str("        let json_value = if let Ok(json_string) = schema.as_string() {\n");
+    out.push_str("            serde_json::from_str(&json_string).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        } else {\n");
+    out.push_str("            serde_wasm_bindgen::from_value(schema).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        };\n");
+    out.push_str("        Self {\n");
+    out.push_str("            inner: std::sync::Arc::new(\n");
+    out.push_str("                (*self.inner).clone().params_schema_json(json_value)\n");
+    out.push_str("            ),\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    // file_params_json setter
+    out.push_str("    /// Provide multipart file parameter configuration.\n");
+    out.push_str("    #[wasm_bindgen(js_name = \"fileParamsJson\")]\n");
+    out.push_str("    pub fn file_params_json(&self, schema: JsValue) -> WasmRouteBuilder {\n");
+    out.push_str("        let json_value = if let Ok(json_string) = schema.as_string() {\n");
+    out.push_str("            serde_json::from_str(&json_string).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        } else {\n");
+    out.push_str("            serde_wasm_bindgen::from_value(schema).unwrap_or(serde_json::Value::Null)\n");
+    out.push_str("        };\n");
+    out.push_str("        Self {\n");
+    out.push_str("            inner: std::sync::Arc::new(\n");
+    out.push_str("                (*self.inner).clone().file_params_json(json_value)\n");
+    out.push_str("            ),\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+
+    out.push_str("}\n");
+    out
+}

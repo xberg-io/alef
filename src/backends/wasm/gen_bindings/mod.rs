@@ -453,6 +453,11 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Emit RouteBuilder if not excluded
+        if !exclude_types.iter().any(|e| e == "RouteBuilder") {
+            builder.add_item(&types::gen_route_builder(&core_import, &prefix));
+        }
+
         // Pre-compute all input DTOs needed across all functions to avoid duplicate emissions.
         // Collect all config-like types used as parameters across functions, generate each once,
         // then mark them as already-emitted so gen_function_with_emitted_dtos() skips them.

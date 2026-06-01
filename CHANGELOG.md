@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C#: layered Json emission for DTO fields vs FFI boundaries.** Introduce context-aware type mapping: DTO fields (records) emit `JsonElement` for proper System.Text.Json deserialization when Rust embeds JSON objects (avoids "Cannot get the value of a token type 'StartObject' as a string" error), while FFI call sites (P/Invoke parameters) remain `string` for marshalling compatibility. New `csharp_type_for_dto_field()` function distinguishes these contexts; `RequestSchemaJson`, `ResponseSchemaJson`, and similar bridge methods continue to accept `string` parameters matching their FFI signatures.
+
 - **Ruby e2e: escape apostrophes in test descriptions with double quotes.** The HTTP
   server-pattern test generator was embedding fixture descriptions directly in single-quoted
   Ruby string literals without escaping, causing syntax errors when descriptions contained

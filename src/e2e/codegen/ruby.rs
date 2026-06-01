@@ -2892,7 +2892,7 @@ mod trait_bridge_tests {
     }
 
     #[test]
-    fn spec_helper_uses_configured_package_and_module_names() {
+    fn spec_helper_stays_generic_for_library_specific_setup() {
         let content = render_spec_helper(
             true,
             false,
@@ -2905,15 +2905,12 @@ mod trait_bridge_tests {
         );
 
         assert!(
-            content.contains("require 'custom_gem'"),
-            "spec helper must require configured gem name:\n{content}"
+            !content.contains("require 'custom_gem'"),
+            "spec helper must not require the generated gem directly:\n{content}"
         );
         assert!(
-            content.contains("CustomModule.list_ocr_backends")
-                && content.contains("CustomModule.unregister_ocr_backend(name)")
-                && !content.contains("SampleCrate")
-                && !content.contains("sample_crate"),
-            "spec helper must use configured module constant instead of sample defaults:\n{content}"
+            !content.contains("CustomModule") && !content.contains("SampleCrate") && !content.contains("sample_crate"),
+            "spec helper must avoid library-specific module cleanup:\n{content}"
         );
     }
 

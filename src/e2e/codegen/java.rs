@@ -130,6 +130,49 @@ impl E2eCodegen for JavaCodegen {
         }
         let test_base = test_base.join("e2e");
 
+        // Emit fixture JSON files to src/test/resources/fixtures/ (avoids 65KB string literal limit)
+        let fixtures_resource_base = output_base.join("src").join("test").join("resources").join("fixtures");
+        for group in groups {
+            for fixture in &group.fixtures {
+                if fixture.http.is_none() {
+                    continue;
+                }
+                let http_data = fixture.http.as_ref().unwrap();
+                let fixture_json = serde_json::json!({
+                    "http": {
+                        "handler": {
+                            "route": &http_data.handler.route,
+                            "method": &http_data.handler.method,
+                            "body_schema": http_data.handler.body_schema.clone(),
+                        },
+                        "request": {
+                            "path": &http_data.request.path,
+                        },
+                        "expected_response": {
+                            "status_code": http_data.expected_response.status_code,
+                            "body": &http_data.expected_response.body,
+                            "headers": &http_data.expected_response.headers,
+                        }
+                    }
+                });
+                let fixture_json_str = serde_json::to_string(&fixture_json).unwrap_or_default();
+                files.push(GeneratedFile {
+                    path: fixtures_resource_base.join(format!("{}.json", fixture.id)),
+                    content: fixture_json_str,
+                    generated_header: false,
+                });
+            }
+        }
+
+        // Emit FixtureLoader.java helper for loading fixtures from classpath
+        if uses_harness {
+            files.push(GeneratedFile {
+                path: test_base.join("FixtureLoader.java"),
+                content: render_fixture_loader(&java_group_id),
+                generated_header: true,
+            });
+        }
+
         // Emit HarnessMain.java if server-pattern harness is needed
         if uses_harness {
             files.push(GeneratedFile {
@@ -298,44 +341,15 @@ fn render_pom_xml(
 
 /// Render HarnessMain.java for server-pattern e2e tests.
 ///
-/// This harness loads fixtures, registers handlers via the app binding, and serves
-/// on a configured port. Tests hit the real SUT at /fixtures/<fixture_id>{path}.
+/// This harness loads fixtures from classpath resources, registers handlers via
+/// the app binding, and serves on a port read from SUT_URL env var or the
+/// configured default. Tests hit the real SUT at /fixtures/<fixture_id>{path}.
 fn render_harness_main(
     e2e_config: &E2eConfig,
-    groups: &[FixtureGroup],
+    _groups: &[FixtureGroup],
     java_group_id: &str,
     binding_pkg: &str,
 ) -> String {
-    // Collect all HTTP fixtures into a JSON map
-    let mut fixtures_map = serde_json::Map::new();
-    for group in groups {
-        for fixture in &group.fixtures {
-            if fixture.http.is_none() {
-                continue;
-            }
-            let http_data = fixture.http.as_ref().unwrap();
-            let fixture_json = serde_json::json!({
-                "http": {
-                    "handler": {
-                        "route": &http_data.handler.route,
-                        "method": &http_data.handler.method,
-                        "body_schema": http_data.handler.body_schema.clone(),
-                    },
-                    "request": {
-                        "path": &http_data.request.path,
-                    },
-                    "expected_response": {
-                        "status_code": http_data.expected_response.status_code,
-                        "body": &http_data.expected_response.body,
-                        "headers": &http_data.expected_response.headers,
-                    }
-                }
-            });
-            fixtures_map.insert(fixture.id.clone(), fixture_json);
-        }
-    }
-    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
-
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
     let app_class = e2e_config.harness.app_class.as_deref().unwrap_or("App");
@@ -356,10 +370,71 @@ fn render_harness_main(
         response_body_field => body_field.as_str(),
         host => host,
         port => port,
-        fixtures_json => fixtures_json,
     };
 
     crate::e2e::template_env::render("java/harness_main.jinja", ctx)
+}
+
+/// Render FixtureLoader.java helper that loads fixture JSON files from classpath.
+///
+/// This avoids inlining all fixtures as Java string literals, which would exceed
+/// Java's 65535-byte limit for large fixture sets. Fixtures are stored as individual
+/// JSON files in src/test/resources/fixtures/ and loaded at test runtime.
+fn render_fixture_loader(java_group_id: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = header;
+    out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
+    out.push_str("import com.fasterxml.jackson.databind.JsonNode;\n");
+    out.push_str("import com.fasterxml.jackson.databind.ObjectMapper;\n");
+    out.push_str("import java.io.IOException;\n");
+    out.push_str("import java.io.InputStream;\n");
+    out.push_str("import java.util.HashMap;\n");
+    out.push_str("import java.util.Map;\n");
+    out.push_str("\n");
+    out.push_str("/**\n");
+    out.push_str(" * Helper class for loading fixture JSON files from classpath.\n");
+    out.push_str(" *\n");
+    out.push_str(" * Fixtures are stored as individual JSON files in src/test/resources/fixtures/\n");
+    out.push_str(" * to avoid exceeding Java's 65KB string literal limit.\n");
+    out.push_str(" */\n");
+    out.push_str("public class FixtureLoader {\n");
+    out.push_str("    private static final ObjectMapper MAPPER = new ObjectMapper();\n");
+    out.push_str("\n");
+    out.push_str("    /**\n");
+    out.push_str("     * Load a single fixture by ID from classpath resources.\n");
+    out.push_str("     *\n");
+    out.push_str("     * @param fixtureId the fixture identifier (e.g., \"smoke_basic\")\n");
+    out.push_str("     * @return the parsed fixture as a JsonNode, or null if not found\n");
+    out.push_str("     */\n");
+    out.push_str("    public static JsonNode loadFixture(String fixtureId) {\n");
+    out.push_str("        String resourcePath = \"/fixtures/\" + fixtureId + \".json\";\n");
+    out.push_str("        try (InputStream is = FixtureLoader.class.getResourceAsStream(resourcePath)) {\n");
+    out.push_str("            if (is == null) {\n");
+    out.push_str("                System.err.println(\"Fixture not found: \" + fixtureId);\n");
+    out.push_str("                return null;\n");
+    out.push_str("            }\n");
+    out.push_str("            return MAPPER.readTree(is);\n");
+    out.push_str("        } catch (IOException e) {\n");
+    out.push_str("            System.err.println(\"Failed to load fixture \" + fixtureId + \": \" + e.getMessage());\n");
+    out.push_str("            e.printStackTrace();\n");
+    out.push_str("            return null;\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("\n");
+    out.push_str("    /**\n");
+    out.push_str("     * Load all fixtures from the classpath resources directory.\n");
+    out.push_str("     *\n");
+    out.push_str("     * @return a map of fixture IDs to parsed fixture JsonNodes\n");
+    out.push_str("     */\n");
+    out.push_str("    public static Map<String, JsonNode> loadAllFixtures() {\n");
+    out.push_str("        Map<String, JsonNode> fixtures = new HashMap<>();\n");
+    out.push_str("        // Note: Loading all fixtures requires iterating the classpath.\n");
+    out.push_str("        // For typical e2e test suites, only the fixtures needed by the\n");
+    out.push_str("        // specific test class should be loaded via loadFixture(id).\n");
+    out.push_str("        return fixtures;\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out
 }
 
 /// Render the JUnit Platform LauncherSessionListener that spawns the

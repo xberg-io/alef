@@ -522,7 +522,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("#[frb(mirror(Status))]"),
+        lib.contains("#[frb(mirror(Status), unignore)]"),
         "missing mirror for Status: {lib}"
     );
     assert!(lib.contains("pub enum Status {"), "missing Status mirror enum: {lib}");
@@ -603,8 +603,9 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
 
-    // Should have: 1 .dart + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml + frb_generated.rs = 6
-    assert_eq!(files.len(), 6, "expected 6 generated files, got {}", files.len());
+    // Should have: wrapper .dart + barrel .dart + traits.dart + Cargo.toml + lib.rs
+    // + build.rs + flutter_rust_bridge.yaml = 7.
+    assert_eq!(files.len(), 7, "expected 7 generated files, got {}", files.len());
 
     let has_dart = files.iter().any(|f| {
         let p = f.path.to_string_lossy().replace('\\', "/");
@@ -1849,7 +1850,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("/// Classification of downloaded assets.\n#[frb(mirror(AssetCategory))]"),
+        lib.contains("/// Classification of downloaded assets.\n#[frb(mirror(AssetCategory), unignore)]"),
         "enum-level rustdoc must precede #[frb(mirror(AssetCategory))]: {lib}"
     );
     assert!(

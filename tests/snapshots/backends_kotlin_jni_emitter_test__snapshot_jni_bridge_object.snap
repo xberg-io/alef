@@ -35,7 +35,4 @@ object DemoBridge {
     @Throws(DemoBridgeException::class)
     external fun nativeDefaultClientStreamDataNext(streamHandle: Long): String?
     external fun nativeDefaultClientStreamDataFree(streamHandle: Long)
-
-    // Destructor external funs for opaque handle types.
-    external fun nativeFreeDefaultClient(handle: Long)
 }

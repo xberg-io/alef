@@ -55,10 +55,11 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
 
     let response_var = DEFAULT_RESPONSE_VAR;
     // For server-pattern e2e tests: build the full path to the fixture handler.
-    // Path combines the fixture ID namespace with the handler route:
-    // `/fixtures/{fixture.id}{handler.route}` (e.g., `/fixtures/response_cache_control_header/static-resource`)
-    let handler_route = &http.handler.route;
-    let namespaced_path = format!("/fixtures/{}{}", fixture.id, handler_route);
+    // Path combines the fixture ID namespace with the actual fixture request path:
+    // `/fixtures/{fixture.id}{request.path}` (e.g., `/fixtures/put_create_if_not_exists/items/999`)
+    // Using request.path ensures parameterized routes are replaced with actual values.
+    let request_path = &http.request.path;
+    let namespaced_path = format!("/fixtures/{}{}", fixture.id, request_path);
     let req = &http.request;
     let ctx = CallCtx {
         method: req.method.as_str(),

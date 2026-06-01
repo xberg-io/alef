@@ -23,7 +23,4 @@ object DemoBridge {
     @Throws(DemoBridgeException::class)
     external fun nativeDefaultClientSpeech(handle: Long, requestJson: String): ByteArray
     external fun nativeFreeDefaultClient(handle: Long)
-
-    // Destructor external funs for opaque handle types.
-    external fun nativeFreeDefaultClient(handle: Long)
 }

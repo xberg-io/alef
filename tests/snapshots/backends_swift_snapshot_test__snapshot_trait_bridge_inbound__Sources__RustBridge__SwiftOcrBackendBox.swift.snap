@@ -19,7 +19,7 @@ public final class SwiftOcrBackendBox {
     // MARK: Plugin super-trait shims
 
     public func alef_name() -> RustString {
-        return RustString(bridge.name())
+        return RustString(bridge.name)
     }
 
     public func alef_version() -> RustString {
@@ -43,9 +43,8 @@ public final class SwiftOcrBackendBox {
     // MARK: Trait-specific shims
 
     public func alef_process_image(image_bytes imageBytes: RustVec<UInt8>, config: RustString) -> RustString {
-        let config_decoded = try JSONDecoder().decode(OcrConfig.self, from: Data(config.toString().utf8))
         do {
-          let result = bridge.processImage(imageBytes: Array(imageBytes), config: config_decoded)
+          let result = try bridge.processImage(imageBytes: Data(imageBytes), config: config.toString())
           return encodeOkEnvelope(result)
         } catch { return encodeErrEnvelope("\(error)") }
     }

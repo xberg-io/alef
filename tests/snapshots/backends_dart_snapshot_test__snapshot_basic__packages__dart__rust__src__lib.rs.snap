@@ -27,7 +27,7 @@ pub struct Config {
 }
 
 /// Processing status.
-#[frb(mirror(Status))]
+#[frb(mirror(Status), unignore)]
 pub enum Status {
     /// Active state.
     Active,
@@ -36,7 +36,7 @@ pub enum Status {
 }
 
 /// Errors emitted by demo operations.
-#[frb(mirror(DemoError))]
+#[frb(mirror(DemoError), unignore)]
 pub enum DemoError {
     /// Input validation failed.
     InvalidInput,

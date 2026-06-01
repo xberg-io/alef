@@ -46,15 +46,7 @@ impl TypeMapper for CsharpMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // Raw JSON crosses the FFI as a JSON string (pinvoke param/return are `string`, and nothing
-        // serializes a Json value), so the public surface is a raw JSON `string`, not `object`.
-        //
-        // Known limitation (tracked separately): DTOs that contain `JsonValue` fields cannot be
-        // deserialized via System.Text.Json when the Rust side embeds an object — it throws
-        // "Cannot get the value of a token type 'StartObject' as a string". The correct fix
-        // is layered emission: `JsonElement` for DTO fields, `string` for FFI bridge call sites
-        // (with `.GetRawText()` at the wrapper-to-pinvoke boundary). Reverted from JsonElement
-        // because the unconditional change broke RouteBuilder schema-setter signatures.
+        // Default to string for FFI compatibility — see csharp_type_for_dto_field for DTO usage.
         Cow::Borrowed("string")
     }
 
@@ -87,11 +79,30 @@ impl TypeMapper for CsharpMapper {
     }
 }
 
-/// Maps a TypeRef to its C# type representation.
+/// Maps a TypeRef to its C# type representation for FFI parameters/returns.
 ///
+/// Uses `string` for Json types to match P/Invoke marshalling requirements.
 /// Delegates to [`CsharpMapper`] for exhaustive TypeRef handling.
 pub fn csharp_type(ty: &TypeRef) -> Cow<'static, str> {
     Cow::Owned(CsharpMapper.map_type(ty))
+}
+
+/// Maps a TypeRef to its C# type representation for DTO fields.
+///
+/// Uses `JsonElement` for Json types to properly deserialize embedded objects
+/// via System.Text.Json. This avoids the "Cannot get the value of a token type
+/// 'StartObject' as a string" error when Rust embeds a JSON object.
+pub fn csharp_type_for_dto_field(ty: &TypeRef) -> Cow<'static, str> {
+    match ty {
+        TypeRef::Json => Cow::Borrowed("JsonElement"),
+        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
+            let key_type = csharp_type(k);
+            Cow::Owned(format!("Dictionary<{}, JsonElement>", key_type))
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => Cow::Borrowed("JsonElement?"),
+        // For all other types, use the standard FFI mapping
+        _ => csharp_type(ty),
+    }
 }
 
 #[cfg(test)]
@@ -134,7 +145,28 @@ mod tests {
 
     #[test]
     fn test_json() {
+        // FFI context: Json -> string
         assert_eq!(CsharpMapper.map_type(&TypeRef::Json), "string");
+    }
+
+    #[test]
+    fn test_json_for_dto_field() {
+        // DTO context: Json -> JsonElement
+        assert_eq!(csharp_type_for_dto_field(&TypeRef::Json), "JsonElement");
+    }
+
+    #[test]
+    fn test_map_json_for_dto_field() {
+        // DTO context: Map<String, Json> -> Dictionary<string, JsonElement>
+        let map_type = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
+        assert_eq!(csharp_type_for_dto_field(&map_type), "Dictionary<string, JsonElement>");
+    }
+
+    #[test]
+    fn test_optional_json_for_dto_field() {
+        // DTO context: Optional<Json> -> JsonElement?
+        let opt_type = TypeRef::Optional(Box::new(TypeRef::Json));
+        assert_eq!(csharp_type_for_dto_field(&opt_type), "JsonElement?");
     }
 
     #[test]
