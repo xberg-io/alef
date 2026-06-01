@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift: marshal `Path` as `URL`, wrap non-throwing `Named`/`String` returns in `RustString`, cast `usize` returns to `UInt`.**
+  Three remaining Box-shim type-conversion bugs surfaced after the trait_bridge + Box generators
+  were aligned in Phase E2/E3. The Box now (1) decodes `TypeRef::Path` to `URL(fileURLWithPath: ...)`
+  matching the bridge protocol's `URL` parameter type, (2) wraps `String` results returned from
+  `Named`-typed bridge methods (e.g. enum returns exposed as `String` at the boundary) in
+  `RustString` for the FFI return, and (3) casts `usize`/`isize` returns to `UInt` since the
+  bridge protocol declares idiomatic `Int` while the FFI shim expects `UInt`. Verified: all 95
+  `backends::swift` tests pass.
+
 ### Added
 
 - **Swift: emit `Swift{Trait}Box` classes for FunctionParam bridges + `SwiftPluginHelpers.swift`.**
