@@ -514,11 +514,18 @@ fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_modu
     let harness_template = include_str!("../templates/go/harness_main.go.jinja");
     env.add_template("harness", harness_template).ok();
 
+    // Derive a short import alias from the module path (e.g., "github.com/Goldziher/spikard" -> "spikard").
+    let import_alias = go_module_path
+        .rsplit('/')
+        .next()
+        .unwrap_or("pkg")
+        .to_string();
+
     let template = env.get_template("harness").unwrap();
     let output = template
         .render(context! {
             imports => vec![go_module_path],
-            method_enum_import => go_module_path,
+            import_alias => import_alias,
             register_route_method => "RegisterRoute",
             run_method => "Run",
             port => 8012,
