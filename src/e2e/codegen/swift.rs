@@ -1592,10 +1592,8 @@ fn build_args_and_setup(
         // json_object "config" args: behavior depends on whether this is an e2e wrapper or regular binding.
         // E2e wrappers (all args in unnamed_arg_indices) take JSON strings and deserialize internally.
         // Regular bindings (config arg not unnamed) expect deserialized objects (via options_via or default helper).
-        // Batch functions (batchExtract*) hardcode config internally — skip it.
         let is_config_arg = arg.name == "config" && arg.arg_type == "json_object";
-        let is_batch_fn = function_name.starts_with("batch") || function_name.starts_with("Batch");
-        if is_config_arg && !is_batch_fn {
+        if is_config_arg {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
             let json_str = match val {
