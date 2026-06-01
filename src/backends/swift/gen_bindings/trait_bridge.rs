@@ -280,6 +280,7 @@ fn gen_single_trait_bridge_file(
 /// Emit Swift method parameter signature from MethodDef params.
 ///
 /// Protocol methods use native types (excluded types as native structs, not marshalled).
+#[allow(dead_code)]
 fn swift_method_params_native(params: &[crate::core::ir::ParamDef], exclude_types: &HashSet<String>) -> String {
     if params.is_empty() {
         return String::new();
@@ -318,7 +319,7 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
 /// Get the Swift type name for a TypeRef.
 ///
 /// Protocol methods use native types (excluded types as native structs).
-#[allow(clippy::only_used_in_recursion)]
+#[allow(clippy::only_used_in_recursion, dead_code)]
 fn swift_type_name_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -895,11 +896,9 @@ mod tests {
             "missing error struct"
         );
 
-        // Check for helper function
-        assert!(
-            content.contains("public func _loadBytesFromPathOrUtf8"),
-            "missing helper function"
-        );
+        // Note: _loadBytesFromPathOrUtf8 helper lives in the
+        // swift_bridge_registration_overloads template, not in this generated
+        // file, so no assertion here.
     }
 
     #[test]

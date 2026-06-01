@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/client `render_http_test` unit test: stop double-namespacing the fixture path.**
+  The shared HTTP-test driver prefixes `/fixtures/{fixture.id}` onto `handler.route` already, so
+  the test fixture must supply an empty (relative) handler route. Previously the test pre-populated
+  `route` with `/fixtures/{id}`, producing `/fixtures/simple/fixtures/simple` after namespacing and
+  breaking the regression test for the canonical OPEN/CALL/STATUS/CLOSE sequence.
+  (`src/e2e/codegen/client/http_call.rs`)
+
+- **swift: drop stale `_loadBytesFromPathOrUtf8` assertion from `gen_bridge_registration_overloads_file` test.**
+  The helper has been emitted by the `swift_bridge_registration_overloads` template (not by this
+  generator function) since the dedup refactor — keeping the assertion in the function's test made
+  the unit test fail despite the file generator behaving correctly.
+  (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
 - **java: map `TypeRef::Json` to `com.fasterxml.jackson.databind.JsonNode`.**
   `serde_json::Value` fields (like `code_intelligence` and `structured_output`) were typed as `String`,
   causing Jackson to fail deserializing JSON objects. Now correctly typed as `JsonNode` so Jackson

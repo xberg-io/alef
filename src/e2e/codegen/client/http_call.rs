@@ -168,7 +168,7 @@ mod tests {
             source: String::new(),
             http: Some(HttpFixture {
                 handler: crate::e2e::fixture::HttpHandler {
-                    route: format!("/fixtures/{id}"),
+                    route: String::new(),
                     method: "GET".into(),
                     body_schema: None,
                     parameters: BTreeMap::new(),
