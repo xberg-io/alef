@@ -15,7 +15,7 @@
 use crate::backends::swift::naming::bridge_protocol_name;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{TypeDef, TypeRef};
-use heck::{ToKebabCase, ToLowerCamelCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
 /// Generate Swift trait bridge protocol and adapter for outbound plugins.
@@ -99,10 +99,10 @@ fn gen_single_trait_bridge_file(
         // Protocol method return types marshal excluded types as JSON strings (like Java does)
         let return_type = swift_return_type(&method.return_type, &aug_exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
-        let async_kw = if method.is_async { " async" } else { "" };
+        // NOTE: async is removed — Swift{Trait}Bridge is now fully sync to match plugin protocol shape
 
         out.push_str(&format!(
-            "    func {method_camel}({params_sig}){async_kw}{throws} -> {return_type}\n"
+            "    func {method_camel}({params_sig}){throws} -> {return_type}\n"
         ));
     }
 
@@ -143,11 +143,11 @@ fn gen_single_trait_bridge_file(
         };
 
         // Build async/throws keywords for the adapter method signature
-        let async_kw = if method.is_async { " async" } else { "" };
+        // NOTE: async is removed from adapter signatures since Swift{Trait}Bridge is now sync
         let throws_kw = if method.error_type.is_some() { " throws" } else { "" };
 
         out.push_str(&format!(
-            "    func {method_camel}Call({params_sig}){async_kw}{throws_kw} -> {return_type} {{\n"
+            "    func {method_camel}Call({params_sig}){throws_kw} -> {return_type} {{\n"
         ));
 
         // Generate method body: construct call arguments and handle return value.
@@ -156,11 +156,10 @@ fn gen_single_trait_bridge_file(
 
         if method.error_type.is_some() {
             // Error-returning method: wrap result in try-catch and return JSON envelope
-            // Swift requires 'try await' order (not 'await try')
-            let try_await = if method.is_async { "try await " } else { "try " };
+            // NOTE: async is removed, so only 'try' is used (not 'try await')
             out.push_str(&format!(
                 "        do {{\n\
-                 \x20\x20\x20\x20let result = {try_await}self.bridge.{method_camel}({call_args_str})\n"
+                 \x20\x20\x20\x20let result = try self.bridge.{method_camel}({call_args_str})\n"
             ));
             // Special case: if return type is Void, don't try to marshal it
             if matches!(method.return_type, TypeRef::Unit) {
@@ -221,14 +220,9 @@ fn gen_single_trait_bridge_file(
                     }
                 }
             }
-        } else if method.is_async {
-            // Async method without error: return the result directly, no encoding
-            out.push_str(&format!(
-                "        let result = await self.bridge.{method_camel}({call_args_str})\n"
-            ));
-            out.push_str("        return result\n");
         } else {
             // Sync method without error: return the result directly, no encoding
+            // NOTE: async is removed, all methods are now sync
             out.push_str(&format!(
                 "        let result = self.bridge.{method_camel}({call_args_str})\n"
             ));
@@ -476,121 +470,16 @@ pub fn gen_bridge_registration_overloads_file(
     for (trait_name, _, _) in &trait_bridges {
         let pascal_name = to_pascal_case(trait_name);
         content.push_str(&format!(
-            "public func register{pascal_name}(_ bridge: Swift{pascal_name}Bridge) throws {{\n\
-             \x20   try register{pascal_name}(Swift{pascal_name}Box(_{pascal_name}BridgeAdapter(bridge: bridge)))\n\
+            "public func register{pascal_name}(_ bridge: any Swift{pascal_name}Bridge) throws {{\n\
+             \x20   try register{pascal_name}(Swift{pascal_name}Box(bridge))\n\
              }}\n\n"
         ));
     }
 
-    // MARK: Internal stub adapters
-    content.push_str("// MARK: - Internal stub adapters\n");
-    content.push_str("//\n");
-    content.push_str("// Each adapter conforms to the full plugin protocol expected by the\n");
-    content.push_str("// `Swift<Plugin>Box` wrapper and delegates only the methods the bridge\n");
-    content.push_str("// exposes. The remaining methods use safe defaults: register/initialize/\n");
-    content.push_str("// shutdown are no-ops, processing entrypoints throw, capability queries\n");
-    content.push_str("// report false/empty.\n");
-    content.push_str("//\n");
-    content.push_str("// Adapter stub names (returned by name() method):\n");
-    for (trait_name, _, _) in &trait_bridges {
-        let pascal_name = to_pascal_case(trait_name);
-        let stub_name = derive_short_stub_name(trait_name);
-        content.push_str(&format!(
-            "// - _{pascal_name}BridgeAdapter → \"swift-bridge-{stub_name}-stub\"\n"
-        ));
-    }
-    content.push_str("//\n");
-    content.push_str("// These names are used by e2e test cleanup to unregister stubs after each test.\n\n");
-
-    content.push_str("private struct _BridgeStubError: Error, CustomStringConvertible {\n");
-    content.push_str("    let description: String\n");
-    content.push_str("}\n\n");
-
-    // Emit adapter classes
-    for (trait_name, _, trait_def) in &trait_bridges {
-        let pascal_name = to_pascal_case(trait_name);
-        let stub_name = derive_short_stub_name(trait_name);
-
-        content.push_str(&format!(
-            "private final class _{pascal_name}BridgeAdapter: {pascal_name} {{\n\
-             \x20   private let bridge: any Swift{pascal_name}Bridge\n\
-             \x20   init(bridge: any Swift{pascal_name}Bridge) {{ self.bridge = bridge }}\n\n"
-        ));
-
-        // Emit default implementations of all trait methods
-        content.push_str(&format!(
-            "    func name() -> String {{ \"swift-bridge-{stub_name}-stub\" }}\n"
-        ));
-        content.push_str("    func version() -> String { \"0.0.0\" }\n");
-        content.push_str("    func initialize() throws {}\n");
-        content.push_str("    func shutdown() throws {}\n\n");
-
-        // Generate default implementations for all methods
-        for method in &trait_def.methods {
-            if method.has_default_impl {
-                continue;
-            }
-
-            let method_camel = method.name.to_lower_camel_case();
-
-            // Build parameter list for the trait protocol (user-facing inbound API)
-            // Use snake_case names with labels matching the protocol definition
-            let params = method
-                .params
-                .iter()
-                .map(|p| {
-                    let name = p.name.to_snake_case();
-                    let ty = swift_type_name(&p.ty, &HashSet::new());
-                    format!("{}: {}", name, ty)
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            // For most methods, emit a default no-op or throw error
-            // This is a conservative stub that will compile but throw on async methods
-            if method.is_async {
-                content.push_str(&format!(
-                    "    func {method_camel}({params}) async throws -> String {{\n\
-                     \x20       throw _BridgeStubError(description: \"async bridge {method_camel} cannot be invoked from sync FFI stub\")\n\
-                     \x20   }}\n\n"
-                ));
-            } else {
-                // For sync methods, return sensible defaults
-                match &method.return_type {
-                    TypeRef::Unit => {
-                        content.push_str(&format!("    func {method_camel}({params}) {{}}\n\n"));
-                    }
-                    TypeRef::String => {
-                        content.push_str(&format!("    func {method_camel}({params}) -> String {{ \"\" }}\n\n"));
-                    }
-                    TypeRef::Bytes => {
-                        content.push_str(&format!("    func {method_camel}({params}) -> [UInt8] {{ [] }}\n\n"));
-                    }
-                    TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
-                        content.push_str(&format!("    func {method_camel}({params}) -> Bool {{ false }}\n\n"));
-                    }
-                    _ => {
-                        // For other types, emit a placeholder comment
-                        content.push_str(&format!("    // TODO: Implement {method_camel} stub\n\n"));
-                    }
-                }
-            }
-        }
-
-        content.push_str("}\n\n");
-    }
 
     Some(("BridgeRegistrationOverloads.swift".to_string(), content))
 }
 
-/// Derive the short kebab-cased stub-name suffix used in adapter `name()`.
-/// Kebab-case the trait name, then strip a trailing `-backend` so plugin
-/// traits like `OcrBackend` map to `ocr` — matching the established e2e
-/// fixture cleanup names that consumers rely on.
-fn derive_short_stub_name(trait_name: &str) -> String {
-    let kebab = trait_name.to_kebab_case();
-    kebab.strip_suffix("-backend").map(str::to_string).unwrap_or(kebab)
-}
 
 /// Convert a snake_case or kebab-case identifier to PascalCase.
 fn to_pascal_case(s: &str) -> String {

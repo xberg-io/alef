@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Swift: drop `async` from trait bridge protocols and make them fully synchronous.**
+  The `Swift{Trait}Bridge` protocol methods no longer carry `async` keywords. This aligns the bridge
+  protocol with the plugin protocol shape (sync, JSON-string marshalled types). Users implementing
+  trait bridges must update their methods from `func methodName(...) async throws` to
+  `func methodName(...) throws`. This enables alef to generate `Plugins.swift` entirely from trait
+  definitions without hand-authored plugin protocol wrappers.
+
 ### Added
 
 - **`HarnessConfig.overrides.<lang>.imports` + `HarnessConfig::imports_for_lang(lang)` helper.**
@@ -47,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Default::default()` instead. Now uses `.map_err(|_| {{ error_deser }}))` so decoding failures
   surface during testing, while preserving the outer `.unwrap_or_default()` for the no-error
   return contract.
+
+- **Swift: generate `Plugins.swift` containing all 6 plugin trait box classes.**
+  Alef now generates the entire `Plugins.swift` file with `Swift{OcrBackend,PostProcessor,Validator,EmbeddingBackend,DocumentExtractor,Renderer}Box` classes from trait definitions. This eliminates the hand-authored plugin protocol wrapper layer and the broken `_*BridgeAdapter` stub classes. The new generation (`emit_plugins_swift_file` + `emit_plugin_box_class` in `gen_bindings/mod.rs`) emits sync FFI shim methods that wrap bridge protocol instances and marshal JSON envelopes to Rust. Users now implement `any Swift{Trait}Bridge` (sync, JSON-string typed) and pass it directly to `register{Trait}(_:)` without intermediate adapters.
+  (`src/backends/swift/gen_bindings/trait_bridge.rs`, `src/backends/swift/gen_bindings/mod.rs`)
 
 - **e2e/python: send raw `application/x-www-form-urlencoded` bodies as bytes instead of JSON-encoding them.**
   When a fixture's `request.headers["Content-Type"]` is `application/x-www-form-urlencoded` and the
