@@ -332,9 +332,18 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_na
 
     let header = hash::header(CommentStyle::DoubleSlash);
 
+    // Build imports: include harness.imports config plus the binding module_name.
+    // Get language-specific imports for swift with fallback to global imports.
+    let mut imports = e2e_config.harness.imports_for_lang("swift");
+    // Prepend the binding module_name if not already present.
+    if !imports.iter().any(|i| i == module_name) {
+        imports.insert(0, module_name.to_string());
+    }
+    let imports_str = imports.iter().map(|m| format!("import {}", m)).collect::<Vec<_>>().join("\n");
+
     let ctx = minijinja::context! {
         header => header,
-        imports => format!("import {}", module_name),
+        imports => imports_str,
         app_class => app_class.as_deref().unwrap_or("App"),
         route_builder_constructor => "RouteBuilder",
         route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("requestSchemaJson"),

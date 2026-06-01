@@ -45,13 +45,13 @@ public final class SwiftOcrBackendBox {
     public func alef_process_image(image_bytes imageBytes: RustVec<UInt8>, config: RustString) -> RustString {
         let config_decoded = try JSONDecoder().decode(OcrConfig.self, from: Data(config.toString().utf8))
         do {
-          let result = bridge.processImage(imageBytes: Array(imageBytes), config: config_decoded) 
+          let result = bridge.processImage(imageBytes: Array(imageBytes), config: config_decoded)
           return encodeOkEnvelope(result)
         } catch { return encodeErrEnvelope("\(error)") }
     }
 
     public func alef_supports_language(lang: RustString) -> Bool {
-        return bridge.supportsLanguage(lang: lang.toString()) 
+        return bridge.supportsLanguage(lang: lang.toString())
     }
 
 }

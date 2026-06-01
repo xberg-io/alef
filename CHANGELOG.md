@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift e2e: honor `harness.imports` config and use Spikard convenience methods.**
+  Swift e2e codegen hardcoded `format!("import {}", module_name)` without reading the
+  `[e2e.harness] imports` config array, breaking harnesses that depend on additional imports
+  like `Spikard`. Now reads `harness.imports_for_lang("swift")`, prepends the binding module
+  if missing, and renders all imports. The app harness template now uses Spikard's HTTP verb
+  convenience methods (`app.get()`, `app.post()`, etc.) instead of invalid `Method.allCases`
+  and `RouteBuilder` construction, matching the current Spikard 1.0+ API surface.
+
 - **Java (Panama FFM): serialize `JsonNode` parameters to JSON `String` before FFI.**
   `arena.allocateFrom(JsonNode)` did not compile because Panama FFM expects a
   `String`/`MemorySegment`, not a Jackson `JsonNode`. New marshal templates
