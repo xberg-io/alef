@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift e2e: gate Harness target, main.swift, and test setUp harness-spawn block on presence of HTTP fixtures.**
+  Consumers without HTTP fixtures no longer need an HTTP framework dependency in their swift e2e Package.swift.
+  The harness executable target, Sources/Harness/main.swift, and the test setUp() harness process spawning and
+  readiness probe are now conditionally emitted only when `has_http_fixtures` is true (i.e., at least one fixture
+  calls `is_http_test()`). This matches the pattern used in Dart, PHP, Go, and Ruby e2e generators.
+
 - **Swift e2e: honor `harness.imports` config and use Spikard convenience methods.**
   Swift e2e codegen hardcoded `format!("import {}", module_name)` without reading the
   `[e2e.harness] imports` config array, breaking harnesses that depend on additional imports
