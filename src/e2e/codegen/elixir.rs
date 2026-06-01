@@ -244,7 +244,12 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         }
     }
 
-    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    let fixtures_json_str = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    // Escape backslashes and quotes for Elixir string literal
+    let fixtures_json = fixtures_json_str
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let fixtures_json = format!("\"{}\"", fixtures_json);
 
     let imports = &e2e_config.harness.imports;
     let app_class = &e2e_config.harness.app_class;
@@ -303,7 +308,7 @@ fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2e
 # Use it as-is and do NOT spawn our own.
 
 unless System.get_env("SUT_URL") do
-  app_harness_bin = Path.expand("app_harness.exs", __DIR__)
+  app_harness_bin = Path.expand("../app_harness.exs", __DIR__)
 
   port = Port.open({{:spawn_executable, System.find_executable("elixir")}}, [
     :binary,
@@ -789,7 +794,7 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
         let fixture_id = escape_elixir(self.fixture_id);
         // Use SUT_URL if available (server-pattern), else fall back to mock_server_url() (mock-pattern)
         let sut_url_expr = "System.get_env(\"SUT_URL\") || mock_server_url()";
-        let url_expr = format!("\"#{{{{ {sut_url_expr} }}}}/fixtures/{fixture_id}\"");
+        let url_expr = format!("({{ {sut_url_expr} }}) <> \"/fixtures/{fixture_id}\"");
 
         if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
             // `opts` always carries at least the HTTP/1 protocol option.

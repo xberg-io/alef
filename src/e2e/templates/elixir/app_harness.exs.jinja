@@ -19,7 +19,7 @@
 #}
 
 # Load fixtures from the JSON payload
-fixtures_json = ~s[{{ fixtures_json }}]
+fixtures_json = {{ fixtures_json }}
 {:ok, fixtures} = Jason.decode(fixtures_json)
 
 # Create and configure the app
