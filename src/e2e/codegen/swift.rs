@@ -1481,77 +1481,67 @@ fn build_args_and_setup(
             continue;
         }
 
-        // bytes args: behavior depends on whether this is an e2e async wrapper (e.g. extractBytes
-        // with unnamed_arg_indices) or a regular binding function. E2e wrappers take path strings
-        // and read files internally; regular bindings accept [UInt8] arrays or strings.
-        // When unnamed_arg_indices includes this arg index, it's an e2e wrapper that expects
-        // a path string — pass it directly. Otherwise, emit Swift-native [UInt8] arrays.
-        if arg.arg_type == "bytes" {
+        // bytes args: Swift e2e wrappers (extractBytes, extractBytesSync) with unnamed_arg_indices
+        // expect raw [UInt8] bytes, not path strings. When the fixture provides a path string,
+        // read the file to bytes. Regular bindings (with named args) also emit [UInt8] arrays.
+        if arg.arg_type == "bytes" || arg.arg_type == "file_path" {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
 
-            // If this arg is unnamed (e2e wrapper signature), pass path strings directly.
-            // E2e wrappers like `extractBytes(_ filePath: String, ...) async` read files internally.
             let is_unnamed_arg = unnamed_arg_indices.contains(&idx);
 
-            if is_unnamed_arg {
-                // E2e async wrapper: expects path string, reads internally
-                match val {
-                    None | Some(serde_json::Value::Null) if arg.optional => {
-                        if later_emits[idx] {
-                            parts.push((idx, "nil".to_string()));
-                        }
-                    }
-                    None | Some(serde_json::Value::Null) => {
-                        parts.push((idx, "\"\"".to_string()));
-                    }
-                    Some(serde_json::Value::String(s)) => {
-                        let escaped = escape_swift(s);
-                        parts.push((idx, format!("\"{}\"", escaped)));
-                    }
-                    Some(other) => {
-                        // Fallback: convert to JSON string
-                        let json_str = serde_json::to_string(other).unwrap_or_default();
-                        let escaped = escape_swift(&json_str);
-                        parts.push((idx, format!("\"{}\"", escaped)));
+            // For unnamed args (e2e wrappers), always emit bytes: read files if needed.
+            // For named args (regular bindings), also emit bytes.
+            match val {
+                None | Some(serde_json::Value::Null) if arg.optional => {
+                    if later_emits[idx] {
+                        parts.push((idx, "nil".to_string()));
                     }
                 }
-            } else {
-                // Regular binding: emit Swift-native [UInt8] arrays
-                match val {
-                    None | Some(serde_json::Value::Null) if arg.optional => {
-                        if later_emits[idx] {
-                            parts.push((idx, "nil".to_string()));
-                        }
-                    }
-                    None | Some(serde_json::Value::Null) => {
-                        // Empty byte array
+                None | Some(serde_json::Value::Null) => {
+                    if is_unnamed_arg {
+                        // Unnamed arg: pass empty byte array (wrapper may handle nil differently)
+                        parts.push((idx, "[UInt8]()".to_string()));
+                    } else {
+                        // Named arg: empty byte array
                         parts.push((idx, "[UInt8]()".to_string()));
                     }
-                    Some(serde_json::Value::String(s)) => {
-                        let escaped = escape_swift(s);
+                }
+                Some(serde_json::Value::String(s)) => {
+                    let escaped = escape_swift(s);
+                    if is_unnamed_arg {
+                        // Unnamed arg with path string: read file to bytes.
+                        // Swift's extractBytes(_ [UInt8], ...) expects bytes, not path.
                         let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
                         let data_var = format!("{}Data", arg.name.to_lower_camel_case());
                         setup_lines.push(format!(
                             "let {data_var} = try Data(contentsOf: URL(fileURLWithPath: \"{escaped}\"))"
                         ));
-                        // Convert Data to [UInt8] array
+                        setup_lines.push(format!("let {var_name} = Array({data_var})"));
+                        parts.push((idx, var_name));
+                    } else {
+                        // Named arg with path string: read file to bytes.
+                        let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
+                        let data_var = format!("{}Data", arg.name.to_lower_camel_case());
+                        setup_lines.push(format!(
+                            "let {data_var} = try Data(contentsOf: URL(fileURLWithPath: \"{escaped}\"))"
+                        ));
                         setup_lines.push(format!("let {var_name} = Array({data_var})"));
                         parts.push((idx, var_name));
                     }
-                    Some(serde_json::Value::Array(arr)) => {
-                        // Inline byte array literal
-                        let bytes: Vec<String> = arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                        parts.push((idx, format!("[UInt8]({})", bytes.join(", "))));
-                    }
-                    Some(other) => {
-                        // Fallback: encode the JSON serialisation as UTF-8 bytes.
-                        let json_str = serde_json::to_string(other).unwrap_or_default();
-                        let escaped = escape_swift(&json_str);
-                        let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
-                        setup_lines.push(format!("let {var_name} = Array(\"{escaped}\".utf8)"));
-                        parts.push((idx, var_name));
-                    }
+                }
+                Some(serde_json::Value::Array(arr)) => {
+                    // Inline byte array literal
+                    let bytes: Vec<String> = arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
+                    parts.push((idx, format!("[UInt8]({})", bytes.join(", "))));
+                }
+                Some(other) => {
+                    // Fallback: encode the JSON serialisation as UTF-8 bytes.
+                    let json_str = serde_json::to_string(other).unwrap_or_default();
+                    let escaped = escape_swift(&json_str);
+                    let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!("let {var_name} = Array(\"{escaped}\".utf8)"));
+                    parts.push((idx, var_name));
                 }
             }
             continue;

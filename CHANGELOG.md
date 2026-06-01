@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift e2e: emit Data(...) → Array([UInt8]) conversion for bytes args with path string values.**
+  Swift's `extractBytes(_ [UInt8], ...)` and `extractBytesSync(_ [UInt8], ...)` e2e wrappers
+  with `unnamed_arg_indices` previously received path strings directly instead of bytes,
+  causing type mismatch errors. Now detects path-string values and reads files to bytes
+  at test-time, matching the behavior of named-arg bytes parameters.
+
 - **Swift e2e: gate Harness target, main.swift, and test setUp harness-spawn block on presence of HTTP fixtures.**
   Consumers without HTTP fixtures no longer need an HTTP framework dependency in their swift e2e Package.swift.
   The harness executable target, Sources/Harness/main.swift, and the test setUp() harness process spawning and
