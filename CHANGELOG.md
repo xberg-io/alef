@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ruby e2e: escape apostrophes in test descriptions with double quotes.** The HTTP
+  server-pattern test generator was embedding fixture descriptions directly in single-quoted
+  Ruby string literals without escaping, causing syntax errors when descriptions contained
+  apostrophes (e.g., `'Bearer '` broke the `it '...'Bearer '...'` line). Now descriptions
+  are passed through `ruby_string_literal()` to emit double-quoted strings when apostrophes
+  are detected, producing valid Ruby syntax.
+
 - **TypeScript e2e: auto-add Content-Type header for JSON bodies.** When rendering
   HTTP test fixtures with JSON request bodies, the generated test client was
   serializing the body with `JSON.stringify()` but not setting the `Content-Type:

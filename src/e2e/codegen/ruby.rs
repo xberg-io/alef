@@ -981,6 +981,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
     } else {
         format!("{description}.")
     };
+    let description_literal = ruby_string_literal(&desc_with_period);
 
     // Build request headers dict literal
     let mut header_entries: Vec<String> = http
@@ -1100,7 +1101,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
         "ruby/http_test_sut.jinja",
         minijinja::context! {
             fn_name => fn_name,
-            description => desc_with_period,
+            description => description_literal,
             method => method,
             path => path,
             headers_ruby => headers_ruby,

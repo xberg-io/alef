@@ -5,7 +5,7 @@
 
    Context variables:
    - fn_name: sanitized test function name
-   - description: fixture description
+   - description: fixture description as a Ruby string literal (already quoted)
    - method: HTTP method (uppercase)
    - path: request path (includes /fixtures/<id> prefix)
    - headers_ruby: Ruby hash literal for request headers
@@ -23,7 +23,7 @@
    - validation_errors: array of {loc_ruby, escaped_msg} dicts
 #}
   describe '{{ fn_name }}' do
-    it '{{ description }}' do
+    it {{ description }} do
       require 'net/http'
       require 'uri'
       require 'json'
