@@ -440,7 +440,7 @@ fn gen_registration_method(
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.service_handler_trampoline,\n\
+         \t\tunsafe.Pointer(&C.service_handler_trampoline),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -549,7 +549,7 @@ fn gen_registration_variant(
     out.push_str(&format!(
         "\tret := C.{}_{}_{} (\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.service_handler_trampoline,\n\
+         \t\tunsafe.Pointer(&C.service_handler_trampoline),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
