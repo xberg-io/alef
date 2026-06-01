@@ -449,7 +449,12 @@ mod tests {
 
     #[test]
     fn test_param_decode_bool() {
-        let decode = swift_shim_param_decode("flag", &TypeRef::Primitive(PrimitiveType::Bool), false, &std::collections::HashSet::new());
+        let decode = swift_shim_param_decode(
+            "flag",
+            &TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            &std::collections::HashSet::new(),
+        );
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "flag");
         assert!(!decode.is_throwing);
@@ -457,7 +462,12 @@ mod tests {
 
     #[test]
     fn test_param_decode_u32() {
-        let decode = swift_shim_param_decode("count", &TypeRef::Primitive(PrimitiveType::U32), false, &std::collections::HashSet::new());
+        let decode = swift_shim_param_decode(
+            "count",
+            &TypeRef::Primitive(PrimitiveType::U32),
+            false,
+            &std::collections::HashSet::new(),
+        );
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "count");
         assert!(!decode.is_throwing);
@@ -465,7 +475,12 @@ mod tests {
 
     #[test]
     fn test_param_decode_vec_string() {
-        let decode = swift_shim_param_decode("langs", &TypeRef::Vec(Box::new(TypeRef::String)), false, &std::collections::HashSet::new());
+        let decode = swift_shim_param_decode(
+            "langs",
+            &TypeRef::Vec(Box::new(TypeRef::String)),
+            false,
+            &std::collections::HashSet::new(),
+        );
         assert!(!decode.setup.is_empty());
         assert!(decode.setup[0].contains("langs_list"));
         assert_eq!(decode.expr, "langs_list");
@@ -474,7 +489,12 @@ mod tests {
 
     #[test]
     fn test_param_decode_named_codable() {
-        let decode = swift_shim_param_decode("cfg", &TypeRef::Named("OcrConfig".to_string()), false, &std::collections::HashSet::new());
+        let decode = swift_shim_param_decode(
+            "cfg",
+            &TypeRef::Named("OcrConfig".to_string()),
+            false,
+            &std::collections::HashSet::new(),
+        );
         assert!(!decode.setup.is_empty());
         assert!(decode.setup[0].contains("JSONDecoder"));
         assert!(decode.setup[0].contains("OcrConfig"));
@@ -484,7 +504,12 @@ mod tests {
 
     #[test]
     fn test_param_decode_optional_string() {
-        let decode = swift_shim_param_decode("opt_str", &TypeRef::Optional(Box::new(TypeRef::String)), false, &std::collections::HashSet::new());
+        let decode = swift_shim_param_decode(
+            "opt_str",
+            &TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+            &std::collections::HashSet::new(),
+        );
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "opt_str?.toString()");
         assert!(!decode.is_throwing);
@@ -599,7 +624,12 @@ mod tests {
 
     #[test]
     fn test_return_marshal_non_throwing_named() {
-        let method = make_method("backend_type", vec![], TypeRef::Named("OcrBackendType".to_string()), None);
+        let method = make_method(
+            "backend_type",
+            vec![],
+            TypeRef::Named("OcrBackendType".to_string()),
+            None,
+        );
         let lines = swift_shim_return_marshal(&method, "bridge.backendType()");
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0], "return RustString(bridge.backendType())");

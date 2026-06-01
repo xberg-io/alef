@@ -128,10 +128,16 @@ impl E2eCodegen for SwiftE2eCodegen {
         }
 
         // Generate the app harness executable that runs the SUT server for tests.
+        // The template already includes `// swift-format-ignore-file`; we prepend
+        // the alef-style hash header so the test enforcer
+        // (`e2e_swift_swift_format_ignore_header.rs`) finds a contiguous
+        // `//` header block ahead of the ignore directive.
+        let app_harness_body = render_app_harness(e2e_config, groups, module_name);
+        let app_harness_content = format!("{}{}", hash::header(CommentStyle::DoubleSlash), app_harness_body);
         files.push(GeneratedFile {
             path: output_base.join("Sources").join("Harness").join("main.swift"),
-            content: render_app_harness(e2e_config, groups, module_name),
-            generated_header: true,
+            content: app_harness_content,
+            generated_header: false,
         });
 
         // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
