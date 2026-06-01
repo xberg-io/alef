@@ -337,6 +337,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/stream_method_optional_string_param.jinja"),
     ),
     (
+        "stream_method_json_param.jinja",
+        include_str!("templates/stream_method_json_param.jinja"),
+    ),
+    (
+        "stream_method_optional_json_param.jinja",
+        include_str!("templates/stream_method_optional_json_param.jinja"),
+    ),
+    (
         "stream_method_optional_named_param.jinja",
         include_str!("templates/stream_method_optional_named_param.jinja"),
     ),

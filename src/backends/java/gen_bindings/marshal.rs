@@ -151,10 +151,20 @@ pub(crate) fn marshal_param_to_ffi(
     prefix: &str,
 ) {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Json => {
+        TypeRef::String | TypeRef::Char => {
             let cname = "c".to_string() + name;
             out.push_str(&crate::backends::java::template_env::render(
                 "marshal_string.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
+        }
+        TypeRef::Json => {
+            let cname = "c".to_string() + name;
+            out.push_str(&crate::backends::java::template_env::render(
+                "marshal_json.jinja",
                 minijinja::context! {
                     cname => &cname,
                     name => name,
@@ -210,10 +220,20 @@ pub(crate) fn marshal_param_to_ffi(
         }
         TypeRef::Optional(inner) => {
             match inner.as_ref() {
-                TypeRef::String | TypeRef::Char | TypeRef::Json => {
+                TypeRef::String | TypeRef::Char => {
                     let cname = "c".to_string() + name;
                     out.push_str(&crate::backends::java::template_env::render(
                         "marshal_optional_string.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                        },
+                    ));
+                }
+                TypeRef::Json => {
+                    let cname = "c".to_string() + name;
+                    out.push_str(&crate::backends::java::template_env::render(
+                        "marshal_optional_json.jinja",
                         minijinja::context! {
                             cname => &cname,
                             name => name,

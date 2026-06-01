@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Java (Panama FFM): serialize `JsonNode` parameters to JSON `String` before FFI.**
+  `arena.allocateFrom(JsonNode)` did not compile because Panama FFM expects a
+  `String`/`MemorySegment`, not a Jackson `JsonNode`. New marshal templates
+  (`marshal_json.jinja`, `marshal_optional_json.jinja`,
+  `stream_method_json_param.jinja`, `stream_method_optional_json_param.jinja`)
+  serialize `JsonNode` to a JSON string via `ObjectMapper` before the FFI call.
+
 - **Swift: emit `@unchecked Sendable` for parameter-only DTOs (`BatchFileItem`, `BatchBytesItem`, …).**
   The Sendable conformance emission filter was `is_opaque || handle_returned`, which missed
   types that appear only as parameters to async forwarders. When `Task.detached` captured

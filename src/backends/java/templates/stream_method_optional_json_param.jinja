@@ -1,0 +1,2 @@
+            var {{ c_name }}Json = {{ param_name }} != null ? STREAM_MAPPER.writeValueAsString({{ param_name }}) : null;
+            var {{ c_name }} = {{ c_name }}Json != null ? arena.allocateFrom({{ c_name }}Json) : MemorySegment.NULL;

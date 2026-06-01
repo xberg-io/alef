@@ -1229,9 +1229,16 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         let pname = p.name.to_lower_camel_case();
         let cname = format!("c{}", to_class_name(&p.name));
         match &p.ty {
-            TypeRef::String | TypeRef::Char | TypeRef::Json => {
+            TypeRef::String | TypeRef::Char => {
                 out.push_str(&crate::backends::java::template_env::render(
                     "stream_method_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Json => {
+                out.push_str(&crate::backends::java::template_env::render(
+                    "stream_method_json_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },
                 ));
                 call_args.push(cname);
@@ -1246,9 +1253,16 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 ));
                 call_args.push(cname);
             }
-            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char | TypeRef::Json) => {
+            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
                 out.push_str(&crate::backends::java::template_env::render(
                     "stream_method_optional_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => {
+                out.push_str(&crate::backends::java::template_env::render(
+                    "stream_method_optional_json_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },
                 ));
                 call_args.push(cname);
@@ -1561,9 +1575,16 @@ fn gen_static_factory_method(
         let pname = p.name.to_lower_camel_case();
         let cname = format!("c{}", to_class_name(&p.name));
         match &p.ty {
-            TypeRef::String | TypeRef::Char | TypeRef::Json => {
+            TypeRef::String | TypeRef::Char => {
                 out.push_str(&crate::backends::java::template_env::render(
                     "stream_method_string_param.jinja",
+                    minijinja::context! { c_name => cname, param_name => pname },
+                ));
+                call_args.push(cname);
+            }
+            TypeRef::Json => {
+                out.push_str(&crate::backends::java::template_env::render(
+                    "stream_method_json_param.jinja",
                     minijinja::context! { c_name => cname, param_name => pname },
                 ));
                 call_args.push(cname);

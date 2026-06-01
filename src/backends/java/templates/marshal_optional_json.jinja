@@ -1,0 +1,2 @@
+            var {{ cname }}Json = {{ name }} != null ? MAPPER.writeValueAsString({{ name }}) : null;
+            var {{ cname }} = {{ cname }}Json != null ? arena.allocateFrom({{ cname }}Json) : MemorySegment.NULL;
