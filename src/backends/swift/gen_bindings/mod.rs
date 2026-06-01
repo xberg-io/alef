@@ -541,12 +541,17 @@ impl Backend for SwiftBackend {
             });
         }
 
-        // NOTE: ExtractionResultExtensions emission disabled. alef IR cannot reliably
-        // tell which methods swift-bridge will actually expose on the Ref class
-        // (unbridgeable Rust signatures involving e.g. SocketAddr are silently
-        // dropped by swift-bridge), so the emitted property bodies referenced
-        // non-existent methods and recursed onto the property declaration itself.
-        // Re-enable once binding-exclusion tracking covers swift-bridge's filter.
+        // Emit ExtractionResultExtensions (property-access aliases for zero-param string-returning methods).
+        // The extension filters via method.binding_excluded to skip methods that swift-bridge
+        // silently drops (e.g. signatures with non-FFI-friendly returns like SocketAddr).
+        if let Some((filename, content)) = emit_extraction_result_extensions(&api) {
+            let path = module_dir.join(&filename);
+            files.push(GeneratedFile {
+                path,
+                content,
+                generated_header: true,
+            });
+        }
 
         // Emit bridge registration overloads file (register/unregister convenience functions + stub adapters).
         if let Some((filename, content)) = trait_bridge::gen_bridge_registration_overloads_file(&trait_bridge_configs) {
@@ -5389,11 +5394,6 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
         let mut type_content = String::new();
 
         for method in &ty.methods {
-            // Skip if has parameters beyond receiver
-            if !method.params.is_empty() {
-                continue;
-            }
-
             // Skip if async or static
             if method.is_async || method.is_static {
                 continue;
@@ -5413,6 +5413,14 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
                 continue;
             }
 
+            // Skip zero-param String-returning methods: swift-bridge converts these into
+            // properties on the Ref class, so there's no method to call. Adding an extension
+            // property with the same name would conflict with swift-bridge's auto-generated property.
+            // These methods already provide property-like access via swift-bridge, so no extension is needed.
+            if method.params.is_empty() {
+                continue;
+            }
+
             if !type_has_extensions {
                 type_content.push('\n');
                 type_content.push_str(&format!("extension RustBridge.{}Ref {{\n", ty.name));
@@ -5428,7 +5436,9 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
             let camel = method.name.to_lower_camel_case();
             type_content.push_str(&format!("    /// Computed-property alias for `{}()` method.\n", camel));
             type_content.push_str(&format!("    public var {}: String {{\n", camel));
-            type_content.push_str(&format!("        self.{}().toString()\n", camel));
+            // TypeRef::String maps to native Swift String, which swift-bridge returns directly.
+            // No .toString() conversion needed.
+            type_content.push_str(&format!("        self.{}()\n", camel));
             type_content.push_str("    }\n");
         }
 

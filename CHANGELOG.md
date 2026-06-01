@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift e2e: do not append .toString() to methods returning native String.** TypeRef::String maps to Swift's native String type, not RustString. swift-bridge generates these methods returning String directly; appending .toString() produces a compile error "cannot call value of non-function type 'String'". ExtractionResultExtensions now calls the method without the conversion suffix.
+
 - **Dart backend: bridge static methods and enums through FRB.** Static constructor methods (e.g., `RouteBuilder::new`) are now bridged as standalone functions within the opaque-type impl block. Enums are marked with `#[frb(unignore)]` to prevent FRB from filtering them out when unused in public function signatures. The `traits.dart` module is now always generated (as an empty stub when no trait bridges are configured) to satisfy the export statement.
 
 - **WASM backend: emit builder methods with JSON parameters.** The WASM backend now correctly auto-routes opaque methods that take `serde_json::Value` parameters (e.g., `request_schema_json`, `response_schema_json`) via the shared `TypeRef::Json` delegatability fix. Builders returning `Self` are mapped to the binding class wrapper type and cloned correctly across the WASM boundary.
