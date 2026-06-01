@@ -10,7 +10,7 @@
 {% for import_name in imports %}
 import _pkg from '{{ import_name }}';
 {% endfor %}
-const { {{ app_class }}, {{ method_enum }}, ServerConfig } = _pkg;
+const { {{ app_class }}, {{ method_enum }}, {{ route_builder_class }}, ServerConfig } = _pkg;
 
 // Load fixtures from the inline JSON payload.
 const _FIXTURES = {{fixtures_json}};
@@ -51,33 +51,11 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   // Register the handler at /fixtures/<fixture_id>{route}
   const fullRoute = `/fixtures/${fixtureId}${route}`;
 
-  // Register route based on method
-  switch (methodEnumValue) {
-    case {{ method_enum }}.GET:
-      app.get(fullRoute, handlerFn);
-      break;
-    case {{ method_enum }}.POST:
-      app.post(fullRoute, handlerFn);
-      break;
-    case {{ method_enum }}.PUT:
-      app.put(fullRoute, handlerFn);
-      break;
-    case {{ method_enum }}.PATCH:
-      app.patch(fullRoute, handlerFn);
-      break;
-    case {{ method_enum }}.DELETE:
-      app.delete(fullRoute, handlerFn);
-      break;
-    case {{ method_enum }}.HEAD:
-      app.head(fullRoute, handlerFn);
-      break;
-    case {{ method_enum }}.OPTIONS:
-      app.options(fullRoute, handlerFn);
-      break;
-    default:
-      // Fallback to GET for unmapped methods
-      app.get(fullRoute, handlerFn);
-  }
+  // Build the RouteBuilder with the method and path.
+  const builder = new {{ route_builder_class }}(methodEnumValue, fullRoute);
+
+  // Register the route with the handler.
+  app.{{ register_route_method }}(builder, handlerFn);
 }
 
 // Configure and start the server
