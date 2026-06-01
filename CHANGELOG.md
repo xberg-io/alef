@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Java/Go/Zig FFI: pass register-trait vtables by pointer instead of by value.**
+  Java Panama FFM does not honour the aarch64 SysV ABI rule that structs larger than
+  16 bytes are passed via an invisible pointer; passing the 11-ADDRESS
+  `DocumentExtractor` vtable by value caused JVM SIGSEGV on ARM64. Changed the alef
+  Java backend to declare `vtable` as `ValueLayout.ADDRESS`, and updated the Go and
+  Zig codegen templates to pass `&vtable` / `&vtable` at the register call site,
+  matching the Rust core signature change `vtable: *const KreuzbergXxxVTable`.
+
+- **Kotlin: suppress detekt `TooManyFunctions` on generated service-API wrapper.**
+  The verb-method service wrapper legitimately emits one method per HTTP verb (9) +
+  route + config / run + close, which trips detekt's default `TooManyFunctions`
+  threshold of 11. Annotate the generated class with `@Suppress("TooManyFunctions")`
+  rather than forcing every consumer to ship a custom `detekt.yml`.
+
 - **Dart e2e: always emit `tearDownAll` for RustLib singleton cleanup.** All Dart e2e
   test files initialize `RustLib` in `setUpAll`; `tearDownAll` must always be emitted
   to properly dispose the native library singleton, preventing lifecycle crashes at
