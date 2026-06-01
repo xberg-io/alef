@@ -1170,12 +1170,38 @@ fn napi_variant_wrapper_constructor(
     let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+
+    // Build call_args with type conversions where needed.
+    // If the mapped type (NAPI) differs from the core type name, apply .into().
+    // This handles cases like JsMethod -> Method where a From<JsMethod> impl exists.
     let call_args = ctor
         .params
         .iter()
-        .map(|p| p.name.as_str())
+        .map(|p| {
+            let mapped_type = map_fn(&p.ty);
+
+            // Get the core type name. For TypeRef::Named, it's just the name.
+            // For other types, the mapped type should match the core type.
+            let core_type_name = match &p.ty {
+                crate::core::ir::TypeRef::Named(name) => name.as_str(),
+                _ => "",
+            };
+
+            // If NAPI added a prefix (e.g., "JsMethod" != "Method"), we need to convert.
+            // This happens when a custom type is mapped with the prefix.
+            let needs_conversion = !core_type_name.is_empty()
+                && mapped_type.starts_with(&mapper.prefix)
+                && !mapped_type.contains("::");
+
+            if needs_conversion {
+                format!("{}.into()", p.name)
+            } else {
+                p.name.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
+
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
     let body = if call_args.is_empty() {

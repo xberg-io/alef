@@ -124,19 +124,19 @@ fn dart_http_fixture_test_file_spawns_mock_server() {
         .find(|f| f.path.to_string_lossy().ends_with("_test.dart"))
         .expect("dart test file is emitted");
     let content = &test_file.content;
-    // The test must spawn the mock-server binary and export MOCK_SERVER_URL so
-    // the request helpers do not fall back to http://localhost:8080.
+    // The test must spawn the app_harness.dart process and parse the SUT_URL
+    // startup line so the request helpers do not fall back to localhost defaults.
     assert!(
         content.contains("Process.start") || content.contains("Process.run"),
-        "dart harness must spawn the mock-server process. Rendered:\n{content}"
+        "dart harness must spawn a server process. Rendered:\n{content}"
     );
     assert!(
-        content.contains("mock-server"),
-        "dart harness must reference the mock-server binary. Rendered:\n{content}"
+        content.contains("app_harness.dart"),
+        "dart harness must reference app_harness.dart. Rendered:\n{content}"
     );
     assert!(
-        content.contains("MOCK_SERVER_URL="),
-        "dart harness must parse the MOCK_SERVER_URL= startup line. Rendered:\n{content}"
+        content.contains("SUT_URL="),
+        "dart harness must parse the SUT_URL= startup line. Rendered:\n{content}"
     );
 }
 
