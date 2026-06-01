@@ -2637,7 +2637,7 @@ fn render_assertion(
                     // and count its elements; `.len` would give byte count, not item count.
                     let has_field = assertion.field.as_deref().is_some_and(|f| !f.is_empty());
                     if has_field {
-                        let _ = writeln!(out, "    try testing.expectEqual({n}, {field_expr}.len);");
+                        let _ = writeln!(out, "    try testing.expectEqual(@as(usize, {n}), {field_expr}.len);");
                     } else {
                         let _ = writeln!(out, "    {{");
                         let _ = writeln!(
@@ -2647,7 +2647,7 @@ fn render_assertion(
                         let _ = writeln!(out, "        defer _cparse.deinit();");
                         let _ = writeln!(
                             out,
-                            "        try testing.expectEqual({n}, _cparse.value.array.items.len);"
+                            "        try testing.expectEqual(@as(usize, {n}), _cparse.value.array.items.len);"
                         );
                         let _ = writeln!(out, "    }}");
                     }
