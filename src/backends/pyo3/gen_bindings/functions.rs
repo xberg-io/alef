@@ -239,6 +239,14 @@ pub(super) fn gen_api_py(
         .filter(|t| t.has_default && !t.name.ends_with("Update") && !t.is_return_type)
         .map(|t| t.name.clone())
         .collect();
+    // Types returned directly by free functions — these live in the native module,
+    // not .options. Function return type annotations must qualify them with _rust.
+    let return_type_names: AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_return_type)
+        .map(|t| t.name.clone())
+        .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
     let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
     // Enums that options.py actually exports: plain (non-data) unit enums referenced by
@@ -995,7 +1003,24 @@ pub(super) fn gen_api_py(
             sig_parts.push(format!("{kwarg_name}: {visitor_type} | None = None"));
         }
 
-        let return_type_str = crate::backends::pyo3::type_map::python_type(&func.return_type);
+        let mut return_type_str = crate::backends::pyo3::type_map::python_type(&func.return_type);
+        // If the return type is marked is_return_type, it lives in the native module, not .options.
+        // Qualify it with _rust. so the annotation matches where it's imported from.
+        // Handle Optional return types: _rust.Type | None, not (_rust.Type) | None.
+        if let crate::core::ir::TypeRef::Named(name) = &func.return_type {
+            if return_type_names.contains(name) {
+                return_type_str = format!("_rust.{return_type_str}");
+            }
+        } else if let crate::core::ir::TypeRef::Optional(inner) = &func.return_type {
+            if let crate::core::ir::TypeRef::Named(name) = inner.as_ref() {
+                if return_type_names.contains(name) {
+                    // Replace "Type | None" with "_rust.Type | None"
+                    if let Some(base) = return_type_str.strip_suffix(" | None") {
+                        return_type_str = format!("_rust.{} | None", base);
+                    }
+                }
+            }
+        }
         // Async pyo3 functions return a coroutine — the Python wrapper must be `async def`
         // so that `result = await fn(...)` works correctly and type checkers see the right type.
         let def_keyword = if func.is_async { "async def" } else { "def" };

@@ -1139,11 +1139,18 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             tool: "napi",
             crate_suffix: "-node",
             build_dep: BuildDependency::None,
-            post_build: vec![PostBuildStep::PatchFile {
-                path: "index.d.ts",
-                find: "export declare const enum",
-                replace: "export declare enum",
-            }],
+            post_build: vec![
+                PostBuildStep::PatchFile {
+                    path: "index.d.ts",
+                    find: "export declare const enum",
+                    replace: "export declare enum",
+                },
+                PostBuildStep::PatchFile {
+                    path: "index.js",
+                    find: "module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage",
+                    replace: "module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage\n\n// Re-export the idiomatic TypeScript service wrapper's App class,\n// overriding the native binding's JsApp (which has no constructor).\ntry {\n  const _service = require('./service')\n  module.exports.App = _service.App\n} catch (e) {\n  // service.ts may not be compiled; use native binding's App\n}",
+                },
+            ],
         })
     }
 }
@@ -1189,9 +1196,8 @@ fn napi_variant_wrapper_constructor(
 
             // If NAPI added a prefix (e.g., "JsMethod" != "Method"), we need to convert.
             // This happens when a custom type is mapped with the prefix.
-            let needs_conversion = !core_type_name.is_empty()
-                && mapped_type.starts_with(&mapper.prefix)
-                && !mapped_type.contains("::");
+            let needs_conversion =
+                !core_type_name.is_empty() && mapped_type.starts_with(&mapper.prefix) && !mapped_type.contains("::");
 
             if needs_conversion {
                 format!("{}.into()", p.name)

@@ -1338,6 +1338,18 @@ impl Backend for PhpBackend {
         // The native PHP extension registers the same class names at module load
         // (before Composer autoload runs), so these userland files are never
         // included at runtime — the native class always wins.
+        // Build a map of (service owner type, method name, param name) -> callback contract
+        // to fix generic handler parameter types (e.g., H -> Handler).
+        let mut handler_contract_map: ahash::AHashMap<(String, String, String), String> = ahash::AHashMap::new();
+        for service in &api.services {
+            for reg in &service.registrations {
+                handler_contract_map.insert(
+                    (service.name.clone(), reg.method.clone(), reg.callback_param.clone()),
+                    reg.callback_contract.clone(),
+                );
+            }
+        }
+
         for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
             let streaming_adapters: Vec<&crate::core::config::AdapterConfig> = config
                 .adapters
@@ -1355,6 +1367,7 @@ impl Backend for PhpBackend {
                 &streaming_adapters,
                 &streaming_method_names,
                 &config.trait_bridges,
+                &handler_contract_map,
             );
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join(format!("{}.php", typ.name)),
@@ -1848,6 +1861,7 @@ fn gen_php_opaque_class_file(
     streaming_adapters: &[&crate::core::config::AdapterConfig],
     streaming_method_names: &AHashSet<String>,
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
+    handler_contract_map: &ahash::AHashMap<(String, String, String), String>,
 ) -> String {
     let mut content = String::new();
     content.push_str(&crate::backends::php::template_env::render(
@@ -1946,7 +1960,13 @@ fn gen_php_opaque_class_file(
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                let ptype = php_type(&p.ty);
+                // Check if this parameter is a handler contract with a generic type.
+                // If so, use the concrete handler contract name instead.
+                let ptype = if let Some(contract_name) = handler_contract_map.get(&(typ.name.clone(), method_name.clone(), p.name.clone())) {
+                    contract_name.clone()
+                } else {
+                    php_type(&p.ty)
+                };
                 if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
                     let nullable = if ptype.starts_with('?') { "" } else { "?" };
                     format!("{nullable}{ptype} ${} = null", p.name)
