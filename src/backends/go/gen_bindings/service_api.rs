@@ -433,9 +433,8 @@ fn gen_registration_method(
     out.push_str("\tctxID := registerHandler(handler)\n");
 
     // Call C registration function.
-    // cgo types the callback parameter (an inline C function-pointer in the generated header)
-    // as `*[0]byte`. The static trampoline `C.service_handler_trampoline` resolves to an
-    // `unsafe.Pointer`; convert it to `*[0]byte` so it satisfies the parameter type.
+    // cgo exposes the static trampoline as an addressable C symbol. Pass its address as
+    // unsafe.Pointer so it satisfies the C callback parameter at the registration boundary.
     let upper_prefix = ffi_prefix.to_uppercase();
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
@@ -936,7 +935,7 @@ mod tests {
         assert!(go.contains("/*\n#include <string.h>"));
         assert!(go.contains("#include \"test_crate.h\""));
         assert!(go.contains("extern char* service_handler_callback(void* ctx, char* req);"));
-        assert!(go.contains("static char* service_handler_trampoline(void* ctx, const char* req) {"));
+        assert!(go.contains("char* service_handler_trampoline(void* ctx, const char* req) {"));
         assert!(go.contains("import \"C\""));
         // Verify prefixed struct names (uppercase prefix)
         assert!(go.contains("*TEST_CRATETestServiceOpaque"));
@@ -988,9 +987,8 @@ mod tests {
         assert!(go.contains("RegisterAddHandler"));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
-        // Verify callback is passed via the const-signature static trampoline, cast to the
-        // cgo function-pointer type the register parameter expects.
-        assert!(go.contains("(*[0]byte)(C.service_handler_trampoline),"));
+        // Verify callback is passed via the const-signature trampoline address.
+        assert!(go.contains("unsafe.Pointer(&C.service_handler_trampoline),"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }

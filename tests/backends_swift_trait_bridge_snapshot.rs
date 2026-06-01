@@ -270,10 +270,10 @@ fn test_trait_bridge_excluded_type_return() {
     // struct is not visible to the Swift side, so the conformer returns JSON.
     // Per commit 23a58ff9e the async keyword is no longer emitted; the trait
     // method shape is now plain `throws`.
-    assert!(content.contains("func process(image_bytes: Data) throws -> String"));
+    assert!(content.contains("func process(imageBytes: Data) throws -> String"));
 
     // Adapter method should return String (JSON envelope)
-    assert!(content.contains("func processCall(image_bytes: Data) throws -> String"));
+    assert!(content.contains("func processCall(imageBytes: Data) throws -> String"));
 
     // The marshal_encode_excluded helper should be present
     assert!(content.contains("marshal_encode_excluded"));

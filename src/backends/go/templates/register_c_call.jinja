@@ -5,7 +5,7 @@
 	var cErr *C.char
 	rc := C.{{ c_function }}(
 		cName,
-		vtable,
+		&vtable,
 		unsafe.Pointer(uintptr(handle)),
 		&cErr,
 	)

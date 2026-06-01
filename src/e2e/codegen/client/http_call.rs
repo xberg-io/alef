@@ -177,7 +177,7 @@ mod tests {
                 },
                 request: HttpRequest {
                     method: "GET".into(),
-                    path: format!("/fixtures/{id}"),
+                    path: String::new(),
                     headers: BTreeMap::new(),
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
