@@ -45,9 +45,9 @@
 {% endfor %}
 {% elif assertion_type == "not_contains" %}
 {% if field_is_optional %}
-    assert {{ field_access }} is None or not ({{ cmp_expr }})  # noqa: S101
+    assert {{ field_access }} is None or {{ negated_cmp_expr }}  # noqa: S101
 {% else %}
-    assert not ({{ cmp_expr }})  # noqa: S101
+    assert {{ negated_cmp_expr }}  # noqa: S101
 {% endif %}
 {% elif assertion_type == "not_empty" %}
     assert {{ field_access }}  # noqa: S101

@@ -346,13 +346,14 @@ fn render_standard_assertion(
                 let expected = value_to_python_string(val);
                 let cmp_expr =
                     python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
+                let negated_cmp_expr = negate_contains_expr(&cmp_expr, field_is_array, field_is_enum);
                 let rendered = crate::e2e::template_env::render(
                     "python/assertion.jinja",
                     minijinja::context! {
                         assertion_type => "not_contains",
                         field_access => field_access,
                         field_is_optional => field_is_optional,
-                        cmp_expr => cmp_expr,
+                        negated_cmp_expr => negated_cmp_expr,
                     },
                 );
                 out.push_str(&rendered);
@@ -474,6 +475,19 @@ fn python_contains_expr(
         return format!("{expected}.lower() in str({field_access}).lower()");
     }
     format!("{expected} in {field_access}")
+}
+
+/// Negate a comparison expression for use in `not_contains` assertions.
+/// For simple membership tests (e.g., `x in y`), emits `x not in y` directly
+/// instead of wrapping with `not (...)` to avoid ruff E713 flip-flop issues.
+fn negate_contains_expr(cmp_expr: &str, field_is_array: bool, field_is_enum: bool) -> String {
+    // Simple membership test: `expected in field_access` → `expected not in field_access`
+    if !field_is_array && !field_is_enum && cmp_expr.contains(" in ") && !cmp_expr.contains("not in") {
+        return cmp_expr.replace(" in ", " not in ");
+    }
+
+    // For complex expressions (any(...), lower() calls, etc.), wrap with `not (...)`
+    format!("not ({cmp_expr})")
 }
 
 fn render_method_result(out: &mut String, assertion: &Assertion, result_var: &str) {
@@ -686,5 +700,43 @@ mod tests {
     fn build_python_method_call_root_child_count() {
         let expr = build_python_method_call("tree", "root_child_count", None);
         assert_eq!(expr, "tree.root_node().child_count()");
+    }
+
+    #[test]
+    fn negate_contains_expr_simple_membership_not_in() {
+        let expr = "\"test\" in result.content";
+        let negated = negate_contains_expr(expr, false, false);
+        assert_eq!(negated, "\"test\" not in result.content");
+    }
+
+    #[test]
+    fn negate_contains_expr_array_uses_not_wrapper() {
+        let expr = "any(\"test\" in text for item in result.structure for text in _alef_e2e_item_texts(item))";
+        let negated = negate_contains_expr(expr, true, false);
+        assert!(
+            negated.contains("not ("),
+            "expected `not (...)` wrapper for array expression"
+        );
+    }
+
+    #[test]
+    fn negate_contains_expr_enum_uses_not_wrapper() {
+        let expr = "\"test\".lower() in str(result.status).lower()";
+        let negated = negate_contains_expr(expr, false, true);
+        assert!(
+            negated.contains("not ("),
+            "expected `not (...)` wrapper for enum expression"
+        );
+    }
+
+    #[test]
+    fn negate_contains_expr_preserves_already_negated() {
+        let expr = "\"test\" not in result.content";
+        let negated = negate_contains_expr(expr, false, false);
+        // Should not double-negate: ` not in ` already present, so wrap with `not (...)`
+        assert!(
+            negated.contains("not ("),
+            "expected `not (...)` wrapper for already-negated expression"
+        );
     }
 }
