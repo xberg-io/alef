@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **R/extendr: JSON-bridge bare Named extendr-incompatible struct params.** Bare
+  `Named` types listed in `extendr_incompatible_types` have no `#[extendr]` impl
+  and therefore no `TryFrom<&Robj>` conversion — they can be neither owned nor
+  borrowed across the R boundary. Treat them the same as `Vec<Named>`: take a
+  JSON `String` and `serde_json::from_str` into the core type. The wrapping
+  function lifts to `Result<String>` whenever any param uses JSON deserialization
+  so the `?` propagation is well-typed.
+
 - **Kotlin/JNI: deduplicate `nativeFree<T>` destructor emission.** Types that are
   both client types (with instance methods) AND opaque return types of top-level
   functions had their destructor `external fun` declared twice — once in the

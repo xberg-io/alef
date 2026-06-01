@@ -681,7 +681,11 @@ impl Backend for ExtendrBackend {
                     &enum_names,
                     &opaque_types,
                 );
-                let func_params_need_json = func.params.iter().any(|p| is_extendr_native_incompatible(&p.ty));
+                let func_params_need_json = func.params.iter().any(|p| {
+                    is_extendr_native_incompatible(&p.ty)
+                        || matches!(&p.ty, crate::core::ir::TypeRef::Named(n)
+                            if extendr_incompatible_types.contains(n.as_str()))
+                });
                 if func_return_needs_json || func_params_need_json {
                     builder.add_item(&gen_extendr_json_bridged_function(
                         func,
@@ -1885,9 +1889,14 @@ fn gen_extendr_json_bridged_function(
     let mut body_preamble = String::new();
 
     for param in &func.params {
-        let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
+        let needs_json_vec = matches!(&param.ty, TypeRef::Vec(inner)
             if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-        if needs_json {
+        // Bare Named struct params for types that lack a `#[extendr]` impl (they live in
+        // `extendr_incompatible_types`) have no `TryFrom<&Robj>` generated, so they must
+        // also cross the boundary as JSON strings — same as Vec<Struct>.
+        let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
+            if extendr_incompatible_types.contains(n.as_str()));
+        if needs_json_vec {
             // Take JSON string, deserialize to core Vec<T>.
             let core_ty_path = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
@@ -1919,10 +1928,35 @@ fn gen_extendr_json_bridged_function(
                 ));
                 body_preamble.push_str("    ");
             }
+        } else if needs_json_struct {
+            // Take JSON string, deserialize to core type directly.
+            let n = match &param.ty {
+                TypeRef::Named(n) => n,
+                _ => unreachable!(),
+            };
+            let core_ty_path = format!("{core_import}::{n}");
+            if param.optional {
+                sig_params.push(format!("{}: Option<String>", param.name));
+                body_preamble.push_str(&format!(
+                    "let {name}_core: Option<{ty}> = {name}.as_deref()\n        .map(|s| serde_json::from_str(s){err}).transpose()?;\n    ",
+                    name = &param.name,
+                    ty = &core_ty_path,
+                    err = &err_map,
+                ));
+            } else {
+                sig_params.push(format!("{}: String", param.name));
+                body_preamble.push_str(&format!(
+                    "let {name}_core: {ty} = serde_json::from_str(&{name}){err}?;\n    ",
+                    name = &param.name,
+                    ty = &core_ty_path,
+                    err = &err_map,
+                ));
+            }
         } else {
-            // Use the standard binding type.
+            // Use the standard binding type. Named opaque structs have `#[extendr]` impls and
+            // therefore generate `TryFrom<&Robj> for &T`; bare scalar/primitive types convert
+            // directly.
             let ty_str = mapper.map_type(&param.ty);
-            // Named non-opaque structs must be `&T` (extendr TryFrom<&Robj> for &T).
             let sig_ty = if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
                 if param.optional {
                     format!("extendr_api::Nullable<&{ty_str}>")
@@ -1979,7 +2013,11 @@ fn gen_extendr_json_bridged_function(
     for param in &func.params {
         let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
             if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-        if !needs_json {
+        // Skip — bare Named extendr-incompatible structs already emit their `_core` binding
+        // via the JSON preamble in the param loop above.
+        let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
+            if extendr_incompatible_types.contains(n.as_str()));
+        if !needs_json && !needs_json_struct {
             if let TypeRef::Named(n) = &param.ty {
                 if !opaque_types.contains(n.as_str()) {
                     if param.optional {
@@ -2016,11 +2054,19 @@ fn gen_extendr_json_bridged_function(
         .map(|param| {
             let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
             if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+            let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
+                if extendr_incompatible_types.contains(n.as_str()));
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)
                 } else {
                     format!("{}_core", param.name)
+                }
+            } else if needs_json_struct {
+                if param.optional {
+                    format!("{}_core.as_ref()", param.name)
+                } else {
+                    format!("&{}_core", param.name)
                 }
             } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
                 if param.optional {
@@ -2041,6 +2087,15 @@ fn gen_extendr_json_bridged_function(
     let _ = call_args_str; // replaced by final_call_args
     let final_call_args_str = final_call_args.join(", ");
 
+    // When the preamble emits `?` for JSON deserialization, the wrapping function must
+    // return a `Result` even if the core function itself is infallible.
+    let params_need_json_deserialize = func.params.iter().any(|p| {
+        matches!(&p.ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+            || matches!(&p.ty, TypeRef::Named(n) if extendr_incompatible_types.contains(n.as_str()))
+    });
+    let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;
+
     // Generate the return type — always String (JSON) for JSON-bridged functions,
     // or Option<String> for Option<Enum> returns.
     let (ret_type, result_convert) = match &func.return_type {
@@ -2049,7 +2104,7 @@ fn gen_extendr_json_bridged_function(
             // `.transpose()` converts Option<Result<S,E>> → Result<Option<S>,E> for the
             // Result case; for the non-Result case it converts Option<Result<S,E>> → Result<Option<S>,E>
             // which we then `?`-unwrap to Option<String>.
-            if func.error_type.is_some() {
+            if effectively_fallible {
                 // Last expression must be Result<Option<String>, E> — use transpose() without `?`
                 let ser = format!(
                     "result.map(|v| serde_json::to_string(&v){err_map}).transpose()",
@@ -2066,7 +2121,7 @@ fn gen_extendr_json_bridged_function(
             // All other incompatible types: return String (JSON)
             // For Result<String> functions, the last expr must be Result<String, E> — use map_err
             // without `?` (the `?` would unwrap to String, not match Result<String>).
-            if func.error_type.is_some() {
+            if effectively_fallible {
                 let ser = format!("serde_json::to_string(&result){err_map}");
                 ("Result<String>".to_string(), ser)
             } else {
@@ -2099,6 +2154,15 @@ fn gen_extendr_json_bridged_function(
     // Build the function body.
     let core_call = format!("{core_fn_path}({final_call_args_str})");
 
+    // `core_suffix` is what we append to the core call. When the core function itself is
+    // fallible we use `?` to propagate (with map_err); when only the wrapper is fallible
+    // (because of JSON-deserialize preamble) the core call is infallible and we just bind.
+    let core_call_with_err = if func.error_type.is_some() {
+        format!("{core_call}{err_map}?")
+    } else {
+        core_call.clone()
+    };
+
     let body = if func.is_async {
         // Async: use TokioBlockOn (no async fn for extendr)
         if func.error_type.is_some() {
@@ -2120,32 +2184,11 @@ fn gen_extendr_json_bridged_function(
                  {result_convert}"
             )
         }
-    } else if func.error_type.is_some() {
-        // Sync with error
-        match &func.return_type {
-            TypeRef::Optional(_) => {
-                // For Option<T> returns: call core, serialize result
-                format!(
-                    "{body_preamble}{named_let_bindings}\
-                     let result = {core_call}{err_map}?;\n    \
-                     {convert}\n    \
-                     {result_convert}"
-                )
-            }
-            _ => {
-                format!(
-                    "{body_preamble}{named_let_bindings}\
-                     let result = {core_call}{err_map}?;\n    \
-                     {convert}\n    \
-                     {result_convert}"
-                )
-            }
-        }
     } else {
-        // Sync without error
+        // Sync — the call expression already includes `?` and `map_err` when core is fallible.
         format!(
             "{body_preamble}{named_let_bindings}\
-             let result = {core_call};\n    \
+             let result = {core_call_with_err};\n    \
              {convert}\n    \
              {result_convert}"
         )
@@ -2153,7 +2196,7 @@ fn gen_extendr_json_bridged_function(
 
     // Assemble the full function.
     let params_str = sig_params.join(", ");
-    let allow = if func.error_type.is_some() {
+    let allow = if effectively_fallible {
         "#[allow(clippy::missing_errors_doc)]\n"
     } else {
         ""
