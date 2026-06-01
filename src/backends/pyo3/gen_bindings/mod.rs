@@ -1461,6 +1461,11 @@ mod alef_json_str_opt {
             .as_ref()
             .map(|c| c.capsule_types.clone())
             .unwrap_or_default();
+        let reexported_types = config
+            .python
+            .as_ref()
+            .map(|c| c.reexported_types.clone())
+            .unwrap_or_default();
         let api_content = functions::gen_api_py(
             api,
             &module_name,
@@ -1469,6 +1474,7 @@ mod alef_json_str_opt {
             &config.dto,
             &capsule_types,
             &config.adapters,
+            &reexported_types,
         );
         files.push(GeneratedFile {
             path: output_base.join("api.py"),

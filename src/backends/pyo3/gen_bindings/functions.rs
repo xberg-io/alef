@@ -23,6 +23,7 @@ pub(super) fn gen_api_py(
     dto: &crate::core::config::DtoConfig,
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
     adapters: &[crate::core::config::AdapterConfig],
+    reexported_types: &[String],
 ) -> String {
     use crate::core::config::PythonDtoStyle;
     use crate::core::ir::TypeRef;
@@ -240,13 +241,16 @@ pub(super) fn gen_api_py(
         .map(|t| t.name.clone())
         .collect();
     // Types returned directly by free functions — these live in the native module,
-    // not .options. Function return type annotations must qualify them with _rust.
+    // not .options. Function return type annotations must qualify them with _rust,
+    // UNLESS they are in reexported_types (re-exported in public __init__.py).
     let return_type_names: AHashSet<String> = api
         .types
         .iter()
         .filter(|t| t.is_return_type)
         .map(|t| t.name.clone())
         .collect();
+    // Types re-exported in the public package: skip _rust. qualification for these
+    let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
     let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
     // Enums that options.py actually exports: plain (non-data) unit enums referenced by
@@ -1005,15 +1009,16 @@ pub(super) fn gen_api_py(
 
         let mut return_type_str = crate::backends::pyo3::type_map::python_type(&func.return_type);
         // If the return type is marked is_return_type, it lives in the native module, not .options.
-        // Qualify it with _rust. so the annotation matches where it's imported from.
+        // Qualify it with _rust. so the annotation matches where it's imported from, UNLESS
+        // the type is in reexported_types (re-exported in the public __init__.py).
         // Handle Optional return types: _rust.Type | None, not (_rust.Type) | None.
         if let crate::core::ir::TypeRef::Named(name) = &func.return_type {
-            if return_type_names.contains(name) {
+            if return_type_names.contains(name) && !reexported_names.contains(name.as_str()) {
                 return_type_str = format!("_rust.{return_type_str}");
             }
         } else if let crate::core::ir::TypeRef::Optional(inner) = &func.return_type {
             if let crate::core::ir::TypeRef::Named(name) = inner.as_ref() {
-                if return_type_names.contains(name) {
+                if return_type_names.contains(name) && !reexported_names.contains(name.as_str()) {
                     // Replace "Type | None" with "_rust.Type | None"
                     if let Some(base) = return_type_str.strip_suffix(" | None") {
                         return_type_str = format!("_rust.{} | None", base);

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PyO3: skip `_rust.` qualification for re-exported return types.**
+  Added `reexported_types` list to PythonConfig. When a return type lives in the native module
+  AND appears in this list, api.py annotations use the bare name instead of `_rust.Type`. Prevents
+  type-checker confusion when downstream code imports the type directly from the public package.
+  Example: `reexported_types = ["ExtractionResult"]` makes function returns unqualified `ExtractionResult`.
+
 - **Java: map TypeRef::Json to Object, not JsonNode, for polymorphic fields.**
   Both `JavaMapper.json()` and `JavaBoxedMapper.json()` now return `Object` instead of `JsonNode`. Polymorphic JSON
   fields (like `Option<serde_json::Value>` in Rust) correctly remain as `Object` type, preventing API regression on
