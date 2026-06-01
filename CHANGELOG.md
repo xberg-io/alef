@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codegen: make `TypeRef::Json` opaque-delegatable so value-parsing setters auto-route.**
+  `is_opaque_delegatable_type` previously returned `false` for `TypeRef::Json`, forcing methods
+  whose core signature is `fn(&self, value: serde_json::Value) -> Self` to fall through to the
+  `gen_unimplemented_body()` stub path. Bindings then emitted `todo!()` for value-parsing
+  schema-setter methods (`request_schema_json`, `response_schema_json`, `params_schema_json`,
+  `file_params_json` and similar). With `Json` now in the delegatable set, the standard
+  `gen_call_args` (`serde_json::from_str(&name)`) and `wrap_return_with_mutex_mapped`
+  (`.to_string()`) paths handle the String⇄Value bridge generically across all backends.
+  (`src/codegen/shared.rs`)
+
 - **Swift: fix bridge adapter method parameter labels and types in registration overloads.**
   The `gen_bridge_registration_overloads_file()` function was emitting adapter class method
   signatures with incorrect parameter names and labels, causing protocol conformance errors.

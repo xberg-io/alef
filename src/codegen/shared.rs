@@ -124,6 +124,11 @@ pub fn is_delegatable_type(ty: &TypeRef) -> bool {
 
 /// Check if a type is delegatable in the opaque method context.
 /// Opaque methods can handle Named params via Arc unwrap and Named returns via Arc wrap.
+///
+/// `Json` is delegatable: for params, `gen_call_args` emits `serde_json::from_str(&name)` to
+/// bridge the binding's `String` into the core's `serde_json::Value`; for return types,
+/// `wrap_return_with_mutex_mapped` serializes the `Value` back to a `String` via `.to_string()`.
+/// All Rust-based bindings already depend on serde_json (Json field round-tripping uses it).
 pub fn is_opaque_delegatable_type(ty: &TypeRef) -> bool {
     match ty {
         TypeRef::Primitive(_)
@@ -132,11 +137,11 @@ pub fn is_opaque_delegatable_type(ty: &TypeRef) -> bool {
         | TypeRef::Bytes
         | TypeRef::Path
         | TypeRef::Unit
-        | TypeRef::Duration => true,
+        | TypeRef::Duration
+        | TypeRef::Json => true, // Json: gen_call_args handles String→Value; wrap_return handles Value→String
         TypeRef::Named(_) => true, // Opaque: Arc unwrap/wrap. Non-opaque: .into()
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_opaque_delegatable_type(inner),
         TypeRef::Map(k, v) => is_opaque_delegatable_type(k) && is_opaque_delegatable_type(v),
-        TypeRef::Json => false,
     }
 }
 

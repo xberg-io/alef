@@ -19,7 +19,7 @@ public typealias Item = RustBridge.Item
 
 /// Get all items.
 public func getItems() -> [Item] {
-    return RustBridge.getItems().map { ref in var item = Item(ptr: ref.ptr); item.isOwned = false; return item }
+    return RustBridge.getItems().map { ref in var item = try RustBridge.Item(ptr: ref.ptr); item.isOwned = false; return item }
 }
 
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.

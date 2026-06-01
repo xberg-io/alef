@@ -9,38 +9,6 @@ expression: "&file.content"
 import Foundation
 import RustBridge
 
-// MARK: - Path/UTF-8 helper used by the String overloads of extractBytes(Sync).
-
-/// Treat the input as a filesystem path first (resolved against the test
-/// fixtures directory if relative); fall back to the raw UTF-8 bytes if no
-/// such file exists. The alef e2e generator emits fixture paths into
-/// `extract_bytes` calls, but third-party callers may still want to pass
-/// inline string content.
-public func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] {
-    let fm = FileManager.default
-    var roots: [String] = [
-        fm.currentDirectoryPath,
-    ]
-    if let envRoot = ProcessInfo.processInfo.environment["ALEF_TEST_DOCUMENTS_DIR"] {
-        roots.append(envRoot)
-    }
-    var walker = URL(fileURLWithPath: fm.currentDirectoryPath)
-    for _ in 0..<16 {
-        roots.append(walker.appendingPathComponent("test_documents").path)
-        roots.append(walker.appendingPathComponent("fixtures").path)
-        let parent = walker.deletingLastPathComponent()
-        if parent.path == walker.path { break }
-        walker = parent
-    }
-    let candidates = [pathOrContent] + roots.map { ($0 as NSString).appendingPathComponent(pathOrContent) }
-    for path in candidates {
-        if fm.fileExists(atPath: path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-            return [UInt8](data)
-        }
-    }
-    return [UInt8](pathOrContent.utf8)
-}
-
 // MARK: - Unregister name: label overloads
 
 public func unregisterOcrBackend(name: String) throws {

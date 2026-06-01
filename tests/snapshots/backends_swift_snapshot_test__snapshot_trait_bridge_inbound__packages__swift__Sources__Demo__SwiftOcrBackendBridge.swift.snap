@@ -13,7 +13,7 @@ import RustBridge
 /// Conform your Swift class or struct to this protocol to implement
 /// a Rust trait from the host side.
 public protocol SwiftOcrBackendBridge: AnyObject {
-    func processImage(image_bytes: Data, config: OcrConfig) async throws -> ExtractionResult
+    func processImage(image_bytes: Data, config: OcrConfig) async throws -> String
     func supportsLanguage(lang: String) -> Bool
 }
 
@@ -30,7 +30,11 @@ final class SwiftOcrBackendAdapter {
     func processImageCall(image_bytes: Data, config: OcrConfig) async throws -> String {
         do {
     let result = try await self.bridge.processImage(image_bytes: image_bytes, config: config)
-            return marshal_ok_result(try JSONEncoder().encode(result))
+            let encodedData = try marshal_encode_excluded(result)
+    if let jsonString = String(data: encodedData, encoding: .utf8) {
+        return "{\"ok\": \(jsonString)}"
+    }
+    return "{\"ok\": null}"
     } catch {
         return marshal_error_result(error)
     }
