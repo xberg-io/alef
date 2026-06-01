@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: fix bridge adapter method parameter labels and types in registration overloads.**
+  The `gen_bridge_registration_overloads_file()` function was emitting adapter class method
+  signatures with incorrect parameter names and labels, causing protocol conformance errors.
+  Fixed to use snake_case parameter names with labels matching the trait protocol definition
+  (e.g. `image_bytes: Data` instead of bare `image_bytes: Data`). This ensures the adapter
+  methods correctly implement the trait's method signatures.
+
 - **WASM: propagate JSON deserialization errors in no-error-path method bodies.**
   Fixed 4 sites in `gen_sync_method_body.jinja` (lines 77, 86) and `gen_async_method_body.jinja`
   (lines 83, 91) where `.ok())` silently swallowed deserialization errors, returning
