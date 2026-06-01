@@ -642,9 +642,9 @@ fn render_spec_file(
             // Fixtures with no assertions remain skipped as genuinely untestable.
             if !expects_error && !has_usable && !has_not_error && !is_streaming && fixture.assertions.is_empty() {
                 let test_name = sanitize_ident(&fixture.id);
-                let description = fixture.description.replace('\'', "\\'");
+                let description_literal = ruby_string_literal(&format!("{test_name}: {}", fixture.description));
                 let mut out = String::new();
-                out.push_str(&format!("  it '{test_name}: {description}' do\n"));
+                out.push_str(&format!("  it {description_literal} do\n"));
                 out.push_str("    skip 'Fixture has no assertions to validate'\n");
                 out.push_str("  end\n");
                 examples.push(out);
@@ -793,12 +793,12 @@ impl client::TestClientRenderer for RubyTestClientRenderer {
     /// When `skip_reason` is `Some`, the inner `it` block gets a `skip` call so
     /// the shared driver short-circuits before emitting any assertions.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        let escaped_description = description.replace('\'', "\\'");
+        let description_literal = ruby_string_literal(description);
         let rendered = crate::e2e::template_env::render(
             "ruby/http_test.jinja",
             minijinja::context! {
                 fn_name => fn_name,
-                description => escaped_description,
+                description => description_literal,
                 skip_reason => skip_reason,
             },
         );
@@ -955,7 +955,7 @@ fn render_http_example(out: &mut String, fixture: &Fixture) {
         .is_some_and(|h| h.expected_response.status_code == 101)
     {
         if let Some(http) = fixture.http.as_ref() {
-            let description = fixture.description.replace('\'', "\\'");
+            let description_literal = ruby_string_literal(&fixture.description);
             let method = http.request.method.to_uppercase();
             let path = &http.request.path;
             let rendered = crate::e2e::template_env::render(
@@ -963,7 +963,7 @@ fn render_http_example(out: &mut String, fixture: &Fixture) {
                 minijinja::context! {
                     method => method,
                     path => path,
-                    description => description,
+                    description => description_literal,
                 },
             );
             out.push_str(&rendered);
@@ -985,7 +985,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
 
     // HTTP 101 (WebSocket upgrade) cannot be tested via Net::HTTP.
     if http.expected_response.status_code == 101 {
-        let description = fixture.description.replace('\'', "\\'");
+        let description_literal = ruby_string_literal(&fixture.description);
         let method = http.request.method.to_uppercase();
         let path = &http.request.path;
         let rendered = crate::e2e::template_env::render(
@@ -993,7 +993,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
             minijinja::context! {
                 method => method,
                 path => path,
-                description => description,
+                description => description_literal,
             },
         );
         out.push_str(&rendered);
@@ -1185,7 +1185,7 @@ fn render_chat_stream_example(
     type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('\'', "\\'");
+    let description = fixture.description.clone();
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let fixture_id = fixture.id.clone();
 
@@ -1214,7 +1214,8 @@ fn render_chat_stream_example(
     }
 
     let mut out = String::new();
-    out.push_str(&format!("  it '{test_name}: {description}' do\n"));
+    let description_literal = ruby_string_literal(&format!("{test_name}: {description}"));
+    out.push_str(&format!("  it {description_literal} do\n"));
 
     // Client construction.
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
@@ -1437,7 +1438,7 @@ fn render_example(
     type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('\'', "\\'");
+    let description_literal = ruby_string_literal(&format!("{test_name}: {}", fixture.description));
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let fixture_id = fixture.id.clone();
 
@@ -1523,7 +1524,7 @@ fn render_example(
         "ruby/test_function.jinja",
         minijinja::context! {
             test_name => test_name,
-            description => description,
+            description => description_literal,
             expects_error => expects_error,
             setup_lines => setup_lines,
             call_expr => call_expr,

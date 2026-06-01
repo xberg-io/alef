@@ -2,7 +2,7 @@
 
    Context variables:
    - test_name: sanitized fixture ID
-   - description: fixture description
+   - description: fixture description as a Ruby string literal (already quoted)
    - expects_error: bool
    - setup_lines: list of setup line strings
    - call_expr: the function call expression
@@ -18,7 +18,7 @@
    - post_clear_list_call: expression to call the corresponding list function (empty if not a clear op)
    - teardown_lines: list of teardown statements emitted after assertions (e.g. trait-bridge unregister calls)
 #}
-  it '{{ test_name }}: {{ description }}' do
+  it {{ description }} do
 {% if client_factory %}
 {% if has_mock_and_key %}
     api_key = ENV['{{ api_key_var }}']
