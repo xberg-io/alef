@@ -57,7 +57,6 @@ public final class {{ bridge_class }} implements AutoCloseable {
             offset += ValueLayout.ADDRESS.byteSize();
 
 {% endfor %}
-            vtable.set(ValueLayout.ADDRESS, offset, MemorySegment.NULL);
 
         } catch (ReflectiveOperationException e) {
             arena.close();
@@ -111,6 +110,10 @@ public final class {{ bridge_class }} implements AutoCloseable {
 
     private void freeString(MemorySegment ptr) {
         // Strings returned by Java callbacks are arena-owned and released when this bridge closes.
+    }
+
+    private void freeUserData(MemorySegment userData) {
+        // User data is Java-side state (the impl object), not freed by Rust on drop.
     }
 
     /** Read a NUL-terminated native C string safely without unbounded reinterpret. */

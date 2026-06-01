@@ -581,6 +581,16 @@ fn gen_bridge_file(
         returns_void => true,
     });
 
+    stubs.push(minijinja::context! {
+        var_name => "stubFreeUserData",
+        handle_name => "freeUserData",
+        return_type => "void.class",
+        method_type_params => "MemorySegment.class",
+        descriptor_return => "ValueLayout.ADDRESS",
+        descriptor_params => "ValueLayout.ADDRESS",
+        returns_void => true,
+    });
+
     let num_vtable_fields = num_super_slots + num_methods + 2;
     let register_takes_name = has_super_trait;
 
