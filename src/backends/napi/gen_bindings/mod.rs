@@ -186,12 +186,12 @@ impl Backend for NapiBackend {
         // Check if we have opaque types and trait types (visitors)
         // Exclude trait types from opaque_types since they use JsVisitorRef instead of Object<'static>
         // Also exclude capsule types — they do not get #[napi] class wrappers.
-        // For NAPI, also treat non-opaque types with has_default as opaque so they can have
-        // #[napi(constructor)] methods (e.g. ServerConfig -> new ServerConfig() in JS).
+        // Only treat explicitly-opaque types as opaque in NAPI. Types with has_default but not
+        // explicitly opaque (e.g., config DTOs like QueryOnlyConfig) use #[napi(object)] pattern.
         let opaque_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| (t.is_opaque || t.has_default) && !t.is_trait && !capsule_types.contains_key(&t.name))
+            .filter(|t| t.is_opaque && !t.is_trait && !capsule_types.contains_key(&t.name))
             .map(|t| t.name.clone())
             .collect();
         let mutex_types: AHashSet<String> = api
@@ -435,25 +435,25 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     let ctor_impl = format!("#[napi]\nimpl {struct_name} {{\n{}}}", ctor_body);
                     builder.add_item(&ctor_impl);
                 }
-                // Variant-wrapper constructor — when the type is referenced as the wrapper
+                // Constructors for opaque types: emit #[napi(constructor)] for default-constructors
+                // or variant-wrapper constructors (but not both).
+                // Variant-wrapper takes priority — when the type is referenced as the wrapper
                 // of one or more registration variants, and variant bodies emit
                 // `new WrapperType(args)` JS constructor-syntax, opt the wrapper's static
                 // `new` into a `#[napi(constructor)]` so napi-rs exposes it as `new Class()`.
                 //
-                // `client_constructors` takes priority. Use a distinct Rust fn name
+                // `client_constructors` takes priority over both. Use a distinct Rust fn name
                 // (`new_constructor`) to avoid a duplicate-`fn new` conflict with the
                 // static `#[napi]` method already emitted by `gen_opaque_struct_methods`.
-                else if typ.is_variant_wrapper && !config.client_constructors.contains_key(&typ.name) {
-                    if let Some(ctor) = napi_variant_wrapper_constructor(typ, &mapper, &core_import, &prefix) {
-                        builder.add_item(&ctor);
-                    }
-                }
-                // Default-constructor for types with has_default: emit #[napi(constructor)]
-                // for types that have a parameterless `new()` method (e.g. ServerConfig).
-                // This allows JS `new ServerConfig()` to construct a default instance.
-                else if typ.has_default && !config.client_constructors.contains_key(&typ.name) {
-                    if let Some(ctor) = napi_default_constructor(typ, &mapper, &core_import, &prefix) {
-                        builder.add_item(&ctor);
+                else if !config.client_constructors.contains_key(&typ.name) {
+                    if typ.is_variant_wrapper {
+                        if let Some(ctor) = napi_variant_wrapper_constructor(typ, &mapper, &core_import, &prefix) {
+                            builder.add_item(&ctor);
+                        }
+                    } else if typ.has_default {
+                        if let Some(ctor) = napi_default_constructor(typ, &mapper, &core_import, &prefix) {
+                            builder.add_item(&ctor);
+                        }
                     }
                 }
             } else {
@@ -1235,8 +1235,8 @@ fn napi_variant_wrapper_constructor(
     ))
 }
 
-/// For a type with `has_default` that is treated as opaque in NAPI (e.g. ServerConfig),
-/// emit a `#[napi(constructor)] pub fn new() -> Self` to enable JS `new ServerConfig()` syntax.
+/// For an explicitly-opaque type with `has_default` that is treated as opaque in NAPI,
+/// emit a `#[napi(constructor)] pub fn new() -> Self` to enable JS `new ClassName()` syntax.
 /// This is a simple wrapper around the Rust `new()` method that returns a default instance.
 fn napi_default_constructor(
     typ: &crate::core::ir::TypeDef,
