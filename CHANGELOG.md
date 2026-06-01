@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dart e2e: always emit `tearDownAll` for RustLib singleton cleanup.** All Dart e2e
+  test files initialize `RustLib` in `setUpAll`; `tearDownAll` must always be emitted
+  to properly dispose the native library singleton, preventing lifecycle crashes at
+  test teardown. Previously, `tearDownAll` was only emitted for HTTP fixtures and SUT
+  spawning, leaving non-HTTP test files without cleanup.
+
+- **TypeScript e2e: emit trait-bridge stub method names in camelCase.** NAPI-RS exposes
+  Rust methods as camelCase, but the e2e stub emitter used `method.name` directly,
+  producing snake_case stubs like `extract_bytes` instead of `extractBytes`. Apply
+  `to_camel_case()` to both sync and async stub method emissions, matching the
+  language idiom and unblocking node e2e suites.
+
+- **Swift e2e: drop library-specific batch-function carve-out.** Codegen previously
+  skipped emitting the `config:` parameter for `batch*` functions on the assumption
+  they hardcoded config internally, which is library-specific behaviour. Removed the
+  carve-out so generated `batchExtractFilesSync` / `batchExtractBytesSync` calls
+  correctly pass through deserialized `ExtractionConfig`, fixing BatchTests compile
+  errors.
+
 - **Dart: fix FRB handler executor calls in generated build.rs.** FRB generates
   code that calls `handler.executeSync()` and `handler.executeNormal()` on raw
   callback function parameters, but these methods don't exist on function types.
