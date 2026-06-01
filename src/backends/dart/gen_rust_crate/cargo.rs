@@ -369,10 +369,6 @@ fn main() {{
             // its native library from its own installed location.
             patch_published_loader();
 
-            // Fix FRB-generated calls to executeSync/executeNormal on callback
-            // function parameters. The handler is a function type, not an object
-            // with these methods.
-            fix_handler_executor_calls();
         }}
         Ok(status) => panic!("flutter_rust_bridge_codegen generate failed (exit code: {{status}})"),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {{
@@ -468,34 +464,7 @@ fn patch_published_loader() {{
             Err(err) => println!("cargo:warning=failed to spawn dart format: {{err}}"),
         }}
     }}
-}}
-
-/// Fix FRB-generated Dart code that incorrectly calls executeSync/executeNormal
-/// on callback function parameters.
-///
-/// When FRB generates service methods that take a callback function parameter
-/// (e.g. `handler: FutureOr<String> Function(String)`), it emits code that calls
-/// `handler.executeSync(...)` or `handler.executeNormal(...)`, but these methods
-/// don't exist on function types. This patch rewrites the calls to use the
-/// `generalizedFrbRustBinding` object instead, which has these methods.
-fn fix_handler_executor_calls() {{
-    let path = Path::new(FRB_GENERATED_DART);
-    let Ok(source) = std::fs::read_to_string(path) else {{
-        println!("cargo:warning=handler-executor fix skipped: {{}} not found", FRB_GENERATED_DART);
-        return;
-    }};
-
-    let patched = source
-        .replace("handler.executeSync(", "generalizedFrbRustBinding.executeSync(")
-        .replace("handler.executeNormal(", "generalizedFrbRustBinding.executeNormal(");
-
-    if patched != source {{
-        if let Err(err) = std::fs::write(path, &patched) {{
-            println!("cargo:warning=failed to write handler-executor fix: {{err}}");
-        }}
-    }}
-}}
-"##
+}}"##
     )
 }
 
