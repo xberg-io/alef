@@ -125,6 +125,14 @@ pub struct PythonConfig {
     /// in its first 5 lines, or alef's cleanup pipeline will treat it as a stale alef artifact.
     #[serde(default)]
     pub extra_init_imports: std::collections::BTreeMap<String, Vec<String>>,
+    /// Type names to skip `_rust.` qualification in function return-type annotations.
+    /// List type names that are re-exported in the public `__init__.py` to avoid
+    /// annotating them with `_rust.TypeName` (which causes type-checker confusion when
+    /// the type is also imported as a bare name in the public API).
+    /// Example: `["ExtractionResult", "ExtractionDiff"]` makes function returns bare
+    /// `ExtractionResult` instead of `_rust.ExtractionResult`.
+    #[serde(default)]
+    pub reexported_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
