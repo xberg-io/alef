@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: emit `public` access on swift-bridge `Ref` class `ptr` property.** New
+  `make_swift_bridge_ref_ptr_public` post-processor in `emit_swift_bridge_files` promotes
+  `var ptr: UnsafeMutableRawPointer` to `public var ptr:` on every emitted `Ref` class. Required
+  because alef splits the binding across two SwiftPM targets (`RustBridge` containing the
+  swift-bridge output and the user-facing module containing `Sources/Kreuzberg/`); cross-module
+  callers like `RustBridge.ExtractionResult(ptr: ref.ptr)` need the pointer public for the
+  round-trip. swift-bridge defaults to internal-access, which is module-local only.
+
 - **e2e/python: thread fixture `handler.middleware.{name}` through app_harness as `RouteBuilder.{name}()` calls.** Generic middleware passthrough — no per-middleware special-casing. `build_middleware_value` normalises CORS field names (`allow_*` → `allowed_*`) to match the binding's `CorsConfig.from_json()` contract; other middleware pass through unchanged. The harness template walks the `middleware` dict and dispatches each entry via a name→(ConfigClass, builder_method) table.
 
 - **PHP: fix truncated handler contract types in opaque class stubs.** When generating PHP stub

@@ -3310,8 +3310,9 @@ fn emit_swift_bridge_files(
     // swift-bridge's generated SwiftBridgeCore.swift starts with `import Foundation`; the
     // crate-specific swift file has no imports at all.  Both reference C types (RustStr,
     // __private__Option*, __swift_bridge__$Vec_*) that live in the RustBridgeC SwiftPM target.
-    let core_swift_content = append_rust_string_ref_to_string_extension(&prepend_rust_bridge_c_import(&core_swift));
-    let crate_swift_content = prepend_rust_bridge_c_import(&crate_swift);
+    let core_swift_content =
+        make_swift_bridge_ref_ptr_public(&append_rust_string_ref_to_string_extension(&prepend_rust_bridge_c_import(&core_swift)));
+    let crate_swift_content = make_swift_bridge_ref_ptr_public(&prepend_rust_bridge_c_import(&crate_swift));
 
     // RustBridgeC.h: umbrella header concatenating both generated C headers.
     // SwiftPM exposes the directory via `publicHeadersPath: "."`, so every `.h` file
@@ -3943,7 +3944,7 @@ fn emit_async_free_function_forwarder(
                 if let TypeRef::Named(name) = inner.as_ref() {
                     let struct_name = swift_ident(name);
                     out.push_str("        var items: [");
-                    out.push_str(&forwarder_return_type(&func.return_type));
+                    out.push_str(&forwarder_return_type(inner.as_ref()));
                     out.push_str("] = []\n");
                     out.push_str("        for ref in result {\n");
                     if known_dto_names.contains(name) {
@@ -5125,6 +5126,19 @@ fn append_rust_string_ref_to_string_extension(content: &str) -> String {
     } else {
         content.to_string()
     }
+}
+
+/// Promote `var ptr: UnsafeMutableRawPointer` to `public var ptr:` on swift-bridge-emitted
+/// `Ref` classes so cross-module callers (alef-emitted `Sources/Kreuzberg/Kreuzberg.swift`)
+/// can read `ref.ptr` when round-tripping opaque handles through `RustBridge.<T>(ptr:)`.
+/// swift-bridge defaults `ptr` to internal access, which works only within the same SwiftPM
+/// target; alef splits the binding across `RustBridge` and the user-facing module, so the
+/// pointer must be public.
+fn make_swift_bridge_ref_ptr_public(content: &str) -> String {
+    content.replace(
+        "    var ptr: UnsafeMutableRawPointer",
+        "    public var ptr: UnsafeMutableRawPointer",
+    )
 }
 
 fn prepend_rust_bridge_c_import(content: &str) -> String {
