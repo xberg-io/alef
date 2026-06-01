@@ -67,6 +67,9 @@ impl E2eCodegen for SwiftE2eCodegen {
 
         let mut files = Vec::new();
 
+        // Check if any fixture is an HTTP test (needs app harness and HTTP framework).
+        let has_http_fixtures = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
+
         // Resolve call config with overrides.
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
@@ -114,7 +117,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         // `<output>/swift_e2e/`. `swift test` is run from that directory.
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
-            content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode),
+            content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode, has_http_fixtures),
             generated_header: false,
         });
 
@@ -128,17 +131,17 @@ impl E2eCodegen for SwiftE2eCodegen {
         }
 
         // Generate the app harness executable that runs the SUT server for tests.
-        // The template already includes `// swift-format-ignore-file`; we prepend
-        // the alef-style hash header so the test enforcer
-        // (`e2e_swift_swift_format_ignore_header.rs`) finds a contiguous
-        // `//` header block ahead of the ignore directive.
-        let app_harness_body = render_app_harness(e2e_config, groups, module_name);
-        let app_harness_content = format!("{}{}", hash::header(CommentStyle::DoubleSlash), app_harness_body);
-        files.push(GeneratedFile {
-            path: output_base.join("Sources").join("Harness").join("main.swift"),
-            content: app_harness_content,
-            generated_header: false,
-        });
+        // Only emit when there are HTTP fixtures; consumers without HTTP tests
+        // don't need the harness or its HTTP framework dependency.
+        if has_http_fixtures {
+            let app_harness_body = render_app_harness(e2e_config, groups, module_name);
+            let app_harness_content = format!("{}{}", hash::header(CommentStyle::DoubleSlash), app_harness_body);
+            files.push(GeneratedFile {
+                path: output_base.join("Sources").join("Harness").join("main.swift"),
+                content: app_harness_content,
+                generated_header: false,
+            });
+        }
 
         // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
         let tests_base = output_base.clone();
@@ -202,6 +205,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 &swift_first_class_map_ref,
                 config,
                 type_defs,
+                has_http_fixtures,
             );
             files.push(GeneratedFile {
                 path: tests_base
@@ -365,6 +369,7 @@ fn render_package_swift(
     pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
+    include_harness_target: bool,
 ) -> String {
     let min_macos = toolchain::SWIFT_MIN_MACOS;
 
@@ -415,14 +420,21 @@ fn render_package_swift(
     // the product as platform-incompatible. Use the same constant the swift backend
     // emits into the dep's Package.swift.
     let targets_block = if let Some(binary_target) = binary_target_block {
-        format!(
-            r#"        {binary_target},
-        .executableTarget(
+        let harness_target = if include_harness_target {
+            format!(
+                r#"        .executableTarget(
             name: "Harness",
             dependencies: [{test_target_dep}],
             path: "Sources/Harness"
         ),
-        .testTarget(
+"#
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r#"        {binary_target},
+{harness_target}        .testTarget(
             name: "{module_name}E2ETests",
             dependencies: [{test_target_dep}]
         ),
@@ -430,13 +442,20 @@ fn render_package_swift(
         )
     } else {
         // Local mode: no binary target, just the executable harness and test target.
-        format!(
-            r#"        .executableTarget(
+        let harness_target = if include_harness_target {
+            format!(
+                r#"        .executableTarget(
             name: "Harness",
             dependencies: [{test_target_dep}],
             path: "Sources/Harness"
         ),
-        .testTarget(
+"#
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r#"{harness_target}        .testTarget(
             name: "{module_name}E2ETests",
             dependencies: [{test_target_dep}]
         ),
@@ -515,6 +534,7 @@ fn render_test_file(
     swift_first_class_map: &SwiftFirstClassMap,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    has_http_fixtures: bool,
 ) -> String {
     // Detect whether any fixture in this group uses a file_path or bytes arg — if so
     // the test class chdir's to <repo>/test_documents at setUp time so the
@@ -556,75 +576,79 @@ fn render_test_file(
     let _ = writeln!(out, "        super.setUp()");
 
     // Spawn the harness subprocess if SUT_URL is not already set.
+    // Only emit when there are HTTP fixtures; consumers without HTTP tests
+    // don't need the harness.
     let _ = writeln!(
         out,
         "        let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]"
     );
-    let _ = writeln!(out, "        if _existing == nil {{");
-    let _ = writeln!(out, "            let _harness = URL(fileURLWithPath: #filePath)");
-    let _ = writeln!(out, "                .deletingLastPathComponent() // <Module>Tests/");
-    let _ = writeln!(out, "                .deletingLastPathComponent() // Tests/");
-    let _ = writeln!(out, "                .deletingLastPathComponent() // swift_e2e/");
-    let _ = writeln!(out, "                .deletingLastPathComponent() // e2e/");
-    let _ = writeln!(out, "                .appendingPathComponent(\"swift_e2e\")");
-    let _ = writeln!(
-        out,
-        "                .appendingPathComponent(\".build/release/Harness\")"
-    );
-    let _ = writeln!(out, "            let proc = Process()");
-    let _ = writeln!(out, "            proc.executableURL = _harness");
-    let _ = writeln!(out, "            let stdoutPipe = Pipe()");
-    let _ = writeln!(out, "            proc.standardOutput = stdoutPipe");
-    let _ = writeln!(out, "            proc.standardInput = Pipe()");
-    let _ = writeln!(out, "            do {{");
-    let _ = writeln!(out, "                try proc.run()");
-    let _ = writeln!(out, "            }} catch {{");
-    let _ = writeln!(
-        out,
-        "                fatalError(\"Failed to start harness: \\(error)\")"
-    );
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(out, "            let deadline = Date(timeIntervalSinceNow: 15.0)");
-    let _ = writeln!(out, "            var ready = false");
-    let _ = writeln!(
-        out,
-        "            let _probeURL = URL(string: \"http://127.0.0.1:8009/\")!"
-    );
-    let _ = writeln!(out, "            while Date.now < deadline {{");
-    let _ = writeln!(out, "                if proc.isRunning == false {{ break }}");
-    let _ = writeln!(out, "                var _probeReq = URLRequest(url: _probeURL)");
-    let _ = writeln!(out, "                _probeReq.timeoutInterval = 0.5");
-    let _ = writeln!(out, "                let _probeSema = DispatchSemaphore(value: 0)");
-    let _ = writeln!(
-        out,
-        "                let _probeSession = URLSession(configuration: .ephemeral)"
-    );
-    let _ = writeln!(
-        out,
-        "                _probeSession.dataTask(with: _probeReq) {{ _, _, _ in _probeSema.signal() }}.resume()"
-    );
-    let _ = writeln!(
-        out,
-        "                if _probeSema.wait(timeout: .now() + 0.6) == .timedOut {{"
-    );
-    let _ = writeln!(out, "                    usleep(100000)");
-    let _ = writeln!(out, "                    continue");
-    let _ = writeln!(out, "                }}");
-    let _ = writeln!(out, "                ready = true");
-    let _ = writeln!(out, "                break");
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(out, "            if !ready {{");
-    let _ = writeln!(out, "                proc.terminate()");
-    let _ = writeln!(
-        out,
-        "                fatalError(\"Harness did not become ready within 15s\")"
-    );
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(
-        out,
-        "            ProcessInfo.processInfo.environment[\"SUT_URL\"] = \"http://127.0.0.1:8009\""
-    );
-    let _ = writeln!(out, "        }}");
+    if has_http_fixtures {
+        let _ = writeln!(out, "        if _existing == nil {{");
+        let _ = writeln!(out, "            let _harness = URL(fileURLWithPath: #filePath)");
+        let _ = writeln!(out, "                .deletingLastPathComponent() // <Module>Tests/");
+        let _ = writeln!(out, "                .deletingLastPathComponent() // Tests/");
+        let _ = writeln!(out, "                .deletingLastPathComponent() // swift_e2e/");
+        let _ = writeln!(out, "                .deletingLastPathComponent() // e2e/");
+        let _ = writeln!(out, "                .appendingPathComponent(\"swift_e2e\")");
+        let _ = writeln!(
+            out,
+            "                .appendingPathComponent(\".build/release/Harness\")"
+        );
+        let _ = writeln!(out, "            let proc = Process()");
+        let _ = writeln!(out, "            proc.executableURL = _harness");
+        let _ = writeln!(out, "            let stdoutPipe = Pipe()");
+        let _ = writeln!(out, "            proc.standardOutput = stdoutPipe");
+        let _ = writeln!(out, "            proc.standardInput = Pipe()");
+        let _ = writeln!(out, "            do {{");
+        let _ = writeln!(out, "                try proc.run()");
+        let _ = writeln!(out, "            }} catch {{");
+        let _ = writeln!(
+            out,
+            "                fatalError(\"Failed to start harness: \\(error)\")"
+        );
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "            let deadline = Date(timeIntervalSinceNow: 15.0)");
+        let _ = writeln!(out, "            var ready = false");
+        let _ = writeln!(
+            out,
+            "            let _probeURL = URL(string: \"http://127.0.0.1:8009/\")!"
+        );
+        let _ = writeln!(out, "            while Date.now < deadline {{");
+        let _ = writeln!(out, "                if proc.isRunning == false {{ break }}");
+        let _ = writeln!(out, "                var _probeReq = URLRequest(url: _probeURL)");
+        let _ = writeln!(out, "                _probeReq.timeoutInterval = 0.5");
+        let _ = writeln!(out, "                let _probeSema = DispatchSemaphore(value: 0)");
+        let _ = writeln!(
+            out,
+            "                let _probeSession = URLSession(configuration: .ephemeral)"
+        );
+        let _ = writeln!(
+            out,
+            "                _probeSession.dataTask(with: _probeReq) {{ _, _, _ in _probeSema.signal() }}.resume()"
+        );
+        let _ = writeln!(
+            out,
+            "                if _probeSema.wait(timeout: .now() + 0.6) == .timedOut {{"
+        );
+        let _ = writeln!(out, "                    usleep(100000)");
+        let _ = writeln!(out, "                    continue");
+        let _ = writeln!(out, "                }}");
+        let _ = writeln!(out, "                ready = true");
+        let _ = writeln!(out, "                break");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "            if !ready {{");
+        let _ = writeln!(out, "                proc.terminate()");
+        let _ = writeln!(
+            out,
+            "                fatalError(\"Harness did not become ready within 15s\")"
+        );
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(
+            out,
+            "            ProcessInfo.processInfo.environment[\"SUT_URL\"] = \"http://127.0.0.1:8009\""
+        );
+        let _ = writeln!(out, "        }}");
+    }
 
     if needs_chdir {
         // Chdir once at class setUp so all fixture file_path arguments resolve relative
