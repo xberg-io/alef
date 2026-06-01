@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Python e2e: emit multipart/form-data request bodies as bytes.** When fixture
+  `content-type` is `multipart/form-data`, encode the body string to UTF-8 bytes
+  instead of JSON-wrapping it. Mirrors the existing fix for `application/x-www-form-urlencoded`.
+
 - **TypeScript e2e: do not wrap form-encoded request bodies in JSON.stringify.**
   When fixture `content-type` is `application/x-www-form-urlencoded` or
   `multipart/form-data`, emit the request body as a raw string without JSON
