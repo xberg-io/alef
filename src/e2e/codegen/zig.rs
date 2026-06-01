@@ -2107,6 +2107,21 @@ fn render_json_assertion(
     // `.integer` against a literal with a fractional part (e.g. `0.9`) is a
     // Zig compile error, so the template must select the right tag.
     let is_float_val = matches!(&assertion.value, Some(serde_json::Value::Number(n)) if !n.is_i64() && !n.is_u64());
+    let n_as_i64 = if has_n {
+        format!("@as(i64, {})", n)
+    } else {
+        String::new()
+    };
+    let n_as_usize = if has_n {
+        format!("@as(usize, {})", n)
+    } else {
+        String::new()
+    };
+    let n_as_f64 = if is_float_val {
+        format!("@as(f64, {})", n)
+    } else {
+        String::new()
+    };
     let values_list: Vec<String> = assertion
         .values
         .as_deref()
@@ -2133,6 +2148,9 @@ fn render_json_assertion(
             bool_val => bool_val,
             is_null_val => is_null_val,
             n => n,
+            n_as_i64 => n_as_i64,
+            n_as_usize => n_as_usize,
+            n_as_f64 => n_as_f64,
             has_n => has_n,
             is_float_val => is_float_val,
             values_list => values_list,

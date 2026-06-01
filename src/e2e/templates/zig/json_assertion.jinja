@@ -22,9 +22,9 @@
 {% elif is_null_val %}
     try testing.expectEqual(.null, {{ field_expr }});
 {% elif is_length_access %}
-    try testing.expectEqual({{ n }}, {{ field_expr }}.array.items.len);
+    try testing.expectEqual({{ n_as_usize }}, {{ field_expr }}.array.items.len);
 {% else %}
-    try testing.expectEqual({{ n }}, {{ field_expr }}.integer);
+    try testing.expectEqual({{ n_as_i64 }}, {{ field_expr }}.integer);
 {% endif %}
 {% elif assertion_type == "contains" %}
     {
@@ -68,42 +68,42 @@
         try testing.expect(_iv == .null or (_iv == .string and _iv.string.len == 0));
     }
 {% elif assertion_type == "min_length" %}
-    try testing.expect({{ field_expr }}.string.len >= {{ n }});
+    try testing.expect({{ field_expr }}.string.len >= {{ n_as_usize }});
 {% elif assertion_type == "count_min" %}
-    try testing.expect({{ field_expr }}.array.items.len >= {{ n }});
+    try testing.expect({{ field_expr }}.array.items.len >= {{ n_as_usize }});
 {% elif assertion_type == "count_equals" %}
-    try testing.expectEqual({{ n }}, {{ field_expr }}.array.items.len);
+    try testing.expectEqual({{ n_as_usize }}, {{ field_expr }}.array.items.len);
 {% elif assertion_type == "greater_than" %}
 {% if is_length_access %}
-    try testing.expect({{ field_expr }}.array.items.len > {{ n }});
+    try testing.expect({{ field_expr }}.array.items.len > {{ n_as_usize }});
 {% elif is_float_val %}
-    try testing.expect({{ field_expr }}.float > {{ n }});
+    try testing.expect({{ field_expr }}.float > {{ n_as_f64 }});
 {% else %}
-    try testing.expect({{ field_expr }}.integer > {{ n }});
+    try testing.expect({{ field_expr }}.integer > {{ n_as_i64 }});
 {% endif %}
 {% elif assertion_type == "less_than" %}
 {% if is_length_access %}
-    try testing.expect({{ field_expr }}.array.items.len < {{ n }});
+    try testing.expect({{ field_expr }}.array.items.len < {{ n_as_usize }});
 {% elif is_float_val %}
-    try testing.expect({{ field_expr }}.float < {{ n }});
+    try testing.expect({{ field_expr }}.float < {{ n_as_f64 }});
 {% else %}
-    try testing.expect({{ field_expr }}.integer < {{ n }});
+    try testing.expect({{ field_expr }}.integer < {{ n_as_i64 }});
 {% endif %}
 {% elif assertion_type == "greater_than_or_equal" %}
 {% if is_length_access %}
-    try testing.expect({{ field_expr }}.array.items.len >= {{ n }});
+    try testing.expect({{ field_expr }}.array.items.len >= {{ n_as_usize }});
 {% elif is_float_val %}
-    try testing.expect({{ field_expr }}.float >= {{ n }});
+    try testing.expect({{ field_expr }}.float >= {{ n_as_f64 }});
 {% else %}
-    try testing.expect({{ field_expr }}.integer >= {{ n }});
+    try testing.expect({{ field_expr }}.integer >= {{ n_as_i64 }});
 {% endif %}
 {% elif assertion_type == "less_than_or_equal" %}
 {% if is_length_access %}
-    try testing.expect({{ field_expr }}.array.items.len <= {{ n }});
+    try testing.expect({{ field_expr }}.array.items.len <= {{ n_as_usize }});
 {% elif is_float_val %}
-    try testing.expect({{ field_expr }}.float <= {{ n }});
+    try testing.expect({{ field_expr }}.float <= {{ n_as_f64 }});
 {% else %}
-    try testing.expect({{ field_expr }}.integer <= {{ n }});
+    try testing.expect({{ field_expr }}.integer <= {{ n_as_i64 }});
 {% endif %}
 {% elif assertion_type == "is_true" %}
     try testing.expect({{ field_expr }}.bool);
