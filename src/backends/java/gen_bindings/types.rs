@@ -1115,6 +1115,10 @@ pub(crate) fn gen_opaque_handle_class(
         if body.contains("ObjectMapper") {
             imports.push("com.fasterxml.jackson.databind.ObjectMapper");
         }
+        // JsonNode is needed when method parameters or returns use it (e.g., requestSchemaJson(JsonNode)).
+        if body.contains("JsonNode") {
+            imports.push("com.fasterxml.jackson.databind.JsonNode");
+        }
     }
     // Streaming method bodies reference java.util.stream.Stream<T> and
     // java.util.stream.StreamSupport via fully-qualified names in the template,

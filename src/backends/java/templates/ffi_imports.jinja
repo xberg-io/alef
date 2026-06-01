@@ -40,6 +40,9 @@ import java.util.concurrent.CompletionException;
 {% if needs_object_mapper %}
 import com.fasterxml.jackson.databind.ObjectMapper;
 {% endif %}
+{% if needs_jackson_json_node %}
+import com.fasterxml.jackson.databind.JsonNode;
+{% endif %}
 {% if needs_nullable %}
 import org.jspecify.annotations.Nullable;
 {% endif %}

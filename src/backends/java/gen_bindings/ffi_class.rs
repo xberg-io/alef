@@ -121,6 +121,7 @@ pub(crate) fn gen_main_class(
             needs_completable_future => body.contains("CompletableFuture"),
             needs_completion_exception => body.contains("CompletionException"),
             needs_object_mapper => body.contains(" ObjectMapper"),
+            needs_jackson_json_node => body.contains("JsonNode"),
             needs_nullable => body.contains("@Nullable"),
         },
     );

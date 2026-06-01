@@ -11,6 +11,8 @@ import java.lang.invoke.MethodType;
 {% endif %}{% if needs_map_import %}import java.util.Map;
 {% endif %}import java.util.concurrent.ConcurrentHashMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
+{% if needs_jackson_json_node %}import com.fasterxml.jackson.databind.JsonNode;
+{% endif %}
 
 /**
  * Allocates Panama FFM upcall stubs for an I{{ trait_pascal }} implementation,
