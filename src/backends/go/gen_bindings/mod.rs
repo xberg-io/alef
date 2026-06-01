@@ -840,6 +840,17 @@ fn gen_go_file(
     let mut imports = vec!["fmt"];
     if needs_json_and_unsafe {
         imports.insert(0, "encoding/json");
+        // Check for runtime usage in non-comment code (e.g., runtime.Pinner)
+        let has_runtime_usage = body.lines().any(|line| {
+            if let Some(code_part) = line.split("//").next() {
+                code_part.contains("runtime.")
+            } else {
+                false
+            }
+        });
+        if has_runtime_usage {
+            imports.push("runtime");
+        }
         imports.push("unsafe");
     } else if has_opaque_types {
         // Opaque types need unsafe for pointer wrapping even without JSON serialization.
