@@ -20,6 +20,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: fix `Swift{Trait}Box` parameter labels, type conversions, and try/catch placement.** Five
+  critical bugs in the Box generator (`emit_function_param_box_files`) that broke compilation of
+  plugin Box shim methods:
+    1. **Parameter labels**: Protocol methods use camelCase labels (e.g., `imageBytes:`, `config:`),
+       but the Box was emitting snake_case (e.g., `image_bytes:`, `config:`). Now correctly converts
+       param names to camelCase via `to_lower_camel_case()` when emitting parameter signatures.
+    2. **Excluded types not passed to Box**: The Box generator was not aware of the augmented
+       `excluded_types` set (which includes all Named types from trait methods, plus `ExtractionResult`
+       and `InternalDocument`). It tried to JSON-decode these as TypeRef::Named → `JSONDecoder().decode(T.self, ...)`
+       when they should passthrough as `param.toString()`. Now collects Named types per-trait via
+       `trait_bridge::collect_named_types()` and passes the augmented set to `swift_shim_param_decode`.
+    3. **Bytes → Data conversion**: `TypeRef::Bytes` FFI parameters (RustVec<UInt8>) were being
+       converted to Swift `Array(imageBytes)` when they should become `Data(imageBytes)` to match
+       the bridge protocol's `func(..., image_bytes: Data)` signature.
+    4. **String returns not wrapped in RustString**: Non-throwing methods returning `String` were
+       passed back bare (`return bridge.backendType()`) instead of wrapped in RustString for the FFI
+       boundary. Now emits `return RustString(bridge.call())` for String returns.
+    5. **try/catch placement**: Parameter decode setup (JSONDecoder) was outside the do/catch block
+       when the method itself throws. Now correctly wraps both setup and the bridge call inside a
+       unified do/catch: `do { let cfg = try JSONDecoder()...; let result = try bridge.call(); ... }
+       catch { return encodeErrEnvelope(...) }`.
+
 - **Swift: emit `Swift{Trait}Bridge` protocol files into `Sources/RustBridge/` target.** Bug A:
   Bridge protocol files (`SwiftPluginBridge.swift`, `Swift{Trait}Bridge.swift`) are now emitted
   into `Sources/RustBridge/` instead of `Sources/<Module>/`. The `Swift{Trait}Box` classes

@@ -4745,6 +4745,21 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
         // Trait-specific shim methods
         content.push_str("    // MARK: Trait-specific shims\n\n");
 
+        // Collect augmented excluded types per trait (like trait_bridge.rs does)
+        let mut aug_exclude_types = excluded_types.clone();
+        aug_exclude_types.insert("ExtractionResult".to_string());
+        aug_exclude_types.insert("InternalDocument".to_string());
+        // Collect all Named types from trait methods and mark them as excluded
+        // (they are exposed as String in the bridge protocol)
+        for method in &trait_def.methods {
+            if !method.has_default_impl {
+                for param in &method.params {
+                    trait_bridge::collect_named_types(&param.ty, &mut aug_exclude_types);
+                }
+                trait_bridge::collect_named_types(&method.return_type, &mut aug_exclude_types);
+            }
+        }
+
         for method in &trait_def.methods {
             // Skip default-impl methods — they stay on the Rust side
             if method.has_default_impl {
@@ -4776,28 +4791,68 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
             content.push_str(&format!("    public func {shim_name}({param_sig}) -> {return_ffi_type} {{\n"));
 
             // Build setup and parameter decodes using Phase B helpers
+            // Pass augmented excluded types so Named types are not JSON-decoded
             let mut setup_lines = Vec::new();
             let mut call_args = Vec::new();
 
             for param in &method.params {
                 let param_camel = swift_ident(&param.name.to_lower_camel_case());
-                let decode = swift_shim_param_decode(&param_camel, &param.ty, param.optional, excluded_types);
+                let decode = swift_shim_param_decode(&param_camel, &param.ty, param.optional, &aug_exclude_types);
                 setup_lines.extend(decode.setup);
                 call_args.push(format!("{}: {}", param.name.to_lower_camel_case(), decode.expr));
             }
 
-            // Emit setup lines
-            for setup_line in &setup_lines {
-                content.push_str(&format!("        {setup_line}\n"));
-            }
+            // Check if any parameter decode can throw
+            let has_throwing_param = setup_lines.iter().any(|s| s.contains("JSONDecoder"));
+            let method_throws = method.error_type.is_some();
 
-            let call_args_str = call_args.join(", ");
-            let bridge_call = format!("bridge.{method_camel}({call_args_str})");
+            // If we have throwing parameter decodes, wrap them (and the call) in do/catch
+            if has_throwing_param {
+                content.push_str("        do {\n");
+                for setup_line in &setup_lines {
+                    content.push_str(&format!("            let {setup_line}\n"));
+                }
 
-            // Use Phase B return marshaling
-            let return_lines = swift_shim_return_marshal(method, &bridge_call);
-            for line in return_lines {
-                content.push_str(&format!("        {line}\n"));
+                let call_args_str = call_args.join(", ");
+                let bridge_call = format!("bridge.{method_camel}({call_args_str})");
+
+                // Emit the bridge call with return marshaling
+                // If the method itself throws, this handles the inner try/catch
+                if method_throws {
+                    // Method throws: use return marshal which includes do/catch
+                    // But we're already in outer do, so we need special handling
+                    match &method.return_type {
+                        TypeRef::Unit => {
+                            content.push_str(&format!("            try {bridge_call}\n"));
+                            content.push_str("            return encodeOkVoidEnvelope()\n");
+                        }
+                        _ => {
+                            content.push_str(&format!("            let result = try {bridge_call}\n"));
+                            content.push_str("            return encodeOkEnvelope(result)\n");
+                        }
+                    }
+                } else {
+                    // Method doesn't throw: just call and return
+                    let return_lines = swift_shim_return_marshal(method, &bridge_call);
+                    for line in return_lines {
+                        content.push_str(&format!("            {line}\n"));
+                    }
+                }
+                content.push_str("        } catch { return encodeErrEnvelope(\"\\(error)\") }\n");
+            } else {
+                // No throwing param decodes: emit setup normally
+                for setup_line in &setup_lines {
+                    content.push_str(&format!("        {setup_line}\n"));
+                }
+
+                let call_args_str = call_args.join(", ");
+                let bridge_call = format!("bridge.{method_camel}({call_args_str})");
+
+                // Use Phase B return marshaling
+                let return_lines = swift_shim_return_marshal(method, &bridge_call);
+                for line in return_lines {
+                    content.push_str(&format!("        {line}\n"));
+                }
             }
 
             content.push_str("    }\n\n");

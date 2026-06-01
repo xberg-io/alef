@@ -98,7 +98,7 @@ fn emit_swift_plugin_bridge_protocol() -> String {
 }
 
 /// Collect all Named type references recursively from a TypeRef.
-fn collect_named_types(type_ref: &TypeRef, named_types: &mut HashSet<String>) {
+pub fn collect_named_types(type_ref: &TypeRef, named_types: &mut HashSet<String>) {
     match type_ref {
         TypeRef::Named(name) => {
             named_types.insert(name.clone());
@@ -368,6 +368,7 @@ fn swift_method_params_native(params: &[crate::core::ir::ParamDef], exclude_type
 /// Emit Swift method parameter signature from MethodDef params.
 ///
 /// Adapter methods marshal excluded types as JSON strings for the C boundary.
+/// Uses camelCase labels to match Swift naming conventions.
 fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &HashSet<String>) -> String {
     if params.is_empty() {
         return String::new();
@@ -376,7 +377,7 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
     params
         .iter()
         .map(|p| {
-            let name = p.name.to_snake_case();
+            let name = p.name.to_lower_camel_case();
             let ty = swift_type_name(&p.ty, exclude_types);
             format!("{}: {}", name, ty)
         })

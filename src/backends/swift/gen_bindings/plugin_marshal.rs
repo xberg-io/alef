@@ -96,10 +96,10 @@ pub fn swift_shim_param_decode(
             expr: format!("{}.toString()", param_name),
             is_throwing: false,
         },
-        // Bytes: convert RustVec<UInt8> to [UInt8]
+        // Bytes: convert RustVec<UInt8> to Data
         TypeRef::Bytes => ParamDecode {
             setup: vec![],
-            expr: format!("Array({})", param_name),
+            expr: format!("Data({})", param_name),
             is_throwing: false,
         },
         // Vec<T>: special handling for Vec<String>, fallback to JSON for complex Vec types
@@ -273,9 +273,10 @@ pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
 /// - Throwing methods returning Unit: encode `{"ok":null}` on success, `{"err": "..."}` on error
 /// - Throwing methods returning T: encode `{"ok": <T>}` / `{"err": "..."}`
 /// - Non-throwing methods: passthrough the result or build RustVec for Vec<String>
+/// - String return types are wrapped in RustString for FFI boundary
 ///
 /// The `bridge_call_expr` is the expression that calls the inner bridge method
-/// (e.g., `inner.processImage(image_bytes, config: cfg)`).
+/// (e.g., `bridge.processImage(imageBytes: imageBytes, config: config)`).
 ///
 /// Returns lines to emit as the method body (from opening brace to closing brace).
 pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> Vec<String> {
@@ -284,7 +285,7 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
         match &method.return_type {
             TypeRef::Unit => vec![
                 "do {".to_string(),
-                format!("  {} ", bridge_call_expr),
+                format!("  try {}", bridge_call_expr),
                 "  return encodeOkVoidEnvelope()".to_string(),
                 "} catch { return encodeErrEnvelope(\"\\(error)\") }".to_string(),
             ],
@@ -292,7 +293,7 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
                 // Throwing method with non-unit return: encode the result in envelope
                 vec![
                     "do {".to_string(),
-                    format!("  let result = {} ", bridge_call_expr),
+                    format!("  let result = try {}", bridge_call_expr),
                     "  return encodeOkEnvelope(result)".to_string(),
                     "} catch { return encodeErrEnvelope(\"\\(error)\") }".to_string(),
                 ]
@@ -302,16 +303,20 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
         // Non-throwing method: return result as-is (or build RustVec for Vec<String>)
         match &method.return_type {
             TypeRef::Unit => vec!["return ()".to_string()],
+            TypeRef::String => {
+                // String return: wrap in RustString for FFI boundary
+                vec![format!("return RustString({})", bridge_call_expr)]
+            }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
                 // Build RustVec<RustString> from [String]
                 vec![
-                    format!("let strings = {} ", bridge_call_expr),
+                    format!("let strings = {}", bridge_call_expr),
                     "let vec = RustVec<RustString>()".to_string(),
                     "for s in strings { vec.push(value: RustString(s)) }".to_string(),
                     "return vec".to_string(),
                 ]
             }
-            _ => vec![format!("return {} ", bridge_call_expr)],
+            _ => vec![format!("return {}", bridge_call_expr)],
         }
     }
 }
@@ -424,7 +429,7 @@ mod tests {
     fn test_param_decode_bytes() {
         let decode = swift_shim_param_decode("image_bytes", &TypeRef::Bytes, false, &std::collections::HashSet::new());
         assert!(decode.setup.is_empty());
-        assert_eq!(decode.expr, "Array(image_bytes)");
+        assert_eq!(decode.expr, "Data(image_bytes)");
         assert!(!decode.is_throwing);
     }
 
