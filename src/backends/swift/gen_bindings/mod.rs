@@ -398,11 +398,19 @@ impl Backend for SwiftBackend {
         // `Task.detached`. `sendable_emitted` prevents re-declaring a conformance the
         // streaming emissions above already produced.
         {
-            let handle_returned =
-                crate::backends::swift::gen_rust_crate::type_bridge::compute_handle_returned_types(api);
-            for ty in api.types.iter().filter(|t| {
-                !t.is_trait && !exclude_types.contains(&t.name) && (t.is_opaque || handle_returned.contains(&t.name))
-            }) {
+            // Emit `@unchecked Sendable` conformance for every non-trait type that has a
+            // `RustBridge.<T>` opaque-class shadow (i.e. anything not excluded from the
+            // binding). swift-bridge emits all of these as plain classes wrapping a Rust
+            // pointer to a Send + Sync type, so the conformance is safe. Previously the
+            // filter only included `is_opaque || handle_returned` — that missed
+            // parameter-only DTOs such as `BatchFileItem` / `BatchBytesItem`, which then
+            // failed Swift 6 strict-concurrency checks when captured by async forwarders'
+            // `Task.detached` closures.
+            for ty in api
+                .types
+                .iter()
+                .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
+            {
                 if sendable_emitted.insert(ty.name.clone()) {
                     body.push_str("// swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.\n");
                     body.push_str(&format!("extension RustBridge.{}: @unchecked Sendable {{}}\n", ty.name));
