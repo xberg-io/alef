@@ -10,7 +10,7 @@
 {% for import_name in imports %}
 import _pkg from '{{ import_name }}';
 {% endfor %}
-const { {{ app_class }}, {{ method_enum }}, {{ route_builder_class }}, ServerConfig } = _pkg;
+const { {{ app_class }}, ServerConfig } = _pkg;
 
 // Load fixtures from the inline JSON payload.
 const _FIXTURES = {{fixtures_json}};
@@ -21,6 +21,19 @@ const app = {{ app_class }}.new();
 {% else -%}
 const app = new {{ app_class }}();
 {% endif -%}
+
+// Map HTTP method name to the corresponding app method
+const httpMethodMap = {
+  'GET': 'get',
+  'POST': 'post',
+  'PUT': 'put',
+  'PATCH': 'patch',
+  'DELETE': 'delete',
+  'HEAD': 'head',
+  'OPTIONS': 'options',
+  'CONNECT': 'connect',
+  'TRACE': 'trace',
+};
 
 // Register a handler for each fixture
 for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
@@ -36,8 +49,12 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   const expectedBody = expected.body;
   const expectedHeaders = expected.headers || {};
 
-  // Map method string to Method enum
-  const methodEnumValue = {{ method_enum }}[methodStr] ?? {{ method_enum }}.GET;
+  // Map method string to the app method name
+  const appMethodName = httpMethodMap[methodStr];
+  if (!appMethodName) {
+    console.warn(`Skipping fixture ${fixtureId}: unknown HTTP method ${methodStr}`);
+    continue;
+  }
 
   // Build handler function that returns the expected response
   const handlerFn = (request) => {
@@ -51,11 +68,8 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   // Register the handler at /fixtures/<fixture_id>{route}
   const fullRoute = `/fixtures/${fixtureId}${route}`;
 
-  // Build the RouteBuilder with the method and path.
-  const builder = new {{ route_builder_class }}(methodEnumValue, fullRoute);
-
-  // Register the route with the handler.
-  app.{{ register_route_method }}(builder, handlerFn);
+  // Call the appropriate HTTP verb method on the app
+  app[appMethodName](fullRoute, handlerFn);
 }
 
 // Configure and start the server
