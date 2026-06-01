@@ -55,11 +55,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JSON-quoted string body the server could not decode). JSON-bodied fixtures continue to use
   `json.dumps` with the `application/json` content-type default.
 
-- **Java: add `free_user_data` upcall stub to trait bridges.**
-  The Java trait bridge generator was hardcoding `free_user_data` to NULL instead of creating
-  an upcall stub. When Rust tried to invoke the vtable function pointer on drop, it dereferenced
-  NULL causing SIGBUS (exit 134). Now `free_user_data` gets a proper (no-op) upcall stub,
-  ensuring the vtable layout matches the Rust definition exactly.
+- **Java: add `free_user_data` upcall stub to trait bridges (and fix FunctionDescriptor).**
+  The Java trait bridge generator was (1) hardcoding `free_user_data` to NULL instead of creating
+  an upcall stub, and (2) declaring the register function's vtable struct parameter with only
+  10 ADDRESS fields instead of 11. When Rust tried to invoke the vtable function pointer on drop,
+  it dereferenced NULL causing SIGBUS (exit 134). Now `free_user_data` gets a proper (no-op)
+  upcall stub, and the NativeLib register FunctionDescriptor correctly declares all 11 vtable
+  fields (trait methods + free_string + free_user_data).
   (`src/e2e/codegen/python/http.rs`, `src/e2e/templates/python/http_test.jinja`)
 
 - **e2e/client `render_http_test` unit test: stop double-namespacing the fixture path.**

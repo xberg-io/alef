@@ -427,7 +427,7 @@ pub(crate) fn gen_native_lib(
                     })
                     .count();
                 let super_slots = if bridge_cfg.super_trait.is_some() { 4 } else { 0 };
-                super_slots + own_method_count + 1
+                super_slots + own_method_count + 2
             })
             .unwrap_or(1);
         // For wide vtables, wrap the field list across multiple lines so the surrounding
