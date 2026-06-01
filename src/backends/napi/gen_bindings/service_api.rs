@@ -1085,10 +1085,9 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                         }
                         '<' => angle_depth += 1,
                         '>' => angle_depth -= 1,
-                        ',' | '=' | '{' | ';'
-                            if paren_depth == 0 && angle_depth == 0 => {
-                                break;
-                            }
+                        ',' | '=' | '{' | ';' if paren_depth == 0 && angle_depth == 0 => {
+                            break;
+                        }
                         _ => {}
                     }
                     j += 1;
