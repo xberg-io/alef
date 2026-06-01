@@ -346,7 +346,7 @@ fn render_pom_xml(
 /// configured default. Tests hit the real SUT at /fixtures/<fixture_id>{path}.
 fn render_harness_main(
     e2e_config: &E2eConfig,
-    _groups: &[FixtureGroup],
+    groups: &[FixtureGroup],
     java_group_id: &str,
     binding_pkg: &str,
 ) -> String {
@@ -361,6 +361,16 @@ fn render_harness_main(
         .unwrap_or("registerAppRoute");
     let body_field = &e2e_config.harness.response_body_field;
 
+    // Collect all HTTP fixtures for this harness to register.
+    let mut fixture_ids: Vec<String> = Vec::new();
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_some() {
+                fixture_ids.push(fixture.id.clone());
+            }
+        }
+    }
+
     let ctx = minijinja::context! {
         java_group_id => java_group_id,
         binding_pkg => binding_pkg,
@@ -370,6 +380,7 @@ fn render_harness_main(
         response_body_field => body_field.as_str(),
         host => host,
         port => port,
+        fixture_ids => fixture_ids,
     };
 
     crate::e2e::template_env::render("java/harness_main.jinja", ctx)

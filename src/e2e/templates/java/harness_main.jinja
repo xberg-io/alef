@@ -13,6 +13,7 @@
    - response_body_field: field name in Response for body (e.g., "body")
    - host: binding host (e.g., "127.0.0.1")
    - port: default binding port (e.g., 8000) — overridden by SUT_URL env var
+   - fixture_ids: list of fixture IDs to register handlers for
 #}
 package {{ java_group_id }}.e2e;
 
@@ -46,18 +47,79 @@ public class HarnessMain {
             // Create and configure the app
             {{ app_class }} app = new {{ app_class }}();
 
-            // Register handlers for fixtures: load each fixture from resources
-            // This avoids inlining all fixture JSON as string literals (65KB limit).
+            // Register handlers for each fixture, loading from classpath resources.
             // Fixtures are stored as individual JSON files in src/test/resources/fixtures/
+            // to avoid exceeding Java's 65KB string literal limit.
+            List<String> fixtureIds = Arrays.asList(
+{%- for fixture_id in fixture_ids %}
+                "{{ fixture_id }}"{{ "," if not loop.last else "" }}
+{%- endfor %}
+            );
 
-            // For server-pattern e2e, we dynamically discover and load fixtures.
-            // A simple approach: iterate through known fixture IDs from the test suite.
-            // Alternative: scan the classpath for all *.json files in /fixtures/.
-            // For now, we register a catch-all handler that the tests will populate.
+            for (String fixtureId : fixtureIds) {
+                // Load fixture from classpath
+                JsonNode fixtureData = FixtureLoader.loadFixture(fixtureId);
+                if (fixtureData == null) {
+                    System.err.println("Warning: could not load fixture " + fixtureId);
+                    continue;
+                }
+
+                // Extract HTTP fixture data
+                JsonNode httpNode = fixtureData.get("http");
+                if (httpNode == null) {
+                    continue;
+                }
+
+                // Extract handler and expected response details
+                JsonNode handlerNode = httpNode.get("handler");
+                JsonNode responseNode = httpNode.get("expected_response");
+
+                if (handlerNode == null || responseNode == null) {
+                    continue;
+                }
+
+                String route = handlerNode.get("route").asText();
+                String method = handlerNode.get("method").asText();
+                int statusCode = responseNode.get("status_code").asInt();
+                JsonNode responseBody = responseNode.get("{{ response_body_field }}");
+                JsonNode responseHeaders = responseNode.get("headers");
+
+                // Build the full fixture-namespaced route: /fixtures/<fixture_id>{route}
+                String fullRoute = "/fixtures/" + fixtureId + route;
+
+                // Create a handler closure that captures the expected response for this fixture
+                final int finalStatusCode = statusCode;
+                final JsonNode finalResponseBody = responseBody;
+                final JsonNode finalResponseHeaders = responseHeaders;
+                Callable handler = request -> {
+                    // Handler ignores request and returns the recorded expected response
+                    Map<String, Object> resp = new LinkedHashMap<>();
+                    resp.put("status_code", finalStatusCode);
+                    resp.put("{{ response_body_field }}", finalResponseBody);
+                    if (finalResponseHeaders != null && finalResponseHeaders.isObject()) {
+                        Map<String, String> headers = new LinkedHashMap<>();
+                        finalResponseHeaders.fieldNames().forEachRemaining(name ->
+                            headers.put(name, finalResponseHeaders.get(name).asText())
+                        );
+                        resp.put("headers", headers);
+                    }
+                    return MAPPER.writeValueAsString(resp);
+                };
+
+                // Create RouteBuilder with the method enum and full route
+                RouteBuilder builder = RouteBuilder.create(Method.valueOf(method), fullRoute);
+
+                // Register the handler with the app
+                int regResult = app.registerAppRoute(handler, builder);
+
+                if (regResult != 0) {
+                    System.err.println("Warning: failed to register fixture handler for " + fixtureId);
+                }
+            }
 
             // Signal that harness is ready and listening
-            String harnesUrl = "http://" + effectiveHost + ":" + effectivePort;
-            System.out.println("SUT_URL=" + harnesUrl);
+            String harnessUrl = "http://" + effectiveHost + ":" + effectivePort;
+            System.out.println("SUT_URL=" + harnessUrl);
             System.out.flush();
 
             // Run the app (blocks indefinitely)
