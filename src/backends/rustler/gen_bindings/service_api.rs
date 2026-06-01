@@ -380,11 +380,11 @@ fn gen_genserver_module(out: &mut String, service: &ServiceDef, _api: &ApiSurfac
 
     // Helper to find handler entry by method name in registrations list
     out.push_str("    defp find_handler(_method, []), do: nil\n");
-    out.push_str("    defp find_handler(method, [{^method, _metadata, _handler} = entry | _rest]) do\n");
+    out.push_str("    defp find_handler(target, [{name, _metadata, _handler} = entry | _rest]) when name == target do\n");
     out.push_str("      entry\n");
     out.push_str("    end\n");
-    out.push_str("    defp find_handler(method, [_head | rest]) do\n");
-    out.push_str("      find_handler(method, rest)\n");
+    out.push_str("    defp find_handler(target, [_head | rest]) do\n");
+    out.push_str("      find_handler(target, rest)\n");
     out.push_str("    end\n\n");
 
     out.push_str("  end\n\n");
