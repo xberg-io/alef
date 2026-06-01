@@ -19,10 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ServerConfig::listen_addr` whose Rust signature involves `SocketAddr`), the generated
   property body called `self.<name>()` — but no such method exists on the Ref class, so
   Swift fell back to the property itself (`String`), then tried to call `()` on the String
-  ("cannot call value of non-function type 'String'"). Two fixes: (1) skip methods marked
-  `binding_excluded` in the IR; (2) emit both the property name and the method invocation
-  in lowerCamelCase to match swift-bridge's naming convention and avoid snake_case
-  collisions.
+  ("cannot call value of non-function type 'String'"). Two-step fix: (1) skip methods marked
+  `binding_excluded` and emit lowerCamelCase property/method names to avoid snake_case
+  collisions; (2) since alef IR does not currently track swift-bridge's full unbridgeable
+  filter (so `binding_excluded` did not catch `listen_addr`), the production call site is
+  temporarily disabled. The function is retained for unit-test coverage and can be
+  re-enabled once IR exposes the full unbridgeable set. Existing
+  `packages/swift/Sources/Kreuzberg/ExtractionResultExtensions.swift` in consumers should
+  be deleted on next regen.
 
 - **Swift: make swift-bridge `isOwned` field public across opaque-type modules.**
   Companion to the earlier `ptr` visibility fix — `isOwned` was emitted with default

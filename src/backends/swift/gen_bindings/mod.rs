@@ -533,15 +533,12 @@ impl Backend for SwiftBackend {
             });
         }
 
-        // Emit computed-property extensions for swift-bridge-generated Ref types.
-        if let Some((filename, content)) = emit_extraction_result_extensions(api) {
-            let path = module_dir.join(&filename);
-            files.push(GeneratedFile {
-                path,
-                content,
-                generated_header: false,
-            });
-        }
+        // NOTE: ExtractionResultExtensions emission disabled. alef IR cannot reliably
+        // tell which methods swift-bridge will actually expose on the Ref class
+        // (unbridgeable Rust signatures involving e.g. SocketAddr are silently
+        // dropped by swift-bridge), so the emitted property bodies referenced
+        // non-existent methods and recursed onto the property declaration itself.
+        // Re-enable once binding-exclusion tracking covers swift-bridge's filter.
 
         // Emit bridge registration overloads file (register/unregister convenience functions + stub adapters).
         if let Some((filename, content)) = trait_bridge::gen_bridge_registration_overloads_file(&trait_bridge_configs) {
