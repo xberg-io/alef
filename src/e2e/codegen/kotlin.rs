@@ -808,6 +808,28 @@ fn render_test_file_inner(
 // HTTP server test rendering — TestClientRenderer impl + thin driver wrapper
 // ---------------------------------------------------------------------------
 
+/// URL-encode special characters in a URI path to prevent URISyntaxException.
+/// Only encodes characters that are invalid in URIs: space, pipe, etc.
+/// Preserves path structure (/, ?, =, &) and normal alphanumerics.
+fn url_encode_path(path: &str) -> String {
+    path.chars()
+        .map(|c| match c {
+            // Characters that must be encoded in URI paths per RFC 3986
+            '|' => "%7C".to_string(),
+            '<' => "%3C".to_string(),
+            '>' => "%3E".to_string(),
+            '"' => "%22".to_string(),
+            '#' => "%23".to_string(),
+            '%' => "%25".to_string(),
+            // Preserve: alphanumerics, /, -, _, ., ~, ?, =, &, :, @, !
+            // These are either unreserved or reserved characters safe in paths/queries
+            c if c.is_ascii_alphanumeric() || "/-_.~?=&:@!".contains(c) => c.to_string(),
+            // Encode everything else (whitespace, accented chars, control chars, etc.)
+            c => format!("%{:02X}", c as u8),
+        })
+        .collect()
+}
+
 /// Renderer that emits JUnit 5 `@Test fun testFoo()` blocks using
 /// `java.net.http.HttpClient` against `System.getenv("MOCK_SERVER_URL")`.
 pub(crate) struct KotlinTestClientRenderer;
@@ -850,7 +872,9 @@ impl client::TestClientRenderer for KotlinTestClientRenderer {
             "        val baseUrl = System.getenv(\"SUT_URL\") ?: \"http://127.0.0.1:8007\""
         );
         // fixture_path is already namespaced like /fixtures/delete_remove_resource from http_call
-        let _ = writeln!(out, "        val uri = java.net.URI.create(\"$baseUrl{fixture_path}\")");
+        // URL-encode special characters in the path to avoid URISyntaxException (e.g., pipe → %7C)
+        let encoded_path = url_encode_path(fixture_path);
+        let _ = writeln!(out, "        val uri = java.net.URI.create(\"$baseUrl{encoded_path}\")");
 
         let body_publisher = if let Some(body) = ctx.body {
             let json = serde_json::to_string(body).unwrap_or_default();

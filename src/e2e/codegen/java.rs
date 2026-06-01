@@ -390,7 +390,7 @@ fn render_fixture_loader(java_group_id: &str) -> String {
     out.push_str("import java.io.InputStream;\n");
     out.push_str("import java.util.HashMap;\n");
     out.push_str("import java.util.Map;\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("/**\n");
     out.push_str(" * Helper class for loading fixture JSON files from classpath.\n");
     out.push_str(" *\n");
@@ -399,7 +399,7 @@ fn render_fixture_loader(java_group_id: &str) -> String {
     out.push_str(" */\n");
     out.push_str("public class FixtureLoader {\n");
     out.push_str("    private static final ObjectMapper MAPPER = new ObjectMapper();\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("    /**\n");
     out.push_str("     * Load a single fixture by ID from classpath resources.\n");
     out.push_str("     *\n");
@@ -415,12 +415,14 @@ fn render_fixture_loader(java_group_id: &str) -> String {
     out.push_str("            }\n");
     out.push_str("            return MAPPER.readTree(is);\n");
     out.push_str("        } catch (IOException e) {\n");
-    out.push_str("            System.err.println(\"Failed to load fixture \" + fixtureId + \": \" + e.getMessage());\n");
+    out.push_str(
+        "            System.err.println(\"Failed to load fixture \" + fixtureId + \": \" + e.getMessage());\n",
+    );
     out.push_str("            e.printStackTrace();\n");
     out.push_str("            return null;\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("    /**\n");
     out.push_str("     * Load all fixtures from the classpath resources directory.\n");
     out.push_str("     *\n");
