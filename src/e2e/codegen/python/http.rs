@@ -95,14 +95,15 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     // Determine body context. For form-urlencoded payloads the fixture body is a
     // pre-encoded string literal that must be sent as-is (UTF-8 bytes); for JSON
     // payloads the body is a structured value that needs to be `json.dumps`'d.
-    let (has_body, body_py, body_is_string) = if let Some(body) = &http.request.body {
+    // Synthesized multipart bodies are already emitted as bytes literals (b"...").
+    let (has_body, body_py, body_is_string, body_is_bytes_literal) = if let Some(body) = &http.request.body {
         let py_body = json_to_python_literal(body);
         let body_is_string = matches!(body, serde_json::Value::String(_));
-        (true, py_body, body_is_string)
+        (true, py_body, body_is_string, false)
     } else if is_multipart && !multipart_body_py.is_empty() {
-        (true, multipart_body_py.clone(), true)
+        (true, multipart_body_py.clone(), false, true)
     } else {
-        (false, String::new(), false)
+        (false, String::new(), false, false)
     };
 
     // Determine body assertions
@@ -205,6 +206,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         is_form_body => is_form_body,
         is_multipart => is_multipart,
         body_is_string => body_is_string,
+        body_is_bytes_literal => body_is_bytes_literal,
         expected_status => http.expected_response.status_code,
         has_text_body => has_text_body,
         text_py => text_py,
