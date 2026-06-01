@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Swift: emit `SwiftPluginBridge` super-protocol; every `Swift{Trait}Bridge` inherits from it.**
+  New `SwiftPluginBridge.swift` is generated alongside the bridge protocols and declares the four
+  Plugin trait super-methods (`name() -> String`, `version() -> String`, `initialize() throws`,
+  `shutdown() throws`). Each `Swift{Trait}Bridge` now inherits from `SwiftPluginBridge` instead of
+  `AnyObject`, so implementers must provide the four lifecycle methods alongside their
+  trait-specific methods. Foundation for full alef-generated `Plugins.swift` — eliminates the need
+  for a separately hand-authored Plugin super-protocol on the Swift side.
+
 - **Swift: drop `async` from trait bridge protocols and make them fully synchronous.**
   The `Swift{Trait}Bridge` protocol methods no longer carry `async` keywords. This aligns the bridge
   protocol with the plugin protocol shape (sync, JSON-string marshalled types). Users implementing
