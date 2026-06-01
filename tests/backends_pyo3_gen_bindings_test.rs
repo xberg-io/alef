@@ -1572,6 +1572,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -1825,6 +1826,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -3104,6 +3106,7 @@ fn test_api_py_uses_keyword_arguments() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -3203,6 +3206,7 @@ fn test_async_function_emits_async_def_and_await() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -3303,6 +3307,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
     // Configure two trait bridges with register_fn
     config.trait_bridges = vec![
@@ -3650,6 +3655,7 @@ fn test_capsule_types_end_to_end() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -3928,6 +3934,7 @@ fn test_capsule_types_in_methods() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -4310,6 +4317,7 @@ fn test_api_py_void_function_no_redundant_return() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend
@@ -4445,6 +4453,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: Vec::new(),
     });
 
     let files = backend

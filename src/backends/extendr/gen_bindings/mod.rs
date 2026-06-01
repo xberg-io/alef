@@ -2062,13 +2062,8 @@ fn gen_extendr_json_bridged_function(
                 } else {
                     format!("{}_core", param.name)
                 }
-            } else if needs_json_struct {
-                if param.optional {
-                    format!("{}_core.as_ref()", param.name)
-                } else {
-                    format!("&{}_core", param.name)
-                }
-            } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
+            } else if needs_json_struct || matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
+            {
                 if param.optional {
                     format!("{}_core.as_ref()", param.name)
                 } else {

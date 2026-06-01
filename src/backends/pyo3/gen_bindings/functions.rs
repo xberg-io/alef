@@ -15,6 +15,7 @@ use super::types::collect_named_types;
 /// For each function parameter whose type is a `has_default` struct (e.g. `ConversionOptions`),
 /// we generate a `_to_rust_{snake_name}` converter that maps the Python `@dataclass` instance
 /// to the Rust binding's pyclass by passing every field as a keyword argument.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_api_py(
     api: &ApiSurface,
     module_name: &str,

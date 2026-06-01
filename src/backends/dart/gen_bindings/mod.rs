@@ -234,7 +234,8 @@ impl Backend for DartBackend {
             }
         } else {
             // No trait bridges configured; emit stub.
-            traits_content.push_str("// Traits module (empty in Dart as Dart does not have trait systems like Rust).\n");
+            traits_content
+                .push_str("// Traits module (empty in Dart as Dart does not have trait systems like Rust).\n");
             traits_content.push_str("// This file is kept for API surface consistency across language bindings.\n");
         }
 

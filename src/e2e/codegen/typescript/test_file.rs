@@ -488,14 +488,9 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .map(|(_, v)| v.to_ascii_lowercase())
         .unwrap_or_default();
-    let is_form_body = content_type_lower
-        .split(';')
-        .next()
-        .map(str::trim)
-        .is_some_and(|t| {
-            t.eq_ignore_ascii_case("application/x-www-form-urlencoded")
-                || t.eq_ignore_ascii_case("multipart/form-data")
-        });
+    let is_form_body = content_type_lower.split(';').next().map(str::trim).is_some_and(|t| {
+        t.eq_ignore_ascii_case("application/x-www-form-urlencoded") || t.eq_ignore_ascii_case("multipart/form-data")
+    });
 
     if let Some(body) = &http.request.body {
         let js_body = json_to_js(body);

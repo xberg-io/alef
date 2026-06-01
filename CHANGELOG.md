@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C#: map TypeRef::Json to JsonElement (was string).** Rust core emits nested
+  JSON for any field typed `JsonValue`; declaring it as `string` causes
+  `System.Text.Json` to throw "Cannot get the value of a token type 'StartObject'
+  as a string" when the wire embeds an object rather than a stringified one.
+  `Map<String, Json>` is similarly emitted as `Dictionary<string, JsonElement>`
+  to round-trip numeric and array dict values.
+
+- **Lint cleanup for green prek.** Remove orphaned doc-comments in the swift
+  backend, merge identical `if` branches in the extendr `Named`-vs-extendr-incompatible
+  argument path, allow `clippy::too_many_arguments` on `gen_api_py`
+  (reexported_types parameter pushed it to 8), and add the new `reexported_types`
+  field to all `PythonConfig` literal sites in test fixtures.
+
 - **Swift e2e: do not append .toString() to methods returning native String.** TypeRef::String maps to Swift's native String type, not RustString. swift-bridge generates these methods returning String directly; appending .toString() produces a compile error "cannot call value of non-function type 'String'". ExtractionResultExtensions now calls the method without the conversion suffix.
 
 - **Dart backend: bridge static methods and enums through FRB.** Static constructor methods (e.g., `RouteBuilder::new`) are now bridged as standalone functions within the opaque-type impl block. Enums are marked with `#[frb(unignore)]` to prevent FRB from filtering them out when unused in public function signatures. The `traits.dart` module is now always generated (as an empty stub when no trait bridges are configured) to satisfy the export statement.

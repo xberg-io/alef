@@ -544,7 +544,7 @@ impl Backend for SwiftBackend {
         // Emit ExtractionResultExtensions (property-access aliases for zero-param string-returning methods).
         // The extension filters via method.binding_excluded to skip methods that swift-bridge
         // silently drops (e.g. signatures with non-FFI-friendly returns like SocketAddr).
-        if let Some((filename, content)) = emit_extraction_result_extensions(&api) {
+        if let Some((filename, content)) = emit_extraction_result_extensions(api) {
             let path = module_dir.join(&filename);
             files.push(GeneratedFile {
                 path,
@@ -4479,9 +4479,6 @@ fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &mut String) 
     }
 }
 
-/// Generate `Plugins.swift` file containing all 6 Swift{Trait}Box classes for FunctionParam bridges.
-/// This replaces the hand-authored plugin wrapper classes.
-/// Only emitted when there are FunctionParam plugin bridges for swift.
 // Plugins.swift is hand-authored and maintained separately from alef generation.
 // It contains the Swift{Trait}Box adapter classes and JSON envelope helpers
 // needed for inbound plugin trait bridges. Users can iterate on plugin protocols
@@ -5459,9 +5456,6 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
         None
     }
 }
-
-/// Generate a single Swift{Trait}Box class for a plugin trait.
-/// The box conforms to the plugin protocol and wraps a bridge protocol instance.
 
 #[cfg(test)]
 mod tests {

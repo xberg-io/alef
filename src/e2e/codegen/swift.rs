@@ -117,7 +117,14 @@ impl E2eCodegen for SwiftE2eCodegen {
         // `<output>/swift_e2e/`. `swift test` is run from that directory.
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
-            content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode, has_http_fixtures),
+            content: render_package_swift(
+                module_name,
+                &registry_url,
+                &pkg_path,
+                &pkg_version,
+                e2e_config.dep_mode,
+                has_http_fixtures,
+            ),
             generated_header: false,
         });
 
@@ -343,7 +350,11 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_na
     if !imports.iter().any(|i| i == module_name) {
         imports.insert(0, module_name.to_string());
     }
-    let imports_str = imports.iter().map(|m| format!("import {}", m)).collect::<Vec<_>>().join("\n");
+    let imports_str = imports
+        .iter()
+        .map(|m| format!("import {}", m))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let ctx = minijinja::context! {
         header => header,
@@ -1491,8 +1502,6 @@ fn build_args_and_setup(
         if arg.arg_type == "bytes" {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
-
-            let is_unnamed_arg = unnamed_arg_indices.contains(&idx);
 
             match val {
                 None | Some(serde_json::Value::Null) if arg.optional => {
