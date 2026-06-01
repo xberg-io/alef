@@ -247,14 +247,51 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
         }
     }
 
-    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    let fixtures_json_raw = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    // Escape the JSON for safe embedding in a Ruby string literal
+    let fixtures_json = ruby_string_literal(&fixtures_json_raw);
 
-    let imports = &e2e_config.harness.imports;
-    let app_class = &e2e_config.harness.app_class;
-    let register_route_method = &e2e_config.harness.register_method;
+    // Apply language-specific overrides for Ruby
+    let imports = e2e_config
+        .harness
+        .imports_for_lang("ruby")
+        .into_iter()
+        .collect::<Vec<_>>();
+    let imports_ref = if !imports.is_empty() {
+        &imports
+    } else {
+        &e2e_config.harness.imports
+    };
+
+    let app_class_override = e2e_config.harness.app_class_for_lang("ruby");
+    let app_class_str = if let Some(ref ac) = app_class_override {
+        ac.as_str()
+    } else if let Some(ref ac) = e2e_config.harness.app_class {
+        ac.as_str()
+    } else {
+        ""
+    };
+
+    let register_method_override = e2e_config.harness.register_method_for_lang("ruby");
+    let register_route_method_str = if let Some(ref rm) = register_method_override {
+        rm.as_str()
+    } else if let Some(ref rm) = e2e_config.harness.register_method {
+        rm.as_str()
+    } else {
+        "register_route"
+    };
+
     let body_schema_setter = &e2e_config.harness.body_schema_setter;
     let method_enum = &e2e_config.harness.method_enum;
-    let run_method = &e2e_config.harness.run_method;
+
+    let run_method_override = e2e_config.harness.run_method_for_lang("ruby");
+    let run_method_str = if let Some(ref rm) = run_method_override {
+        rm.as_str()
+    } else if let Some(ref rm) = e2e_config.harness.run_method {
+        rm.as_str()
+    } else {
+        "run"
+    };
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
@@ -262,8 +299,8 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
 
     // Derive Ruby-namespaced class names from imports[0] when explicit values are not configured.
     // E.g. imports[0] = "my_pkg" → module prefix "MyPkg::" → "MyPkg::Method", "MyPkg::App", etc.
-    let module_prefix = if !imports.is_empty() {
-        format!("{}::", ruby_module_name(&imports[0]))
+    let module_prefix = if !imports_ref.is_empty() {
+        format!("{}::", ruby_module_name(&imports_ref[0]))
     } else {
         String::new()
     };
@@ -277,14 +314,14 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
 
     let ctx = minijinja::context! {
         header => header,
-        imports => imports,
-        app_class => app_class.as_deref().unwrap_or(derived_app_class.as_str()),
+        imports => imports_ref,
+        app_class => if !app_class_str.is_empty() { app_class_str } else { derived_app_class.as_str() },
         route_builder_class => derived_route_builder_class.as_str(),
         server_config_class => derived_server_config_class.as_str(),
         route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
         method_enum_module => method_enum_module,
-        register_route_method => register_route_method.as_deref().unwrap_or("register_route"),
-        run_method => run_method.as_deref().unwrap_or("run"),
+        register_route_method => register_route_method_str,
+        run_method => run_method_str,
         response_body_field => e2e_config.harness.response_body_field.as_str(),
         host => host,
         port => port,
@@ -373,7 +410,7 @@ RSpec.configure do |config|
     unless File.exist?(harness_bin)
       raise "app_harness.rb not found at #{{harness_bin}}"
     end
-    proc = Process.spawn('ruby', harness_bin, out: :pipe, err: :pipe, in: :pipe)
+    proc = Process.spawn('ruby', harness_bin)
     @_harness_pid = proc
     url = "http://{}:{}"
     # Poll until the harness accepts TCP connections. The harness

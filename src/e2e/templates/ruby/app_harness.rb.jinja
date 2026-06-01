@@ -22,7 +22,7 @@ require "{{ imports[0] }}"
 
 module AppHarness
   # Load fixtures from the JSON payload.
-  FIXTURES_JSON = %({{ fixtures_json }})
+  FIXTURES_JSON = {{ fixtures_json }}
   FIXTURES = JSON.parse(FIXTURES_JSON, symbolize_names: true)
 
   # Create and configure the app.

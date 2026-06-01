@@ -15,11 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **WASM backend: emit builder methods with JSON parameters.** The WASM backend now correctly auto-routes opaque methods that take `serde_json::Value` parameters (e.g., `request_schema_json`, `response_schema_json`) via the shared `TypeRef::Json` delegatability fix. Builders returning `Self` are mapped to the binding class wrapper type and cloned correctly across the WASM boundary.
 
-- **Ruby e2e codegen: drop library-specific spec_helper code, fix quote escaping.**
-  Removed kreuzberg-specific registry cleanup hooks from `render_spec_helper` to
-  maintain alef's library-agnostic contract. Fixed quote escaping in test
-  descriptions by updating `ruby_needs_double_quotes` to force double quotes when
-  apostrophes are present (only properly escaped in double-quoted Ruby strings).
+- **Ruby e2e codegen: fix JSON escaping and Process.spawn syntax, wire language-specific harness overrides.**
+  Fixed JSON-in-string-literal escaping in `app_harness.rb` by calling `ruby_string_literal()` on
+  fixtures JSON before embedding, eliminating regex escape sequence corruption. Fixed Ruby 3.4+
+  compatibility: removed invalid `:pipe` redirect symbols from `Process.spawn` call. Wired
+  language-specific harness config overrides (`app_class_for_lang`, `register_method_for_lang`,
+  `run_method_for_lang`, `imports_for_lang`) into `render_app_harness` so per-language
+  configuration (e.g., `[e2e.harness.overrides.ruby]`) is properly applied.
 
 - **Python e2e: emit multipart/form-data request bodies as bytes.** When fixture
   `content-type` is `multipart/form-data`, encode the body string to UTF-8 bytes
