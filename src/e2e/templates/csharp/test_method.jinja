@@ -64,7 +64,11 @@
 {% for line in setup_lines %}
         {{ line }}
 {% endfor %}
-{% if is_streaming %}
+{% if is_trait_bridge %}
+        // Trait bridge registration: Bridge.Register() is self-contained and already
+        // performs native registration internally — invoke it directly, discard the result.
+        {{ call_expr }};
+{% elif is_streaming %}
         await foreach (var item in {{ call_target }}.{{ call_expr }})
         {
             // Stream items are consumed but assertions are skipped for streaming tests

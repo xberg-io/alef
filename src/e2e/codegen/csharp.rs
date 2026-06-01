@@ -1196,9 +1196,23 @@ fn render_test_method(
         }
     }
 
+    // Detect if this is a trait bridge registration test. The presence of a `test_backend`
+    // arg is a reliable signal — the args loop above resolves it into a
+    // `{Trait}Bridge.Register(new TestStub_*())` expression, which is self-contained:
+    // it already performs native registration internally and returns the bridge id.
+    // Wrapping it in the outer `KreuzbergLib.Register*Backend()` reinterprets the
+    // GCHandle as userData and NREs. Drop the wrap and invoke the bridge directly.
+    let is_trait_bridge_registration = args.iter().any(|arg| arg.arg_type == "test_backend");
+
     // Build call expression. For streaming methods, skip the engine argument since
     // we're calling an instance method on the engine object.
-    let call_expr = if _is_streaming {
+    let call_expr = if is_trait_bridge_registration {
+        // For trait bridge registration, emit ONLY the Bridge.Register() call, not the wrapper.
+        // The Bridge.Register() method already calls native registration internally and returns
+        // the bridge ID; wrapping it in KreuzbergLib.Register*() reinterprets the GCHandle as
+        // userData and NREs. The template branches on `is_trait_bridge` to drop the wrap.
+        final_args.clone()
+    } else if _is_streaming {
         // Remove the first (engine/handle) argument from final_args
         let args_parts: Vec<&str> = final_args.split(", ").collect();
         let args_without_engine = if args_parts.len() > 1 {
@@ -1274,6 +1288,7 @@ fn render_test_method(
         result_var => result_var,
         assertions_body => assertions_body,
         is_streaming => _is_streaming,
+        is_trait_bridge => is_trait_bridge_registration,
     };
 
     let rendered = crate::e2e::template_env::render("csharp/test_method.jinja", ctx);
