@@ -1278,6 +1278,9 @@ fn run_post_build(
                         PostProcessor::FrbDartOptionalFieldsWithDefaults => {
                             crate::backends::dart::make_struct_fields_with_defaults_optional(&content)
                         }
+                        PostProcessor::FrbDartFixHandlerExecutorCalls => {
+                            crate::backends::dart::fix_handler_executor_calls(&content)
+                        }
                     };
                     if processed != content {
                         std::fs::write(&file_path, &processed)

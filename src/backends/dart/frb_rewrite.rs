@@ -348,6 +348,38 @@ fn variant_regex() -> &'static Regex {
     })
 }
 
+/// Fix FRB-generated Dart code that incorrectly calls `executeSync`/`executeNormal`
+/// on callback function parameters.
+///
+/// When FRB generates service methods that take a callback function parameter
+/// (e.g. `handler: FutureOr<String> Function(String)`), it emits code that calls
+/// `handler.executeSync(...)` or `handler.executeNormal(...)`, but these methods
+/// don't exist on function types. This rewrite strips the erroneous method calls,
+/// leaving the task wrapper to be executed directly via `generalizedFrbRustBinding`.
+///
+/// Example transformation:
+/// ```dart
+/// // Before:
+/// return handler.executeSync(
+///   SyncTask(...),
+/// );
+///
+/// // After:
+/// return generalizedFrbRustBinding.executeSync(
+///   SyncTask(...),
+/// );
+/// ```
+pub fn fix_handler_executor_calls(source: &str) -> String {
+    let source = source.replace(
+        "handler.executeSync(",
+        "generalizedFrbRustBinding.executeSync(",
+    );
+    source.replace(
+        "handler.executeNormal(",
+        "generalizedFrbRustBinding.executeNormal(",
+    )
+}
+
 /// Rewrite the comma-separated parameter list inside the variant constructor.
 ///
 /// Each parameter has the shape `required <Type> field<N>`. The `<Type>` can be

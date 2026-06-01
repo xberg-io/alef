@@ -346,8 +346,16 @@ impl DartBackend {
                 // loader fix (keyed off the FRB loader config present only in this
                 // file); it is idempotent and a no-op when already applied.
                 post_build_steps.push(PostBuildStep::PostProcessFile {
-                    path: frb_generated_path,
+                    path: frb_generated_path.clone(),
                     processor: PostProcessor::FrbDartSealedVariants,
+                });
+
+                // Fix FRB-generated Dart code that incorrectly calls executeSync/executeNormal
+                // on callback function parameters. The handler is a function type, not an object
+                // with these methods, so we rewrite the calls to use the RustLib binding instead.
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: frb_generated_path,
+                    processor: PostProcessor::FrbDartFixHandlerExecutorCalls,
                 });
 
                 Some(BuildConfig {

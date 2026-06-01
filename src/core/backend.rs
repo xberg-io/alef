@@ -46,6 +46,9 @@ pub enum PostProcessor {
     /// Make struct constructor fields optional for types with Rust defaults.
     /// This handles Dart types that have #[serde(default)] fields in Rust.
     FrbDartOptionalFieldsWithDefaults,
+    /// Fix FRB-generated Dart code that incorrectly calls executeSync/executeNormal
+    /// on callback function parameters.
+    FrbDartFixHandlerExecutorCalls,
 }
 
 /// A post-build processing step.
