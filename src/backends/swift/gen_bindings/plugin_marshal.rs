@@ -211,8 +211,14 @@ pub fn swift_shim_param_decode(
                 }
             }
         }
+        // Path: bridge protocol exposes as URL; FFI carries the path as RustString.
+        TypeRef::Path => ParamDecode {
+            setup: vec![],
+            expr: format!("URL(fileURLWithPath: {}.toString())", param_name),
+            is_throwing: false,
+        },
         // Fallback for unusual types (shouldn't occur in plugin contexts)
-        TypeRef::Path | TypeRef::Json | TypeRef::Map(_, _) => ParamDecode {
+        TypeRef::Json | TypeRef::Map(_, _) => ParamDecode {
             setup: vec![],
             expr: format!("{}.toString()", param_name),
             is_throwing: false,
@@ -307,6 +313,9 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
                 // String return: wrap in RustString for FFI boundary
                 vec![format!("return RustString({})", bridge_call_expr)]
             }
+            // Named types are exposed as String at the protocol boundary (all Named are excluded
+            // from JSON encoding in trait bridges); wrap the bridge's String result in RustString.
+            TypeRef::Named(_) => vec![format!("return RustString({})", bridge_call_expr)],
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
                 // Build RustVec<RustString> from [String]
                 vec![
@@ -315,6 +324,11 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
                     "for s in strings { vec.push(value: RustString(s)) }".to_string(),
                     "return vec".to_string(),
                 ]
+            }
+            // usize/isize: bridge protocol declares as Int (idiomatic Swift),
+            // but FFI shim expects UInt — cast at the boundary.
+            TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => {
+                vec![format!("return UInt({})", bridge_call_expr)]
             }
             _ => vec![format!("return {}", bridge_call_expr)],
         }
@@ -573,6 +587,30 @@ mod tests {
         let lines = swift_shim_return_marshal(&method, "inner.languages()");
         assert!(lines.join("\n").contains("RustVec<RustString>"));
         assert!(lines.join("\n").contains("vec.push"));
+    }
+
+    #[test]
+    fn test_param_decode_path_url() {
+        let decode = swift_shim_param_decode("path", &TypeRef::Path, false, &std::collections::HashSet::new());
+        assert!(decode.setup.is_empty());
+        assert_eq!(decode.expr, "URL(fileURLWithPath: path.toString())");
+        assert!(!decode.is_throwing);
+    }
+
+    #[test]
+    fn test_return_marshal_non_throwing_named() {
+        let method = make_method("backend_type", vec![], TypeRef::Named("OcrBackendType".to_string()), None);
+        let lines = swift_shim_return_marshal(&method, "bridge.backendType()");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "return RustString(bridge.backendType())");
+    }
+
+    #[test]
+    fn test_return_marshal_non_throwing_usize() {
+        let method = make_method("dimensions", vec![], TypeRef::Primitive(PrimitiveType::Usize), None);
+        let lines = swift_shim_return_marshal(&method, "bridge.dimensions()");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "return UInt(bridge.dimensions())");
     }
 
     #[test]
