@@ -322,7 +322,7 @@ fn render_spec_helper(
     has_mock_server_fixtures: bool,
     uses_harness: bool,
     test_documents_path: &str,
-    gem_name: &str,
+    _gem_name: &str,
     module_path: &str,
     harness_host: &str,
     harness_port: u16,
@@ -330,75 +330,12 @@ fn render_spec_helper(
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
     out.push_str("# frozen_string_literal: true\n");
-    let module_name = ruby_module_name(module_path);
+    let _module_name = ruby_module_name(module_path);
 
-    // Add RSpec hooks to isolate plugin registry state between tests.
-    // This mirrors the Python conftest.py pattern to prevent test pollution.
-    let registry_cleanup = format!(
-        r#"
-# RSpec hooks to isolate plugin registry state between tests.
-# Unregisters any test-prefixed backends (test-*, test_*) after each test
-# to prevent pollution from one test affecting subsequent tests.
-begin
-  require '{gem_name}'
-  RSpec.configure do |config|
-    # Track initial registry state before each test
-    config.before(:each) do
-      begin
-        @_initial_ocr_backends = {module_name}.list_ocr_backends.to_set rescue Set.new
-        @_initial_embedding_backends = {module_name}.list_embedding_backends.to_set rescue Set.new
-        @_initial_document_extractors = {module_name}.list_document_extractors.to_set rescue Set.new
-        @_initial_renderers = {module_name}.list_renderers.to_set rescue Set.new
-        @_initial_validators = {module_name}.list_validators.to_set rescue Set.new
-        @_initial_post_processors = {module_name}.list_post_processors.to_set rescue Set.new
-      rescue
-        # If registry functions aren't available, skip cleanup
-      end
-    end
-
-    # Clean up test-prefixed backends after each test
-    config.after(:each) do
-      begin
-        current_ocr = {module_name}.list_ocr_backends.to_set rescue Set.new
-        (current_ocr - @_initial_ocr_backends).each do |name|
-          {module_name}.unregister_ocr_backend(name) if name.to_s.start_with?('test-', 'test_')
-        end
-
-        current_embedding = {module_name}.list_embedding_backends.to_set rescue Set.new
-        (current_embedding - @_initial_embedding_backends).each do |name|
-          {module_name}.unregister_embedding_backend(name) if name.to_s.start_with?('test-', 'test_')
-        end
-
-        current_extractors = {module_name}.list_document_extractors.to_set rescue Set.new
-        (current_extractors - @_initial_document_extractors).each do |name|
-          {module_name}.unregister_document_extractor(name) if name.to_s.start_with?('test-', 'test_')
-        end
-
-        current_renderers = {module_name}.list_renderers.to_set rescue Set.new
-        (current_renderers - @_initial_renderers).each do |name|
-          {module_name}.unregister_renderer(name) if name.to_s.start_with?('test-', 'test_')
-        end
-
-        current_validators = {module_name}.list_validators.to_set rescue Set.new
-        (current_validators - @_initial_validators).each do |name|
-          {module_name}.unregister_validator(name) if name.to_s.start_with?('test-', 'test_')
-        end
-
-        current_processors = {module_name}.list_post_processors.to_set rescue Set.new
-        (current_processors - @_initial_post_processors).each do |name|
-          {module_name}.unregister_post_processor(name) if name.to_s.start_with?('test-', 'test_')
-        end
-      rescue
-        # Cleanup failures are non-fatal; continue silently
-      end
-    end
-  end
-rescue LoadError
-  # {module_name} not available; skip registry cleanup
-end
-"#,
-    );
-    out.push_str(&registry_cleanup);
+    // Note: spec_helper.rb may contain library-specific registry cleanup hooks
+    // (e.g., tracking plugin backends, clearing test-prefixed stubs between tests).
+    // These are left for the consuming library to add—alef spec_helper is generic
+    // and includes only universal setup patterns (file paths, mock servers, harness).
 
     if has_file_fixtures {
         let _ = writeln!(out);

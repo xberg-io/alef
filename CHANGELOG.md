@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ruby e2e codegen: drop library-specific spec_helper code, fix quote escaping.**
+  Removed kreuzberg-specific registry cleanup hooks from `render_spec_helper` to
+  maintain alef's library-agnostic contract. Fixed quote escaping in test
+  descriptions by updating `ruby_needs_double_quotes` to force double quotes when
+  apostrophes are present (only properly escaped in double-quoted Ruby strings).
+
 - **Python e2e: emit multipart/form-data request bodies as bytes.** When fixture
   `content-type` is `multipart/form-data`, encode the body string to UTF-8 bytes
   instead of JSON-wrapping it. Mirrors the existing fix for `application/x-www-form-urlencoded`.
