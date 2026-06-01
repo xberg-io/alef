@@ -466,19 +466,6 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     init_entries.push(format!("method: '{method}'"));
     init_entries.push("redirect: 'manual'".to_string());
 
-    if !http.request.headers.is_empty() {
-        let entries: Vec<String> = http
-            .request
-            .headers
-            .iter()
-            .map(|(k, v)| {
-                let expanded_v = expand_fixture_templates(v);
-                format!("      \"{}\": \"{}\"", escape_js(k), escape_js(&expanded_v))
-            })
-            .collect();
-        init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
-    }
-
     // Detect content-type so the renderer can decide between JSON-encoded and
     // raw (form-urlencoded / multipart) body emission.
     let content_type_lower = http
@@ -491,6 +478,27 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let is_form_body = content_type_lower.split(';').next().map(str::trim).is_some_and(|t| {
         t.eq_ignore_ascii_case("application/x-www-form-urlencoded") || t.eq_ignore_ascii_case("multipart/form-data")
     });
+
+    // Determine if we need to auto-add Content-Type header for JSON body.
+    let has_body = http.request.body.is_some();
+    let has_content_type = !content_type_lower.is_empty();
+    let needs_json_content_type = has_body && !is_form_body && !has_content_type;
+
+    if !http.request.headers.is_empty() || needs_json_content_type {
+        let mut entries: Vec<String> = http
+            .request
+            .headers
+            .iter()
+            .map(|(k, v)| {
+                let expanded_v = expand_fixture_templates(v);
+                format!("      \"{}\": \"{}\"", escape_js(k), escape_js(&expanded_v))
+            })
+            .collect();
+        if needs_json_content_type {
+            entries.push(r#"      "Content-Type": "application/json""#.to_string());
+        }
+        init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
+    }
 
     if let Some(body) = &http.request.body {
         let js_body = json_to_js(body);
