@@ -796,25 +796,22 @@ fn emit_first_class_struct(
             )
         } else if needs_json_bridge_for_swift(&field.ty) {
             // Field is bridged as a JSON string at the Rust boundary — the getter
-            // returns a `RustString` whose contents are the JSON-encoded value
-            // (`"null"` when the source field was None). Decode through JSONDecoder
-            // so the Swift property receives the typed value.
+            // always returns a plain `RustString` whose contents are the JSON-encoded
+            // value (`"null"` when the source field was None). Decode through
+            // JSONDecoder so the Swift property receives the typed value.
             //
-            // The accessor is `Optional<RustString>` only when the source field
-            // itself is `Option<T>` (swift-bridge follows the Rust shape). For
-            // non-optional fields the accessor returns plain `RustString` and
-            // optional-chaining on it is a compile error.
+            // The accessor is plain `RustString` (NOT Optional) for JSON-bridged
+            // fields regardless of whether the source field is `Option<T>` —
+            // optionality is encoded as the JSON string "null". Applying `?.toString()`
+            // produces a compile error ("cannot use optional chaining on non-optional
+            // value of type 'RustString'").
             let swift_ty = mapper.map_type(&field.ty);
             let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
                 format!("{swift_ty}?")
             } else {
                 swift_ty
             };
-            let accessor_with_chain = if is_optional {
-                format!("rb.{rust_accessor}()?.toString() ?? \"null\"")
-            } else {
-                format!("rb.{rust_accessor}().toString()")
-            };
+            let accessor_with_chain = format!("rb.{rust_accessor}().toString()");
             format!(
                 "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
                  (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
@@ -5200,10 +5197,12 @@ fn append_rust_string_ref_to_string_extension(content: &str) -> String {
 /// target; alef splits the binding across `RustBridge` and the user-facing module, so the
 /// pointer must be public.
 fn make_swift_bridge_ref_ptr_public(content: &str) -> String {
-    content.replace(
-        "    var ptr: UnsafeMutableRawPointer",
-        "    public var ptr: UnsafeMutableRawPointer",
-    )
+    content
+        .replace(
+            "    var ptr: UnsafeMutableRawPointer",
+            "    public var ptr: UnsafeMutableRawPointer",
+        )
+        .replace("    var isOwned: Bool = true", "    public var isOwned: Bool = true")
 }
 
 fn prepend_rust_bridge_c_import(content: &str) -> String {

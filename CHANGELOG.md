@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: make swift-bridge `isOwned` field public across opaque-type modules.**
+  Companion to the earlier `ptr` visibility fix — `isOwned` was emitted with default
+  (internal) access by swift-bridge, breaking cross-module use in alef-generated code
+  that returns `RustBridge.ExtractionResult` instances from the `Kreuzberg` module's
+  batch-extract helpers (`item.isOwned = false`). `make_swift_bridge_ref_ptr_public`
+  now also rewrites `var isOwned: Bool = true` → `public var isOwned: Bool = true`.
+
+- **Swift: drop bogus optional-chaining on `RustString` accessor for JSON-bridged fields.**
+  For fields bridged as JSON (e.g. `Option<Vec<Vec<String>>>` for `ExcelSheet.table_cells`),
+  the swift-bridge accessor always returns a plain `RustString` whose payload is the
+  JSON-encoded value (`"null"` for None). The init expression was unconditionally
+  emitting `rb.field()?.toString() ?? "null"` when the source field was Optional, which
+  produces "cannot use optional chaining on non-optional value of type 'RustString'".
+  The accessor now always uses `.toString()` for JSON-bridged fields; optionality is
+  encoded inside the JSON payload itself.
+
 - **Swift: marshal `Path` as `URL`, wrap non-throwing `Named`/`String` returns in `RustString`, cast `usize` returns to `UInt`.**
   Three remaining Box-shim type-conversion bugs surfaced after the trait_bridge + Box generators
   were aligned in Phase E2/E3. The Box now (1) decodes `TypeRef::Path` to `URL(fileURLWithPath: ...)`
