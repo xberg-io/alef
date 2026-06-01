@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now splits on `:` so patterns like `{id:uuid}` produce a valid C# identifier `id`
   instead of `id:uuid`. Follow-up to the variable-emission fix.
 
+- **Swift: stop emitting `ExtractionResultExtensions` properties for non-bridged methods + use camelCase names.**
+  `emit_extraction_result_extensions` iterated alef-IR methods regardless of whether swift-bridge
+  actually emits a matching accessor on the Ref class. For unbridgeable methods (e.g.
+  `ServerConfig::listen_addr` whose Rust signature involves `SocketAddr`), the generated
+  property body called `self.<name>()` — but no such method exists on the Ref class, so
+  Swift fell back to the property itself (`String`), then tried to call `()` on the String
+  ("cannot call value of non-function type 'String'"). Two fixes: (1) skip methods marked
+  `binding_excluded` in the IR; (2) emit both the property name and the method invocation
+  in lowerCamelCase to match swift-bridge's naming convention and avoid snake_case
+  collisions.
+
 - **Swift: make swift-bridge `isOwned` field public across opaque-type modules.**
   Companion to the earlier `ptr` visibility fix — `isOwned` was emitted with default
   (internal) access by swift-bridge, breaking cross-module use in alef-generated code

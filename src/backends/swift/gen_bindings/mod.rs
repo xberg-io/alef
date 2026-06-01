@@ -5387,6 +5387,13 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
                 continue;
             }
 
+            // Skip methods that swift-bridge does not expose on the Ref class
+            // (signatures involving non-FFI-friendly types like SocketAddr return).
+            // Otherwise the property body calls a non-existent method on Ref.
+            if method.binding_excluded {
+                continue;
+            }
+
             // Check if return type is string-like (String)
             let is_string_return = matches!(&method.return_type, TypeRef::String);
 
@@ -5403,13 +5410,16 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
                 type_content.push('\n');
             }
 
-            // Emit computed property
+            // Emit computed property using camelCase for both the property name and
+            // method invocation, matching the swift-bridge naming convention. This
+            // avoids name collisions when the Rust method name is snake_case.
+            let camel = method.name.to_lower_camel_case();
             type_content.push_str(&format!(
                 "    /// Computed-property alias for `{}()` method.\n",
-                method.name
+                camel
             ));
-            type_content.push_str(&format!("    public var {}: String {{\n", method.name));
-            type_content.push_str(&format!("        self.{}().toString()\n", method.name));
+            type_content.push_str(&format!("    public var {}: String {{\n", camel));
+            type_content.push_str(&format!("        self.{}().toString()\n", camel));
             type_content.push_str("    }\n");
         }
 
