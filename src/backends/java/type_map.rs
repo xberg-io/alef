@@ -126,9 +126,9 @@ impl TypeMapper for JavaBoxedMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // Raw JSON is a JSON string over the FFI; Jackson deserializes it into a JsonNode DOM.
-        // Use unqualified name so @Nullable can be placed before it (not between package and class).
-        Cow::Borrowed("JsonNode")
+        // Polymorphic JSON fields (serde_json::Value) map to Object.
+        // Schema JSON (excluded types) will marshal explicitly in codegen.
+        Cow::Borrowed("Object")
     }
 
     fn unit(&self) -> Cow<'static, str> {
