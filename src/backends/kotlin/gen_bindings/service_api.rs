@@ -219,6 +219,10 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
     out.push_str(&format!(
         "/** Coroutine-friendly wrapper around the Java `{java_fqn}` service facade. */\n"
     ));
+    // Verb-method service wrappers legitimately expose one method per HTTP verb plus
+    // route / config / run / close; that easily exceeds detekt's default 11-function
+    // ceiling. Suppress the lint at the class level rather than fragmenting the API.
+    out.push_str("@Suppress(\"TooManyFunctions\")\n");
     out.push_str(&format!(
         "class {class_name} internal constructor(internal val inner: {java_fqn}) : AutoCloseable {{\n"
     ));
