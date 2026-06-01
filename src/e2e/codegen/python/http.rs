@@ -223,7 +223,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
 /// Synthesize a multipart/form-data body from a JSON Schema object with properties.
 /// For text properties, emits "sample". For binary (format: binary), emits a file part.
 fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>) -> String {
-    const BOUNDARY: &str = "----alef-boundary";
+    const BOUNDARY: &str = "alef-boundary";
     let mut body = String::new();
 
     for (prop_name, prop_schema) in props {
@@ -232,7 +232,7 @@ fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>)
             .and_then(|f| f.as_str())
             .is_some_and(|f| f == "binary");
 
-        body.push_str(&format!("{}\r\nContent-Disposition: form-data; name=\"{}\"", BOUNDARY, escape_python(prop_name)));
+        body.push_str(&format!("--{}\r\nContent-Disposition: form-data; name=\"{}\"", BOUNDARY, escape_python(prop_name)));
 
         if is_binary {
             body.push_str(&format!("; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n", escape_python(prop_name)));
@@ -244,7 +244,7 @@ fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>)
         body.push_str("\r\n");
     }
 
-    body.push_str(&format!("{}--\r\n", BOUNDARY));
+    body.push_str(&format!("--{}--\r\n", BOUNDARY));
 
     // Escape as Python raw bytes literal
     format!("b\"{}\"", escape_python(&body))

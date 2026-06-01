@@ -29,7 +29,7 @@ def test_{{ fn_name }}() -> None:
 {% if has_body %}
 {% if is_multipart %}
     _body = {{ body_py }}
-    _headers.setdefault("Content-Type", "multipart/form-data; boundary=----alef-boundary")
+    _headers.setdefault("Content-Type", "multipart/form-data; boundary=alef-boundary")
 {% elif is_form_body and body_is_string %}
     _body = ({{ body_py }}).encode()
 {% else %}
