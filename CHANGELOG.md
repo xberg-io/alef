@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PHP: fix truncated handler contract types in opaque class stubs.** When generating PHP stub
+  files for opaque types (e.g., `App`) that own service registrations, handler parameters with
+  generic type names (e.g., `H`) are now correctly resolved to their concrete callback contract
+  names (e.g., `Handler`). A new mapping from (service owner, method name, parameter name) →
+  callback contract name is built during public API generation and passed to the opaque class
+  file generator. This fixes `phpstan` and `phpdoc-lint` errors about invalid/truncated type hints.
+
+- **Go e2e: emit go.sum alongside go.mod when replace directive is present.** Go linters
+  (`golangci-lint`, `govulncheck`) require a valid `go.sum` file when a `replace` directive is
+  used in `go.mod`. This change emits an empty `go.sum` file in local dependency mode to allow
+  linters to properly analyze e2e test modules without "missing go.sum entry" errors.
+
 - **NAPI: emit real method implementations for App + RouteBuilder in service API.**
   The NAPI backend was unconditionally skipping `Builder`-suffixed types (line 382 in `mod.rs`), preventing `RouteBuilder` generation and forcing App variant methods (get/post/etc) to emit `todo!()` stubs. Removed the filter; generate RouteBuilder as a normal opaque type. Service variant codegen now constructs the wrapper (e.g., `new RouteBuilder(Method.GET, path)`) before registering, matching the handler interface. Added type imports to the TypeScript service class so it can reference `ServerConfig`, `RouteBuilder`, and other types.
 
@@ -35,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `func methodName(...) throws`.
 
 ### Added
+
+- **Swift: plugin marshaling helpers for FunctionParam Box generation.**
+  New `src/backends/swift/gen_bindings/plugin_marshal.rs` module provides four helpers:
+  `swift_shim_param_ffi_type()` (returns FFI type for a parameter), `swift_shim_param_decode()`
+  (returns setup lines + expression to convert FFI param to typed bridge method arg),
+  `swift_shim_return_ffi_type()` (returns FFI return type for a shim method), and
+  `swift_shim_return_marshal()` (returns body lines wrapping bridge call result into FFI return type).
+  Coverage includes String, Bytes, Bool, primitive ints, Vec<String>, Codable structs, enums,
+  Optional variants, and Vec<Vec<f32>> (embeddings). Each helper is unit-tested in isolation.
+  Foundation for Phase C: alef-generated `Swift{Trait}Box` classes that wrap
+  `Swift{Trait}Bridge` implementations via precise per-parameter / per-return-type marshaling.
 
 - **`HarnessConfig.overrides.<lang>.imports` + `HarnessConfig::imports_for_lang(lang)` helper.**
   Per-language override for the SUT import module path, mirroring the existing `register_method`,

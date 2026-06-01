@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use crate::backends::swift::gen_rust_crate;
 use crate::backends::swift::type_map::SwiftMapper;
 
+pub mod plugin_marshal;
 pub mod service_api;
 pub mod trait_bridge;
 
