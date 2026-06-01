@@ -304,7 +304,7 @@ fn fix_go_major_version(module_path: &str, version: &str) -> String {
 
 fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "module e2e_go");
+    let _ = writeln!(out, "module {go_module_path}/e2e");
     let _ = writeln!(out);
     let _ = writeln!(out, "go 1.26");
     let _ = writeln!(out);
