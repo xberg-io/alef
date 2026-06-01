@@ -134,9 +134,7 @@ ini_options.timeout = 300
 ///   deserialises `allowed_origins` / `allowed_methods` / `allowed_headers`.
 ///   Keys are renamed here so the template can call `CorsConfig.from_json()`
 ///   directly without any in-template remapping.
-fn build_middleware_value(
-    middleware: &Option<crate::e2e::fixture::HttpMiddleware>,
-) -> serde_json::Value {
+fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddleware>) -> serde_json::Value {
     let Some(mw) = middleware else {
         return serde_json::Value::Null;
     };

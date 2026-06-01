@@ -232,10 +232,17 @@ fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>)
             .and_then(|f| f.as_str())
             .is_some_and(|f| f == "binary");
 
-        body.push_str(&format!("--{}\r\nContent-Disposition: form-data; name=\"{}\"", BOUNDARY, escape_python(prop_name)));
+        body.push_str(&format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"{}\"",
+            BOUNDARY,
+            escape_python(prop_name)
+        ));
 
         if is_binary {
-            body.push_str(&format!("; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n", escape_python(prop_name)));
+            body.push_str(&format!(
+                "; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n",
+                escape_python(prop_name)
+            ));
             body.push_str("placeholder content");
         } else {
             body.push_str("\r\n\r\nsample");

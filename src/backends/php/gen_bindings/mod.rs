@@ -1962,7 +1962,9 @@ fn gen_php_opaque_class_file(
             .map(|(idx, p)| {
                 // Check if this parameter is a handler contract with a generic type.
                 // If so, use the concrete handler contract name instead.
-                let ptype = if let Some(contract_name) = handler_contract_map.get(&(typ.name.clone(), method_name.clone(), p.name.clone())) {
+                let ptype = if let Some(contract_name) =
+                    handler_contract_map.get(&(typ.name.clone(), method_name.clone(), p.name.clone()))
+                {
                     contract_name.clone()
                 } else {
                     php_type(&p.ty)

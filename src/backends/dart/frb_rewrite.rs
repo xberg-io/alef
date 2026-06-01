@@ -370,14 +370,8 @@ fn variant_regex() -> &'static Regex {
 /// );
 /// ```
 pub fn fix_handler_executor_calls(source: &str) -> String {
-    let source = source.replace(
-        "handler.executeSync(",
-        "generalizedFrbRustBinding.executeSync(",
-    );
-    source.replace(
-        "handler.executeNormal(",
-        "generalizedFrbRustBinding.executeNormal(",
-    )
+    let source = source.replace("handler.executeSync(", "generalizedFrbRustBinding.executeSync(");
+    source.replace("handler.executeNormal(", "generalizedFrbRustBinding.executeNormal(")
 }
 
 /// Rewrite the comma-separated parameter list inside the variant constructor.

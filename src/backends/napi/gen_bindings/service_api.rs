@@ -966,7 +966,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let service_ts = gen_service_ts(api, &package_name);
 
     // JavaScript version (TypeScript with types stripped)
-    let service_js = strip_typescript_annotations(&service_ts);
+    let _service_js = strip_typescript_annotations(&service_ts);
 
     // Node package output base: derive from package_name or use default
     let output_base = config
@@ -1085,11 +1085,10 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                         }
                         '<' => angle_depth += 1,
                         '>' => angle_depth -= 1,
-                        ',' | '=' | '{' | ';' => {
-                            if paren_depth == 0 && angle_depth == 0 {
+                        ',' | '=' | '{' | ';'
+                            if paren_depth == 0 && angle_depth == 0 => {
                                 break;
                             }
-                        }
                         _ => {}
                     }
                     j += 1;
@@ -1097,11 +1096,11 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                 // We've found the end of the type annotation. Skip to j.
                 i = j;
                 // Trim trailing space from output if present
-                while output.len() > 0 && output.chars().last().unwrap() == ' ' {
+                while !output.is_empty() && output.ends_with(' ') {
                     output.pop();
                 }
                 // Don't add extra spaces
-                if i < chars.len() && chars[i] != ',' && chars[i] != ')' && output.len() > 0 {
+                if i < chars.len() && chars[i] != ',' && chars[i] != ')' && !output.is_empty() {
                     output.push(' ');
                 }
                 continue;

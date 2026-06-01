@@ -515,11 +515,7 @@ fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_modu
     env.add_template("harness", harness_template).ok();
 
     // Derive a short import alias from the module path (e.g., "github.com/Goldziher/spikard" -> "spikard").
-    let import_alias = go_module_path
-        .rsplit('/')
-        .next()
-        .unwrap_or("pkg")
-        .to_string();
+    let import_alias = go_module_path.rsplit('/').next().unwrap_or("pkg").to_string();
 
     let template = env.get_template("harness").unwrap();
     let output = template

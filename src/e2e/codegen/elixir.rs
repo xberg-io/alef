@@ -246,9 +246,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
 
     let fixtures_json_str = serde_json::to_string(&fixtures_map).unwrap_or_default();
     // Escape backslashes and quotes for Elixir string literal
-    let fixtures_json = fixtures_json_str
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
+    let fixtures_json = fixtures_json_str.replace('\\', "\\\\").replace('"', "\\\"");
     let fixtures_json = format!("\"{}\"", fixtures_json);
 
     let imports = &e2e_config.harness.imports;

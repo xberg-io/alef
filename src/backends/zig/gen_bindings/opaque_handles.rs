@@ -271,7 +271,11 @@ fn emit_opaque_static_method(
         ty.name.clone()
     };
 
-    let _ = writeln!(out, "pub fn {}_{type_snake}({}) {} {{", method_snake, params_str, return_ty,);
+    let _ = writeln!(
+        out,
+        "pub fn {}_{type_snake}({}) {} {{",
+        method_snake, params_str, return_ty,
+    );
 
     // Emit param conversions (string dupeZ, enum intFromEnum, struct JSON handles).
     for p in &method.params {
