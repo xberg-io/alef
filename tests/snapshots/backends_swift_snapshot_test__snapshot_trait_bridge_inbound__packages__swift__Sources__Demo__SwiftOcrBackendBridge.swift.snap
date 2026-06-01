@@ -12,7 +12,7 @@ import RustBridge
 /// Protocol for outbound `OcrBackend` implementations.
 /// Conform your Swift class or struct to this protocol to implement
 /// a Rust trait from the host side.
-public protocol SwiftOcrBackendBridge: AnyObject {
+public protocol SwiftOcrBackendBridge: SwiftPluginBridge {
     func processImage(image_bytes: Data, config: OcrConfig) throws -> String
     func supportsLanguage(lang: String) -> Bool
 }

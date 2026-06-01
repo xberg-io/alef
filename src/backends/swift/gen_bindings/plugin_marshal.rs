@@ -110,8 +110,16 @@ pub fn swift_shim_param_decode(param_name: &str, ty: &TypeRef, _optional: bool) 
                          \x20   {}_list.append({}.get(index: {}_idx)!.as_str().toString())\n\
                          \x20   {}_idx += 1\n\
                          }}",
-                        param_name, param_name, param_name, param_name, param_name, param_name, param_name,
-                        param_name, param_name, param_name
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name,
+                        param_name
                     )],
                     expr: format!("{}_list", param_name),
                     is_throwing: false,
@@ -237,9 +245,7 @@ pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
         TypeRef::Primitive(PrimitiveType::Isize) => "UInt".to_string(),
         TypeRef::Primitive(PrimitiveType::F32) => "Float".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "Double".to_string(),
-        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
-            "RustVec<RustString>".to_string()
-        }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => "RustVec<RustString>".to_string(),
         // Everything else (String, Named, complex Vec, etc.) becomes envelope
         _ => "RustString".to_string(),
     }
@@ -347,10 +353,7 @@ mod tests {
 
     #[test]
     fn test_shim_param_ffi_type_bytes() {
-        assert_eq!(
-            swift_shim_param_ffi_type(&TypeRef::Bytes, false),
-            "RustVec<UInt8>"
-        );
+        assert_eq!(swift_shim_param_ffi_type(&TypeRef::Bytes, false), "RustVec<UInt8>");
     }
 
     #[test]
@@ -436,8 +439,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_named_codable() {
-        let decode =
-            swift_shim_param_decode("cfg", &TypeRef::Named("OcrConfig".to_string()), false);
+        let decode = swift_shim_param_decode("cfg", &TypeRef::Named("OcrConfig".to_string()), false);
         assert!(!decode.setup.is_empty());
         assert!(decode.setup[0].contains("JSONDecoder"));
         assert!(decode.setup[0].contains("OcrConfig"));
@@ -447,11 +449,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_optional_string() {
-        let decode = swift_shim_param_decode(
-            "opt_str",
-            &TypeRef::Optional(Box::new(TypeRef::String)),
-            false,
-        );
+        let decode = swift_shim_param_decode("opt_str", &TypeRef::Optional(Box::new(TypeRef::String)), false);
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "opt_str?.toString()");
         assert!(!decode.is_throwing);
@@ -472,23 +470,13 @@ mod tests {
 
     #[test]
     fn test_return_ffi_type_throwing_unit() {
-        let method = make_method(
-            "initialize",
-            vec![],
-            TypeRef::Unit,
-            Some("Error".to_string()),
-        );
+        let method = make_method("initialize", vec![], TypeRef::Unit, Some("Error".to_string()));
         assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
     }
 
     #[test]
     fn test_return_ffi_type_throwing_string() {
-        let method = make_method(
-            "process",
-            vec![],
-            TypeRef::String,
-            Some("Error".to_string()),
-        );
+        let method = make_method("process", vec![], TypeRef::String, Some("Error".to_string()));
         assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
     }
 
@@ -500,46 +488,26 @@ mod tests {
 
     #[test]
     fn test_return_ffi_type_non_throwing_bool() {
-        let method = make_method(
-            "supports_lang",
-            vec![],
-            TypeRef::Primitive(PrimitiveType::Bool),
-            None,
-        );
+        let method = make_method("supports_lang", vec![], TypeRef::Primitive(PrimitiveType::Bool), None);
         assert_eq!(swift_shim_return_ffi_type(&method), "Bool");
     }
 
     #[test]
     fn test_return_ffi_type_non_throwing_u64() {
-        let method = make_method(
-            "get_size",
-            vec![],
-            TypeRef::Primitive(PrimitiveType::U64),
-            None,
-        );
+        let method = make_method("get_size", vec![], TypeRef::Primitive(PrimitiveType::U64), None);
         assert_eq!(swift_shim_return_ffi_type(&method), "UInt64");
     }
 
     #[test]
     fn test_return_ffi_type_non_throwing_vec_string() {
-        let method = make_method(
-            "languages",
-            vec![],
-            TypeRef::Vec(Box::new(TypeRef::String)),
-            None,
-        );
+        let method = make_method("languages", vec![], TypeRef::Vec(Box::new(TypeRef::String)), None);
         assert_eq!(swift_shim_return_ffi_type(&method), "RustVec<RustString>");
     }
 
     #[test]
     fn test_return_ffi_type_non_throwing_named() {
         // Complex types without error always return envelope
-        let method = make_method(
-            "process",
-            vec![],
-            TypeRef::Named("ExtractionResult".to_string()),
-            None,
-        );
+        let method = make_method("process", vec![], TypeRef::Named("ExtractionResult".to_string()), None);
         assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
     }
 
@@ -554,12 +522,7 @@ mod tests {
 
     #[test]
     fn test_return_marshal_throwing_string() {
-        let method = make_method(
-            "process",
-            vec![],
-            TypeRef::String,
-            Some("Error".to_string()),
-        );
+        let method = make_method("process", vec![], TypeRef::String, Some("Error".to_string()));
         let lines = swift_shim_return_marshal(&method, "try inner.process()");
         assert_eq!(lines[0], "do {");
         assert!(lines.join("\n").contains("encodeOkEnvelope"));
@@ -576,12 +539,7 @@ mod tests {
 
     #[test]
     fn test_return_marshal_non_throwing_bool() {
-        let method = make_method(
-            "supports_lang",
-            vec![],
-            TypeRef::Primitive(PrimitiveType::Bool),
-            None,
-        );
+        let method = make_method("supports_lang", vec![], TypeRef::Primitive(PrimitiveType::Bool), None);
         let lines = swift_shim_return_marshal(&method, "inner.supportsLanguage(lang)");
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("return"));
@@ -589,12 +547,7 @@ mod tests {
 
     #[test]
     fn test_return_marshal_non_throwing_vec_string() {
-        let method = make_method(
-            "languages",
-            vec![],
-            TypeRef::Vec(Box::new(TypeRef::String)),
-            None,
-        );
+        let method = make_method("languages", vec![], TypeRef::Vec(Box::new(TypeRef::String)), None);
         let lines = swift_shim_return_marshal(&method, "inner.languages()");
         assert!(lines.join("\n").contains("RustVec<RustString>"));
         assert!(lines.join("\n").contains("vec.push"));
@@ -606,9 +559,7 @@ mod tests {
         let method = make_method(
             "embed",
             vec![],
-            TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(
-                TypeRef::Primitive(PrimitiveType::F32),
-            )))),
+            TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))))),
             Some("Error".to_string()),
         );
         let lines = swift_shim_return_marshal(&method, "try inner.embed(texts)");

@@ -124,6 +124,65 @@ ini_options.timeout = 300
 // app_harness.py (server-pattern harness)
 // ---------------------------------------------------------------------------
 
+/// Convert the fixture's `HttpMiddleware` into a `serde_json::Value` suitable
+/// for embedding in the harness fixture JSON.
+///
+/// Field names are normalised to match each binding's `from_json()` contract:
+///
+/// - CORS: alef fixture schema uses `allow_origins` / `allow_methods` /
+///   `allow_headers` (without the `d`), while the binding's `CorsConfig`
+///   deserialises `allowed_origins` / `allowed_methods` / `allowed_headers`.
+///   Keys are renamed here so the template can call `CorsConfig.from_json()`
+///   directly without any in-template remapping.
+fn build_middleware_value(
+    middleware: &Option<crate::e2e::fixture::HttpMiddleware>,
+) -> serde_json::Value {
+    let Some(mw) = middleware else {
+        return serde_json::Value::Null;
+    };
+
+    let mut map = serde_json::Map::new();
+
+    // --- cors ---
+    if let Some(cors) = &mw.cors {
+        let mut cors_map = serde_json::Map::new();
+        // Remap allow_* → allowed_* to match the binding's CorsConfig.from_json().
+        cors_map.insert("allowed_origins".to_string(), json!(cors.allow_origins));
+        cors_map.insert("allowed_methods".to_string(), json!(cors.allow_methods));
+        cors_map.insert("allowed_headers".to_string(), json!(cors.allow_headers));
+        if !cors.expose_headers.is_empty() {
+            cors_map.insert("expose_headers".to_string(), json!(cors.expose_headers));
+        }
+        if let Some(max_age) = cors.max_age {
+            cors_map.insert("max_age".to_string(), json!(max_age));
+        }
+        if cors.allow_credentials {
+            cors_map.insert("allow_credentials".to_string(), json!(true));
+        }
+        map.insert("cors".to_string(), serde_json::Value::Object(cors_map));
+    }
+
+    // --- pass-through middlewares (keys already match binding expectations) ---
+    for (key, value) in [
+        ("jwt_auth", &mw.jwt_auth),
+        ("api_key_auth", &mw.api_key_auth),
+        ("compression", &mw.compression),
+        ("rate_limit", &mw.rate_limit),
+        ("request_timeout", &mw.request_timeout),
+        ("request_id", &mw.request_id),
+    ] {
+        if let Some(v) = value {
+            map.insert(key.to_string(), v.clone());
+        }
+    }
+
+    if map.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::Object(map)
+    }
+}
+
 /// Render the app harness script for server-pattern HTTP fixtures.
 ///
 /// The harness spawns the SUT app and registers handlers per fixture,
@@ -141,12 +200,18 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
             // Convert the fixture to JSON for the harness to load.
             // We only need the http field, handler, request, and expected_response.
             let http_data = &fixture.http.as_ref().unwrap();
+
+            // Build the middleware map with normalised field names so the
+            // harness template can call each config's `from_json()` directly.
+            let middleware_value = build_middleware_value(&http_data.handler.middleware);
+
             let fixture_json = json!({
                 "http": {
                     "handler": {
                         "route": &http_data.handler.route,
                         "method": &http_data.handler.method,
                         "body_schema": http_data.handler.body_schema.clone(),
+                        "middleware": middleware_value,
                     },
                     "request": {
                         "path": &http_data.request.path,

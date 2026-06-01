@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/python: thread fixture `handler.middleware.{name}` through app_harness as `RouteBuilder.{name}()` calls.** Generic middleware passthrough — no per-middleware special-casing. `build_middleware_value` normalises CORS field names (`allow_*` → `allowed_*`) to match the binding's `CorsConfig.from_json()` contract; other middleware pass through unchanged. The harness template walks the `middleware` dict and dispatches each entry via a name→(ConfigClass, builder_method) table.
+
 - **PHP: fix truncated handler contract types in opaque class stubs.** When generating PHP stub
   files for opaque types (e.g., `App`) that own service registrations, handler parameters with
   generic type names (e.g., `H`) are now correctly resolved to their concrete callback contract
