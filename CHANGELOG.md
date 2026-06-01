@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   codegen in `elixir.rs` now enumerate `_build/dev/lib/*/ebin` directories and
   pass them as `-pa` arguments before the harness script path.
 
+- **Go backend: fix cgo trampoline linkage for route registration.** The `service_handler_trampoline`
+  function was declared `static`, making it invisible to Go's `C.` namespace. Remove `static`
+  so cgo can reference the symbol, and replace the `(*[0]byte)(C.service_handler_trampoline)` cast
+  with a direct `C.service_handler_trampoline` reference in both `gen_registration_method` and
+  `gen_registration_variant`. This resolves the route-registration error code 1 at runtime.
+
 - **TypeScript e2e: replace method-switch route registration with RouteBuilder.**
   The app harness was emitting a `switch` over `Method` enum values to call
   per-method registrar shims (`app.get`, `app.post`, etc.). Replace with a

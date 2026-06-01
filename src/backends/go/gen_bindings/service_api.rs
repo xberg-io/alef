@@ -98,7 +98,7 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
     // (cgo maps the Go `*C.char` parameter to a non-const `char*`). A static adapter then
     // supplies the `const char*` callback signature the C registration function expects.
     out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
-    out.push_str("static char* service_handler_trampoline(void* ctx, const char* req) {\n");
+    out.push_str("char* service_handler_trampoline(void* ctx, const char* req) {\n");
     out.push_str("\treturn service_handler_callback(ctx, (char*)req);\n");
     out.push_str("}\n");
     out.push_str("*/\n");
@@ -440,7 +440,7 @@ fn gen_registration_method(
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\t(*[0]byte)(C.service_handler_trampoline),\n\
+         \t\tC.service_handler_trampoline,\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -549,7 +549,7 @@ fn gen_registration_variant(
     out.push_str(&format!(
         "\tret := C.{}_{}_{} (\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\t(*[0]byte)(C.service_handler_trampoline),\n\
+         \t\tC.service_handler_trampoline,\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
