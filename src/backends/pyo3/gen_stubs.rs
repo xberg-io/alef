@@ -726,18 +726,19 @@ fn gen_method_stub(
     }
 }
 
-/// Convert a Rust PascalCase variant name to Python-idiomatic snake_case for enum stubs.
+/// Convert a Rust PascalCase variant name to Python-idiomatic UPPER_SNAKE_CASE for enum stubs.
 ///
-/// Python enums use snake_case member names (PEP 8), matching the #[pyo3(name = "...")]
-/// rename emitted on the Rust pyclass variant. This allows Python users to write:
-/// `ConversionOptions(heading_style="atx_closed")` using the bare string value.
+/// PEP 8 recommends UPPER_SNAKE_CASE for enum members, matching the convention
+/// commonly used in `#[pyo3(name = "...")]` renames on Rust pyclass variants.
+/// The same transform is used by the service-API codegen so call sites like
+/// `Method.GET` resolve against the matching pyi entry under mypy.
 ///
-/// Variant names whose snake_case form collides with a Python reserved keyword or
-/// `str` method name (e.g. `Del` → `del_`, `Title` → `title_`) are escaped with a
-/// trailing underscore so the generated `.pyi` parses and mypy is satisfied.
+/// Variant names whose snake_case form collides with a Python reserved keyword
+/// or `str` method name are escaped with a trailing underscore so the generated
+/// `.pyi` parses cleanly.
 fn to_python_enum_variant(name: &str) -> String {
-    use heck::ToSnakeCase;
-    crate::core::keywords::python_str_enum_ident(&name.to_snake_case())
+    use heck::ToShoutySnakeCase;
+    crate::core::keywords::python_str_enum_ident(&name.to_shouty_snake_case())
 }
 
 /// Generate a Python enum stub.

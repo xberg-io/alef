@@ -171,6 +171,7 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     }
     let any_registrations = api.services.iter().any(|s| !s.registrations.is_empty());
 
+    out.push_str("\"\"\"Idiomatic service API: builders, decorators, and the App wrapper.\"\"\"\n\n");
     out.push_str("from __future__ import annotations\n\n");
     out.push_str("from typing import TYPE_CHECKING, Any\n\n");
     // The native extension is a submodule of the package (e.g. `pkg._pkg`), so import it
@@ -359,7 +360,20 @@ fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant
         }
     }
 
-    let call_expr = format!("{}({})", wc.wrapper_type_name, call_args.join(", "));
+    // PyO3 opaque wrappers expose a `new` classmethod (emitted by gen_bindings/types.rs)
+    // rather than a `__init__` constructor, so build `WrapperType.new(...)` when the IR
+    // names a constructor method. The bare `WrapperType(...)` form remains for backends
+    // that bind a true `__init__`.
+    let call_expr = if wc.constructor_method.is_empty() || wc.constructor_method == "__init__" {
+        format!("{}({})", wc.wrapper_type_name, call_args.join(", "))
+    } else {
+        format!(
+            "{}.{}({})",
+            wc.wrapper_type_name,
+            wc.constructor_method,
+            call_args.join(", ")
+        )
+    };
     Some(format!("{} = {}", wc.metadata_param, call_expr))
 }
 
