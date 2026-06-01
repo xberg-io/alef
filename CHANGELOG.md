@@ -20,6 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: emit `Swift{Trait}Bridge` protocol files into `Sources/RustBridge/` target.** Bug A:
+  Bridge protocol files (`SwiftPluginBridge.swift`, `Swift{Trait}Bridge.swift`) are now emitted
+  into `Sources/RustBridge/` instead of `Sources/<Module>/`. The `Swift{Trait}Box` classes
+  (emitted into `RustBridge` by Phase C) need to reference the bridge protocols, which failed
+  with "cannot find type 'Swift{Trait}Bridge' in scope" when they were in a different SwiftPM
+  target. `BridgeRegistrationOverloads.swift` remains in the Kreuzberg module (it's user-facing
+  plugin registration API).
+
+- **Swift: collect all `Named` types in FunctionParam bridge protocol methods and exclude them
+  from JSON encoding.** Bug B: Bridge protocols now automatically exclude all `Named` types
+  (e.g., `OcrConfig`, `ExtractionConfig`) that appear in method parameters or return types.
+  Previously, these types were exposed as typed parameters, but the Box's decoder tried
+  `JSONDecoder().decode(OcrConfig.self, ...)`, failing with "does not conform to Decodable"
+  because the opaque Rust types are not Decodable in Swift. Now all Named types are marshaled
+  as JSON `String` at the boundary, matching the protocol signature and the Box decode logic.
+
 - **Swift: passthrough excluded `Named` types in plugin Box decode + drop `private` on
   envelope helpers.** Two follow-up fixes for the FunctionParam Box generation that surfaced
   on the first kreuzberg regen:

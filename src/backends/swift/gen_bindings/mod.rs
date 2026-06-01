@@ -496,7 +496,8 @@ impl Backend for SwiftBackend {
         }
 
         // Emit trait bridge protocol and adapter files for outbound plugins.
-        // Swift{Trait}Bridge.swift files are emitted into Sources/<Module>/ alongside the main binding file.
+        // Swift{Trait}Bridge.swift files are emitted into Sources/RustBridge/ so that Box classes
+        // in the same target can reference the bridge protocols.
         let trait_bridge_configs: Vec<(String, &TraitBridgeConfig, &TypeDef)> = config
             .trait_bridges
             .iter()
@@ -522,7 +523,9 @@ impl Backend for SwiftBackend {
         let mut exclude_types_with_ir = exclude_types.clone();
         exclude_types_with_ir.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
         for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types_with_ir) {
-            let path = module_dir.join(&filename);
+            // Trait bridge protocol files (Swift{Trait}Bridge.swift and SwiftPluginBridge.swift)
+            // go into the RustBridge target so they are accessible from Box classes in the same target.
+            let path = rust_bridge_sources.join(&filename);
             files.push(GeneratedFile {
                 path,
                 content,

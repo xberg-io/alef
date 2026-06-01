@@ -97,6 +97,23 @@ fn emit_swift_plugin_bridge_protocol() -> String {
     out
 }
 
+/// Collect all Named type references recursively from a TypeRef.
+fn collect_named_types(type_ref: &TypeRef, named_types: &mut HashSet<String>) {
+    match type_ref {
+        TypeRef::Named(name) => {
+            named_types.insert(name.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            collect_named_types(inner, named_types);
+        }
+        TypeRef::Map(key, val) => {
+            collect_named_types(key, named_types);
+            collect_named_types(val, named_types);
+        }
+        _ => {}
+    }
+}
+
 /// Generate Swift trait bridge code for a single trait.
 ///
 /// `exclude_types` contains type names that are not visible in the Swift binding surface.
@@ -114,6 +131,18 @@ fn gen_single_trait_bridge_file(
     aug_exclude_types.insert("ExtractionResult".to_string());
     // InternalDocument is an internal non-serde type; marshal as JSON string at boundaries
     aug_exclude_types.insert("InternalDocument".to_string());
+
+    // Collect all Named types referenced in method params and return types.
+    // These Named types (e.g., OcrConfig, ExtractionConfig) are exposed as String
+    // in the protocol since they are not JSON-decodable opaque types at the boundary.
+    for method in &trait_def.methods {
+        if !method.has_default_impl {
+            for param in &method.params {
+                collect_named_types(&param.ty, &mut aug_exclude_types);
+            }
+            collect_named_types(&method.return_type, &mut aug_exclude_types);
+        }
+    }
 
     let mut out = String::new();
 
