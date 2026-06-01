@@ -476,10 +476,8 @@ pub fn gen_bridge_registration_overloads_file(
         ));
     }
 
-
     Some(("BridgeRegistrationOverloads.swift".to_string(), content))
 }
-
 
 /// Convert a snake_case or kebab-case identifier to PascalCase.
 fn to_pascal_case(s: &str) -> String {

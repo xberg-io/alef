@@ -13,8 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The `Swift{Trait}Bridge` protocol methods no longer carry `async` keywords. This aligns the bridge
   protocol with the plugin protocol shape (sync, JSON-string marshalled types). Users implementing
   trait bridges must update their methods from `func methodName(...) async throws` to
-  `func methodName(...) throws`. This enables alef to generate `Plugins.swift` entirely from trait
-  definitions without hand-authored plugin protocol wrappers.
+  `func methodName(...) throws`.
 
 ### Added
 
@@ -26,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`src/core/config/e2e.rs`, `src/e2e/codegen/typescript/config.rs`)
 
 ### Fixed
+
+- **Swift: keep `Plugins.swift` hand-authored, not alef-generated.**
+  The FFI adapter layer (`Plugins.swift`) containing `Swift{Trait}Box` classes and JSON envelope
+  helpers is maintained as hand-authored code in the kreuzberg binding. This allows users to iterate
+  on plugin protocols without requiring full binding regeneration, and avoids the complexity of
+  generating precise FFI marshalling and Plugin super-trait method forwarding from trait metadata.
 
 - **e2e: register 4 unbundled harness templates in `template_env.rs`.**
   `csharp/app_harness.cs.jinja`, `java/harness_main.jinja`, `elixir/test_helper_server.exs.jinja`,
