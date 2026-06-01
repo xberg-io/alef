@@ -691,9 +691,10 @@ fn render_test_file(
     let _ = writeln!(out);
 
     // Always emit tearDownAll to dispose of RustLib singleton and close resources.
-    // RustLib is initialized in setUpAll and must be cleaned up after all tests,
-    // even if this test file has no HTTP fixtures or SUT spawning.
+    // RustLib is initialized in setUpAll and must be cleaned up after all tests.
+    // RustLib.dispose() is always called to ensure proper cleanup (required for non-empty body).
     let _ = writeln!(out, "  tearDownAll(() async {{");
+    let _ = writeln!(out, "    RustLib.dispose();");
     if has_http_fixtures {
         let _ = writeln!(out, "    _httpClient.close(force: true);");
     }
