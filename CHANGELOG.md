@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: emit `@unchecked Sendable` for parameter-only DTOs (`BatchFileItem`, `BatchBytesItem`, …).**
+  The Sendable conformance emission filter was `is_opaque || handle_returned`, which missed
+  types that appear only as parameters to async forwarders. When `Task.detached` captured
+  such a value (e.g. `BatchFileItem` argument), Swift 6 strict-concurrency rejected the
+  closure with "passing closure as a 'sending' parameter risks causing data races".
+  Broaden the filter to every non-trait, non-excluded `api.types` entry — every alef-emitted
+  type has a `RustBridge.<T>` opaque-class shadow wrapping a Send + Sync Rust pointer, so
+  the conformance is safe. Companion to the prior fix that moved RustVec materialisation
+  inside the `Task.detached` closure body.
+
 - **Elixir e2e: wrap SUT_URL expression in parens not braces.** Braces (`{ ... }`)
   create an Elixir tuple, but `<>` (binary concatenation) requires a binary on both
   sides. Tuples are not binaries, causing "got type: dynamic({term()}) but expected
