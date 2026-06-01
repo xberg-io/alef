@@ -26,7 +26,7 @@ import (
 	"syscall"
 
 {%- for import_name in imports %}
-	"{{ import_name }}"
+	{{ import_alias }} "{{ import_name }}"
 {%- endfor %}
 )
 
@@ -68,7 +68,7 @@ func main() {
 		log.Fatalf("unmarshal fixtures: %v", err)
 	}
 
-	app, err := {{ method_enum_import }}.NewApp()
+	app, err := {{ import_alias }}.NewApp()
 	if err != nil {
 		log.Fatalf("new app: %v", err)
 	}
@@ -95,7 +95,7 @@ func main() {
 		fullRoute := fmt.Sprintf("/fixtures/%s%s", fixtureID, route)
 
 		// Convert method string (GET, POST, etc.) to the framework's method enum.
-		builder, err := {{ method_enum_import }}.RouteBuilderNew({{ method_enum_import }}.Method(method), fullRoute)
+		builder, err := {{ import_alias }}.RouteBuilderNew({{ import_alias }}.Method(method), fullRoute)
 		if err != nil {
 			log.Fatalf("create route builder: %v", err)
 		}
