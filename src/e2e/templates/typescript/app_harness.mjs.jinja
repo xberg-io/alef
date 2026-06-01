@@ -16,7 +16,11 @@ const { {{ app_class }}, {{ method_enum }}, ServerConfig } = _pkg;
 const _FIXTURES = {{fixtures_json}};
 
 // Create and configure the app
+{% if constructor_method == ".new()" -%}
+const app = {{ app_class }}.new();
+{% else -%}
 const app = new {{ app_class }}();
+{% endif -%}
 
 // Register a handler for each fixture
 for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {

@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unless explicitly overridden in the fixture. Fixes 65 identical test failures in
   both Node and WASM e2e suites.
 
+- **TypeScript e2e: use factory method constructor for NAPI-RS bindings.** Node.js
+  and WASM bindings expose app constructors as static factory methods (e.g.,
+  `App.new()`) rather than traditional constructors (`new App()`). The harness
+  codegen now detects imports containing `/node` or `wasm` and emits the correct
+  constructor call pattern. This fixes the "Class contains no `constructor`" error
+  when starting the app harness.
+
 - **C#: revert TypeRef::Json mapping (JsonElement → string).** The earlier
   JsonElement mapping broke RouteBuilder schema-setter wrappers — the P/Invoke
   bridge expects `string` so passing JsonElement fails with CS1503. The DTO
