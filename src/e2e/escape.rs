@@ -307,7 +307,9 @@ pub fn ruby_needs_double_quotes(s: &str) -> bool {
         || s.contains('\'')
 }
 
-/// Format a string as a Ruby literal, preferring single quotes.
+/// Format a string as a Ruby literal, preferring single quotes but using double
+/// quotes when the string contains apostrophes, control characters, or other
+/// special chars that require escaping only available in double-quoted strings.
 pub fn ruby_string_literal(s: &str) -> String {
     if ruby_needs_double_quotes(s) {
         format!("\"{}\"", escape_ruby(s))
@@ -546,5 +548,22 @@ mod tests {
     fn sanitize_ident_preserves_interior_chars() {
         assert_eq!(sanitize_ident("foo_42_bar"), "foo_42_bar");
         assert_eq!(sanitize_ident("foo.bar-baz"), "foo_bar_baz");
+    }
+
+    /// Ruby strings with apostrophes must use double quotes to properly escape them.
+    #[test]
+    fn ruby_string_with_apostrophe_uses_double_quotes() {
+        let s = "Tests JWT rejection when token is provided without 'Bearer ' prefix.";
+        let result = ruby_string_literal(s);
+        assert!(
+            result.starts_with('"') && result.ends_with('"'),
+            "String with apostrophe must use double quotes, got: {}",
+            result
+        );
+        assert!(
+            result.contains("Bearer"),
+            "String content must be preserved, got: {}",
+            result
+        );
     }
 }
