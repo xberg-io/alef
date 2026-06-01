@@ -2285,15 +2285,39 @@ fn emit_static_opaque_method_body(
 
     let call_args_str = call_args.join(", ");
 
-    // Emit the call to the static method.
+    let call = format!("{core_type_path}::{method_name}({call_args_str})");
+
+    // Wrap the return value using the same logic as instance methods.
+    let wrap_return = build_opaque_return_wrap(&method.return_type, method.returns_ref);
+    let has_error = method.error_type.is_some();
+
+    // Emit the call with appropriate return wrapping.
     if method.is_async {
-        out.push_str(&format!(
-            "        {core_type_path}::{method_name}({call_args_str}).await\n"
-        ));
+        if has_error {
+            if wrap_return.is_empty() {
+                out.push_str(&format!("        {call}.await.map_err(|e| e.to_string())\n"));
+            } else {
+                out.push_str(&format!(
+                    "        {call}.await.map({wrap_return}).map_err(|e| e.to_string())\n"
+                ));
+            }
+        } else if wrap_return.is_empty() {
+            out.push_str(&format!("        {call}.await\n"));
+        } else {
+            out.push_str(&format!("        ({wrap_return})({call}.await)\n"));
+        }
+    } else if has_error {
+        if wrap_return.is_empty() {
+            out.push_str(&format!("        {call}.map_err(|e| e.to_string())\n"));
+        } else {
+            out.push_str(&format!(
+                "        {call}.map({wrap_return}).map_err(|e| e.to_string())\n"
+            ));
+        }
+    } else if wrap_return.is_empty() {
+        out.push_str(&format!("        {call}\n"));
     } else {
-        out.push_str(&format!(
-            "        {core_type_path}::{method_name}({call_args_str})\n"
-        ));
+        out.push_str(&format!("        ({wrap_return})({call})\n"));
     }
 }
 
