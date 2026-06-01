@@ -297,9 +297,14 @@ pub fn r_template_to_paste0(template: &str) -> String {
 }
 
 /// Returns true if the string needs double quotes (contains control characters
-/// that require escape sequences only available in double-quoted strings).
+/// that require escape sequences only available in double-quoted strings, or
+/// apostrophes which are only properly escaped in double-quoted strings in Ruby).
 pub fn ruby_needs_double_quotes(s: &str) -> bool {
-    s.contains('\n') || s.contains('\r') || s.contains('\t') || s.contains('\0')
+    s.contains('\n')
+        || s.contains('\r')
+        || s.contains('\t')
+        || s.contains('\0')
+        || s.contains('\'')
 }
 
 /// Format a string as a Ruby literal, preferring single quotes.
