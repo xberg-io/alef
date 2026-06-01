@@ -3323,8 +3323,9 @@ fn emit_swift_bridge_files(
     // swift-bridge's generated SwiftBridgeCore.swift starts with `import Foundation`; the
     // crate-specific swift file has no imports at all.  Both reference C types (RustStr,
     // __private__Option*, __swift_bridge__$Vec_*) that live in the RustBridgeC SwiftPM target.
-    let core_swift_content =
-        make_swift_bridge_ref_ptr_public(&append_rust_string_ref_to_string_extension(&prepend_rust_bridge_c_import(&core_swift)));
+    let core_swift_content = make_swift_bridge_ref_ptr_public(&append_rust_string_ref_to_string_extension(
+        &prepend_rust_bridge_c_import(&core_swift),
+    ));
     let crate_swift_content = make_swift_bridge_ref_ptr_public(&prepend_rust_bridge_c_import(&crate_swift));
 
     // RustBridgeC.h: umbrella header concatenating both generated C headers.
@@ -4617,8 +4618,7 @@ fn emit_function_param_box_files(
     excluded_types: &std::collections::HashSet<String>,
 ) -> Vec<GeneratedFile> {
     use crate::backends::swift::gen_bindings::plugin_marshal::{
-        swift_shim_param_ffi_type, swift_shim_param_decode, swift_shim_return_ffi_type,
-        swift_shim_return_marshal,
+        swift_shim_param_decode, swift_shim_param_ffi_type, swift_shim_return_ffi_type, swift_shim_return_marshal,
     };
 
     let mut files = Vec::new();
@@ -4790,7 +4790,9 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
             let return_ffi_type = swift_shim_return_ffi_type(method);
 
-            content.push_str(&format!("    public func {shim_name}({param_sig}) -> {return_ffi_type} {{\n"));
+            content.push_str(&format!(
+                "    public func {shim_name}({param_sig}) -> {return_ffi_type} {{\n"
+            ));
 
             // Build setup and parameter decodes using Phase B helpers
             // Pass augmented excluded types so Named types are not JSON-decoded
@@ -5424,10 +5426,7 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
             // method invocation, matching the swift-bridge naming convention. This
             // avoids name collisions when the Rust method name is snake_case.
             let camel = method.name.to_lower_camel_case();
-            type_content.push_str(&format!(
-                "    /// Computed-property alias for `{}()` method.\n",
-                camel
-            ));
+            type_content.push_str(&format!("    /// Computed-property alias for `{}()` method.\n", camel));
             type_content.push_str(&format!("    public var {}: String {{\n", camel));
             type_content.push_str(&format!("        self.{}().toString()\n", camel));
             type_content.push_str("    }\n");

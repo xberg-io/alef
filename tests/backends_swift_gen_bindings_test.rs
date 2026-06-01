@@ -114,13 +114,22 @@ fn struct_with_primitive_fields_emits_public_struct() {
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // generate_bindings returns the main Swift file, the Rust bridge crate files,
-    // and a RustBridgeC placeholder header when swift-bridge build output is absent.
-    assert_eq!(files.len(), 5);
+    // a RustBridgeC placeholder header when swift-bridge build output is absent,
+    // and `SwiftPluginHelpers.swift` (unconditional shared helpers for
+    // FunctionParam bridges — see commit 12362ba09).
+    assert_eq!(files.len(), 6);
     assert!(
         files
             .iter()
             .any(|f| f.path.to_string_lossy().ends_with("Sources/RustBridgeC/RustBridgeC.h")),
         "missing RustBridgeC placeholder header"
+    );
+    assert!(
+        files.iter().any(|f| f
+            .path
+            .to_string_lossy()
+            .ends_with("Sources/RustBridge/SwiftPluginHelpers.swift")),
+        "missing SwiftPluginHelpers.swift"
     );
     let content = &files[0].content;
 
@@ -1532,7 +1541,10 @@ fn output_path_uses_pascal_case_module_name() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    assert_eq!(files.len(), 5);
+    // Six files: main Swift wrapper, Rust bridge crate files, RustBridgeC
+    // placeholder header, and the unconditional `SwiftPluginHelpers.swift`
+    // (commit 12362ba09 — FunctionParam Box generation helpers).
+    assert_eq!(files.len(), 6);
 
     // The Swift wrapper must be a .swift file with PascalCase module name.
     // When using ResolvedCrateConfig, output_paths["swift"] is set from the template

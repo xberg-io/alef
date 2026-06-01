@@ -10,7 +10,6 @@ use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::csharp::CSharpCodegen;
 use alef::e2e::codegen::elixir::ElixirCodegen;
 use alef::e2e::codegen::go::GoCodegen;
-use alef::e2e::codegen::java::JavaCodegen;
 use alef::e2e::codegen::php::PhpCodegen;
 use alef::e2e::codegen::python::PythonE2eCodegen;
 use alef::e2e::codegen::ruby::RubyCodegen;
@@ -261,39 +260,23 @@ fn go_host_root_fixture_url_uses_mock_server_env_key() {
     );
 }
 
-#[test]
-fn go_main_test_emits_mock_servers_parsing() {
-    let files = generate_all(&GoCodegen, "go", vec![make_host_root_fixture("robots_disallow_path")]);
-    let main_test = files
-        .iter()
-        .find(|f| f.path.ends_with("main_test.go"))
-        .expect("main_test.go not found");
-    assert!(
-        main_test.content.contains("MOCK_SERVERS="),
-        "expected MOCK_SERVERS= parsing in main_test.go:\n{}",
-        main_test.content
-    );
-}
+// NOTE: `go_main_test_emits_mock_servers_parsing` was removed in the
+// harness-pattern refactor (commit b6112c283 "myriad e2e test fixes"). Go no
+// longer parses `MOCK_SERVERS=` inside `main_test.go`; per-fixture URLs are
+// resolved at test time via the `MOCK_SERVER_<FIXTURE_ID>` env vars set by
+// whatever process spawns the mock-server (parent test runner / harness
+// binary), with a `MOCK_SERVER_URL/fixtures/<id>` fallback. See
+// `src/e2e/codegen/go.rs` (`fixture.has_host_root_route()` branch).
 
 // ── Java ──────────────────────────────────────────────────────────────────────
 
-#[test]
-fn java_mock_server_listener_emits_mock_servers_parsing() {
-    let files = generate_all(
-        &JavaCodegen,
-        "java",
-        vec![make_host_root_fixture("robots_disallow_path")],
-    );
-    let listener = files
-        .iter()
-        .find(|f| f.path.to_str().unwrap_or("").ends_with("MockServerListener.java"))
-        .expect("MockServerListener.java not found");
-    assert!(
-        listener.content.contains("MOCK_SERVERS="),
-        "expected MOCK_SERVERS= parsing in MockServerListener.java:\n{}",
-        listener.content
-    );
-}
+// NOTE: `java_mock_server_listener_emits_mock_servers_parsing` was removed in
+// the same b6112c283 refactor. `render_mock_server_listener` was kept as
+// `#[allow(dead_code)]` Rust scaffolding for a future re-wiring but is not
+// currently emitted: crawler-style fixtures rely on
+// `MOCK_SERVER_<FIXTURE_ID>` env vars (set by parent harness) with a
+// `MOCK_SERVER_URL/fixtures/<id>` fallback; server-pattern HTTP fixtures use
+// `HarnessMain.java` instead. See `src/e2e/codegen/java.rs` lines 1714-1729.
 
 // ── C# ───────────────────────────────────────────────────────────────────────
 
@@ -523,21 +506,66 @@ fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
 #[test]
 fn wasm_global_setup_does_not_contain_init_call() {
     // The wasm init is handled per-worker in setup.ts (setupFiles). The
-    // globalSetup.ts is responsible only for spawning the mock-server and
+    // globalSetup.ts is responsible only for spawning the app harness and
     // should NOT duplicate the init call (which would run in the main process
     // and be invisible to worker processes anyway).
-    let files = generate_all(
-        &WasmCodegen,
-        "wasm",
-        vec![make_host_root_fixture("robots_disallow_path")],
-    );
+    //
+    // After commit b6112c283 the wasm `globalSetup.ts` is only emitted when
+    // the e2e config wires a server-pattern harness (i.e. `harness.imports`
+    // is non-empty); plain crawler-style fixtures rely on the parent test
+    // runner exporting `MOCK_SERVER_URL` / `MOCK_SERVER_<FIXTURE_ID>`
+    // directly. Build a fixture that triggers the harness path so the
+    // invariant under test is exercised.
+    let mut http_fixture = make_host_root_fixture("robots_disallow_path");
+    http_fixture.http = Some(alef::e2e::fixture::HttpFixture {
+        handler: alef::e2e::fixture::HttpHandler {
+            route: "/".to_string(),
+            method: "GET".to_string(),
+            body_schema: None,
+            parameters: std::collections::BTreeMap::new(),
+            middleware: None,
+        },
+        request: alef::e2e::fixture::HttpRequest {
+            method: "GET".to_string(),
+            path: "/".to_string(),
+            headers: std::collections::BTreeMap::new(),
+            query_params: std::collections::BTreeMap::new(),
+            cookies: std::collections::BTreeMap::new(),
+            body: None,
+            content_type: None,
+        },
+        expected_response: alef::e2e::fixture::HttpExpectedResponse {
+            status_code: 200,
+            body: None,
+            body_partial: None,
+            headers: std::collections::BTreeMap::new(),
+            validation_errors: None,
+        },
+    });
+
+    let (mut e2e, resolved) = build_config("wasm");
+    e2e.harness.imports = vec!["wasm_pkg".to_string()];
+    let groups = groups_with(vec![http_fixture]);
+    let files = WasmCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("generation succeeds");
+
     let global_setup = files
         .iter()
         .find(|f| f.path.ends_with("globalSetup.ts"))
         .expect("wasm globalSetup.ts not found");
+    // The server-pattern globalSetup spawns the app harness and guards on
+    // SUT_URL (not MOCK_SERVER_URL) — see globalSetup_server.ts.jinja.
     assert!(
-        global_setup.content.contains("if (process.env.MOCK_SERVER_URL)"),
-        "globalSetup.ts must honor a pre-set MOCK_SERVER_URL:\n{}",
+        global_setup.content.contains("if (process.env.SUT_URL)"),
+        "globalSetup.ts must honor a pre-set SUT_URL:\n{}",
+        global_setup.content
+    );
+    // Invariant under test: no wasm init in globalSetup (it runs per-worker
+    // via setup.ts).
+    assert!(
+        !global_setup.content.contains("initSync"),
+        "wasm globalSetup.ts must not call initSync (it runs per-worker via setup.ts):\n{}",
         global_setup.content
     );
 }
@@ -572,28 +600,61 @@ fn wasm_setup_ts_initializes_wasm_per_worker() {
 
 #[test]
 fn wasm_global_setup_skips_spawn_when_mock_server_url_preset() {
-    let files = generate_all(
-        &WasmCodegen,
-        "wasm",
-        vec![make_host_root_fixture("robots_disallow_path")],
-    );
+    // See note in `wasm_global_setup_does_not_contain_init_call` — wasm
+    // emits globalSetup.ts only for harness-driven (server-pattern) fixtures.
+    let mut http_fixture = make_host_root_fixture("robots_disallow_path");
+    http_fixture.http = Some(alef::e2e::fixture::HttpFixture {
+        handler: alef::e2e::fixture::HttpHandler {
+            route: "/".to_string(),
+            method: "GET".to_string(),
+            body_schema: None,
+            parameters: std::collections::BTreeMap::new(),
+            middleware: None,
+        },
+        request: alef::e2e::fixture::HttpRequest {
+            method: "GET".to_string(),
+            path: "/".to_string(),
+            headers: std::collections::BTreeMap::new(),
+            query_params: std::collections::BTreeMap::new(),
+            cookies: std::collections::BTreeMap::new(),
+            body: None,
+            content_type: None,
+        },
+        expected_response: alef::e2e::fixture::HttpExpectedResponse {
+            status_code: 200,
+            body: None,
+            body_partial: None,
+            headers: std::collections::BTreeMap::new(),
+            validation_errors: None,
+        },
+    });
+
+    let (mut e2e, resolved) = build_config("wasm");
+    e2e.harness.imports = vec!["wasm_pkg".to_string()];
+    let groups = groups_with(vec![http_fixture]);
+    let files = WasmCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("generation succeeds");
+
     let global_setup = files
         .iter()
         .find(|f| f.path.ends_with("globalSetup.ts"))
         .expect("wasm globalSetup.ts not found");
+    // The server-pattern globalSetup uses SUT_URL (set by parent runner)
+    // rather than MOCK_SERVER_URL to short-circuit self-spawn.
     assert!(
-        global_setup.content.contains("if (process.env.MOCK_SERVER_URL)"),
-        "wasm globalSetup.ts must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
+        global_setup.content.contains("if (process.env.SUT_URL)"),
+        "wasm globalSetup.ts must honor a pre-set SUT_URL and skip self-spawn:\n{}",
         global_setup.content
     );
     let guard = global_setup
         .content
-        .find("if (process.env.MOCK_SERVER_URL)")
+        .find("if (process.env.SUT_URL)")
         .expect("guard present");
     let spawn = global_setup.content.find("spawn(").expect("spawn present");
     assert!(
         guard < spawn,
-        "the pre-set MOCK_SERVER_URL guard must precede the spawn() call:\n{}",
+        "the pre-set SUT_URL guard must precede the spawn() call:\n{}",
         global_setup.content
     );
 }

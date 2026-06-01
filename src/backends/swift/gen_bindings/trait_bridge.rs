@@ -182,9 +182,7 @@ fn gen_single_trait_bridge_file(
     // MARK: Extension with default implementations
     // Emit an extension providing Swift defaults for methods that have default impls in Rust.
     // This allows conformers to opt out of implementing them.
-    out.push_str(&format!(
-        "public extension {protocol} {{\n"
-    ));
+    out.push_str(&format!("public extension {protocol} {{\n"));
 
     for method in &trait_def.methods {
         if !method.has_default_impl {
