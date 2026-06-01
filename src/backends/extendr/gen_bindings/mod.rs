@@ -50,10 +50,10 @@ impl ExtendrBackend {
             // so that method bodies that construct core structs compile correctly.
             cast_uints_to_i32: true,
             cast_large_ints_to_f64: true,
-            // extendr's #[extendr] macro only generates TryFrom<&Robj> for &T, not for T
-            // (owned). Free function parameters that are Named non-opaque structs must therefore
-            // be declared as &T in the binding signature so extendr can extract them from Robj.
-            named_non_opaque_params_by_ref: true,
+            // extendr's #[extendr] macro generates TryFrom<&Robj> for T (owned types only).
+            // Free function parameters that are Named non-opaque structs must be declared as T
+            // in the binding signature. The body uses .clone().into() to convert owned params.
+            named_non_opaque_params_by_ref: false,
             // Flat data enums are output-only: no From<BindingType> impl exists for them.
             // Skip these types in gen_lossy_binding_to_core_fields so method bodies that
             // construct core structs emit Default::default() for those fields instead of

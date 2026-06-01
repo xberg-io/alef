@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Kotlin/JNI: deduplicate `nativeFree<T>` destructor emission.** Types that are
+  both client types (with instance methods) AND opaque return types of top-level
+  functions had their destructor `external fun` declared twice — once in the
+  per-method emitter and again in the bridge-object emitter. Filter the
+  bridge-object pass to handle-only types so each destructor appears exactly once.
+
+- **C#: emit zero-parameter non-void trait methods as properties.** C# convention
+  treats `T Get()` as a property `T Get { get; }`. The trait bridge interface and
+  e2e stub emitter now branch on `params.is_empty() && return_type != void` and
+  emit the property form instead of a method signature.
+
+- **Zig e2e: typed cast wrappers for numeric assertions.** Render `@as(i64, n)`,
+  `@as(usize, n)`, `@as(f64, n)` context vars so the JSON-assertion template can
+  emit type-correct comparisons against integer or float literals.
+
+- **R/extendr: free-function Named non-opaque params are owned `T`, not `&T`.**
+  extendr's `#[extendr]` macro generates `TryFrom<&Robj> for T` (owned), not for
+  `&T`. The body uses `.clone().into()` to convert owned params.
+
 - **PyO3: skip `_rust.` qualification for re-exported return types.**
   Added `reexported_types` list to PythonConfig. When a return type lives in the native module
   AND appears in this list, api.py annotations use the bare name instead of `_rust.Type`. Prevents

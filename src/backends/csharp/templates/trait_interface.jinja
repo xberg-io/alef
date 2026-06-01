@@ -19,6 +19,10 @@ public interface I{{ trait_pascal }} {
 {% for method in methods %}
 
     /// <summary>{{ method.name }}</summary>
+{% if method.params_empty and method.return_type != "void" %}
+    {{ method.return_type }} {{ method.method_name }} { get; }
+{% else %}
     {{ method.return_type }} {{ method.method_name }}({{ method.params_sig }});
+{% endif %}
 {% endfor %}
 }

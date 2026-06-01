@@ -3820,6 +3820,9 @@ fn emit_csharp_stub_method(
     // ALWAYS emit sync stubs, regardless of is_async in the Rust trait.
     if matches!(method.return_type, TypeRef::Unit) {
         let _ = writeln!(out, "        public void {method_cs}({param_list}) {{ }}");
+    } else if method.params.is_empty() {
+        // Zero-parameter methods with non-void return become properties in C#
+        let _ = writeln!(out, "        public {ret_ty} {method_cs} {{ get; }} = {default_val};");
     } else {
         let _ = writeln!(out, "        public {ret_ty} {method_cs}({param_list})");
         let _ = writeln!(out, "            => {default_val};");

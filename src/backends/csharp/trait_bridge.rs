@@ -212,6 +212,7 @@ fn gen_single_trait_bridge(
                 "method_name": to_csharp_name(&method.name),
                 "return_type": return_type,
                 "params_sig": params,
+                "params_empty": method.params.is_empty(),
             })
         })
         .collect();
