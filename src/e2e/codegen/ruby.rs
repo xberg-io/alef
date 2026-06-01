@@ -340,8 +340,17 @@ fn render_gemfile(
 ) -> String {
     let gem_line = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            let rubygems_version = to_rubygems_prerelease(gem_version);
-            format!("gem '{gem_name}', '~> {rubygems_version}'")
+            // If alef.toml provides the version with a rubygems operator (`~>`, `>=`,
+            // `==`, etc.), the caller has chosen the registry-conventional form already
+            // — use it verbatim. Otherwise apply the rubygems pre-release renderer and
+            // wrap with `~> `.
+            let trimmed = gem_version.trim_start();
+            let constraint = if trimmed.starts_with(|c: char| matches!(c, '~' | '>' | '<' | '=' | '!')) {
+                gem_version.to_string()
+            } else {
+                format!("~> {}", to_rubygems_prerelease(gem_version))
+            };
+            format!("gem '{gem_name}', '{constraint}'")
         }
         crate::e2e::config::DependencyMode::Local => format!("gem '{gem_name}', path: '{gem_path}'"),
     };
@@ -3156,6 +3165,27 @@ mod gemfile_tests {
         assert!(
             !out.contains("3.6.0-rc.1"),
             "raw semver dash form must not appear in registry Gemfile, got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_gemfile_registry_already_prefixed_passes_through() {
+        // When alef.toml's [crates.e2e.registry.packages.ruby] version field already
+        // includes a rubygems operator (`~> 3.6.0.pre.rc.1`), the codegen must use
+        // it verbatim — wrapping with another `~> ` produces a double-prefix bug.
+        let out = render_gemfile(
+            "my-gem",
+            "../../packages/ruby",
+            "~> 3.6.0.pre.rc.1",
+            DependencyMode::Registry,
+        );
+        assert!(
+            out.contains("gem 'my-gem', '~> 3.6.0.pre.rc.1'"),
+            "already-prefixed input must pass through verbatim, got: {out}"
+        );
+        assert!(
+            !out.contains("~> ~>"),
+            "must not double the `~>` prefix, got: {out}"
         );
     }
 

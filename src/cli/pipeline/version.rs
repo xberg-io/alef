@@ -1195,13 +1195,19 @@ pub fn sync_versions(
                                 text_replacement_paths.insert(path.clone());
                                 if let Ok(content) = std::fs::read_to_string(&path) {
                                     let pep440 = to_pep440(&version);
+                                    let rubygems = to_rubygems_prerelease(&version);
+                                    let r_ver = to_r_version(&version);
                                     let search = replacement
                                         .search
                                         .replace("{python_version}", &pep440)
+                                        .replace("{ruby_version}", &rubygems)
+                                        .replace("{r_version}", &r_ver)
                                         .replace("{version}", &version);
                                     let replace = replacement
                                         .replace
                                         .replace("{python_version}", &pep440)
+                                        .replace("{ruby_version}", &rubygems)
+                                        .replace("{r_version}", &r_ver)
                                         .replace("{version}", &version);
                                     if let Ok(re) = regex::Regex::new(&search) {
                                         let new_content = re.replace_all(&content, replace.as_str()).to_string();

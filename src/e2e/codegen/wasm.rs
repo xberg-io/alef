@@ -393,7 +393,17 @@ fn render_package_json(
     extras: Option<&crate::core::config::manifest_extras::ManifestExtras>,
 ) -> String {
     let dep_value = match dep_mode {
-        crate::e2e::config::DependencyMode::Registry => format!("^{pkg_version}"),
+        crate::e2e::config::DependencyMode::Registry => {
+            // If alef.toml provides the version with a semver range operator
+            // (`^`, `~`, `>=`, etc.), the caller has chosen the registry-conventional
+            // form — use it verbatim. Otherwise prepend `^` for caret-range semver.
+            let trimmed = pkg_version.trim_start();
+            if trimmed.starts_with(|c: char| matches!(c, '^' | '~' | '>' | '<' | '=')) {
+                pkg_version.to_string()
+            } else {
+                format!("^{pkg_version}")
+            }
+        }
         // Fallback path: `wasm-pack build --target nodejs --out-dir pkg/nodejs` writes
         // the npm-consumable package (its own package.json with `main`/`types` etc.)
         // to `pkg/nodejs/`, not to `pkg/` directly. The fallback `wasm_crate_path()`
@@ -810,5 +820,25 @@ mod tests {
             pkg_json.contains("\"^3.6.0-rc.1\""),
             "registry pre-release pin must use caret with raw semver; got:\n{pkg_json}"
         );
+    }
+
+    #[test]
+    fn test_package_json_registry_already_prefixed_passes_through() {
+        // When alef.toml's [crates.e2e.registry.packages.wasm] version field already
+        // includes a semver range operator (`^3.6.0-rc.1`), the codegen must use it
+        // verbatim — prepending another `^` produces a double-prefix bug.
+        let pkg_json = render_package_json(
+            "@test/wasm",
+            "pkg",
+            false,
+            "^3.6.0-rc.1",
+            crate::e2e::config::DependencyMode::Registry,
+            None,
+        );
+        assert!(
+            pkg_json.contains("\"^3.6.0-rc.1\""),
+            "already-prefixed input must pass through verbatim; got:\n{pkg_json}"
+        );
+        assert!(!pkg_json.contains("^^"), "must not double the `^` prefix; got:\n{pkg_json}");
     }
 }

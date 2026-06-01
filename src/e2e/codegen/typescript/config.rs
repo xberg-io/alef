@@ -14,7 +14,17 @@ pub(crate) fn render_package_json(
     extras: Option<&ManifestExtras>,
 ) -> String {
     let dep_value = match dep_mode {
-        crate::e2e::config::DependencyMode::Registry => format!("^{pkg_version}"),
+        crate::e2e::config::DependencyMode::Registry => {
+            // If alef.toml provides the version with a semver range operator
+            // (`^`, `~`, `>=`, etc.), the caller has chosen the registry-conventional
+            // form — use it verbatim. Otherwise prepend `^` for caret-range semver.
+            let trimmed = pkg_version.trim_start();
+            if trimmed.starts_with(|c: char| matches!(c, '^' | '~' | '>' | '<' | '=')) {
+                pkg_version.to_string()
+            } else {
+                format!("^{pkg_version}")
+            }
+        }
         crate::e2e::config::DependencyMode::Local => "workspace:*".to_string(),
     };
     let _ = has_http_fixtures; // TODO: add HTTP test deps when http fixtures are present
@@ -235,6 +245,19 @@ mod tests {
             out.contains("\"^3.6.0-rc.1\""),
             "pre-release npm pin must include caret, got: {out}"
         );
+    }
+
+    #[test]
+    fn render_package_json_registry_already_prefixed_passes_through() {
+        // When alef.toml's [crates.e2e.registry.packages.node] version field already
+        // includes a semver range operator (`^3.6.0-rc.1`), the codegen must use it
+        // verbatim — prepending another `^` produces a double-prefix bug.
+        let out = render_package_json("my-pkg", "", "^3.6.0-rc.1", DependencyMode::Registry, false, None);
+        assert!(
+            out.contains("\"^3.6.0-rc.1\""),
+            "already-prefixed input must pass through verbatim, got: {out}"
+        );
+        assert!(!out.contains("^^"), "must not double the `^` prefix, got: {out}");
     }
 
     #[test]
