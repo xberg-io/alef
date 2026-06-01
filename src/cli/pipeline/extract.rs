@@ -193,6 +193,26 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         merged.excluded_trait_names.extend(api.excluded_trait_names);
     }
 
+    // Re-run the return-type marking against the merged surface so that a
+    // function in crate A that returns a type whose canonical home is crate B
+    // (a common pattern when the public facade `pub use`s items from internal
+    // crates) still gets its TypeDef.is_return_type flagged. The per-crate
+    // extractor only marks types that share its own surface, so cross-crate
+    // function→type pairs would otherwise stay false here.
+    let return_type_names: ahash::AHashSet<String> = merged
+        .functions
+        .iter()
+        .filter_map(|f| match &f.return_type {
+            crate::core::ir::TypeRef::Named(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    for typ in &mut merged.types {
+        if return_type_names.contains(&typ.name) {
+            typ.is_return_type = true;
+        }
+    }
+
     Ok(merged)
 }
 
