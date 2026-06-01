@@ -5,10 +5,12 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     internal readonly I{{ trait_pascal }} _impl;
     private readonly GCHandle _implHandle;
-    private readonly GCHandle _delegatesHandle;
     internal IntPtr _vtable;
     private bool _disposed;
-    private readonly object[] _delegates;
+    // Keep all delegates alive for the lifetime of the bridge.
+    // Delegates must not be GC'd because Rust holds function pointers obtained via
+    // GetFunctionPointerForDelegate; those pointers become invalid if the delegate is collected.
+    private readonly List<object> _delegateRoots;
     internal readonly IntPtr _bridgeId;
     private int _callbackRefCount = 0;
 
@@ -69,11 +71,12 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     public {{ trait_pascal }}Bridge(I{{ trait_pascal }} impl) {
         _impl = impl ?? throw new ArgumentNullException(nameof(impl));
-        _implHandle = GCHandle.Alloc(impl, GCHandleType.Pinned);
-        _delegates = new object[{{ num_vtable_fields }}];
-        // Pin the delegates array to prevent GC during callback round-trips.
-        // Must use Pinned, not Normal, to keep array address stable across managed→unmanaged→managed calls.
-        _delegatesHandle = GCHandle.Alloc(_delegates, GCHandleType.Pinned);
+        // Keep impl alive via normal GCHandle (sufficient for callback rooting).
+        // The impl instance itself is not pinned, just kept in the GC root set.
+        _implHandle = GCHandle.Alloc(impl, GCHandleType.Normal);
+        // Delegate list roots all delegates by reference to prevent GC.
+        // This avoids trying to pin an object array containing references, which .NET 10 forbids.
+        _delegateRoots = new List<object>({{ num_vtable_fields }});
         _vtable = IntPtr.Zero;
         _disposed = false;
         // Allocate unique bridge ID for registry lookup during callbacks
@@ -139,9 +142,8 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
             _implHandle.Free();
         }
 
-        if (_delegatesHandle.IsAllocated) {
-            _delegatesHandle.Free();
-        }
+        // _delegateRoots is kept as a managed list; GC handles it automatically.
+        // No need to free individual delegates or the list.
     }
 
     /// <summary>Register a {{ trait_pascal }} implementation and return its native handle</summary>

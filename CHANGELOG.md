@@ -44,10 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when true, it keeps the full harness-spawn + port-poll dance. Imports are emitted conditionally to
   avoid unused-import errors. (`src/e2e/codegen/go.rs`)
 
-- **csharp trait-bridge GCHandle: use `Normal`, not `Pinned`, for the `impl` and `_delegates` handles.**
-  `GCHandle.Alloc(obj, Pinned)` throws `ArgumentException: Object contains references` for any reference
-  type (interfaces, classes, `object[]`). Only blittable types are pinnable. The previous code crashed at
-  bridge construction for every visitor, masking the real codegen issue. `Normal` keeps the objects alive
+- **csharp trait-bridge GCHandle: redesign delegate rooting for .NET 10 compatibility.**
+  .NET 10 forbids `GCHandle.Alloc(object[], Pinned)` when the array contains references (delegates are reference types).
+  Redesigned to: (1) keep delegates alive via a managed `List<object> _delegateRoots` instead of a pinned array;
+  (2) write the function pointers (obtained via `Marshal.GetFunctionPointerForDelegate`) directly to the unmanaged
+  vtable; (3) remove the pinned `_delegatesHandle`. The `impl` handle uses `GCHandleType.Normal`, which is sufficient
+  for callback rooting since function pointers obtained from a delegate remain valid as long as the delegate is alive
+  (and the list keeps it alive). Fixes `ArgumentException: Object contains non-primitive or non-blittable data`
+  on .NET 10. (`src/backends/csharp/templates/{trait_bridge_class.jinja,vtable_slot_assign.jinja}`)
   across GC; function pointers obtained via `GetFunctionPointerForDelegate` remain valid for the lifetime
   of the underlying delegate regardless of GC compaction.
 
