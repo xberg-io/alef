@@ -9,12 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **C#: map TypeRef::Json to JsonElement (was string).** Rust core emits nested
-  JSON for any field typed `JsonValue`; declaring it as `string` causes
-  `System.Text.Json` to throw "Cannot get the value of a token type 'StartObject'
-  as a string" when the wire embeds an object rather than a stringified one.
-  `Map<String, Json>` is similarly emitted as `Dictionary<string, JsonElement>`
-  to round-trip numeric and array dict values.
+- **C#: revert TypeRef::Json mapping (JsonElement → string).** The earlier
+  JsonElement mapping broke RouteBuilder schema-setter wrappers — the P/Invoke
+  bridge expects `string` so passing JsonElement fails with CS1503. The DTO
+  deserialization symptom (`StartObject` token) needs a layered fix: `JsonElement`
+  for DTO fields, `string` for FFI call sites with `.GetRawText()` at the
+  boundary. Reverted until that layered emission lands.
 
 - **Lint cleanup for green prek.** Remove orphaned doc-comments in the swift
   backend, merge identical `if` branches in the extendr `Named`-vs-extendr-incompatible

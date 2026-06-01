@@ -46,12 +46,16 @@ impl TypeMapper for CsharpMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // ExtractionResult and other DTOs round-trip via System.Text.Json. The Rust core
-        // emits nested JSON for any field typed `JsonValue`, so the C# DTO must declare
-        // it as `JsonElement` to accept the wire format. Declaring it as `string` causes
-        // a deserialization failure ("Cannot get the value of a token type 'StartObject'
-        // as a string") when the Rust side embeds an object rather than a stringified one.
-        Cow::Borrowed("JsonElement")
+        // Raw JSON crosses the FFI as a JSON string (pinvoke param/return are `string`, and nothing
+        // serializes a Json value), so the public surface is a raw JSON `string`, not `object`.
+        //
+        // Known limitation (tracked separately): DTOs that contain `JsonValue` fields cannot be
+        // deserialized via System.Text.Json when the Rust side embeds an object — it throws
+        // "Cannot get the value of a token type 'StartObject' as a string". The correct fix
+        // is layered emission: `JsonElement` for DTO fields, `string` for FFI bridge call sites
+        // (with `.GetRawText()` at the wrapper-to-pinvoke boundary). Reverted from JsonElement
+        // because the unconditional change broke RouteBuilder schema-setter signatures.
+        Cow::Borrowed("string")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -76,48 +80,6 @@ impl TypeMapper for CsharpMapper {
 
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
         Cow::Owned(csharp_type_name(name))
-    }
-
-    fn map_type(&self, ty: &TypeRef) -> String {
-        // Special case: Map<String, Json> should become Dictionary<string, JsonElement>
-        // to handle numeric and array values in the JSON dict during deserialization.
-        if let TypeRef::Map(k, v) = ty {
-            if matches!(v.as_ref(), TypeRef::Json) {
-                let key_str = match k.as_ref() {
-                    TypeRef::Primitive(p) => self.primitive(p).into_owned(),
-                    TypeRef::String | TypeRef::Char => self.string().into_owned(),
-                    TypeRef::Bytes => self.bytes().into_owned(),
-                    TypeRef::Path => self.path().into_owned(),
-                    TypeRef::Json => self.json().into_owned(),
-                    TypeRef::Unit => self.unit().into_owned(),
-                    TypeRef::Optional(inner) => self.optional(&self.map_type(inner)),
-                    TypeRef::Vec(inner) => self.vec(&self.map_type(inner)),
-                    TypeRef::Named(name) => self.named(name).into_owned(),
-                    TypeRef::Duration => self.duration().into_owned(),
-                    // Nested Map in key is unlikely but handle recursively
-                    TypeRef::Map(kk, vv) => {
-                        let kk_str = self.map_type(kk);
-                        let vv_str = self.map_type(vv);
-                        format!("Dictionary<{kk_str}, {vv_str}>")
-                    }
-                };
-                return format!("Dictionary<{key_str}, JsonElement>");
-            }
-        }
-        // Fall back to default implementation for all other types
-        match ty {
-            TypeRef::Primitive(p) => self.primitive(p).into_owned(),
-            TypeRef::String | TypeRef::Char => self.string().into_owned(),
-            TypeRef::Bytes => self.bytes().into_owned(),
-            TypeRef::Path => self.path().into_owned(),
-            TypeRef::Json => self.json().into_owned(),
-            TypeRef::Unit => self.unit().into_owned(),
-            TypeRef::Optional(inner) => self.optional(&self.map_type(inner)),
-            TypeRef::Vec(inner) => self.vec(&self.map_type(inner)),
-            TypeRef::Map(k, v) => self.map(&self.map_type(k), &self.map_type(v)),
-            TypeRef::Named(name) => self.named(name).into_owned(),
-            TypeRef::Duration => self.duration().into_owned(),
-        }
     }
 
     fn error_wrapper(&self) -> &str {
@@ -172,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_json() {
-        assert_eq!(CsharpMapper.map_type(&TypeRef::Json), "JsonElement");
+        assert_eq!(CsharpMapper.map_type(&TypeRef::Json), "string");
     }
 
     #[test]
@@ -219,16 +181,6 @@ mod tests {
                 Box::new(TypeRef::Primitive(PrimitiveType::I32))
             )),
             "Dictionary<string, int>"
-        );
-    }
-
-    #[test]
-    fn test_map_with_json_value() {
-        // Map<String, Json> should map to Dictionary<string, JsonElement>
-        // to properly handle numeric and array values during deserialization
-        assert_eq!(
-            CsharpMapper.map_type(&TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json))),
-            "Dictionary<string, JsonElement>"
         );
     }
 

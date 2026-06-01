@@ -990,15 +990,7 @@ pub(super) fn gen_record_type(
                     // like (1, 3) was converted to Vec<Usize> and needs the correct default on the Rust side.
                     TypeRef::Vec(_) if field.sanitized => "null".to_string(),
                     TypeRef::Vec(_) => "[]".to_string(),
-                    TypeRef::Map(k, v) => {
-                        // Special case: Map<_, Json> uses JsonElement as value type (not string)
-                        let value_type = if matches!(v.as_ref(), TypeRef::Json) {
-                            "JsonElement".to_string()
-                        } else {
-                            csharp_type(v).to_string()
-                        };
-                        format!("new Dictionary<{}, {}>()", csharp_type(k), value_type)
-                    }
+                    TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
                     TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
                     TypeRef::Json => "null".to_string(),
                     TypeRef::Bytes => "[]".to_string(),
