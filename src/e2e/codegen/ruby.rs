@@ -261,10 +261,7 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
     let header = hash::header(CommentStyle::Hash);
 
     // For Ruby, derive the Method enum from the method_enum config or use Spikard::Method
-    let method_enum_module = method_enum
-        .as_deref()
-        .unwrap_or("Spikard::Method")
-        .to_string();
+    let method_enum_module = method_enum.as_deref().unwrap_or("Spikard::Method").to_string();
 
     let ctx = minijinja::context! {
         header => header,
@@ -306,6 +303,7 @@ fn render_gemfile(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_spec_helper(
     has_file_fixtures: bool,
     has_mock_server_fixtures: bool,
@@ -461,12 +459,7 @@ RSpec.configure do |config|
   end
 end
 "#,
-            harness_host,
-            harness_port,
-            harness_host,
-            harness_port,
-            harness_host,
-            harness_port
+            harness_host, harness_port, harness_host, harness_port, harness_host, harness_port
         );
         out.push_str(&harness_setup);
     } else if has_mock_server_fixtures {
@@ -2911,7 +2904,16 @@ mod trait_bridge_tests {
 
     #[test]
     fn spec_helper_uses_configured_package_and_module_names() {
-        let content = render_spec_helper(true, false, "../../fixtures", "custom_gem", "custom_module");
+        let content = render_spec_helper(
+            true,
+            false,
+            false,
+            "../../fixtures",
+            "custom_gem",
+            "custom_module",
+            "127.0.0.1",
+            8000,
+        );
 
         assert!(
             content.contains("require 'custom_gem'"),

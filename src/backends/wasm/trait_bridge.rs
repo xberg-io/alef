@@ -106,7 +106,10 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
-        let return_bool = matches!(method.return_type, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool));
+        let return_bool = matches!(
+            method.return_type,
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
+        );
         let return_enum = if let TypeRef::Named(type_name) = &method.return_type {
             self.enum_names.contains(type_name)
         } else {
@@ -163,7 +166,10 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
-        let return_bool = matches!(method.return_type, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool));
+        let return_bool = matches!(
+            method.return_type,
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
+        );
         let return_enum = if let TypeRef::Named(type_name) = &method.return_type {
             self.enum_names.contains(type_name)
         } else {
@@ -381,11 +387,7 @@ pub fn gen_trait_bridge(
         }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure for plugin pattern
-        let enum_names: std::collections::HashSet<String> = api
-            .enums
-            .iter()
-            .map(|e| e.name.clone())
-            .collect();
+        let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
         let generator = WasmBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),

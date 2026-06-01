@@ -127,6 +127,13 @@ impl E2eCodegen for SwiftE2eCodegen {
             });
         }
 
+        // Generate the app harness executable that runs the SUT server for tests.
+        files.push(GeneratedFile {
+            path: output_base.join("Sources").join("Harness").join("main.swift"),
+            content: render_app_harness(e2e_config, groups, module_name),
+            generated_header: true,
+        });
+
         // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
         let tests_base = output_base.clone();
 
@@ -255,86 +262,7 @@ extension RustString: @retroactive CustomStringConvertible {{
     public var description: String {{ self.toString() }}
 }}
 
-// Spawns the alef mock-server once per test process and exposes its base URL.
-// SwiftPM/XCTest has no global "before all tests" hook that can inject environment
-// variables (the JVM-style listener trick used by the Java/Kotlin backends), so the
-// server is started lazily on first access of `baseURL` and kept alive for the
-// lifetime of the process. A pre-set `MOCK_SERVER_URL` (e.g. exported by CI) wins.
-enum AlefE2EMockServer {{
-    static let baseURL: String = AlefE2EMockServer.start()
-
-    // Retain the child process so it is not reaped while tests run.
-    nonisolated(unsafe) private static var process: Process?
-
-    private static func start() -> String {{
-        if let preset = ProcessInfo.processInfo.environment["MOCK_SERVER_URL"], !preset.isEmpty {{
-            return preset
-        }}
-        let fileManager = FileManager.default
-        var dir = URL(fileURLWithPath: fileManager.currentDirectoryPath)
-        var fixturesDir: URL?
-        for _ in 0..<16 {{
-            let candidate = dir.appendingPathComponent("fixtures")
-            var isDir: ObjCBool = false
-            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {{
-                fixturesDir = candidate
-                break
-            }}
-            let parent = dir.deletingLastPathComponent()
-            if parent.path == dir.path {{ break }}
-            dir = parent
-        }}
-        guard let fixtures = fixturesDir else {{
-            fatalError("AlefE2EMockServer: could not locate fixtures/ above \(fileManager.currentDirectoryPath)")
-        }}
-        let repoRoot = fixtures.deletingLastPathComponent()
-        let binary = repoRoot.appendingPathComponent("e2e/rust/target/release/mock-server")
-        guard fileManager.fileExists(atPath: binary.path) else {{
-            fatalError("AlefE2EMockServer: mock-server binary not found at \(binary.path) — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release")
-        }}
-        let proc = Process()
-        proc.executableURL = binary
-        proc.arguments = [fixtures.path]
-        let stdoutPipe = Pipe()
-        proc.standardOutput = stdoutPipe
-        // Keep stdin open so the server does not see EOF and exit immediately.
-        proc.standardInput = Pipe()
-        do {{
-            try proc.run()
-        }} catch {{
-            fatalError("AlefE2EMockServer: failed to start mock-server: \(error)")
-        }}
-        process = proc
-        let handle = stdoutPipe.fileHandleForReading
-        var buffer = Data()
-        var resolved: String?
-        for _ in 0..<500 {{
-            let chunk = handle.availableData
-            if chunk.isEmpty {{ break }}
-            buffer.append(chunk)
-            if let text = String(data: buffer, encoding: .utf8) {{
-                for line in text.split(separator: "\n") {{
-                    if line.hasPrefix("MOCK_SERVER_URL=") {{
-                        resolved = String(line.dropFirst("MOCK_SERVER_URL=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                        break
-                    }}
-                }}
-            }}
-            if resolved != nil {{ break }}
-        }}
-        guard let url = resolved else {{
-            proc.terminate()
-            fatalError("AlefE2EMockServer: mock-server did not emit MOCK_SERVER_URL")
-        }}
-        // Drain remaining stdout in the background so a full pipe never blocks the server.
-        DispatchQueue.global(qos: .background).async {{
-            while !handle.availableData.isEmpty {{}}
-        }}
-        return url
-    }}
-}}
-
-// URLSession that does not follow redirects, so tests can assert on 3xx status codes
+// URLSession delegate that does not follow redirects, so tests can assert on 3xx status codes
 // and Location headers instead of transparently chasing them to the final response.
 final class AlefE2ENoRedirectDelegate: NSObject, URLSessionTaskDelegate {{
     func urlSession(
@@ -347,14 +275,73 @@ final class AlefE2ENoRedirectDelegate: NSObject, URLSessionTaskDelegate {{
         completionHandler(nil)
     }}
 }}
-
-let alefE2ESession = URLSession(
-    configuration: .ephemeral,
-    delegate: AlefE2ENoRedirectDelegate(),
-    delegateQueue: nil
-)
 "#
     )
+}
+
+// ---------------------------------------------------------------------------
+// App Harness Rendering
+// ---------------------------------------------------------------------------
+
+fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_name: &str) -> String {
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            let http_data = &fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+    let app_class = &e2e_config.harness.app_class;
+    let register_route_method = &e2e_config.harness.register_method;
+    let body_schema_setter = &e2e_config.harness.body_schema_setter;
+    let method_enum = &e2e_config.harness.method_enum;
+    let run_method = &e2e_config.harness.run_method;
+
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    let ctx = minijinja::context! {
+        header => header,
+        imports => format!("import {}", module_name),
+        app_class => app_class.as_deref().unwrap_or("App"),
+        route_builder_constructor => "RouteBuilder",
+        route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("requestSchemaJson"),
+        method_enum_class => method_enum.as_deref().unwrap_or("Method"),
+        register_route_method => register_route_method.as_deref().unwrap_or("registerRoute"),
+        run_method => run_method.as_deref().unwrap_or("run"),
+        response_body_field => e2e_config.harness.response_body_field.as_str(),
+        host => host,
+        port => port,
+        fixtures_json => fixtures_json,
+    };
+
+    crate::e2e::template_env::render("swift/app_harness.swift.jinja", ctx)
 }
 
 fn render_package_swift(
@@ -415,6 +402,11 @@ fn render_package_swift(
     let targets_block = if let Some(binary_target) = binary_target_block {
         format!(
             r#"        {binary_target},
+        .executableTarget(
+            name: "Harness",
+            dependencies: [{test_target_dep}],
+            path: "Sources/Harness"
+        ),
         .testTarget(
             name: "{module_name}E2ETests",
             dependencies: [{test_target_dep}]
@@ -422,9 +414,14 @@ fn render_package_swift(
 "#
         )
     } else {
-        // Local mode: no binary target, just the test target with product reference.
+        // Local mode: no binary target, just the executable harness and test target.
         format!(
-            r#"        .testTarget(
+            r#"        .executableTarget(
+            name: "Harness",
+            dependencies: [{test_target_dep}],
+            path: "Sources/Harness"
+        ),
+        .testTarget(
             name: "{module_name}E2ETests",
             dependencies: [{test_target_dep}]
         ),
@@ -539,6 +536,81 @@ fn render_test_file(
     let _ = writeln!(out, "/// E2e tests for category: {category}.");
     let _ = writeln!(out, "final class {class_name}: XCTestCase {{");
 
+    // Always emit a setUp that spawns the harness and optionally chdirs.
+    let _ = writeln!(out, "    override class func setUp() {{");
+    let _ = writeln!(out, "        super.setUp()");
+
+    // Spawn the harness subprocess if SUT_URL is not already set.
+    let _ = writeln!(
+        out,
+        "        let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]"
+    );
+    let _ = writeln!(out, "        if _existing == nil {{");
+    let _ = writeln!(out, "            let _harness = URL(fileURLWithPath: #filePath)");
+    let _ = writeln!(out, "                .deletingLastPathComponent() // <Module>Tests/");
+    let _ = writeln!(out, "                .deletingLastPathComponent() // Tests/");
+    let _ = writeln!(out, "                .deletingLastPathComponent() // swift_e2e/");
+    let _ = writeln!(out, "                .deletingLastPathComponent() // e2e/");
+    let _ = writeln!(out, "                .appendingPathComponent(\"swift_e2e\")");
+    let _ = writeln!(
+        out,
+        "                .appendingPathComponent(\".build/release/Harness\")"
+    );
+    let _ = writeln!(out, "            let proc = Process()");
+    let _ = writeln!(out, "            proc.executableURL = _harness");
+    let _ = writeln!(out, "            let stdoutPipe = Pipe()");
+    let _ = writeln!(out, "            proc.standardOutput = stdoutPipe");
+    let _ = writeln!(out, "            proc.standardInput = Pipe()");
+    let _ = writeln!(out, "            do {{");
+    let _ = writeln!(out, "                try proc.run()");
+    let _ = writeln!(out, "            }} catch {{");
+    let _ = writeln!(
+        out,
+        "                fatalError(\"Failed to start harness: \\(error)\")"
+    );
+    let _ = writeln!(out, "            }}");
+    let _ = writeln!(out, "            let deadline = Date(timeIntervalSinceNow: 15.0)");
+    let _ = writeln!(out, "            var ready = false");
+    let _ = writeln!(
+        out,
+        "            let _probeURL = URL(string: \"http://127.0.0.1:8009/\")!"
+    );
+    let _ = writeln!(out, "            while Date.now < deadline {{");
+    let _ = writeln!(out, "                if proc.isRunning == false {{ break }}");
+    let _ = writeln!(out, "                var _probeReq = URLRequest(url: _probeURL)");
+    let _ = writeln!(out, "                _probeReq.timeoutInterval = 0.5");
+    let _ = writeln!(out, "                let _probeSema = DispatchSemaphore(value: 0)");
+    let _ = writeln!(
+        out,
+        "                let _probeSession = URLSession(configuration: .ephemeral)"
+    );
+    let _ = writeln!(
+        out,
+        "                _probeSession.dataTask(with: _probeReq) {{ _, _, _ in _probeSema.signal() }}.resume()"
+    );
+    let _ = writeln!(
+        out,
+        "                if _probeSema.wait(timeout: .now() + 0.6) == .timedOut {{"
+    );
+    let _ = writeln!(out, "                    usleep(100000)");
+    let _ = writeln!(out, "                    continue");
+    let _ = writeln!(out, "                }}");
+    let _ = writeln!(out, "                ready = true");
+    let _ = writeln!(out, "                break");
+    let _ = writeln!(out, "            }}");
+    let _ = writeln!(out, "            if !ready {{");
+    let _ = writeln!(out, "                proc.terminate()");
+    let _ = writeln!(
+        out,
+        "                fatalError(\"Harness did not become ready within 15s\")"
+    );
+    let _ = writeln!(out, "            }}");
+    let _ = writeln!(
+        out,
+        "            ProcessInfo.processInfo.environment[\"SUT_URL\"] = \"http://127.0.0.1:8009\""
+    );
+    let _ = writeln!(out, "        }}");
+
     if needs_chdir {
         // Chdir once at class setUp so all fixture file_path arguments resolve relative
         // to the repository's test_documents directory.
@@ -547,13 +619,11 @@ fn render_test_file(
         // 5 deletingLastPathComponent() calls climb to the repo root before appending
         // "test_documents". Mirrors the Ruby/Python conftest pattern that chdirs to
         // test_documents.
-        let _ = writeln!(out, "    override class func setUp() {{");
-        let _ = writeln!(out, "        super.setUp()");
         let _ = writeln!(out, "        let _testDocs = URL(fileURLWithPath: #filePath)");
         let _ = writeln!(out, "            .deletingLastPathComponent() // <Module>Tests/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // Tests/");
-        let _ = writeln!(out, "            .deletingLastPathComponent() // swift/");
-        let _ = writeln!(out, "            .deletingLastPathComponent() // packages/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // swift_e2e/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // e2e/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // <repo root>");
         let _ = writeln!(
             out,
@@ -569,9 +639,10 @@ fn render_test_file(
             "            FileManager.default.changeCurrentDirectoryPath(_testDocs.path)"
         );
         let _ = writeln!(out, "        }}");
-        let _ = writeln!(out, "    }}");
-        let _ = writeln!(out);
     }
+
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out);
 
     for fixture in fixtures {
         if fixture.is_http_test() {
@@ -635,9 +706,9 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         let _ = writeln!(out, "    }}");
     }
 
-    /// Emit a synchronous `URLSession` round-trip to the mock server.
+    /// Emit a synchronous `URLSession` round-trip to the SUT server.
     ///
-    /// `ProcessInfo.processInfo.environment["MOCK_SERVER_URL"]!` provides the base
+    /// `ProcessInfo.processInfo.environment["SUT_URL"]!` provides the base
     /// URL; the fixture path is appended directly.  The call uses a semaphore so the
     /// generated test body stays synchronous (compatible with `throws` functions —
     /// no `async` XCTest support needed).
@@ -645,7 +716,10 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         let method = ctx.method.to_uppercase();
         let fixture_path = escape_swift(ctx.path);
 
-        let _ = writeln!(out, "        let _baseURL = AlefE2EMockServer.baseURL");
+        let _ = writeln!(
+            out,
+            "        let _baseURL = ProcessInfo.processInfo.environment[\"SUT_URL\"] ?? \"http://127.0.0.1:8009\""
+        );
         let _ = writeln!(
             out,
             "        var _req = URLRequest(url: URL(string: _baseURL + \"{fixture_path}\")!)"
@@ -676,7 +750,11 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
         let _ = writeln!(out, "        var {}: HTTPURLResponse?", ctx.response_var);
         let _ = writeln!(out, "        var _responseData: Data?");
         let _ = writeln!(out, "        let _sema = DispatchSemaphore(value: 0)");
-        let _ = writeln!(out, "        alefE2ESession.dataTask(with: _req) {{ data, resp, _ in");
+        let _ = writeln!(
+            out,
+            "        let _session = URLSession(configuration: .ephemeral, delegate: AlefE2ENoRedirectDelegate(), delegateQueue: nil)"
+        );
+        let _ = writeln!(out, "        _session.dataTask(with: _req) {{ data, resp, _ in");
         let _ = writeln!(out, "            {} = resp as? HTTPURLResponse", ctx.response_var);
         let _ = writeln!(out, "            _responseData = data");
         let _ = writeln!(out, "            _sema.signal()");

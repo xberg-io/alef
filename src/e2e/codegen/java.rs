@@ -340,7 +340,11 @@ fn render_harness_main(
     let port = e2e_config.harness.port;
     let app_class = e2e_config.harness.app_class.as_deref().unwrap_or("App");
     let run_method = e2e_config.harness.run_method.as_deref().unwrap_or("run");
-    let register_method = e2e_config.harness.register_method.as_deref().unwrap_or("registerAppRoute");
+    let register_method = e2e_config
+        .harness
+        .register_method
+        .as_deref()
+        .unwrap_or("registerAppRoute");
     let body_field = &e2e_config.harness.response_body_field;
 
     let ctx = minijinja::context! {
@@ -366,6 +370,7 @@ fn render_harness_main(
 /// bodies prefer it over the `MOCK_SERVER_URL` env var so external overrides
 /// (e.g. CI exporting MOCK_SERVER_URL) still work without rerouting through
 /// JNI's lack of `setenv`.
+#[allow(dead_code)]
 fn render_mock_server_listener(java_group_id: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;

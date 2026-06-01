@@ -81,9 +81,7 @@ impl E2eCodegen for DartE2eCodegen {
         });
 
         // Check if any fixture is an HTTP test (needs app harness).
-        let has_http_fixtures = groups
-            .iter()
-            .any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
+        let has_http_fixtures = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
 
         // Generate app_harness.dart when using server-pattern (HTTP fixtures).
         if has_http_fixtures {
@@ -250,14 +248,19 @@ pub(crate) fn render_app_harness(groups: &[FixtureGroup]) -> String {
 
                 // expected_response: status_code, body, headers
                 let mut response_obj = serde_json::Map::new();
-                response_obj.insert("status_code".to_string(), serde_json::json!(http.expected_response.status_code));
+                response_obj.insert(
+                    "status_code".to_string(),
+                    serde_json::json!(http.expected_response.status_code),
+                );
                 if let Some(body) = &http.expected_response.body {
                     response_obj.insert("body".to_string(), body.clone());
                 } else {
                     response_obj.insert("body".to_string(), serde_json::Value::Null);
                 }
 
-                let headers: serde_json::Map<String, serde_json::Value> = http.expected_response.headers
+                let headers: serde_json::Map<String, serde_json::Value> = http
+                    .expected_response
+                    .headers
                     .iter()
                     .map(|(k, v)| (k.clone(), serde_json::json!(v)))
                     .collect();
@@ -987,9 +990,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
         match arg_def.arg_type.as_str() {
             "mock_url" => {
                 let name = arg_def.name.clone();
-                setup_lines.push(format!(
-                    r#"final {name} = "${{_sutUrl()}}/fixtures/{fixture_id}";"#
-                ));
+                setup_lines.push(format!(r#"final {name} = "${{_sutUrl()}}/fixtures/{fixture_id}";"#));
                 // For streaming adapters with a request_type, wrap the URL in the request constructor.
                 if let Some(ref req_type) = adapter_request_type {
                     let req_var = format!("{}Req", name);
@@ -1058,9 +1059,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                 let var_name = &arg_def.name;
                 let paths_literal = paths.join(", ");
 
-                setup_lines.push(format!(
-                    r#"final {var_name}Base = _sutUrl();"#
-                ));
+                setup_lines.push(format!(r#"final {var_name}Base = _sutUrl();"#));
                 setup_lines.push(format!(
                     r#"final {var_name} = <String>[{paths_literal}].map((p) => p.startsWith('http') ? p : {var_name}Base + p).toList();"#
                 ));
@@ -1490,9 +1489,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
             .any(|a| a.arg_type == "mock_url");
         let mock_url_setup = if !has_mock_url {
             // No explicit mock_url arg — derive the URL inline.
-            Some(format!(
-                r#"final _mockUrl = "${{_sutUrl()}}/fixtures/{fixture_id}";"#
-            ))
+            Some(format!(r#"final _mockUrl = "${{_sutUrl()}}/fixtures/{fixture_id}";"#))
         } else {
             None
         };

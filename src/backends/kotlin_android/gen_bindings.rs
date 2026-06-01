@@ -1074,7 +1074,8 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
          \"FunctionParameterNaming\",\n    \
          \"LongParameterList\",\n    \
          \"CyclomaticComplexMethod\",\n    \
-         \"LongMethod\",\n\
+         \"LongMethod\",\n    \
+         \"MagicNumber\",\n\
          )\n\n",
     );
     content.push_str(&format!("package {package}\n\n"));

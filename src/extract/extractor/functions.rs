@@ -248,7 +248,6 @@ pub(crate) fn extract_impl_block(
         // with variants only. Methods on enums (like `parse()` helper methods) are skipped.
         // This is the expected behavior: the enum type is already known and emitted, but its
         // impl block methods don't affect the binding surface.
-        return;
     } else {
         // The impl is for a type we haven't seen as a `pub` struct — create an opaque
         // entry, but flag it `binding_excluded` because the struct's own visibility

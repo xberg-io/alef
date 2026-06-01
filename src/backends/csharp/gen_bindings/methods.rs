@@ -601,8 +601,17 @@ fn gen_wrapper_function(
         out.push_str("            if (visitor != null)\n");
         out.push_str("            {\n");
         out.push_str("                using var bridge = new HtmlVisitorBridge(visitor);\n");
+        // Register the bridge in the static registry under its unique ID so that
+        // FFI callbacks (which receive bridge._bridgeId as userData) can dispatch
+        // back to the managed visitor. Without this, every callback's
+        // _bridgeRegistry.TryGetValue returns false and falls back to default
+        // behavior — silently dropping all visitor customizations.
+        out.push_str("                lock (HtmlVisitorBridge._registryLock)\n");
+        out.push_str("                {\n");
+        out.push_str("                    HtmlVisitorBridge._bridgeRegistry[bridge._bridgeId] = bridge;\n");
+        out.push_str("                }\n");
         out.push_str(
-            "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n",
+            "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, bridge._bridgeId);\n",
         );
         out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                try\n");
@@ -621,6 +630,14 @@ fn gen_wrapper_function(
         out.push_str("                finally\n");
         out.push_str("                {\n");
         out.push_str("                    NativeMethods.HtmlVisitorBridgeFree(bridgeHandle);\n");
+        // HtmlVisitorBridgeFree triggers FreeUserDataCallback on the Rust side,
+        // which marks the bridge _disposed. Remove the registry entry now that
+        // Rust will not call back again — otherwise the entry leaks because
+        // DecrementCallbackRef only runs when a callback is in flight.
+        out.push_str("                    lock (HtmlVisitorBridge._registryLock)\n");
+        out.push_str("                    {\n");
+        out.push_str("                        HtmlVisitorBridge._bridgeRegistry.Remove(bridge._bridgeId);\n");
+        out.push_str("                    }\n");
         out.push_str("                }\n");
         out.push_str("            }\n");
         out.push_str("            else\n");
@@ -964,8 +981,14 @@ fn gen_bridge_field_wrapper_function(
     out.push_str(&format!(
         "                using var bridge = new HtmlVisitorBridge({field_name});\n"
     ));
+    // Insert bridge into the static registry so FFI callbacks (which receive
+    // bridge._bridgeId as userData) can dispatch back to the managed visitor.
+    out.push_str("                lock (HtmlVisitorBridge._registryLock)\n");
+    out.push_str("                {\n");
+    out.push_str("                    HtmlVisitorBridge._bridgeRegistry[bridge._bridgeId] = bridge;\n");
+    out.push_str("                }\n");
     out.push_str(
-        "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, IntPtr.Zero);\n",
+        "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, bridge._bridgeId);\n",
     );
     out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
     out.push_str("                try\n                {\n");
@@ -1026,6 +1049,11 @@ fn gen_bridge_field_wrapper_function(
     out.push_str("                finally\n");
     out.push_str("                {\n");
     out.push_str("                    NativeMethods.HtmlVisitorBridgeFree(bridgeHandle);\n");
+    // Remove registry entry now that Rust will not call back again.
+    out.push_str("                    lock (HtmlVisitorBridge._registryLock)\n");
+    out.push_str("                    {\n");
+    out.push_str("                        HtmlVisitorBridge._bridgeRegistry.Remove(bridge._bridgeId);\n");
+    out.push_str("                    }\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
     out.push_str("            else\n");

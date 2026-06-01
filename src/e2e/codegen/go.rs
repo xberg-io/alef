@@ -212,12 +212,24 @@ impl E2eCodegen for GoCodegen {
                 go_override.and_then(|o| o.client_factory.as_deref()).is_some()
             });
 
+        // Emit cmd/harness/main.go when HTTP fixtures are present.
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(&e2e_config.test_documents_dir),
+                content: render_main_test_go(&e2e_config.test_documents_dir, has_http_fixtures),
                 generated_header: true,
             });
+
+            if has_http_fixtures {
+                let harness_content = render_harness_main(e2e_config, groups, &module_path);
+                files.push(GeneratedFile {
+                    path: output_base.join("cmd").join("harness").join("main.go"),
+                    content: harness_content,
+                    generated_header: true,
+                });
+            }
         }
 
         // Generate test files per category.
@@ -309,26 +321,32 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
     out
 }
 
-/// Generate `main_test.go` that starts the mock HTTP server before all tests run.
+/// Generate `main_test.go` that spawns the app harness subprocess before all tests run.
 ///
-/// The binary is expected at `../rust/target/release/mock-server` relative to the Go e2e
-/// directory.  The server prints `MOCK_SERVER_URL=http://...` on stdout; we read that line
-/// and export the variable so all test files can call `os.Getenv("MOCK_SERVER_URL")`.
-fn render_main_test_go(test_documents_dir: &str) -> String {
+/// The harness is expected at `cmd/harness/main.go` (built as `./harness` binary).
+/// The harness prints `Harness listening on HOST:PORT` on stdout; we poll TCP port availability.
+/// On readiness, we export SUT_URL so all test files can call `os.Getenv("SUT_URL")`.
+fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
-    let _ = writeln!(out, "\t\"bufio\"");
-    let _ = writeln!(out, "\t\"encoding/json\"");
-    let _ = writeln!(out, "\t\"io\"");
+    if has_http_fixtures {
+        let _ = writeln!(out, "\t\"fmt\"");
+        let _ = writeln!(out, "\t\"io\"");
+        let _ = writeln!(out, "\t\"net\"");
+    }
     let _ = writeln!(out, "\t\"os\"");
-    let _ = writeln!(out, "\t\"os/exec\"");
+    if has_http_fixtures {
+        let _ = writeln!(out, "\t\"os/exec\"");
+    }
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
-    let _ = writeln!(out, "\t\"strings\"");
     let _ = writeln!(out, "\t\"testing\"");
+    if has_http_fixtures {
+        let _ = writeln!(out, "\t\"time\"");
+    }
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
     let _ = writeln!(out, "func TestMain(m *testing.M) {{");
@@ -345,9 +363,8 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
     );
     let _ = writeln!(
         out,
-        "\t// from e2e/go/. Repos without document fixtures (web crawler, network clients) do"
+        "\t// from e2e/go/. Repos without document fixtures skip chdir and run from e2e/go/."
     );
-    let _ = writeln!(out, "\t// not ship this directory — skip chdir and run from e2e/go/.");
     let _ = writeln!(
         out,
         "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"{test_documents_dir}\")"
@@ -361,93 +378,75 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out);
+    if !has_http_fixtures {
+        // No HTTP fixtures → no harness binary is emitted. Just run tests.
+        let _ = writeln!(out, "\tos.Exit(m.Run())");
+        let _ = writeln!(out, "}}");
+        return out;
+    }
     let _ = writeln!(
         out,
-        "\t// If MOCK_SERVER_URL is already set, a parent process (e.g. `alef test-apps run`)"
+        "\t// If SUT_URL is already set, a parent process started a shared harness."
     );
-    let _ = writeln!(
-        out,
-        "\t// started a shared mock-server and exported its URL (plus any MOCK_SERVERS /"
-    );
-    let _ = writeln!(
-        out,
-        "\t// MOCK_SERVER_<FIXTURE_ID> vars). Use it as-is and do NOT spawn our own server."
-    );
-    let _ = writeln!(out, "\tif os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
+    let _ = writeln!(out, "\t// Use it as-is and do NOT spawn our own.");
+    let _ = writeln!(out, "\tif os.Getenv(\"SUT_URL\") != \"\" {{");
     let _ = writeln!(out, "\t\tos.Exit(m.Run())");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out);
-    let _ = writeln!(out, "\t// Start the mock HTTP server if it exists.");
+    let _ = writeln!(out, "\t// Spawn the harness executable.");
     let _ = writeln!(
         out,
-        "\tmockServerBin := filepath.Join(dir, \"..\", \"rust\", \"target\", \"release\", \"mock-server\")"
+        "\tharnessBin := filepath.Join(dir, \"cmd\", \"harness\", \"harness\")"
     );
-    let _ = writeln!(out, "\tif _, err := os.Stat(mockServerBin); err == nil {{");
-    let _ = writeln!(
-        out,
-        "\t\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")"
-    );
-    let _ = writeln!(out, "\t\tcmd := exec.Command(mockServerBin, fixturesDir)");
-    let _ = writeln!(out, "\t\tcmd.Stderr = os.Stderr");
-    let _ = writeln!(out, "\t\tstdout, err := cmd.StdoutPipe()");
-    let _ = writeln!(out, "\t\tif err != nil {{");
-    let _ = writeln!(out, "\t\t\tpanic(err)");
-    let _ = writeln!(out, "\t\t}}");
-    let _ = writeln!(out, "\t\t// Keep a writable pipe to the mock-server's stdin so the");
-    let _ = writeln!(
-        out,
-        "\t\t// server does not see EOF and exit immediately. The mock-server"
-    );
-    let _ = writeln!(out, "\t\t// blocks reading stdin until the parent closes the pipe.");
-    let _ = writeln!(out, "\t\tstdin, err := cmd.StdinPipe()");
-    let _ = writeln!(out, "\t\tif err != nil {{");
-    let _ = writeln!(out, "\t\t\tpanic(err)");
-    let _ = writeln!(out, "\t\t}}");
-    let _ = writeln!(out, "\t\tif err := cmd.Start(); err != nil {{");
-    let _ = writeln!(out, "\t\t\tpanic(err)");
-    let _ = writeln!(out, "\t\t}}");
-    let _ = writeln!(out, "\t\tscanner := bufio.NewScanner(stdout)");
-    let _ = writeln!(out, "\t\tfor scanner.Scan() {{");
-    let _ = writeln!(out, "\t\t\tline := scanner.Text()");
-    let _ = writeln!(out, "\t\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
-    let _ = writeln!(
-        out,
-        "\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
-    );
-    let _ = writeln!(out, "\t\t\t}} else if strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
-    let _ = writeln!(out, "\t\t\t\t_jsonVal := strings.TrimPrefix(line, \"MOCK_SERVERS=\")");
-    let _ = writeln!(out, "\t\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", _jsonVal)");
-    let _ = writeln!(
-        out,
-        "\t\t\t\t// Parse the JSON map and set per-fixture env vars (MOCK_SERVER_<FIXTURE_ID>)."
-    );
-    let _ = writeln!(out, "\t\t\t\tvar _perFixture map[string]string");
-    let _ = writeln!(
-        out,
-        "\t\t\t\tif err := json.Unmarshal([]byte(_jsonVal), &_perFixture); err == nil {{"
-    );
-    let _ = writeln!(out, "\t\t\t\t\tfor _fid, _furl := range _perFixture {{");
-    let _ = writeln!(
-        out,
-        "\t\t\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_\"+strings.ToUpper(_fid), _furl)"
-    );
-    let _ = writeln!(out, "\t\t\t\t\t}}");
-    let _ = writeln!(out, "\t\t\t\t}}");
-    let _ = writeln!(out, "\t\t\t\tbreak");
-    let _ = writeln!(out, "\t\t\t}} else if os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
-    let _ = writeln!(out, "\t\t\t\tbreak");
-    let _ = writeln!(out, "\t\t\t}}");
-    let _ = writeln!(out, "\t\t}}");
-    let _ = writeln!(out, "\t\tgo func() {{ _, _ = io.Copy(io.Discard, stdout) }}()");
-    let _ = writeln!(out, "\t\tcode := m.Run()");
-    let _ = writeln!(out, "\t\t_ = stdin.Close()");
-    let _ = writeln!(out, "\t\t_ = cmd.Process.Signal(os.Interrupt)");
-    let _ = writeln!(out, "\t\t_ = cmd.Wait()");
-    let _ = writeln!(out, "\t\tos.Exit(code)");
-    let _ = writeln!(out, "\t}} else {{");
-    let _ = writeln!(out, "\t\tcode := m.Run()");
-    let _ = writeln!(out, "\t\tos.Exit(code)");
+    let _ = writeln!(out, "\tcmd := exec.Command(harnessBin)");
+    let _ = writeln!(out, "\tcmd.Stderr = os.Stderr");
+    let _ = writeln!(out, "\t// Keep pipes open so harness doesn't exit immediately.");
+    let _ = writeln!(out, "\tstdin, err := cmd.StdinPipe()");
+    let _ = writeln!(out, "\tif err != nil {{");
+    let _ = writeln!(out, "\t\tpanic(fmt.Sprintf(\"stdin pipe: %v\", err))");
     let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\tstdout, err := cmd.StdoutPipe()");
+    let _ = writeln!(out, "\tif err != nil {{");
+    let _ = writeln!(out, "\t\tpanic(fmt.Sprintf(\"stdout pipe: %v\", err))");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\tif err := cmd.Start(); err != nil {{");
+    let _ = writeln!(out, "\t\tpanic(fmt.Sprintf(\"start harness: %v\", err))");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "\t// Poll TCP port 8012 until harness is ready (15s timeout).");
+    let _ = writeln!(out, "\thost := \"127.0.0.1\"");
+    let _ = writeln!(out, "\tport := \"8012\"");
+    let _ = writeln!(out, "\tsutURL := \"http://\" + host + \":\" + port");
+    let _ = writeln!(out, "\tdeadline := time.Now().Add(15 * time.Second)");
+    let _ = writeln!(out, "\tfor time.Now().Before(deadline) {{");
+    let _ = writeln!(
+        out,
+        "\t\tconn, err := net.DialTimeout(\"tcp\", host+\":\"+port, 500*time.Millisecond)"
+    );
+    let _ = writeln!(out, "\t\tif err == nil {{");
+    let _ = writeln!(out, "\t\t\tconn.Close()");
+    let _ = writeln!(out, "\t\t\tbreak");
+    let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\tif cmd.ProcessState != nil {{");
+    let _ = writeln!(out, "\t\t\t// Harness exited early.");
+    let _ = writeln!(out, "\t\t\tstderr, _ := io.ReadAll(os.Stderr)");
+    let _ = writeln!(out, "\t\t\tpanic(fmt.Sprintf(\"harness died: %s\", stderr))");
+    let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\ttime.Sleep(100 * time.Millisecond)");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "\tos.Setenv(\"SUT_URL\", sutURL)");
+    let _ = writeln!(out, "\t// Drain stdout so the pipe doesn't block.");
+    let _ = writeln!(out, "\tgo func() {{ _, _ = io.Copy(io.Discard, stdout) }}()");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "\tcode := m.Run()");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "\t// Cleanup: close stdin and wait for harness.");
+    let _ = writeln!(out, "\t_ = stdin.Close()");
+    let _ = writeln!(out, "\t_ = cmd.Process.Signal(os.Interrupt)");
+    let _ = writeln!(out, "\t_ = cmd.Wait()");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "\tos.Exit(code)");
     let _ = writeln!(out, "}}");
     out
 }
@@ -472,6 +471,64 @@ fn render_helpers_test_go() -> String {
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn string(encoded)");
     let _ = writeln!(out, "}}");
+    out
+}
+
+/// Generate `cmd/harness/main.go` — the app harness that serves fixtures for server-pattern e2e tests.
+fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_module_path: &str) -> String {
+    use minijinja::{Environment, context};
+
+    // Collect all HTTP fixtures into a fixtures map JSON.
+    let mut fixtures_map = serde_json::Map::new();
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            let http_data = fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+    let fixtures_json_obj = serde_json::Value::Object(fixtures_map);
+    let fixtures_json_str = serde_json::to_string(&fixtures_json_obj).unwrap_or_default();
+    // Escape the JSON string for use in a Go quoted string.
+    // Must escape backslashes first, then double quotes.
+    let fixtures_json = fixtures_json_str.replace('\\', "\\\\").replace('"', "\\\"");
+
+    // Render via Jinja template.
+    let mut env = Environment::new();
+    let harness_template = include_str!("../templates/go/harness_main.go.jinja");
+    env.add_template("harness", harness_template).ok();
+
+    let template = env.get_template("harness").unwrap();
+    let output = template
+        .render(context! {
+            imports => vec![go_module_path],
+            method_enum_import => go_module_path,
+            register_route_method => "RegisterRoute",
+            run_method => "Run",
+            port => 8012,
+            fixtures_json => fixtures_json,
+        })
+        .unwrap_or_default();
+
+    // Prepend the generated-file header.
+    let mut out = hash::header(CommentStyle::DoubleSlash);
+    out.push_str(&output);
     out
 }
 
@@ -1643,9 +1700,9 @@ impl client::TestClientRenderer for GoTestClientRenderer {
         let method = ctx.method.to_uppercase();
         let path = ctx.path;
 
-        let _ = writeln!(out, "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")");
+        let _ = writeln!(out, "\tbaseURL := os.Getenv(\"SUT_URL\")");
         let _ = writeln!(out, "\tif baseURL == \"\" {{");
-        let _ = writeln!(out, "\t\tbaseURL = \"http://localhost:8080\"");
+        let _ = writeln!(out, "\t\tbaseURL = \"http://127.0.0.1:8012\"");
         let _ = writeln!(out, "\t}}");
 
         // Build request body expression.

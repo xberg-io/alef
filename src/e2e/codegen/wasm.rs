@@ -21,7 +21,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
-use super::typescript::config::{render_app_harness, render_global_setup};
+use super::typescript::config::render_global_setup;
 
 /// WebAssembly e2e code generator.
 pub struct WasmCodegen;
@@ -233,10 +233,13 @@ impl E2eCodegen for WasmCodegen {
         });
 
         // Emit app_harness for server-pattern HTTP fixtures (requires harness config)
+        // For wasm, create a modified harness config that imports from the wasm package
+        // instead of the node package (which the Node e2e setup would use).
         if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
+            let wasm_harness_content = render_wasm_app_harness(e2e_config, groups, &pkg_name);
             files.push(GeneratedFile {
                 path: output_base.join("app_harness.mjs"),
-                content: render_app_harness(e2e_config, groups),
+                content: wasm_harness_content,
                 generated_header: true,
             });
         }
@@ -656,6 +659,64 @@ fn render_file_setup(test_documents_dir: &str) -> String {
 
 fn render_tsconfig() -> String {
     crate::e2e::template_env::render("wasm/tsconfig.jinja", minijinja::context! {})
+}
+
+/// Render app harness for wasm using the wasm package name instead of the node package.
+/// The wasm codegen needs to import from the wasm-bindgen nodejs bundle, not the node binding.
+fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm_pkg_name: &str) -> String {
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            let http_data = &fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    let app_class = &e2e_config.harness.app_class;
+    let method_enum = &e2e_config.harness.method_enum;
+    let run_method = &e2e_config.harness.run_method;
+
+    crate::e2e::template_env::render(
+        "typescript/app_harness.mjs.jinja",
+        minijinja::context! {
+            header => header,
+            host => host,
+            port => port,
+            response_body_field => e2e_config.harness.response_body_field.as_str(),
+            fixtures_json => fixtures_json,
+            imports => vec![wasm_pkg_name.to_string()],
+            app_class => app_class.as_deref().unwrap_or("App"),
+            method_enum => method_enum.as_deref().unwrap_or("Method"),
+            run_method => run_method.as_deref().unwrap_or("run"),
+        },
+    )
 }
 
 // The historical `inject_wasm_init` post-processor rewrote test imports to a

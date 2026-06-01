@@ -145,10 +145,23 @@ impl E2eCodegen for ElixirCodegen {
             generated_header: false,
         });
 
+        // Check if there are HTTP fixtures that need server-pattern harness.
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+        let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+
+        // Generate app_harness.exs if using server-pattern HTTP fixtures.
+        if uses_harness {
+            files.push(GeneratedFile {
+                path: output_base.join("app_harness.exs"),
+                content: render_app_harness(e2e_config, groups),
+                generated_header: true,
+            });
+        }
+
         // Generate test_helper.exs.
         files.push(GeneratedFile {
             path: output_base.join("test").join("test_helper.exs"),
-            content: render_test_helper(has_http_tests || has_mock_server_tests),
+            content: render_test_helper(has_http_tests || has_mock_server_tests, uses_harness, e2e_config),
             generated_header: false,
         });
 
@@ -198,8 +211,139 @@ impl E2eCodegen for ElixirCodegen {
     }
 }
 
-fn render_test_helper(has_http_tests: bool) -> String {
-    if has_http_tests {
+pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            // Convert the fixture to JSON for the harness to load.
+            // We only need the http field, handler, request, and expected_response.
+            let http_data = &fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+
+    let imports = &e2e_config.harness.imports;
+    let app_class = &e2e_config.harness.app_class;
+    let register_route_method = &e2e_config.harness.register_method;
+    let body_schema_setter = &e2e_config.harness.body_schema_setter;
+    let run_method = &e2e_config.harness.run_method;
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+
+    let header = hash::header(CommentStyle::Hash);
+
+    let binding_path = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Local {
+        "../../packages/elixir"
+    } else {
+        "."
+    };
+
+    // Build module paths for RouteBuilder and Method using the binding name from imports[0]
+    let module_prefix = if !imports.is_empty() {
+        format!("{}.", elixir_module_name(&imports[0]))
+    } else {
+        String::new()
+    };
+    let route_builder_class = format!("{}RouteBuilder", module_prefix);
+    let method_enum_class = format!("{}Method", module_prefix);
+    let server_config_class = format!("{}ServerConfig", module_prefix);
+
+    let ctx = minijinja::context! {
+        header => header,
+        app_class => app_class.as_deref().unwrap_or("App"),
+        route_builder_class => &route_builder_class,
+        route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
+        method_enum_class => &method_enum_class,
+        register_route_method => register_route_method.as_deref().unwrap_or("route"),
+        run_method => run_method.as_deref().unwrap_or("run"),
+        server_config_class => &server_config_class,
+        host => host,
+        port => port,
+        binding_path => binding_path,
+        fixtures_json => fixtures_json,
+    };
+
+    crate::e2e::template_env::render("elixir/app_harness.exs.jinja", ctx)
+}
+
+fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2eConfig) -> String {
+    if uses_harness {
+        // Server-pattern harness: spawn app_harness.exs subprocess
+        let host = &e2e_config.harness.host;
+        let port = e2e_config.harness.port;
+        format!(
+            r#"ExUnit.start()
+
+# Spawn app_harness subprocess and set SUT_URL
+# If SUT_URL is already set, a parent process started a shared harness.
+# Use it as-is and do NOT spawn our own.
+
+unless System.get_env("SUT_URL") do
+  app_harness_bin = Path.expand("app_harness.exs", __DIR__)
+
+  port = Port.open({{:spawn_executable, System.find_executable("elixir")}}, [
+    :binary,
+    {{:line, 65_536}},
+    args: [app_harness_bin]
+  ])
+
+  url = "http://{host}:{port}"
+
+  # Poll until the harness accepts TCP connections
+  deadline = :erlang.monotonic_time(:millisecond) + 15_000
+  ready = false
+
+  {{ready, url}} =
+    Enum.reduce_while(1..150, {{false, url}}, fn _, {{_, url_acc}} ->
+      now = :erlang.monotonic_time(:millisecond)
+      if now > deadline do
+        {{:halt, {{false, url_acc}}}}
+      else
+        case :gen_tcp.connect(String.to_charlist("{host}"), {port}, [], 500) do
+          {{:ok, socket}} ->
+            :gen_tcp.close(socket)
+            {{:halt, {{true, url_acc}}}}
+          {{:error, _}} ->
+            Process.sleep(100)
+            {{:cont, {{false, url_acc}}}}
+        end
+      end
+    end)
+
+  unless ready do
+    Port.close(port)
+    raise "App harness did not become reachable on {host}:{port} within 15s"
+  end
+
+  System.put_env("SUT_URL", url)
+end
+"#
+        )
+    } else if has_http_tests {
         r#"ExUnit.start()
 
 # Spawn mock-server binary and set MOCK_SERVER_URL for all tests.
@@ -643,7 +787,9 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
         }
 
         let fixture_id = escape_elixir(self.fixture_id);
-        let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{fixture_id}\"");
+        // Use SUT_URL if available (server-pattern), else fall back to mock_server_url() (mock-pattern)
+        let sut_url_expr = "System.get_env(\"SUT_URL\") || mock_server_url()";
+        let url_expr = format!("\"#{{{{ {sut_url_expr} }}}}/fixtures/{fixture_id}\"");
 
         if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
             // `opts` always carries at least the HTTP/1 protocol option.

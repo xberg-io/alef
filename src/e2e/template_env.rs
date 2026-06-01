@@ -57,6 +57,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ruby/http_101_skip.jinja",
         include_str!("templates/ruby/http_101_skip.jinja"),
     ),
+    (
+        "ruby/app_harness.rb.jinja",
+        include_str!("templates/ruby/app_harness.rb.jinja"),
+    ),
+    (
+        "ruby/http_test_sut.jinja",
+        include_str!("templates/ruby/http_test_sut.jinja"),
+    ),
     ("r/description.jinja", include_str!("templates/r/description.jinja")),
     ("r/assertion.jinja", include_str!("templates/r/assertion.jinja")),
     (
@@ -257,6 +265,18 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "python/app_harness.py.jinja",
         include_str!("templates/python/app_harness.py.jinja"),
+    ),
+    (
+        "elixir/app_harness.exs.jinja",
+        include_str!("templates/elixir/app_harness.exs.jinja"),
+    ),
+    (
+        "dart/app_harness.dart.jinja",
+        include_str!("templates/dart/app_harness.dart.jinja"),
+    ),
+    (
+        "swift/app_harness.swift.jinja",
+        include_str!("templates/swift/app_harness.swift.jinja"),
     ),
     (
         "wasm/package.json.jinja",

@@ -1156,7 +1156,9 @@ fn map_type_to_binding(ty: &crate::core::ir::TypeRef) -> crate::core::ir::TypeRe
     use crate::core::ir::{PrimitiveType, TypeRef};
 
     match ty {
-        TypeRef::Primitive(_prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize)) => {
+        TypeRef::Primitive(
+            _prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+        ) => {
             // These are mapped to f64 in the binding layer
             TypeRef::Primitive(PrimitiveType::F64)
         }
@@ -1243,17 +1245,45 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str("    }\n");
         }
         TypeRef::Primitive(
-            _prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+            prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
         ) => {
-            // R maps these types to f64 in the binding layer
+            // R maps these types to f64 in the binding layer because R has no native u64/usize.
+            // The core field, however, still uses the original integer type, so the f64 value
+            // read from R must be cast back to the core type when assigning to `opts.{field}`.
+            //
+            // `field.optional == true` means the core field is `Option<T>` even though
+            // `field.ty` was stripped of its `Option` wrapper by the IR extractor.
+            let core_ty = match prim {
+                PrimitiveType::U64 => "u64",
+                PrimitiveType::I64 => "i64",
+                PrimitiveType::Usize => "usize",
+                PrimitiveType::Isize => "isize",
+                _ => unreachable!(),
+            };
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
-            code.push_str("        opts.");
-            code.push_str(field_name);
-            code.push_str(" = f64::try_from(&v).map_err(|e| format!(\"");
-            code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?;\n");
+            if field.optional {
+                code.push_str("        if !v.is_null() {\n");
+                code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?;\n");
+                code.push_str("            opts.");
+                code.push_str(field_name);
+                code.push_str(" = Some(f64_val as ");
+                code.push_str(core_ty);
+                code.push_str(");\n");
+                code.push_str("        }\n");
+            } else {
+                code.push_str("        let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?;\n");
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = f64_val as ");
+                code.push_str(core_ty);
+                code.push_str(";\n");
+            }
             code.push_str("    }\n");
         }
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => {

@@ -2435,6 +2435,47 @@ pub fn emit_test_backend(
     super::TestBackendEmission::unimplemented("Kotlin (JVM) trait_bridge e2e tests not yet implemented")
 }
 
+// ---------------------------------------------------------------------------
+// Server-pattern test setup (real SUT)
+// ---------------------------------------------------------------------------
+
+/// Render SutServerSetup.kt with JUnit 5 @BeforeAll fixture to set SUT_URL.
+fn render_sut_server_setup_kt(kotlin_pkg_id: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    let mut out = String::new();
+    let _ = writeln!(out, "{}", header);
+    let _ = writeln!(out, "package {}.e2e", kotlin_pkg_id);
+    let _ = writeln!(out);
+    let _ = writeln!(out, "import org.junit.jupiter.api.BeforeAll");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "/**");
+    let _ = writeln!(out, " * JUnit 5 setup that ensures SUT_URL is set before tests run.");
+    let _ = writeln!(out, " * Defaults to http://127.0.0.1:8007 if not already set.");
+    let _ = writeln!(out, " */");
+    let _ = writeln!(out, "class SutServerSetup {{");
+    let _ = writeln!(out, "    companion object {{");
+    let _ = writeln!(out, "        @BeforeAll");
+    let _ = writeln!(out, "        @JvmStatic");
+    let _ = writeln!(out, "        fun setupSutServer() {{");
+    let _ = writeln!(
+        out,
+        "            val existing = System.getenv(\"SUT_URL\") ?: System.getProperty(\"SUT_URL\")"
+    );
+    let _ = writeln!(out, "            val url = if (!existing.isNullOrEmpty()) {{");
+    let _ = writeln!(out, "                existing");
+    let _ = writeln!(out, "            }} else {{");
+    let _ = writeln!(out, "                \"http://127.0.0.1:8007\"");
+    let _ = writeln!(out, "            }}");
+    let _ = writeln!(out, "            System.setProperty(\"SUT_URL\", url)");
+    let _ = writeln!(out, "            println(\"Tests will use SUT at: $url\")");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}}");
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3012,42 +3053,4 @@ mod tests {
             "expected local jar reference, got:\n{out}"
         );
     }
-}
-
-// ---------------------------------------------------------------------------
-// Server-pattern test setup (real SUT)
-// ---------------------------------------------------------------------------
-
-/// Render SutServerSetup.kt with JUnit 5 @BeforeAll fixture to set SUT_URL.
-fn render_sut_server_setup_kt(kotlin_pkg_id: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
-
-    let mut out = String::new();
-    let _ = writeln!(out, "{}", header);
-    let _ = writeln!(out, "package {}.e2e", kotlin_pkg_id);
-    let _ = writeln!(out);
-    let _ = writeln!(out, "import org.junit.jupiter.api.BeforeAll");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "/**");
-    let _ = writeln!(out, " * JUnit 5 setup that ensures SUT_URL is set before tests run.");
-    let _ = writeln!(out, " * Defaults to http://127.0.0.1:8007 if not already set.");
-    let _ = writeln!(out, " */");
-    let _ = writeln!(out, "class SutServerSetup {{");
-    let _ = writeln!(out, "    companion object {{");
-    let _ = writeln!(out, "        @BeforeAll");
-    let _ = writeln!(out, "        @JvmStatic");
-    let _ = writeln!(out, "        fun setupSutServer() {{");
-    let _ = writeln!(out, "            val existing = System.getenv(\"SUT_URL\") ?: System.getProperty(\"SUT_URL\")");
-    let _ = writeln!(out, "            val url = if (!existing.isNullOrEmpty()) {{");
-    let _ = writeln!(out, "                existing");
-    let _ = writeln!(out, "            }} else {{");
-    let _ = writeln!(out, "                \"http://127.0.0.1:8007\"");
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(out, "            System.setProperty(\"SUT_URL\", url)");
-    let _ = writeln!(out, "            println(\"Tests will use SUT at: $url\")");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "    }}");
-    let _ = writeln!(out, "}}");
-
-    out
 }

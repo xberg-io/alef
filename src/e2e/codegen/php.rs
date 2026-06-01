@@ -154,10 +154,7 @@ impl E2eCodegen for PhpCodegen {
             .any(|f| f.needs_mock_server());
 
         // Check if any fixture uses HTTP server-pattern (has http field and harness config).
-        let has_http_server_fixtures = groups
-            .iter()
-            .flat_map(|g| g.fixtures.iter())
-            .any(|f| f.http.is_some());
+        let has_http_server_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
         let uses_server_harness = has_http_server_fixtures && !e2e_config.harness.imports.is_empty();
 
         // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).

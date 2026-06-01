@@ -3943,7 +3943,9 @@ fn emit_async_free_function_forwarder(
                     if known_dto_names.contains(name) {
                         out.push_str(&format!("            var item = try {struct_name}(ref)\n"));
                     } else {
-                        out.push_str(&format!("            var item = try RustBridge.{struct_name}(ptr: ref.ptr)\n"));
+                        out.push_str(&format!(
+                            "            var item = try RustBridge.{struct_name}(ptr: ref.ptr)\n"
+                        ));
                     }
                     out.push_str("            item.isOwned = false\n");
                     out.push_str("            items.append(item)\n");
@@ -3951,21 +3953,14 @@ fn emit_async_free_function_forwarder(
                     out.push_str("        return items\n");
                 } else {
                     // Fallback: use the suffix (shouldn't reach here)
-                    let suffix = forwarder_return_conversion_suffix_with_throws(
-                        &func.return_type,
-                        known_dto_names,
-                        true,
-                    );
+                    let suffix =
+                        forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, true);
                     out.push_str(&format!("        return result{suffix}\n"));
                 }
             }
         } else {
             // Non-throwing path: use .map suffix
-            let suffix = forwarder_return_conversion_suffix_with_throws(
-                &func.return_type,
-                known_dto_names,
-                false,
-            );
+            let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
             out.push_str(&format!("        return result{suffix}\n"));
         }
     } else {
@@ -4313,7 +4308,9 @@ fn forwarder_return_conversion_suffix_inner(
                 } else {
                     // Typealias'd type: RustBridge.{Name} is the actual class, ref is {Name}Ref.
                     // Use the ptr-based init to convert Ref → owned instance without calling a nonexistent init.
-                    format!(".map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}")
+                    format!(
+                        ".map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}"
+                    )
                 }
             }
             _ => String::new(),

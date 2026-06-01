@@ -1,0 +1,99 @@
+{#- Swift app harness for server-pattern e2e tests
+
+   This harness executable is spawned as a subprocess by the test suite's
+   setUp() and runs the SUT app, registering handlers per fixture. It loads
+   all fixtures, creates handlers that return expected responses, and serves
+   on a configured port.
+
+   Context variables (passed from Swift codegen):
+   - fixtures_json: raw JSON string with all fixtures (auto-serialized)
+   - host: binding host (e.g., "127.0.0.1")
+   - port: binding port (e.g., 8009)
+#}
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+{{ imports }}
+
+// Load fixtures from the JSON payload.
+// The fixtures dict contains per-fixture data with handler route, method, body_schema, etc.
+let _FIXTURES_JSON = """
+{{ fixtures_json }}
+"""
+
+guard let _fixturesData = _FIXTURES_JSON.data(using: .utf8),
+      let _fixtures = try? JSONSerialization.jsonObject(with: _fixturesData) as? [String: [String: Any]] else {
+    print("Failed to parse fixtures JSON")
+    exit(1)
+}
+
+// Create and configure the app.
+let app = {{ app_class }}()
+
+// Register a handler for each fixture.
+for (fixtureId, fixtureDict) in _fixtures {
+    guard let http = fixtureDict["http"] as? [String: Any] else {
+        continue
+    }
+
+    guard let handler = http["handler"] as? [String: Any] else {
+        continue
+    }
+
+    let route = handler["route"] as? String ?? "/"
+    let methodStr = (handler["method"] as? String ?? "GET").uppercased()
+    let bodySchema = handler["body_schema"] as? [String: Any]
+    let expected = http["expected_response"] as? [String: Any] ?? [:]
+
+    // Extract expected response values.
+    let expectedStatus = expected["status_code"] as? Int ?? 200
+    let expectedBody = expected["body"]
+    let expectedHeaders = expected["headers"] as? [String: String] ?? [:]
+
+    // Build the RouteBuilder with the method and path.
+    let fullRoute = "/fixtures/\(fixtureId)\(route)"
+    guard let methodEnum = {{ method_enum_class }}.allCases.first(where: { $0.description == methodStr }) else {
+        continue
+    }
+
+    var builder = {{ route_builder_constructor }}(methodEnum, fullRoute)
+
+    // If there's a body schema, attach it to the builder.
+    if let bodySchema = bodySchema {
+        if let schemaJson = try? JSONSerialization.data(withJSONObject: bodySchema, options: []),
+           let schemaStr = String(data: schemaJson, encoding: .utf8) {
+            builder = builder.{{ route_builder_schema_setter }}(schemaStr)
+        }
+    }
+
+    // Create handler that returns the expected response.
+    let handler_fn: (String) -> String = { _ in
+        let responseDict: [String: Any] = [
+            "status_code": expectedStatus,
+            "{{ response_body_field }}": expectedBody as Any,
+            "headers": expectedHeaders
+        ]
+        if let responseData = try? JSONSerialization.data(withJSONObject: responseDict, options: []),
+           let responseStr = String(data: responseData, encoding: .utf8) {
+            return responseStr
+        }
+        return "{}"
+    }
+
+    // Register the route with the handler.
+    do {
+        try app.route(handler_fn, builder: builder)
+    } catch {
+        print("Failed to register route \(fullRoute): \(error)")
+        continue
+    }
+}
+
+// Configure and start the server.
+let config = ServerConfig(host: "{{ host }}", port: {{ port }})
+app.config(config)
+print("Harness listening on {{ host }}:{{ port }}")
+fflush(stdout)
+app.run()

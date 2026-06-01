@@ -1,0 +1,105 @@
+{#- C# app harness for server-pattern e2e tests
+
+   This harness program is spawned as a subprocess by TestSetup.cs and runs the
+   SUT app, registering handlers per fixture. It loads all fixtures, creates
+   handlers that return expected responses, and serves on a configured port.
+
+   Context variables (passed from C# codegen):
+   - imports: list of module names to import (e.g., ["Spikard"])
+   - app_class: class name for SUT app (e.g., "App")
+   - register_method: method to register routes (e.g., "route")
+   - route_builder_class: class name for route builder (e.g., "RouteBuilder")
+   - method_enum_class: class name for method enum (e.g., "Method")
+   - run_method: serve entrypoint (e.g., "run")
+   - host: binding host (e.g., "127.0.0.1")
+   - port: binding port (e.g., 8000)
+   - fixtures_json: raw JSON string with all fixtures (auto-serialized)
+#}
+{{ header }}using System;
+using System.Collections.Generic;
+using System.Text.Json;
+
+{% for import_name in imports %}
+using {{ import_name }};
+{% endfor %}
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Load fixtures from JSON.
+        var fixturesJson = @"{{ fixtures_json }}";
+        var fixtures = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(fixturesJson)
+            ?? new Dictionary<string, JsonElement>();
+
+        // Create and configure the app.
+        var app = new {{ app_class }}();
+
+        // Register a handler for each fixture.
+        foreach (var (fixtureId, fixture) in fixtures)
+        {
+            if (!fixture.TryGetProperty("http", out var httpElement))
+                continue;
+
+            var http = httpElement;
+            if (!http.TryGetProperty("handler", out var handler))
+                continue;
+
+            var route = handler.TryGetProperty("route", out var routeElem) ? routeElem.GetString() ?? "/" : "/";
+            var methodStr = handler.TryGetProperty("method", out var methodElem) ? methodElem.GetString() ?? "GET" : "GET";
+            var bodySchema = handler.TryGetProperty("body_schema", out var bodySchemaElem) && bodySchemaElem.ValueKind != JsonValueKind.Null
+                ? bodySchemaElem.GetRawText()
+                : null;
+
+            var expectedResponse = http.TryGetProperty("expected_response", out var expectedElem) ? expectedElem : new JsonElement();
+            var expectedStatus = expectedResponse.TryGetProperty("status_code", out var statusElem) ? statusElem.GetInt32() : 200;
+            var expectedBody = expectedResponse.TryGetProperty("{{ response_body_field }}", out var bodyElem) && bodyElem.ValueKind != JsonValueKind.Null
+                ? bodyElem
+                : JsonSerializer.SerializeToElement((object?)null);
+            var expectedHeaders = expectedResponse.TryGetProperty("headers", out var headersElem) && headersElem.ValueKind == JsonValueKind.Object
+                ? headersElem
+                : new JsonElement();
+
+            // Build handler function that returns the expected response.
+            Func<string, Dictionary<string, IEnumerable<string>>> handlerFn = (_) =>
+            {
+                var responseHeaders = new Dictionary<string, IEnumerable<string>>();
+                if (expectedHeaders.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in expectedHeaders.EnumerateObject())
+                    {
+                        responseHeaders[prop.Name] = new[] { prop.Value.GetString() ?? string.Empty };
+                    }
+                }
+
+                var statusStr = expectedStatus.ToString();
+                var contentStr = expectedBody.ValueKind != JsonValueKind.Null ? expectedBody.GetRawText() : null;
+
+                // Return a dict shaped like spikard's Response for JSON serialization.
+                return new Dictionary<string, dynamic>
+                {
+                    { "status_code", expectedStatus },
+                    { "{{ response_body_field }}", contentStr },
+                    { "headers", responseHeaders }
+                } as dynamic as Dictionary<string, IEnumerable<string>>;
+            };
+
+            // Register the route with the handler.
+            var fullRoute = $"/fixtures/{fixtureId}{route}";
+            var methodEnum = Enum.Parse<{{ method_enum_class }}>(methodStr, ignoreCase: true);
+            var builder = new {{ route_builder_class }}(methodEnum, fullRoute);
+
+            if (bodySchema != null)
+                builder = builder.RequestSchemaJson(bodySchema);
+
+            app.{{ register_method }}(builder, handlerFn);
+        }
+
+        // Configure and start the server.
+        var config = new ServerConfig { Host = "{{ host }}", Port = {{ port }} };
+        app.config(config);
+        Console.WriteLine("Harness listening on {{ host }}:{{ port }}");
+        System.Console.Out.Flush();
+        app.{{ run_method }}();
+    }
+}

@@ -287,7 +287,7 @@ fn emit_method_jni_external_funs(
     let client_types: Vec<_> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.sanitized && !m.is_static))
+        .filter(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| !m.is_static))
         .collect();
     if client_types.is_empty() {
         return;
@@ -295,7 +295,7 @@ fn emit_method_jni_external_funs(
     out.push_str("\n    // JNI external funs for client instance methods.\n");
     for ty in &client_types {
         let owner_pascal = to_pascal_case(&ty.name);
-        for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
+        for method in ty.methods.iter().filter(|m| !m.is_static) {
             if exclude_functions.contains(method.name.as_str()) {
                 continue;
             }
