@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: emit all trait methods (including defaults) in protocol + Box shims.**
+  Bug Class A: trait_bridge.rs and Box emitter both skipped `has_default_impl` methods,
+  causing 13+ missing `alef_*` FFI shims (e.g., `alef_can_handle`, `alef_priority`,
+  `alef_process_document`). Fix: iterate ALL methods in trait_bridge protocol declaration,
+  emit Swift extension with defaults (priority→50, can_handle→true, etc), and emit
+  all alef_* shims in Box. Verified: all 92 Swift backend tests pass.
+
 - **Swift: fix `Swift{Trait}Box` parameter labels, type conversions, and try/catch placement.** Five
   critical bugs in the Box generator (`emit_function_param_box_files`) that broke compilation of
   plugin Box shim methods:

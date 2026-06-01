@@ -163,10 +163,6 @@ fn gen_single_trait_bridge_file(
     ));
 
     for method in &trait_def.methods {
-        if method.has_default_impl {
-            continue;
-        }
-
         let method_camel = method.name.to_lower_camel_case();
         // Protocol method parameters marshal excluded types as JSON strings (like Java does)
         let params_sig = swift_method_params(&method.params, &aug_exclude_types);
@@ -175,9 +171,51 @@ fn gen_single_trait_bridge_file(
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         // NOTE: async is removed — Swift{Trait}Bridge is now fully sync to match plugin protocol shape
 
+        // Emit all methods as protocol requirements
         out.push_str(&format!(
             "    func {method_camel}({params_sig}){throws} -> {return_type}\n"
         ));
+    }
+
+    out.push_str("}\n\n");
+
+    // MARK: Extension with default implementations
+    // Emit an extension providing Swift defaults for methods that have default impls in Rust.
+    // This allows conformers to opt out of implementing them.
+    out.push_str(&format!(
+        "public extension {protocol} {{\n"
+    ));
+
+    for method in &trait_def.methods {
+        if !method.has_default_impl {
+            continue;
+        }
+
+        let method_camel = method.name.to_lower_camel_case();
+        let params_sig = swift_method_params(&method.params, &aug_exclude_types);
+        let return_type = swift_return_type(&method.return_type, &aug_exclude_types);
+        let throws = if method.error_type.is_some() { " throws" } else { "" };
+
+        // Generate default body based on return type
+        let default_body = match &method.return_type {
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "return true".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::I32) => "return 50".to_string(), // priority default
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U64) => "return 0".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize) => "return 0".to_string(),
+            TypeRef::String => "return \"\"".to_string(),
+            TypeRef::Unit => "".to_string(), // no return needed
+            TypeRef::Vec(_) => "return []".to_string(),
+            TypeRef::Named(_) => "return \"{}\"".to_string(), // excluded types are strings
+            _ => "return nil".to_string(),
+        };
+
+        out.push_str(&format!(
+            "    func {method_camel}({params_sig}){throws} -> {return_type} {{\n"
+        ));
+        if !default_body.is_empty() {
+            out.push_str(&format!("        {default_body}\n"));
+        }
+        out.push_str("    }\n\n");
     }
 
     out.push_str("}\n\n");
@@ -200,10 +238,6 @@ fn gen_single_trait_bridge_file(
 
     // Method entry points — these marshal types across the boundary
     for method in &trait_def.methods {
-        if method.has_default_impl {
-            continue;
-        }
-
         let method_camel = method.name.to_lower_camel_case();
         // Build parameter signature for the adapter method (input from Rust across the boundary)
         let params_sig = swift_method_params(&method.params, &aug_exclude_types);
@@ -480,13 +514,14 @@ fn swift_return_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
 /// Build the call arguments for the adapter method with Swift argument labels.
 ///
 /// Swift requires explicit labels for all method arguments.
+/// The protocol methods use camelCase labels, so we match that here.
 fn build_adapter_call_args(method: &crate::core::ir::MethodDef) -> Vec<String> {
     method
         .params
         .iter()
         .map(|p| {
-            let name = p.name.to_snake_case();
-            format!("{}: {}", name, name)
+            let camel = p.name.to_lower_camel_case();
+            format!("{}: {}", camel, camel)
         })
         .collect()
 }

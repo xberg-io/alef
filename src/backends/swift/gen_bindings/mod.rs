@@ -4761,11 +4761,6 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
         }
 
         for method in &trait_def.methods {
-            // Skip default-impl methods — they stay on the Rust side
-            if method.has_default_impl {
-                continue;
-            }
-
             let method_snake = method.name.to_snake_case();
             let shim_name = format!("alef_{method_snake}");
             let method_camel = swift_ident(&method.name.to_lower_camel_case());
