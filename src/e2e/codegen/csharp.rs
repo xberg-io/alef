@@ -808,7 +808,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, _http: &HttpFixt
 }
 
 /// Extract path parameter names from a URL pattern like `/fixtures/{id}/items/{item_id}`.
-/// Returns parameter names such as `["id", "item_id"]`.
+/// Returns parameter names such as `["id", "item_id"]`, stripping any type syntax like `:uuid`.
 fn extract_path_param_names(path: &str) -> Vec<String> {
     let mut params = Vec::new();
     let mut in_param = false;
@@ -822,7 +822,11 @@ fn extract_path_param_names(path: &str) -> Vec<String> {
             }
             '}' => {
                 if in_param && !current_param.is_empty() {
-                    params.push(current_param.clone());
+                    // Strip type syntax: {id:uuid} → just "id"
+                    let param_name = current_param.split(':').next().unwrap_or("").to_string();
+                    if !param_name.is_empty() {
+                        params.push(param_name);
+                    }
                 }
                 in_param = false;
                 current_param.clear();

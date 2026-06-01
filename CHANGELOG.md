@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C# e2e: strip type syntax from path parameter names.** `extract_path_param_names`
+  now splits on `:` so patterns like `{id:uuid}` produce a valid C# identifier `id`
+  instead of `id:uuid`. Follow-up to the variable-emission fix.
+
 - **Swift: make swift-bridge `isOwned` field public across opaque-type modules.**
   Companion to the earlier `ptr` visibility fix — `isOwned` was emitted with default
   (internal) access by swift-bridge, breaking cross-module use in alef-generated code
