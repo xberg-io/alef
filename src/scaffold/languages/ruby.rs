@@ -328,9 +328,10 @@ module RbSys
 
         data = JSON.parse(out)
         raise "metadata must be a Hash" unless data.is_a?(Hash)
+
         @cargo_metadata = data
-      rescue => err
-        raise CargoMetadataError.new(err, stderr)
+      rescue StandardError => e
+        raise CargoMetadataError.new(e, stderr)
       end
       private :cargo_metadata
     end
