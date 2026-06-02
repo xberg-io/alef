@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **php backend: stop emitting `.unwrap_or_default()` on required default-typed params.**
+  After the earlier "do not promote required default-typed params to optional" fix, `promote_default_params` returned its input unchanged. `promoted_default_param_names`, however, still listed those params, and `apply_default_param_substitutions` rewrote each call-site `&<arg>_core` into `&<arg>_core.unwrap_or_default()`. Since `<arg>_core` is the already-unwrapped `T` (not `Option<T>`), the generated code (e.g. `liter-llm-php`'s `count_request_tokens` wrapper) failed to compile with `E0599: no method named 'unwrap_or_default' found for struct ChatCompletionRequest`. `promoted_default_param_names` now returns an empty set, in lockstep with `promote_default_params`. (`src/backends/php/gen_bindings/functions.rs`)
+
 - **rustler service module: emit `alias <Prefix>.Native` so unqualified NIF calls compile.**
   The generated service module (e.g. `defmodule App`) issues unqualified `Native.app_run(...)` and `Native.complete_trait_call(...)` calls. Sibling wrapper modules (`<Prefix>.RouteBuilder`, etc.) `alias <Prefix>.Native` so the unqualified form resolves; the root service module did not, producing `function Native.app_run/1 is undefined`. The service module now emits the alias when a module prefix is available. (`src/backends/rustler/gen_bindings/service_api.rs`)
 
