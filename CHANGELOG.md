@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e/go): poll port readiness before signalling harness ready (#128)
 
+- **post-build RunCommand: skip gracefully when the binary is missing instead of hard-failing the pipeline.**
+  `run_run_command` now treats `ErrorKind::NotFound` from `Command::new(cmd).output()` as a non-fatal skip with a `warn!` message, mirroring the behaviour already implemented in dart's generated `build.rs` (which warns and continues when `flutter_rust_bridge_codegen` isn't on PATH so committed generated files can serve as the fallback). Without this, `alef test --lang dart --e2e` in CI environments without frb_codegen aborted with `failed to spawn 'flutter_rust_bridge_codegen' / No such file or directory (os error 2)` even though the dart bridge files are committed in the repo and don't strictly need to be regenerated. Other failure modes (non-zero exit, spawn errors other than NotFound) continue to error. (`src/cli/pipeline/commands.rs`)
+
+- **scaffold/ruby: chdir into the `Cargo.toml` directory (`ext/{ext_name}/native`) when constructing `RbSys::ExtensionTask`.**
+  The previous template chdir'd into `ext/{ext_name}/`, but the Rust crate's `Cargo.toml` lives one level deeper at `ext/{ext_name}/native/Cargo.toml`. rb_sys 0.9.x reads `cargo metadata` from the current directory, so the chdir landed in a directory without a manifest, fell back to the workspace, and failed with `RbSys::PackageNotFoundError: Could not find Cargo package metadata for "<crate>"` during `bundle exec rake compile` in CI. The template now points at the actual manifest directory. (`src/scaffold/languages/ruby.rs`)
+
 ### Changed
 
 - **e2e harness `register_method`: apply per-language identifier casing.**
