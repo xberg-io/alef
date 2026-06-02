@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **magnus async entrypoint releases GVL and drives a current-thread Tokio runtime.**
+  Previous emission used `tokio::runtime::Handle::current().block_on(...)` for async
+  entrypoints like `App.run()`, which panicked on the Ruby main thread because no
+  Tokio reactor exists there. The entrypoint now wraps execution in
+  `rb_thread_call_without_gvl` and builds a `tokio::runtime::Builder::new_current_thread`
+  on the same OS thread, allowing the handler bridge to call back into Ruby via
+  `rb_thread_call_with_gvl` from within the runtime's tasks.
+  (`src/backends/magnus/gen_bindings/service_api.rs`)
+
+- **alef-e2e ruby: raw-string fixture bodies send without `JSON.dump`.**
+  URL-encoded form bodies (e.g. `"a=1&b=2"`) were wrapped in `JSON.dump(...)`,
+  producing a double-quoted JSON string instead of the raw form payload. Fixture
+  body now travels through an `is_raw_body` flag; raw strings bypass the JSON
+  wrapping. Also coerces `response.body.to_s` before equality assertions for
+  encoding-stable comparisons. (`src/e2e/codegen/ruby.rs`, `src/e2e/templates/ruby/http_test_sut.jinja`)
+
 - **alef-e2e c: Makefile prefers dynamic library and falls back cleanly to static link.**
   The generated C e2e Makefile previously used a single `LDFLAGS = -L$(FFI_LIB_DIR) -Wl,-rpath,$(FFI_LIB_DIR) -l{lib}`
   regardless of which artifacts were available, which fails at link time when only the static
