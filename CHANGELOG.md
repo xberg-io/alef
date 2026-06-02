@@ -21,8 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Ruby currently uses one block-based form for all styles (blocks are idiomatic for all three).
 
 - **Ruby backend (`magnus`) direct-registration companion.** Every registration method now also emits a
-  `register_{method_name}(meta..., handler)` positional form, mirroring Python and PHP. Enables
-  harness/script code to register handlers without Ruby block syntax.
+  `register_{method_name}(meta..., handler)` all-positional form, mirroring Python and PHP. Enables
+  harness/script code to register handlers without Ruby block syntax. Uses plain positional params
+  (not keyword params) to avoid Ruby's "positional after keyword" SyntaxError.
 
 - **Ruby backend (`magnus`) service.rb placement and autoload.** `service.rb` is now generated into
   `lib/{gem_name_snake}/service.rb` (runtime code path) instead of `sig/` (type-stubs path), and

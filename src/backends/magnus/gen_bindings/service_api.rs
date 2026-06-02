@@ -284,22 +284,17 @@ fn gen_registration_method(
     // so harness code and scripts can pass a callable without using Ruby block syntax.
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
+        // Use plain positional params only — Ruby forbids positional params after
+        // keyword params, so the companion method takes all args positionally.
         let direct_param_sig = if meta_params.is_empty() {
             format!("({callback})", callback = reg.callback_param)
         } else {
-            let meta_sig: Vec<String> = reg
+            let positional_meta: Vec<String> = reg
                 .metadata_params
                 .iter()
-                .map(|p| {
-                    let annotation = ruby_type_annotation(&p.ty);
-                    if p.optional {
-                        format!("{}: {} | nil = nil", p.name, annotation)
-                    } else {
-                        format!("{}: {}", p.name, annotation)
-                    }
-                })
+                .map(|p| p.name.clone())
                 .collect();
-            format!("({}, {})", meta_sig.join(", "), reg.callback_param)
+            format!("({}, {})", positional_meta.join(", "), reg.callback_param)
         };
         out.push_str(&format!("  def {direct_name}{direct_param_sig}\n"));
         out.push_str(&format!(
