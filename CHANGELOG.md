@@ -27,6 +27,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef test --e2e` now runs per-language `before` hooks sequentially before
+  the parallel test phase.** Most consumer `[crates.test.<lang>] before = ...`
+  entries invoke `cargo build` against the shared `target/` directory; running
+  them in parallel produces a textbook cargo race that surfaces as
+  "could not parse/generate dep info" / "No such file or directory" /
+  "failed to write bytecode", and intermittently corrupts FRB outputs (e.g.
+  `lib.dart` with mismatched `value`/`field0` factory params after a sibling
+  cargo build trampled mid-emit). Mirrors the build phase, which already
+  serializes its before hooks.
+
+- **Swift e2e codegen now emits the `AlefE2EMockServer` helper enum referenced
+  by every generated test body.** Tests reference
+  `AlefE2EMockServer.baseURL + "/fixtures/<id>"` to construct the per-fixture
+  base URL, but the type was never defined and `swift test` failed at compile
+  with `error: cannot find 'AlefE2EMockServer' in scope` repeated for every
+  call site. The helper is colocated with `AlefE2ENoRedirectDelegate` in
+  `TestHelpers.swift` and resolves from `MOCK_SERVER_URL` (set by
+  `scripts/e2e/run-with-mock-server.sh`).
+
 - **`alef test --e2e` no longer panics for languages without a binding backend
   (Rust, C).** `cli::registry::get_backend` panicked with "Rust is a docs-only
   language target" when iterating every configured language for post-build

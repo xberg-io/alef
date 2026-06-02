@@ -238,17 +238,40 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
 
     let base_dir = std::env::current_dir()?;
 
-    let results: Vec<(Language, anyhow::Result<()>)> = languages
+    // Phase 1 (sequential): run all per-language `before` hooks.
+    //
+    // The test phase used to run before hooks inside the same `par_iter` as the
+    // test commands. Most consumer `[crates.test.<lang>] before = ...` entries
+    // invoke `cargo build` against the shared `target/` directory, so running
+    // them in parallel produces a textbook cargo race: one process deletes a
+    // dep info file while another is writing it, surfacing as
+    // "could not parse/generate dep info" / "No such file or directory" /
+    // "failed to write bytecode" and assorted half-baked artifacts (e.g. the
+    // flutter_rust_bridge `lib.dart` containing mismatched `value`/`field0`
+    // factory params, because a sibling cargo build trampled the FRB emit).
+    // The build phase already runs its before hooks sequentially (see `build`
+    // above); mirror that here so the test phase is equally safe.
+    let langs_to_test: Vec<Language> = languages
+        .iter()
+        .copied()
+        .filter(|lang| {
+            let lang_test = config.test_config_for_language(*lang);
+            check_precondition(*lang, lang_test.precondition.as_deref())
+        })
+        .collect();
+    for &lang in &langs_to_test {
+        let lang_test = config.test_config_for_language(lang);
+        if let Err(e) = run_before(lang, lang_test.before.as_ref()) {
+            return Err(e).with_context(|| format!("before hook failed for {lang}"));
+        }
+    }
+
+    // Phase 2 (parallel): run per-language test commands.
+    let results: Vec<(Language, anyhow::Result<()>)> = langs_to_test
         .par_iter()
         .map(|lang| {
             let label = lang.to_string();
             let lang_test = config.test_config_for_language(*lang);
-            if !check_precondition(*lang, lang_test.precondition.as_deref()) {
-                return (*lang, Ok(()));
-            }
-            if let Err(e) = run_before(*lang, lang_test.before.as_ref()) {
-                return (*lang, Err(e));
-            }
 
             // Use coverage commands when --coverage flag is set, fall back to regular test
             let test_cmds = if coverage {
