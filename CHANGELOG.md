@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Elixir e2e suite now uses rustler 0.37.0 matching package bindings.**
+  The e2e hex dependency template was pinned to rustler ~> 0.38.0 while the actual
+  language-pack Elixir binding uses ~> 0.37.0. Mix dependency resolution failed with
+  version conflict. Reverted the hex::RUSTLER const to 0.37.0 for consistency.
+
 ### Added
 
 - **NAPI-RS (Node.js) service class now emits a static `new()` factory method.**
