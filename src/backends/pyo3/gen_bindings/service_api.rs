@@ -429,6 +429,18 @@ fn gen_registration_variant(
     let wrapper_consumed: BTreeSet<&str> = if let Some(wc) = &variant.wrapper_call {
         let mut s = BTreeSet::new();
         s.insert(wc.metadata_param.as_str());
+        // Each wrapper-constructor arg consumes a base-reg metadata param of the
+        // same name, so it must not also be forwarded as a tuple item.
+        for arg in &wc.args {
+            match arg {
+                crate::core::ir::WrapperConstructorArg::Fixed { param_name, .. } => {
+                    s.insert(param_name.as_str());
+                }
+                crate::core::ir::WrapperConstructorArg::Free { param } => {
+                    s.insert(param.name.as_str());
+                }
+            }
+        }
         s
     } else {
         BTreeSet::new()
@@ -1384,10 +1396,15 @@ mod tests {
             output.contains("def get_decorator(self, path: str)"),
             "expected `def get_decorator(self, path: str)` decorator form:\n{output}"
         );
-        // Check for wrapper constructor call
+        // Check for wrapper constructor call (pyo3 opaque wrappers expose `.new()` classmethod)
         assert!(
-            output.contains("builder = RouteBuilder(Method.GET, path)"),
+            output.contains("builder = RouteBuilder.new(Method.GET, path)"),
             "expected wrapper constructor call with Method.GET:\n{output}"
+        );
+        // Wrapper-consumed params (path, method) must NOT appear in the metadata tuple
+        assert!(
+            output.contains("(\"add_handler\", (builder,), handler)"),
+            "expected metadata tuple to contain only the constructed wrapper:\n{output}"
         );
     }
 

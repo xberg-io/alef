@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regeneration strips it again — an idempotence fight that left the working tree
   permanently dirty. Emit `text` directly so both passes converge.
 
+- **pyo3 service-API: exclude wrapper-consumed params from the metadata tuple.**
+  The registration-variant generator was forwarding every base-reg metadata param
+  to the `_registrations.append(("<base>", (...), handler))` tuple, including the
+  ones that the wrapper constructor had already consumed. Now both `Fixed` and
+  `Free` `WrapperConstructorArg` names are added to `wrapper_consumed` so e.g.
+  `RouteBuilder.new(Method.GET, path)` produces `(builder,)` rather than
+  `(builder, path, method)`.
+
 ## [0.21.1] - 2026-06-02
 
 ### Fixed
