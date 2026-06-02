@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-06-02
+
+### Fixed
+
+- **Swift e2e: filter ExtractionResultExtensions methods by parameter bridgeability.**
+  The `ExtractionResultExtensions.swift` emitter was including all methods that
+  returned String, but some had unbridgeable parameter types (e.g., `Result<T>` or
+  non-serde enums). These parameters cannot be represented across the FFI boundary.
+  Added `is_extension_param_bridgeable()` check to filter parameters recursively,
+  skipping methods where any parameter is unbridgeable. Only emits extension methods
+  when all parameters can be safely marshalled across FFI.
+
+- **PHP: fix line-break formatting in opaque class handler-contract parameter mapping.**
+  Reformat conditional logic for improved readability; no functional change.
+
 ## [0.21.0] - 2026-06-01
 
 ### Fixed

@@ -1967,13 +1967,12 @@ fn gen_php_opaque_class_file(
                 // whenever the handler-contract map identifies this parameter as a
                 // contract; phpstan would otherwise flag the phantom class as
                 // `class.notFound`.
-                let ptype = if handler_contract_map
-                    .contains_key(&(typ.name.clone(), method_name.clone(), p.name.clone()))
-                {
-                    "callable".to_owned()
-                } else {
-                    php_type(&p.ty)
-                };
+                let ptype =
+                    if handler_contract_map.contains_key(&(typ.name.clone(), method_name.clone(), p.name.clone())) {
+                        "callable".to_owned()
+                    } else {
+                        php_type(&p.ty)
+                    };
                 if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
                     let nullable = if ptype.starts_with('?') { "" } else { "?" };
                     format!("{nullable}{ptype} ${} = null", p.name)

@@ -5342,18 +5342,48 @@ fn is_field_unbridgeable_for_init(
     false
 }
 
+/// Check if a parameter type is bridgeable for use in extension methods.
+///
+/// Returns false for unbridgeable types like Result or non-serde enums.
+fn is_extension_param_bridgeable(ty: &TypeRef, api: &ApiSurface) -> bool {
+    match ty {
+        // Result types cannot be represented across FFI
+        TypeRef::Named(n) if n.starts_with("Result") || n == "Result" => false,
+        // Primitive types, String, Path, Bytes, Duration, etc. are always bridgeable
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Duration | TypeRef::Unit => true,
+        // Check named types (structs and enums)
+        TypeRef::Named(n) => {
+            // Check if it's an enum and if it has serde
+            if let Some(enum_def) = api.enums.iter().find(|e| &e.name == n) {
+                enum_def.has_serde
+            } else {
+                // If it's a struct or not found, assume bridgeable
+                true
+            }
+        }
+        // Optional, Vec, and other containers are bridgeable if their inner types are
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_extension_param_bridgeable(inner, api),
+        // Map, Char, Json are generally not bridgeable as parameters
+        TypeRef::Map(..) | TypeRef::Char | TypeRef::Json => false,
+    }
+}
+
 /// Generate `ExtractionResultExtensions.swift` with computed-property extensions
 /// for swift-bridge-generated opaque Ref types.
 ///
 /// For each non-opaque struct type with methods, emits an extension on the swift-bridge
-/// `{TypeName}Ref` class providing computed-property aliases for zero-arg methods that
-/// return string-like types (e.g., `RustString`).
+/// `{TypeName}Ref` class providing computed-property aliases for methods with:
+/// - no async/static modifiers
+/// - not binding_excluded
+/// - String return type
+/// - at least one parameter (zero-param methods are auto-converted to properties by swift-bridge)
+/// - all parameter types that are bridgeable (no Result types, all enums have serde)
 ///
-/// Example: if a type has `pub fn name(&self) -> String`, the extension will include:
+/// Example: if a type has `pub fn name(&self, suffix: &str) -> String`, the extension will include:
 /// ```swift
 /// extension RustBridge.MyTypeRef {
 ///     public var name: String {
-///         self.name().toString()
+///         self.name(suffix: suffix)
 ///     }
 /// }
 /// ```
@@ -5415,6 +5445,11 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
             // property with the same name would conflict with swift-bridge's auto-generated property.
             // These methods already provide property-like access via swift-bridge, so no extension is needed.
             if method.params.is_empty() {
+                continue;
+            }
+
+            // Skip if any parameter type is not bridgeable (e.g., Result types, non-serde enums).
+            if !method.params.iter().all(|p| is_extension_param_bridgeable(&p.ty, api)) {
                 continue;
             }
 
