@@ -24,11 +24,7 @@ fn js_type_annotation(ty: &TypeRef) -> String {
         TypeRef::Bytes => "Uint8Array".to_owned(),
         TypeRef::Optional(inner) => format!("{} | undefined", js_type_annotation(inner)),
         TypeRef::Vec(inner) => format!("{}[]", js_type_annotation(inner)),
-        TypeRef::Map(k, v) => format!(
-            "Record<{}, {}>",
-            js_type_annotation(k),
-            js_type_annotation(v)
-        ),
+        TypeRef::Map(k, v) => format!("Record<{}, {}>", js_type_annotation(k), js_type_annotation(v)),
         TypeRef::Unit => "void".to_owned(),
         TypeRef::Named(n) => n.clone(),
         TypeRef::Json => "any".to_owned(),
@@ -124,11 +120,7 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
 
 /// Emit registration variant methods for a single variant,
 /// respecting the `RegistrationVariantStyle`.
-fn gen_registration_variant_js(
-    out: &mut String,
-    variant: &RegistrationVariant,
-    _reg: &RegistrationDef,
-) {
+fn gen_registration_variant_js(out: &mut String, variant: &RegistrationVariant, _reg: &RegistrationDef) {
     let variant_name = &variant.name;
 
     // Build signature from variant's signature_params (without handler)
@@ -205,7 +197,10 @@ fn emit_variant_decorator_factory_js(
     if let Some(doc) = &variant.doc {
         out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
     } else {
-        out.push_str(&format!("   * Register a {} callback via decorator factory.\n", variant_name));
+        out.push_str(&format!(
+            "   * Register a {} callback via decorator factory.\n",
+            variant_name
+        ));
     }
     out.push_str("   */\n");
 
@@ -361,9 +356,6 @@ mod tests {
             js_type_annotation(&TypeRef::Optional(Box::new(TypeRef::String))),
             "string | undefined"
         );
-        assert_eq!(
-            js_type_annotation(&TypeRef::Vec(Box::new(TypeRef::String))),
-            "string[]"
-        );
+        assert_eq!(js_type_annotation(&TypeRef::Vec(Box::new(TypeRef::String))), "string[]");
     }
 }

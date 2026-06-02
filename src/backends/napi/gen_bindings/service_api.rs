@@ -433,9 +433,7 @@ fn gen_registration_variant_method_ts(
         let metadata_param = &wrapper_call.metadata_param;
 
         // Return a tuple: (wrapper construction code, metadata array expression)
-        let wrapper_code = format!(
-            "    const {metadata_param} = new {wrapper_type}({ctor_arg_str});\n"
-        );
+        let wrapper_code = format!("    const {metadata_param} = new {wrapper_type}({ctor_arg_str});\n");
         (wrapper_code, format!("[{metadata_param}]"))
     } else {
         // No wrapper constructor: build metadata array from variant params
@@ -548,7 +546,10 @@ fn emit_variant_decorator_factory(
     if let Some(doc) = &variant.doc {
         out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
     } else {
-        out.push_str(&format!("   * Register a {} callback via decorator factory.\n", variant_name));
+        out.push_str(&format!(
+            "   * Register a {} callback via decorator factory.\n",
+            variant_name
+        ));
     }
     out.push_str("   */\n");
 
@@ -1779,7 +1780,9 @@ mod tests {
         assert!(
             this_count >= 1 && fn_count >= 1,
             "Hybrid form should have both return forms; this={}, fn={}: {}",
-            this_count, fn_count, output
+            this_count,
+            fn_count,
+            output
         );
     }
 }

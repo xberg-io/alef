@@ -93,7 +93,7 @@ fn promote_default_params(
     // Default-typed params that are required in Rust stay required in PHP — the
     // wrapper must not unilaterally relax arity. `Optional<DefaultType>` is
     // already optional via `ParamDef::optional` and needs no further promotion.
-    params.iter().cloned().collect()
+    params.to_vec()
 }
 
 fn apply_default_param_substitutions(

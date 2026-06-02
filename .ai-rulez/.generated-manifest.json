@@ -110,6 +110,7 @@
     ".cursor/rules/binding-audit-pattern.mdc",
     ".cursor/rules/bindings.mdc",
     ".cursor/rules/branch-hygiene.mdc",
+    ".cursor/rules/centralized-naming.mdc",
     ".cursor/rules/cicd-pipeline-standards.mdc",
     ".cursor/rules/commit-messages.mdc",
     ".cursor/rules/communication-style.mdc",

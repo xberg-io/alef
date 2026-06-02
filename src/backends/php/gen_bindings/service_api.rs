@@ -17,7 +17,9 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
+};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -763,11 +765,7 @@ fn gen_registration_variant(
                     .iter()
                     .filter_map(|arg| {
                         // Extract variable names from arguments (those starting with '$')
-                        if arg.starts_with('$') {
-                            Some(arg.clone())
-                        } else {
-                            None
-                        }
+                        if arg.starts_with('$') { Some(arg.clone()) } else { None }
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -807,13 +805,7 @@ fn gen_registration_variant(
                 "        $this->registrations[] = ['{base_method}', [{}], ${callback_param}];\n",
                 call_args
                     .iter()
-                    .filter_map(|arg| {
-                        if arg.starts_with('$') {
-                            Some(arg.clone())
-                        } else {
-                            None
-                        }
-                    })
+                    .filter_map(|arg| { if arg.starts_with('$') { Some(arg.clone()) } else { None } })
                     .collect::<Vec<_>>()
                     .join(", ")
             ));

@@ -3062,6 +3062,32 @@ fn test_registration_variant_styles_emit_unified_block_form() {
     let backend = MagnusBackend;
 
     let make_service_with_style = |style: RegistrationVariantStyle| -> ApiSurface {
+        let method = |name: &str, is_static: bool, receiver: Option<ReceiverKind>| MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static,
+            error_type: None,
+            doc: String::new(),
+            receiver,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let string_param = |name: &str| ParamDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            ..ParamDef::default()
+        };
+
         ApiSurface {
             crate_name: "test_lib".to_string(),
             version: "0.1.0".to_string(),
@@ -3074,56 +3100,32 @@ fn test_registration_variant_styles_emit_unified_block_form() {
             services: vec![ServiceDef {
                 name: "TestApp".to_string(),
                 rust_path: "test_lib::TestApp".to_string(),
-                original_rust_path: String::new(),
-                doc: "Test service".to_string(),
+                constructor: method("new", true, None),
+                configurators: vec![],
                 registrations: vec![RegistrationDef {
-                    name: "route".to_string(),
-                    rust_path: "test_lib::route".to_string(),
-                    original_rust_path: String::new(),
-                    pinned_metadata: vec![
-                        MetadataParam {
-                            name: "method".to_string(),
-                            ty: TypeRef::String,
-                            doc: String::new(),
-                        },
-                        MetadataParam {
-                            name: "path".to_string(),
-                            ty: TypeRef::String,
-                            doc: String::new(),
-                        },
-                    ],
-                    free_metadata: vec![],
+                    method: "route".to_string(),
+                    callback_param: "handler".to_string(),
+                    callback_contract: "Handler".to_string(),
+                    metadata_params: vec![string_param("method"), string_param("path")],
+                    receiver: Some(ReceiverKind::RefMut),
+                    return_type: TypeRef::Unit,
+                    error_type: None,
                     doc: String::new(),
-                    default_variant: None,
-                }],
-                variants: vec![
-                    RegistrationVariant {
+                    variants: vec![RegistrationVariant {
                         name: "get".to_string(),
-                        overrides: vec![
-                            RegistrationVariantOverride {
-                                param_name: "method".to_string(),
-                                value_expr: "\"GET\"".to_string(),
-                            },
-                        ],
-                        wrapper_call: None,
-                        signature_params: vec![ParamDef {
-                            name: "path".to_string(),
-                            ty: TypeRef::String,
-                            optional: false,
-                            default: None,
-                            sanitized: false,
-                            typed_default: None,
-                            is_ref: false,
-                            is_mut: false,
-                            newtype_wrapper: None,
-                            original_type: None,
-                            map_is_ahash: false,
-                            map_key_is_cow: false,
+                        overrides: vec![RegistrationVariantOverride {
+                            param_name: "method".to_string(),
+                            value_expr: "\"GET\"".to_string(),
                         }],
+                        wrapper_call: None,
+                        signature_params: vec![string_param("path")],
                         doc: None,
                         style,
-                    },
-                ],
+                    }],
+                }],
+                entrypoints: vec![],
+                doc: "Test service".to_string(),
+                cfg: None,
             }],
             handler_contracts: vec![],
         }
@@ -3138,20 +3140,20 @@ fn test_registration_variant_styles_emit_unified_block_form() {
         RegistrationVariantStyle::Hybrid,
     ] {
         let api = make_service_with_style(style);
-        let result = backend.generate_bindings(&api, &config);
+        let result = backend.generate_service_api(&api, &config);
         assert!(result.is_ok(), "Generation should succeed for style {:?}", style);
 
         let files = result.unwrap();
         let service_file = files
             .iter()
-            .find(|f| f.path.to_string_lossy().contains("service.rs"))
+            .find(|f| f.path.to_string_lossy().contains("service.rb"))
             .unwrap();
         let content = &service_file.content;
 
-        // All styles must emit the same block-form method signature: def get(path, &block)
+        // All styles must emit the same block-form method signature.
         assert!(
-            content.contains("def get(path, &block)"),
-            "style {:?} must emit block-form method def get(path, &block):\n{}",
+            content.contains("def get(path: String, &block)"),
+            "style {:?} must emit block-form method def get(path: String, &block):\n{}",
             style,
             content
         );

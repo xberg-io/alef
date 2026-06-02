@@ -1740,7 +1740,12 @@ fn opaque_static_constructor_wraps_return_in_struct() {
 
     let ex_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("route_builder.ex"))
+        .find(|f| {
+            f.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("route_builder.ex")
+        })
         .expect("route_builder.ex must be generated");
     let content = &ex_file.content;
 
@@ -1758,7 +1763,8 @@ fn opaque_static_constructor_wraps_return_in_struct() {
 
     // Instance method `handler_name` unpacks obj.ref for the NIF call
     assert!(
-        content.contains("def handler_name(obj, name) do") && content.contains("Native.routebuilder_handler_name(obj.ref, name)"),
+        content.contains("def handler_name(obj, name) do")
+            && content.contains("Native.routebuilder_handler_name(obj.ref, name)"),
         "instance method handler_name must unpack obj.ref; got:\n{content}"
     );
 }

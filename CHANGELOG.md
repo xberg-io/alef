@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/go): poll port readiness before signalling harness ready (#128)
+
 ### Changed
 
 - **e2e harness `register_method`: apply per-language identifier casing.**

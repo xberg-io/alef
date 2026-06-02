@@ -230,8 +230,9 @@ fn idiomatic_identifier(name: &str, lang: &str) -> String {
         // so retain the canonical form here.
         "python" | "ruby" | "elixir" | "rust" | "php" => name.to_string(),
         // camelCase languages.
-        "typescript" | "node" | "wasm" | "javascript" | "dart" | "swift"
-        | "kotlin" | "kotlin-android" | "java" => name.to_lower_camel_case(),
+        "typescript" | "node" | "wasm" | "javascript" | "dart" | "swift" | "kotlin" | "kotlin-android" | "java" => {
+            name.to_lower_camel_case()
+        }
         // PascalCase languages.
         "csharp" | "go" => name.to_upper_camel_case(),
         // Unknown language: be conservative and pass through.

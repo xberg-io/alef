@@ -318,9 +318,7 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
                     }
                 }
             }
-            if e2e
-                && let Some(e2e_cmd_list) = &lang_test.e2e
-            {
+            if e2e && let Some(e2e_cmd_list) = &lang_test.e2e {
                 for cmd in e2e_cmd_list.commands() {
                     if let Err(e) = run_command_streamed_with_env(cmd, Some(&label), &env_vars) {
                         return (*lang, Err(e));

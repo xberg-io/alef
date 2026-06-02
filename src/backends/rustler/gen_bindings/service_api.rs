@@ -20,7 +20,9 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
+};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -396,11 +398,7 @@ fn emit_verb_decorator_variant(
 }
 
 /// Emit the builder form: `def variant(app, path, ...) do ... end` returning a decorator
-fn emit_builder_variant(
-    out: &mut String,
-    variant: &crate::core::ir::RegistrationVariant,
-    _base_reg: &RegistrationDef,
-) {
+fn emit_builder_variant(out: &mut String, variant: &crate::core::ir::RegistrationVariant, _base_reg: &RegistrationDef) {
     let variant_name = &variant.name;
     let builder_name = format!("{}_decorator", variant_name);
 
@@ -1152,7 +1150,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     // Rust glue
     let service_rs = gen_service_rs(api, config);
 
-    // Elixir module — pass the consumer's module prefix (e.g. "Spikard") so the
+    // Elixir module — pass the consumer's module prefix so the
     // service module can `alias <Prefix>.Native`.
     let (_, module_prefix) = super::helpers::get_module_info(api, config);
     let service_ex = gen_service_ex(api, &module_prefix);
@@ -1676,23 +1674,25 @@ mod tests {
         // Attach a Hybrid-styled variant `get` so the variant emission loop runs.
         // The base `add_handler` is emitted unconditionally by gen_registration_method;
         // RegistrationVariantStyle gates only the per-variant verb/builder emission.
-        surface.services[0].registrations[0].variants.push(crate::core::ir::RegistrationVariant {
-            name: "get".to_owned(),
-            overrides: vec![crate::core::ir::RegistrationVariantOverride {
-                param_name: "method".to_owned(),
-                value_expr: "\"GET\"".to_owned(),
-            }],
-            wrapper_call: None,
-            signature_params: vec![ParamDef {
-                name: "path".to_owned(),
-                ty: TypeRef::String,
-                optional: false,
-                default: None,
-                ..ParamDef::default()
-            }],
-            doc: None,
-            style: RegistrationVariantStyle::Hybrid,
-        });
+        surface.services[0].registrations[0]
+            .variants
+            .push(crate::core::ir::RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![crate::core::ir::RegistrationVariantOverride {
+                    param_name: "method".to_owned(),
+                    value_expr: "\"GET\"".to_owned(),
+                }],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: None,
+                style: RegistrationVariantStyle::Hybrid,
+            });
 
         let elixir_output = gen_service_ex(&surface, "");
 

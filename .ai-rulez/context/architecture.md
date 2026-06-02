@@ -25,6 +25,9 @@ The entire pipeline lives in a single root-flat crate named `alef` (binary `alef
 
 `src/main.rs` is the binary entry point; `src/lib.rs` re-exports library surface.
 
+`src/codegen/naming.rs` is the canonical naming-policy module for public host-language identifiers,
+serde/wire names, internal generated Rust names, and ABI/native symbols.
+
 ## Adding a New Target Language
 
 1. Create `src/backends/<lang>/` module (one file per concern: `mod.rs`, `gen_bindings.rs`, etc.)
