@@ -125,9 +125,9 @@ fn typescript_emitted_code_is_oxfmt_canonical() {
     // This is a heuristic: if there's a tab-indented block, it's likely oxfmt-canonical.
     // If all indentation is spaces, it's probably pre-oxfmt. We check for the presence
     // of expect calls indented with tabs (the test body).
-    let has_tab_indentation = body.split('\n').any(|line| {
-        line.starts_with('\t') && (line.contains("expect") || line.contains("const"))
-    });
+    let has_tab_indentation = body
+        .split('\n')
+        .any(|line| line.starts_with('\t') && (line.contains("expect") || line.contains("const")));
     assert!(
         has_tab_indentation,
         "test body should use tab indentation, got:\n{body}"

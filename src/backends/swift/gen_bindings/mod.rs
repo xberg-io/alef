@@ -5350,7 +5350,12 @@ fn is_extension_param_bridgeable(ty: &TypeRef, api: &ApiSurface) -> bool {
         // Result types cannot be represented across FFI
         TypeRef::Named(n) if n.starts_with("Result") || n == "Result" => false,
         // Primitive types, String, Path, Bytes, Duration, etc. are always bridgeable
-        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Duration | TypeRef::Unit => true,
+        TypeRef::Primitive(_)
+        | TypeRef::String
+        | TypeRef::Path
+        | TypeRef::Bytes
+        | TypeRef::Duration
+        | TypeRef::Unit => true,
         // Check named types (structs and enums)
         TypeRef::Named(n) => {
             // Check if it's an enum and if it has serde

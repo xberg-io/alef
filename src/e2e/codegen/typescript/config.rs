@@ -19,7 +19,7 @@ pub(crate) fn render_package_json(
             // (`^`, `~`, `>=`, etc.), the caller has chosen the registry-conventional
             // form — use it verbatim. Otherwise prepend `^` for caret-range semver.
             let trimmed = pkg_version.trim_start();
-            if trimmed.starts_with(|c: char| matches!(c, '^' | '~' | '>' | '<' | '=')) {
+            if trimmed.starts_with(['^', '~', '>', '<', '=']) {
                 pkg_version.to_string()
             } else {
                 format!("^{pkg_version}")

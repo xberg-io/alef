@@ -398,7 +398,7 @@ fn render_package_json(
             // (`^`, `~`, `>=`, etc.), the caller has chosen the registry-conventional
             // form — use it verbatim. Otherwise prepend `^` for caret-range semver.
             let trimmed = pkg_version.trim_start();
-            if trimmed.starts_with(|c: char| matches!(c, '^' | '~' | '>' | '<' | '=')) {
+            if trimmed.starts_with(['^', '~', '>', '<', '=']) {
                 pkg_version.to_string()
             } else {
                 format!("^{pkg_version}")
@@ -839,6 +839,9 @@ mod tests {
             pkg_json.contains("\"^3.6.0-rc.1\""),
             "already-prefixed input must pass through verbatim; got:\n{pkg_json}"
         );
-        assert!(!pkg_json.contains("^^"), "must not double the `^` prefix; got:\n{pkg_json}");
+        assert!(
+            !pkg_json.contains("^^"),
+            "must not double the `^` prefix; got:\n{pkg_json}"
+        );
     }
 }

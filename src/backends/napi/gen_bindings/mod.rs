@@ -1099,7 +1099,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         }
 
         // Generate TypeScript re-export file using explicit named re-exports.
-        // This works with both CJS and ESM because we use `export { name } from 'module'`
+        // This works with both CJS and ESM because we use `export { name } from "module"`
         // which TypeScript understands regardless of the underlying CJS/ESM implementation.
         let package_name = config.node_package_name();
         let mut lines = vec![];
@@ -1110,7 +1110,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             for name in &value_names {
                 lines.push(format!("  {name},"));
             }
-            lines.push(format!("}} from '{}';", package_name));
+            lines.push(format!("}} from \"{}\";", package_name));
             lines.push("".to_string());
         }
 
@@ -1120,7 +1120,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             for name in &type_names {
                 lines.push(format!("  {name},"));
             }
-            lines.push(format!("}} from '{}';", package_name));
+            lines.push(format!("}} from \"{}\";", package_name));
             lines.push("".to_string());
         }
 

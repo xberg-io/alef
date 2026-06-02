@@ -345,7 +345,7 @@ fn render_gemfile(
             // — use it verbatim. Otherwise apply the rubygems pre-release renderer and
             // wrap with `~> `.
             let trimmed = gem_version.trim_start();
-            let constraint = if trimmed.starts_with(|c: char| matches!(c, '~' | '>' | '<' | '=' | '!')) {
+            let constraint = if trimmed.starts_with(['~', '>', '<', '=', '!']) {
                 gem_version.to_string()
             } else {
                 format!("~> {}", to_rubygems_prerelease(gem_version))
@@ -3183,10 +3183,7 @@ mod gemfile_tests {
             out.contains("gem 'my-gem', '~> 3.6.0.pre.rc.1'"),
             "already-prefixed input must pass through verbatim, got: {out}"
         );
-        assert!(
-            !out.contains("~> ~>"),
-            "must not double the `~>` prefix, got: {out}"
-        );
+        assert!(!out.contains("~> ~>"), "must not double the `~>` prefix, got: {out}");
     }
 
     #[test]

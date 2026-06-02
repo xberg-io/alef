@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **napi service.ts / typescript wrapper index.ts: emit double quotes and
+  collapse trailing blank line before class close.** The oxfmt formatter
+  insists on `from "module"` (double quotes) and refuses a blank line
+  immediately before the `}` that closes the `App` class — but the service-API
+  emitter and the TypeScript wrapper's re-export emitter both emitted
+  `from 'module'` with single quotes, and the entrypoint loop trailed
+  `"  }\n\n"` so the class close landed one blank line after the last method.
+  Switched the wrapper's named re-export emitter and the service-API import
+  lines to double-quoted module specifiers, and trim trailing blank lines
+  before emitting the class-closing `}`.
+
+## [0.21.1] - 2026-06-02
+
+### Fixed
+
+- **Swift e2e: filter ExtractionResultExtensions methods by parameter bridgeability.**
+  The `ExtractionResultExtensions.swift` emitter was including all methods that
+  returned String, but some had unbridgeable parameter types (e.g., `Result<T>` or
+  non-serde enums). These parameters cannot be represented across the FFI boundary.
+  Added `is_extension_param_bridgeable()` check to filter parameters recursively,
+  skipping methods where any parameter is unbridgeable. Only emits extension methods
+  when all parameters can be safely marshalled across FFI.
+
+- **PHP: fix line-break formatting in opaque class handler-contract parameter mapping.**
+  Reformat conditional logic for improved readability; no functional change.
+
 - **scaffold/ruby: split gemspec `spec.files` glob into two statements to
   avoid `Style/MultilineBlockChain` (RuboCop).** The original template inlined
   `Dir.glob(...).select { ... }.reject { ... }` on a single line that exceeded
@@ -32,6 +58,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RouteBuilder.new(Method.GET, path)` produces `(builder,)` rather than
   `(builder, path, method)`.
 
+- **napi service-API: use double-quoted module imports + collapse trailing blank
+  line on class close** for oxfmt idempotency. The TS service wrapper was emitted
+  with single-quoted `import { … } from '../index'` and a trailing blank inside
+  the closing brace, both of which oxfmt rewrites. Emit double-quoted imports and
+  pop trailing newlines before the closing brace so the second `oxfmt` pass is a
+  no-op.
+
 - **tests/pyo3 stubs: align expected enum-variant casing with the SHOUTY_SNAKE_CASE
   generator output.** Five `backends_pyo3_gen_stubs_test` assertions still asserted
   lowercase variant names (e.g. `fast: Mode = ...`), which had been superseded when
@@ -39,20 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Update assertions to `FAST`/`VALIDATING`/`DEL`/`INS`/`TITLE` so the test suite
   tracks the actual emission.
 
-## [0.21.1] - 2026-06-02
+### Changed
 
-### Fixed
-
-- **Swift e2e: filter ExtractionResultExtensions methods by parameter bridgeability.**
-  The `ExtractionResultExtensions.swift` emitter was including all methods that
-  returned String, but some had unbridgeable parameter types (e.g., `Result<T>` or
-  non-serde enums). These parameters cannot be represented across the FFI boundary.
-  Added `is_extension_param_bridgeable()` check to filter parameters recursively,
-  skipping methods where any parameter is unbridgeable. Only emits extension methods
-  when all parameters can be safely marshalled across FFI.
-
-- **PHP: fix line-break formatting in opaque class handler-contract parameter mapping.**
-  Reformat conditional logic for improved readability; no functional change.
+- **cargo fmt + clippy --fix sweep across e2e/codegen and swift backend**
+  (ruby.rs, typescript/config.rs, wasm.rs, swift/gen_bindings/mod.rs). Style-only;
+  no behaviour change.
 
 ## [0.21.0] - 2026-06-01
 

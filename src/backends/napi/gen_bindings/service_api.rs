@@ -134,9 +134,9 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
     imports.dedup();
 
     out.push_str(&imports.join(", "));
-    out.push_str(" } from '../index';\n");
+    out.push_str(" } from \"../index\";\n");
     out.push_str(&format!(
-        "import {{ {}_run }} from '../index';\n\n",
+        "import {{ {}_run }} from \"../index\";\n\n",
         api.services[0].name.to_snake_case()
     ));
 
@@ -261,7 +261,10 @@ fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface
         }
     }
 
-    out.push_str("}\n\n");
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
+    out.push_str("}\n");
 }
 
 fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: &ServiceDef, _api: &ApiSurface) {
