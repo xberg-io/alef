@@ -18,7 +18,9 @@
 {%- endfor %}
         ) -> {{ ep.return_type }};
 {%- endfor %}
+    }
 {%- for wc in wrapper_constructors %}
+    extern "Rust" {
         // Factory for constructing {{ wc.wrapper_type_name }} from its constructor args.
         // Used by variant registration methods that need to build a {{ wc.wrapper_type_name }}
         // before forwarding to the base callback-registration C function. swift-bridge
@@ -26,5 +28,5 @@
         // member constants — so a dedicated factory is required.
         #[swift_bridge(swift_name = "{{ wc.fn_camel }}")]
         fn {{ wc.fn_snake }}({% for arg in wc.args %}{{ arg.name }}: {{ arg.rust_type }}{% if not loop.last %}, {% endif %}{% endfor %}) -> {{ wc.wrapper_type_name }};
-{%- endfor %}
     }
+{%- endfor %}
