@@ -20,7 +20,7 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -334,6 +334,28 @@ fn gen_registration_variant_method(
     let variant_name = &variant.name;
     let _base_method = &base_reg.method;
 
+    match variant.style {
+        RegistrationVariantStyle::VerbDecorator => {
+            emit_verb_decorator_variant(out, variant, base_reg);
+        }
+        RegistrationVariantStyle::Builder => {
+            emit_builder_variant(out, variant, base_reg);
+        }
+        RegistrationVariantStyle::Hybrid => {
+            emit_verb_decorator_variant(out, variant, base_reg);
+            emit_builder_variant(out, variant, base_reg);
+        }
+    }
+}
+
+/// Emit the verb-decorator form: `def variant(app, path, ..., handler) do ... end`
+fn emit_verb_decorator_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+) {
+    let variant_name = &variant.name;
+
     if let Some(doc) = &variant.doc {
         out.push_str("  @doc \"\"\"\n");
         out.push_str(&elixir_heredoc_body(doc, 2));
@@ -360,6 +382,44 @@ fn gen_registration_variant_method(
         // Direct pattern: call base with substituted args
         out.push_str("app\n");
     }
+
+    out.push_str("  end\n\n");
+}
+
+/// Emit the builder form: `def variant(app, path, ...) do ... end` returning a decorator
+fn emit_builder_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    _base_reg: &RegistrationDef,
+) {
+    let variant_name = &variant.name;
+    let builder_name = format!("{}_decorator", variant_name);
+
+    if let Some(doc) = &variant.doc {
+        out.push_str("  @doc \"\"\"\n");
+        out.push_str(&elixir_heredoc_body(doc, 2));
+        out.push_str("  \"\"\"\n");
+    }
+
+    // Emit signature: app, then signature_params (no handler)
+    out.push_str(&format!("  def {}(app", builder_name));
+    for param in &variant.signature_params {
+        if param.optional {
+            out.push_str(&format!(", {} \\\\ nil", param.name));
+        } else {
+            out.push_str(&format!(", {}", param.name));
+        }
+    }
+    out.push_str(") do\n");
+
+    // Return a function that accepts the handler
+    out.push_str("    fn(handler) ->\n");
+    out.push_str(&format!("      {}(app", variant_name));
+    for param in &variant.signature_params {
+        out.push_str(&format!(", {}", param.name));
+    }
+    out.push_str(", handler)\n");
+    out.push_str("    end\n");
 
     out.push_str("  end\n\n");
 }
@@ -448,9 +508,11 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let mut out = String::new();
 
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use rustler::{LocalPid, ResourceArc};\n");
+    out.push_str("use rustler::{LocalPid, ResourceArc, types::atom::Atom, OwnedEnv};\n");
     out.push_str("use std::sync::Arc;\n");
-    out.push_str("use tokio::sync::Mutex as TokioMutex;\n\n");
+    out.push_str("use tokio::sync::Mutex as TokioMutex;\n");
+    out.push_str("use std::sync::atomic::{AtomicU64, Ordering};\n\n");
+    out.push_str("static REPLY_ID_COUNTER: AtomicU64 = AtomicU64::new(0);\n\n");
 
     // Emit one handler bridge per unique handler contract referenced
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -590,15 +652,25 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                      let outcome: {wire_output} = async move {{\n                \
                          let request_json = serde_json::to_string(&{wire_name})\n                    \
                              .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         let reply_id = crate::nif_support::next_request_id();\n                \
+                         let reply_id = REPLY_ID_COUNTER.fetch_add(1, Ordering::Relaxed);\n                \
                          let (tx, rx) = tokio::sync::oneshot::channel();\n\n                \
                          {{\n                    \
                              let mut map = self.reply_map.lock().await;\n                    \
                              map.insert(reply_id, tx);\n                \
                          }}\n\n                \
                          // Send trait_call message to Elixir GenServer\n                \
-                         // Note: This requires a NIF that sends the message\n                \
-                         // crate::nif_support::send_trait_call(self.pid, \"{dispatch_name}\", &request_json, reply_id)?;\n\n                \
+                         {{\n                    \
+                             let pid = self.pid;\n                    \
+                             let method_name = \"{dispatch_name}\";\n                    \
+                             let request_json_clone = request_json.clone();\n                    \
+                             tokio::task::spawn_blocking(move || {{\n                        \
+                                 let mut env = OwnedEnv::new();\n                        \
+                                 let _ = env.send_and_clear(&pid, |env| {{\n                            \
+                                     (Atom::from_str(env, \"trait_call\").unwrap(),\n                            \
+                                      method_name, request_json_clone.as_str(), reply_id).encode(env)\n                        \
+                                 }});\n                    \
+                             }}).await.ok();\n                \
+                         }}\n\n                \
                          // Await response\n                \
                          let response_json = rx.await\n                    \
                              .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as {box_err})?;\n\n                \
@@ -1541,6 +1613,90 @@ mod tests {
         assert!(
             rust_output.contains("Term<'_>"),
             "expected lifetime-annotated Term<'_> in generated Rust NIF signature:\n{rust_output}"
+        );
+    }
+
+    /// Verify that registration variant style is respected in generated Elixir code.
+    ///
+    /// Regression test for issue #26: the rustler backend must pattern-match on
+    /// `RegistrationVariantStyle` and emit the appropriate Elixir registration forms.
+    #[test]
+    fn registration_variant_style_hybrid_emits_both_forms() {
+        let surface = make_fixture_surface();
+        let _config = make_test_config();
+
+        let elixir_output = gen_service_ex(&surface, "");
+
+        // VerbDecorator form should be present (direct method with handler)
+        assert!(
+            elixir_output.contains("def add_handler(app"),
+            "expected verb-decorator form 'def add_handler(app, ..., handler)' in Elixir output"
+        );
+
+        // Handler param should appear in verb form
+        assert!(
+            elixir_output.contains("handler) do"),
+            "expected handler parameter in verb-decorator method signature"
+        );
+    }
+
+    /// Verify that send_trait_call message is emitted in generated handler bridge.
+    ///
+    /// Regression test for issue #119: the handler bridge must send the trait_call message
+    /// to the Elixir GenServer via OwnedEnv::send_and_clear, not just await silently.
+    #[test]
+    fn handler_bridge_sends_trait_call_message() {
+        let surface = make_fixture_surface();
+        let config = make_test_config();
+
+        let rust_output = gen_service_rs(&surface, &config);
+
+        // Verify that OwnedEnv is imported
+        assert!(
+            rust_output.contains("use rustler::{LocalPid, ResourceArc, types::atom::Atom, OwnedEnv}"),
+            "expected OwnedEnv import in generated code"
+        );
+
+        // Verify that send_and_clear is called
+        assert!(
+            rust_output.contains("env.send_and_clear(&pid"),
+            "expected env.send_and_clear(&pid, ...) call in generated handler bridge:\n{rust_output}"
+        );
+
+        // Verify that trait_call atom is sent
+        assert!(
+            rust_output.contains("Atom::from_str(env, \"trait_call\")"),
+            "expected atom::from_str for 'trait_call' in generated message:\n{rust_output}"
+        );
+
+        // Verify that the method name is included in the message
+        assert!(
+            rust_output.contains("method_name"),
+            "expected method_name variable in trait_call message"
+        );
+
+        // Verify that request_json is included
+        assert!(
+            rust_output.contains("request_json_clone"),
+            "expected request JSON to be sent in trait_call message"
+        );
+
+        // Verify that reply_id is included
+        assert!(
+            rust_output.contains("reply_id)"),
+            "expected reply_id in trait_call tuple"
+        );
+
+        // Regression: ensure the old commented-out line is not present
+        assert!(
+            !rust_output.contains("// crate::nif_support::send_trait_call"),
+            "found old commented-out send_trait_call in output — should be replaced with real call"
+        );
+
+        // Verify spawn_blocking wraps the send
+        assert!(
+            rust_output.contains("tokio::task::spawn_blocking(move || {"),
+            "expected spawn_blocking to wrap the message send"
         );
     }
 
