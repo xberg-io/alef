@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Magnus (Ruby) service configurator and entrypoint methods now use positional
+  parameters** instead of keyword params with type annotations. This allows callers
+  to pass objects directly (`app.config(ServerConfig.new(...))`) without Ruby keyword
+  syntax, matching the harness template invocation style.
+
+- **Ruby e2e string-body literals now properly escaped.** `render_http_example_sut`
+  uses `ruby_string_literal()` for text-body expectations, so strings containing `"`,
+  `\n`, and other special chars (e.g. ndjson response bodies) produce valid Ruby
+  double-quoted literals instead of raw embeds that cause `SyntaxError`.
+
 ### Fixed
 
 - **Go codegen: use public C helper function for exported Go callback pointer.**

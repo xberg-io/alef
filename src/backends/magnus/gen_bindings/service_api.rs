@@ -144,15 +144,15 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         out.push_str("  end\n\n");
     }
 
-    // Configurator methods
+    // Configurator methods — positional params so callers can pass objects directly
+    // without keyword syntax (e.g. `app.config(ServerConfig.new(...))`).
     for method in &service.configurators {
         let mut params = Vec::new();
         for p in &method.params {
-            let annotation = ruby_type_annotation(&p.ty);
             if p.optional {
-                params.push(format!("{}: {} | nil = nil", p.name, annotation));
+                params.push(format!("{} = nil", p.name));
             } else {
-                params.push(format!("{}: {}", p.name, annotation));
+                params.push(p.name.clone());
             }
         }
         let param_sig = if params.is_empty() {
@@ -180,15 +180,14 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         gen_registration_method(out, reg, service, api, native_module_name);
     }
 
-    // Entrypoint methods
+    // Entrypoint methods — positional params for direct invocation.
     for ep in &service.entrypoints {
         let mut params = Vec::new();
         for p in &ep.params {
-            let annotation = ruby_type_annotation(&p.ty);
             if p.optional {
-                params.push(format!("{}: {} | nil = nil", p.name, annotation));
+                params.push(format!("{} = nil", p.name));
             } else {
-                params.push(format!("{}: {}", p.name, annotation));
+                params.push(p.name.clone());
             }
         }
         let param_sig = if params.is_empty() {

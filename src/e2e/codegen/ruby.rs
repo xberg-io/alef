@@ -1022,7 +1022,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
 
     // Determine response body expectations
     let (has_text_body, text_ruby) = if let Some(serde_json::Value::String(s)) = &http.expected_response.body {
-        (true, format!("\"{}\"", s))
+        (true, ruby_string_literal(s))
     } else {
         (false, String::new())
     };
