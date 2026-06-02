@@ -222,9 +222,14 @@ impl E2eCodegen for WasmCodegen {
             generated_header: false,
         });
 
-        // Generate vitest.config.ts — optional globalSetup (for HTTP fixtures with
-        // server-pattern harness) and setupFiles (for chdir and wasm init).
-        let needs_global_setup = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+        // Generate vitest.config.ts — globalSetup is needed for any fixture that
+        // interpolates `${process.env.MOCK_SERVER_URL}` (sample-llm `mock_response`
+        // shape or consumer-style `http` shape — both produce `has_http_fixtures`
+        // via `Fixture::needs_mock_server`). The simple mock-server template spawns
+        // the standalone `mock-server` binary; the server-pattern template spawns
+        // the consumer's app harness. Selection mirrors the Node typescript codegen.
+        let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+        let needs_global_setup = has_http_fixtures;
         let with_file_setup_cfg = has_file_fixtures || has_http_fixtures;
         files.push(GeneratedFile {
             path: output_base.join("vitest.config.ts"),
@@ -235,7 +240,7 @@ impl E2eCodegen for WasmCodegen {
         // Emit app_harness for server-pattern HTTP fixtures (requires harness config)
         // For wasm, create a modified harness config that imports from the wasm package
         // instead of the node package (which the Node e2e setup would use).
-        if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
+        if use_server_pattern {
             let wasm_harness_content = render_wasm_app_harness(e2e_config, groups, &pkg_name);
             files.push(GeneratedFile {
                 path: output_base.join("app_harness.mjs"),
@@ -244,12 +249,14 @@ impl E2eCodegen for WasmCodegen {
             });
         }
 
-        // Generate globalSetup.ts for server-pattern HTTP fixtures.
-        // It spawns the app harness as a subprocess, which registers fixture handlers.
+        // Generate globalSetup.ts. The simple template (use_server_pattern=false)
+        // spawns the standalone `mock-server` binary built from e2e/rust; the
+        // server-pattern template (use_server_pattern=true) spawns the consumer's
+        // app_harness subprocess. Either way, `MOCK_SERVER_URL` is exported to tests.
         if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
-                content: render_global_setup(true),
+                content: render_global_setup(use_server_pattern),
                 generated_header: true,
             });
         }

@@ -1351,7 +1351,9 @@ fn main() -> Result<()> {
                 // Run post-build processing (e.g., FRB codegen, post-processing rewrites)
                 eprintln!("Running post-build processing...");
                 for &lang in &languages {
-                    let backend = registry::get_backend(lang);
+                    let Some(backend) = registry::try_get_backend(lang) else {
+                        continue;
+                    };
                     if let Some(bc) = backend.build_config_with_config(resolved_cfg) {
                         if !bc.post_build.is_empty() {
                             match pipeline::run_post_build(lang, &bc, resolved_cfg, &base_dir) {

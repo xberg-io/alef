@@ -269,13 +269,14 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
                     // Before running e2e tests, run post-build processing to ensure any FRB
                     // regen or other codegen triggered by the test setup (e.g., dart pub get)
                     // is post-processed correctly. This ensures consistency with `alef all`.
-                    let backend = registry::get_backend(*lang);
-                    if let Some(bc) = backend.build_config_with_config(config) {
-                        if !bc.post_build.is_empty() {
-                            if let Err(e) = super::run_post_build(*lang, &bc, config, &base_dir) {
-                                eprintln!("  [{lang}] post-build processing failed before e2e tests: {e}");
-                                return (*lang, Err(e));
-                            }
+                    // Skip languages without a binding backend (Rust, C).
+                    if let Some(backend) = registry::try_get_backend(*lang)
+                        && let Some(bc) = backend.build_config_with_config(config)
+                        && !bc.post_build.is_empty()
+                    {
+                        if let Err(e) = super::run_post_build(*lang, &bc, config, &base_dir) {
+                            eprintln!("  [{lang}] post-build processing failed before e2e tests: {e}");
+                            return (*lang, Err(e));
                         }
                     }
 

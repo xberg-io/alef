@@ -21,6 +21,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef test --e2e` no longer panics for languages without a binding backend
+  (Rust, C).** `cli::registry::get_backend` panicked with "Rust is a docs-only
+  language target" when iterating every configured language for post-build
+  processing. Two unconditional call sites (`main.rs` post-build loop and
+  `cli/pipeline/commands.rs::run_tests` e2e pre-test post-build hook) now route
+  through a new `try_get_backend` that returns `None` for Rust/C, matching the
+  existing skip already in `commands.rs::build_languages`. Without this fix the
+  Rust e2e suite is silently skipped on any consumer whose `alef.toml`
+  `[crates.test.rust]` block defines an e2e command.
+
+- **WASM e2e codegen now emits `globalSetup.ts` for sample-llm `mock_response`
+  fixtures, not only for server-pattern `http` harness fixtures.** Selection now
+  mirrors the Node TypeScript codegen: `needs_global_setup` is true whenever any
+  fixture's `Fixture::needs_mock_server()` is true; the template variant
+  (simple mock-server spawn vs server-pattern app harness) is then chosen by
+  whether `harness.imports` is non-empty. Previously, vitest started without a
+  mock server and every wasm test failed with reqwest's "Unknown Error: builder
+  error" because `${process.env.MOCK_SERVER_URL}` was `undefined`.
+
+- **Java e2e codegen now emits `MockServerListener.java` and the matching
+  `META-INF/services/org.junit.platform.launcher.LauncherSessionListener`
+  resource when any fixture needs a mock server.** The `render_mock_server_listener`
+  function existed but was never wired into the file emission pass — only the
+  kotlin_android codegen registered the SPI manifest. As a result, consumers
+  that left a service file behind from a prior alef version (or who hand-rolled
+  one) saw `java.util.ServiceConfigurationError: Provider … not found` at
+  surefire boot, and consumers without one saw tests reference `mockServerUrl`
+  with no server running. The emission mirrors the kotlin_android pattern and
+  uses `Fixture::needs_mock_server()` for detection (covers both sample-llm
+  `mock_response` and consumer `http.expected_response` shapes).
+
 - **Go codegen: use public C helper function for exported Go callback pointer.**
   Go forbids taking addresses of exported functions (`//export`), so direct passing
   fails. The solution is to define a C helper function `get_service_handler_callback()`

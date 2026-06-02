@@ -120,6 +120,12 @@ impl E2eCodegen for JavaCodegen {
         // Check if there are HTTP fixtures that need server-pattern harness
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
         let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+        // Detect mock-server need (sample-llm `mock_response` shape OR consumer
+        // `http.expected_response` shape). Mirrors kotlin_android codegen.
+        let needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
 
         // Generate test files per category. Path mirrors the configured Java
         // package — `dev.myorg` becomes `dev/myorg`, etc. — so the package
@@ -129,6 +135,31 @@ impl E2eCodegen for JavaCodegen {
             test_base = test_base.join(segment);
         }
         let test_base = test_base.join("e2e");
+
+        // When any fixture needs a mock server, emit MockServerListener.java
+        // plus its META-INF SPI entry so JUnit Platform discovers and starts
+        // the `mock-server` binary once per launcher session. Without these
+        // the tests reference `mockServerUrl` but no server runs, and the
+        // existing service file (if left over from a prior alef version) points
+        // at a class that does not exist on the classpath.
+        if needs_mock_server {
+            files.push(GeneratedFile {
+                path: test_base.join("MockServerListener.java"),
+                content: render_mock_server_listener(&java_group_id),
+                generated_header: true,
+            });
+            files.push(GeneratedFile {
+                path: output_base
+                    .join("src")
+                    .join("test")
+                    .join("resources")
+                    .join("META-INF")
+                    .join("services")
+                    .join("org.junit.platform.launcher.LauncherSessionListener"),
+                content: format!("{java_group_id}.e2e.MockServerListener\n"),
+                generated_header: false,
+            });
+        }
 
         // Emit fixture JSON files to src/test/resources/fixtures/ (avoids 65KB string literal limit)
         let fixtures_resource_base = output_base.join("src").join("test").join("resources").join("fixtures");
@@ -458,7 +489,6 @@ fn render_fixture_loader(java_group_id: &str) -> String {
 /// bodies prefer it over the `MOCK_SERVER_URL` env var so external overrides
 /// (e.g. CI exporting MOCK_SERVER_URL) still work without rerouting through
 /// JNI's lack of `setenv`.
-#[allow(dead_code)]
 fn render_mock_server_listener(java_group_id: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
