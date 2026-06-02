@@ -18,9 +18,7 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{
-    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
-};
+use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -281,6 +279,39 @@ fn gen_registration_method(
     ));
     out.push_str("    self\n");
     out.push_str("  end\n\n");
+
+    // Also expose a positional companion `register_{method_name}(meta..., handler)`
+    // so harness code and scripts can pass a callable without using Ruby block syntax.
+    let direct_name = format!("register_{method_name}");
+    if direct_name != *method_name {
+        let direct_param_sig = if meta_params.is_empty() {
+            format!("({callback})", callback = reg.callback_param)
+        } else {
+            let meta_sig: Vec<String> = reg
+                .metadata_params
+                .iter()
+                .map(|p| {
+                    let annotation = ruby_type_annotation(&p.ty);
+                    if p.optional {
+                        format!("{}: {} | nil = nil", p.name, annotation)
+                    } else {
+                        format!("{}: {}", p.name, annotation)
+                    }
+                })
+                .collect();
+            format!("({}, {})", meta_sig.join(", "), reg.callback_param)
+        };
+        out.push_str(&format!("  def {direct_name}{direct_param_sig}\n"));
+        out.push_str(&format!(
+            "    # Register a {method_name} callback directly without block syntax.\n"
+        ));
+        out.push_str(&format!(
+            "    @registrations.push([\"{method_name}\", {meta_tuple}, {callback}])\n",
+            callback = reg.callback_param
+        ));
+        out.push_str("    self\n");
+        out.push_str("  end\n\n");
+    }
 
     // Emit registration variants (shortcuts for common patterns)
     for variant in &reg.variants {
