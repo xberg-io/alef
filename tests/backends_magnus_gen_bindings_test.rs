@@ -3164,4 +3164,3 @@ fn test_registration_variant_styles_emit_unified_block_form() {
         );
     }
 }
-

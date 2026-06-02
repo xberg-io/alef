@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **napi post-build: match the universal `index.js` trailer so the App override actually applies.**
+  The `index.js` post-build patch keyed off `module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage` — a marker that napi-rs 3.x does not emit (it ends `index.js` with a single `module.exports = nativeBinding;` instead). The `PatchFile` step therefore silently no-op'd, so the idiomatic TypeScript service-wrapper App (with `static new()` + `route(...)` + `register_route(...)` etc.) was never re-exported, and consumers saw the raw native binding's opaque JsApp instead (`TypeError: app.route is not a function` from a fresh `App.new()`). The patch now keys off the universal trailer and appends the service-wrapper override after it, idempotently. (`src/backends/napi/gen_bindings/mod.rs`)
+
 - **dart `build.rs` scaffold: re-add post-FRB `fix_handler_executor_calls`.**
   The generated `build.rs` for dart binding crates ran `flutter_rust_bridge_codegen` followed by `patch_published_loader()` but no longer rewrote the broken `handler.executeSync(SyncTask(...))` / `handler.executeNormal(SyncTask(...))` calls that FRB emits inside service-API methods. In those methods `handler` is a user-supplied callback parameter (`FutureOr<R> Function(T)`), not a `BaseHandler` field, so the generated Dart fails to compile with `The method 'executeSync' isn't defined for the type 'FutureOr<String> Function(String)'`. The scaffold now embeds a `fix_handler_executor_calls()` helper that swaps the receiver to `generalizedFrbRustBinding`, which actually exposes the executor methods. Idempotent and gated on the broken-pattern marker, so it's a no-op once the file is patched. (`src/backends/dart/gen_rust_crate/cargo.rs`)
 
