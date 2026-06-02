@@ -98,8 +98,8 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
     out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
     // Define a function pointer typedef for the callback signature
     out.push_str("typedef char* (*ServiceHandlerCallbackPtr)(void*, const char*);\n");
-    // Declare a variable that cgo will populate with the address of the exported Go function\n");
-    out.push_str("ServiceHandlerCallbackPtr get_service_handler_callback(void) {\n");
+    // Static inline helper to avoid duplicate symbols when preamble is included multiple times
+    out.push_str("static inline ServiceHandlerCallbackPtr get_service_handler_callback(void) {\n");
     out.push_str("  return (ServiceHandlerCallbackPtr)service_handler_callback;\n");
     out.push_str("}\n");
     out.push_str("*/\n");
