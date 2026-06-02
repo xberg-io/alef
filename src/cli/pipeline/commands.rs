@@ -1361,11 +1361,20 @@ pub fn run_post_build(
 /// Spawns `cmd` with `args` in `base_dir`, captures stdout/stderr, and
 /// returns an error if the process exits with a non-zero status.
 fn run_run_command(cmd: &str, args: &[&str], base_dir: &Path) -> anyhow::Result<()> {
-    let output = std::process::Command::new(cmd)
+    let output = match std::process::Command::new(cmd)
         .args(args)
         .current_dir(base_dir)
         .output()
-        .with_context(|| format!("failed to spawn '{cmd}'"))?;
+    {
+        Ok(output) => output,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            warn!(
+                "[{cmd}] not on PATH — skipping post-build step. Install '{cmd}' to regenerate at build time; falling back to committed generated files."
+            );
+            return Ok(());
+        }
+        Err(err) => return Err(anyhow::Error::new(err).context(format!("failed to spawn '{cmd}'"))),
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
