@@ -394,27 +394,22 @@ fn variant_regex() -> &'static Regex {
 pub fn fix_handler_executor_calls(source: &str) -> String {
     // FRB-generated code variants for invoking task wrappers:
     //
-    // 1. `handler.executeSync(...)` / `handler.executeNormal(...)` — emitted
-    //    when `handler` is a *callback function parameter* (a function type
-    //    with no `.executeX` methods); rewrite to `handler(...)`.
-    //
-    // 2. `generalizedFrbRustBinding.executeNormal(...)` — FRB 2.12.x emits
+    // 1. `generalizedFrbRustBinding.executeNormal(...)` — FRB 2.12.x emits
     //    these for ordinary `RustLibApiImpl` methods. The receiver is the
     //    low-level FFI binding (`GeneralizedFrbRustBinding`), which does
     //    *not* expose `executeNormal`/`executeSync`; those methods live on
-    //    the `BaseHandler` field (`handler`) of `BaseApiImpl`. Without this
-    //    rewrite every generated method body fails to compile with
+    //    the `BaseHandler` field (`handler`) of `BaseApiImpl`. Rewrite to
+    //    `handler.executeNormal(...)` / `handler.executeSync(...)`.
+    //    Without this rewrite every generated method body fails to compile with
     //    "method 'executeNormal' isn't defined for the type
     //    'GeneralizedFrbRustBinding'".
     //
-    // 3. Remove stray `await` keywords before `handler(` — FRB generates
-    //    `return await handler(...)` for non-async methods that return Future.
+    // 2. Remove `await` keywords before method calls on `handler` — FRB generates
+    //    `return await handler.executeNormal(...)` for non-async methods that return Future.
     //    The methods return futures but are not declared async, so await is invalid.
-    let source = source.replace("handler.executeSync(", "handler(");
-    let source = source.replace("handler.executeNormal(", "handler(");
     let source = source.replace("generalizedFrbRustBinding.executeNormal(", "handler.executeNormal(");
     let source = source.replace("generalizedFrbRustBinding.executeSync(", "handler.executeSync(");
-    source.replace("await handler(", "handler(")
+    source.replace("await handler.", "handler.")
 }
 
 /// Rewrite the comma-separated parameter list inside the variant constructor.
