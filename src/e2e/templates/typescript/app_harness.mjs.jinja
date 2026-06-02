@@ -10,7 +10,7 @@
 {% for import_name in imports %}
 import _pkg from '{{ import_name }}';
 {% endfor %}
-const { {{ app_class }}, ServerConfig } = _pkg;
+const { {{ app_class }}, ServerConfig, {{ method_enum }}, {{ route_builder_class }} } = _pkg;
 
 // Load fixtures from the inline JSON payload.
 const _FIXTURES = {{fixtures_json}};
@@ -22,17 +22,17 @@ const app = {{ app_class }}.new();
 const app = new {{ app_class }}();
 {% endif -%}
 
-// Map HTTP method name to the corresponding app method
-const httpMethodMap = {
-  'GET': 'get',
-  'POST': 'post',
-  'PUT': 'put',
-  'PATCH': 'patch',
-  'DELETE': 'delete',
-  'HEAD': 'head',
-  'OPTIONS': 'options',
-  'CONNECT': 'connect',
-  'TRACE': 'trace',
+// Map HTTP method name to the corresponding Method enum value
+const methodMap = {
+  'GET': {{ method_enum }}.Get,
+  'POST': {{ method_enum }}.Post,
+  'PUT': {{ method_enum }}.Put,
+  'PATCH': {{ method_enum }}.Patch,
+  'DELETE': {{ method_enum }}.Delete,
+  'HEAD': {{ method_enum }}.Head,
+  'OPTIONS': {{ method_enum }}.Options,
+  'CONNECT': {{ method_enum }}.Connect,
+  'TRACE': {{ method_enum }}.Trace,
 };
 
 // Register a handler for each fixture
@@ -49,9 +49,9 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   const expectedBody = expected.body;
   const expectedHeaders = expected.headers || {};
 
-  // Map method string to the app method name
-  const appMethodName = httpMethodMap[methodStr];
-  if (!appMethodName) {
+  // Map method string to the Method enum value
+  const methodEnum = methodMap[methodStr];
+  if (!methodEnum) {
     console.warn(`Skipping fixture ${fixtureId}: unknown HTTP method ${methodStr}`);
     continue;
   }
@@ -68,8 +68,9 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   // Register the handler at /fixtures/<fixture_id>{route}
   const fullRoute = `/fixtures/${fixtureId}${route}`;
 
-  // Call the appropriate HTTP verb method on the app
-  app[appMethodName](fullRoute, handlerFn);
+  // Build RouteBuilder and register the route
+  const builder = new {{ route_builder_class }}(methodEnum, fullRoute);
+  app.{{ register_route_method }}(builder, handlerFn);
 }
 
 // Configure and start the server
