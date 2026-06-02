@@ -9,13 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Go codegen: use cgo-generated function pointer variable for exported Go callback.**
+- **Go codegen: use public C helper function for exported Go callback pointer.**
   Go forbids taking addresses of exported functions (`//export`), so direct passing
-  fails. The solution leverages cgo's automatic variable generation: when Go exports
-  a function `service_handler_callback` with `//export`, cgo creates an internal
-  variable `_Cfpvar_fp_service_handler_callback` containing its function pointer.
-  Use this variable directly instead of trying to address the function. Fixes `go build`
-  failures across all Go-consuming bindings.
+  fails. The solution is to define a C helper function `get_service_handler_callback()`
+  in the cgo preamble that casts the Go-exported function to the required C signature.
+  This public function is then called to obtain the function pointer safely. Fixes
+  `go build` failures across all Go-consuming bindings.
 
 ## [0.21.2] - 2026-06-02
 
