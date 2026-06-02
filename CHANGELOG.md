@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **NAPI-RS (Node.js) service class now emits a static `new()` factory method.**
+  The TypeScript service wrapper (e.g., `class App { static new(): App { … } }`)
+  now provides a factory for creating instances, enabling `App.new()` calls from
+  harness templates. This matches the factory pattern used across PyO3, Magnus,
+  and other language bindings.
+
 - **Magnus (Ruby) service configurator and entrypoint methods now use positional
   parameters** instead of keyword params with type annotations. This allows callers
   to pass objects directly (`app.config(ServerConfig.new(...))`) without Ruby keyword
