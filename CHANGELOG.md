@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Kotlin scaffold: emit trailing comma after `KotlinJvm(...)` argument.**
+  The `build.gradle.kts` template emitted `KotlinJvm(...)\n  )` (no trailing
+  comma after the closing `)` of the `KotlinJvm` call). ktlint enforces a
+  trailing comma after each argument to `configure(...)` when the argument is
+  on its own line, so every generation run produced output that ktlint would
+  reformat on the next `prek run --all-files`. Fixed by adding `,` after the
+  `KotlinJvm(...)` block in the template.
+
 - **Zig error-set header: emit `error{` without space before `{`.** The
   `error_set_header.jinja` template emitted `pub const Foo = error {` (with
   a space before the opening brace). `zig fmt` canonicalises this to `error{`

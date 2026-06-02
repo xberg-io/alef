@@ -226,7 +226,7 @@ mavenPublishing {{
     KotlinJvm(
       javadocJar = JavadocJar.Empty(),
       sourcesJar = true,
-    )
+    ),
   )
 
   publishToMavenCentral()
