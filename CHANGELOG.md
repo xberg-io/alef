@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **rustler lib.rs: declare `mod service;` when the API surface includes services.**
+  The service-API codegen emits a sibling `service.rs` containing additional `#[rustler::nif]` functions (`app_run`, `app_into_router`, `complete_trait_call`, and per-registration NIFs). `rustler::init!` discovers NIFs across the crate module tree, but `lib.rs` never declared `service` as a module, so every service-side NIF was dead code and Elixir consumers hit `function <Native>.app_run/1 is undefined` at runtime. `lib.rs` now emits `mod service;` whenever the API surface has at least one service. (`src/backends/rustler/gen_bindings/mod.rs`)
+
 - **php backend: stop emitting `.unwrap_or_default()` on required default-typed params.**
   After the earlier "do not promote required default-typed params to optional" fix, `promote_default_params` returned its input unchanged. `promoted_default_param_names`, however, still listed those params, and `apply_default_param_substitutions` rewrote each call-site `&<arg>_core` into `&<arg>_core.unwrap_or_default()`. Since `<arg>_core` is the already-unwrapped `T` (not `Option<T>`), the generated code (e.g. `liter-llm-php`'s `count_request_tokens` wrapper) failed to compile with `E0599: no method named 'unwrap_or_default' found for struct ChatCompletionRequest`. `promoted_default_param_names` now returns an empty set, in lockstep with `promote_default_params`. (`src/backends/php/gen_bindings/functions.rs`)
 

@@ -156,6 +156,15 @@ impl Backend for RustlerBackend {
             builder.add_item(&format!("pub mod {module};"));
         }
 
+        // When the API surface includes services, the service-API codegen emits a
+        // sibling `service.rs` containing additional `#[rustler::nif]` functions
+        // (app_run, complete_trait_call, registration NIFs). The macro discovers
+        // NIFs across the crate module tree, so the sibling file must be declared
+        // as a module from `lib.rs` for its NIFs to be linked.
+        if !api.services.is_empty() {
+            builder.add_item("mod service;");
+        }
+
         let (_module_name, module_prefix) = get_module_info(api, config);
 
         // Check if we have opaque types and add Arc import if needed
