@@ -163,7 +163,9 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         }
         let param_sig = params.join(", ");
         let method_name = &method.name;
-        out.push_str(&format!("    public function {method_name}({param_sig}): self\n    {{\n"));
+        out.push_str(&format!(
+            "    public function {method_name}({param_sig}): self\n    {{\n"
+        ));
         if !method.doc.is_empty() {
             out.push_str(&format_php_comment(&method.doc, 8));
         }
@@ -268,7 +270,9 @@ fn gen_registration_method(
     let direct_sig = direct_params.join(", ");
 
     // Decorator factory form: returns a closure
-    out.push_str(&format!("    public function {method_name}({meta_sig}): callable\n    {{\n"));
+    out.push_str(&format!(
+        "    public function {method_name}({meta_sig}): callable\n    {{\n"
+    ));
     if !reg.doc.is_empty() {
         out.push_str(&format_php_comment(&reg.doc, 8));
     }
@@ -296,7 +300,9 @@ fn gen_registration_method(
     // Also expose a direct (non-decorator) variant: `register_{method_name}`
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
-        out.push_str(&format!("    public function {direct_name}({direct_sig}): self\n    {{\n"));
+        out.push_str(&format!(
+            "    public function {direct_name}({direct_sig}): self\n    {{\n"
+        ));
         out.push_str(&format!(
             "        $this->registrations[] = ['{method_name}', {meta_tuple}, ${callback_param}];\n",
             callback_param = reg.callback_param,

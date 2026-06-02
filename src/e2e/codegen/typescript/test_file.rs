@@ -456,10 +456,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
 
     let test_name = sanitize_ident(&fixture.id);
     // Escape backslashes and double quotes for use in a double-quoted JS string.
-    let description = fixture
-        .description
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
+    let description = fixture.description.replace('\\', "\\\\").replace('"', "\\\"");
 
     if http.expected_response.status_code == 101 {
         return;

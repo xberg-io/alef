@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`cargo fmt` cleanup in `src/backends/php/gen_bindings/service_api.rs` and
+  `src/e2e/codegen/typescript/test_file.rs`.** Recent edits left long
+  `out.push_str(&format!(...))` calls and a chained `String::replace` call on
+  single lines exceeding rustfmt's width target, so every `prek run
+  --all-files` re-ran `cargo fmt` and rewrapped them. Pre-wrapped the affected
+  calls so the hooks are idempotent.
+
 - **Kotlin scaffold: emit trailing comma after `KotlinJvm(...)` argument.**
   The `build.gradle.kts` template emitted `KotlinJvm(...)\n  )` (no trailing
   comma after the closing `)` of the `KotlinJvm` call). ktlint enforces a
