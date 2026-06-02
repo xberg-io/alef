@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **elixir hex pin: bump rustler from `~> 0.37.0` to `~> 0.38.0`.**
+  The rustler service-API templates and handler-bridge generation use the `OwnedEnv::send_and_clear` API and other 0.38-only types; the hex constraint must match the Cargo crate version emitted in the binding crate's `Cargo.toml`. (`src/core/template_versions.rs`)
+
 ### Added
 
 - **wasm-bindgen backend: wire RegistrationVariantStyle emission into generation pipeline (#26).**
