@@ -1140,17 +1140,13 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     // Ruby wrapper
     let service_rb = gen_service_rb(api, &native_module_name);
 
-    // Ruby package output base (same logic as public_api)
+    // Ruby lib output base: service.rb is runtime code and must live under lib/,
+    // not under sig/ (which is for type stubs loaded only by steep/sorbet).
+    // Mirror the path used by the public_api generator in mod.rs.
     let gem_name = config.ruby_gem_name();
-    let output_base = config
-        .ruby
-        .as_ref()
-        .and_then(|r| r.stubs.as_ref())
-        .map(|s| PathBuf::from(&s.output))
-        .unwrap_or_else(|| {
-            let gem_name_snake = gem_name.replace('-', "_");
-            PathBuf::from(format!("packages/ruby/{}", gem_name_snake))
-        });
+    let gem_name_snake = gem_name.replace('-', "_");
+    let lib_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
+    let output_base = PathBuf::from(&lib_dir).join(&gem_name_snake);
 
     Ok(vec![
         GeneratedFile {
