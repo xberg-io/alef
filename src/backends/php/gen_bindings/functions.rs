@@ -89,19 +89,13 @@ fn promoted_default_param_names<'a>(
 
 fn promote_default_params(
     params: &[crate::core::ir::ParamDef],
-    default_types: &AHashSet<String>,
-    opaque_types: &AHashSet<String>,
+    _default_types: &AHashSet<String>,
+    _opaque_types: &AHashSet<String>,
 ) -> Vec<crate::core::ir::ParamDef> {
-    params
-        .iter()
-        .map(|p| {
-            let mut promoted = p.clone();
-            if matches!(&p.ty, TypeRef::Named(name) if !p.optional && !opaque_types.contains(name.as_str()) && default_types.contains(name.as_str())) {
-                promoted.optional = true;
-            }
-            promoted
-        })
-        .collect()
+    // Default-typed params that are required in Rust stay required in PHP — the
+    // wrapper must not unilaterally relax arity. `Optional<DefaultType>` is
+    // already optional via `ParamDef::optional` and needs no further promotion.
+    params.iter().cloned().collect()
 }
 
 fn apply_default_param_substitutions(
