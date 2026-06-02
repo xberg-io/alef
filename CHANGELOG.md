@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `require_relative "{gem_name_snake}/service"` is automatically added to the main gem file when the
   surface defines services. Previously the `App` class was unreachable at runtime.
 
+### Fixed (D.2b follow-up)
+
+- **Ruby e2e spec: escape single quotes in `escaped_msg` template variable.** Pattern-match
+  validation-error messages like `"String should match pattern '^[A-Z0-9]{8}$'"` contain literal
+  single quotes. The template embeds `escaped_msg` inside `'...'` via `include?('...')`, so
+  unescaped quotes broke Ruby parsing. Now applies `escape_ruby_single` before interpolation.
+
 ### Changed
 
 - **Bump `rustler` (crate) and `rustler` (hex) pins from `0.37` to `0.38`.**
