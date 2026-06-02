@@ -1035,20 +1035,82 @@ fn build_ctor_call(service: &ServiceDef, owner_path: &str, _core_import: &str) -
 
 /// Build the entrypoint invocation for a service method.
 ///
-/// For async entrypoints that consume `self` (e.g., `run(self)`), `block_on` moves
-/// the owned `owner` into the async function. For sync entrypoints, call directly.
-fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _core_import: &str) -> String {
+/// For async entrypoints that consume `self` (e.g., `run(self)`), we release the
+/// GVL via `rb_thread_call_without_gvl` and drive a `new_current_thread` Tokio
+/// runtime on the same OS thread. This allows the handler bridge to call
+/// `rb_thread_call_with_gvl` from within the runtime's tasks.
+///
+/// Using `Handle::current().block_on()` fails because no Tokio reactor exists on
+/// the Ruby main thread. Using `spawn_blocking` would create a non-Ruby OS thread.
+fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _core_import: &str) -> String {
     let ep_method = &ep.method;
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
+    let owner_path = &service.rust_path;
+    let fn_name = format!("{}_run", service.name.to_snake_case());
 
     if ep.is_async {
-        // For async, use tokio::runtime::Handle::current().block_on() to drive the future.
-        // The owned `owner` is moved into the async function if the method takes `self`.
+        // Release the GVL and run a current-thread Tokio runtime for the async entrypoint.
+        // SAFETY: called on a Ruby thread (GVL held); `rb_thread_call_without_gvl` releases
+        // it and invokes the callback on the SAME OS thread, making `rb_thread_call_with_gvl`
+        // valid from within the callback's Tokio tasks.
         format!(
-            "    tokio::runtime::Handle::current()\n        \
-             .block_on(owner.{ep_method}({args_str}))\n        \
-             .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n"
+            "    // SAFETY: `{fn_name}` is called from the Ruby main thread (via `function!` macro),\n    \
+             // so the GVL is currently held. We release the GVL via `rb_thread_call_without_gvl`\n    \
+             // and run a current-thread Tokio runtime inside that callback. This is the SAME\n    \
+             // OS thread that released the GVL, so `rb_thread_call_with_gvl` re-acquisition\n    \
+             // from within the current-thread runtime's tasks is valid.\n    \
+             struct RunState {{\n        \
+                 owner: Option<{owner_path}>,\n        \
+                 result: Option<Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>>,\n    \
+             }}\n    \
+             // SAFETY: RunState is only accessed from the single callback thread.\n    \
+             unsafe impl Send for RunState {{}}\n    \
+             unsafe impl Sync for RunState {{}}\n\n    \
+             extern \"C\" fn run_without_gvl(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {{\n        \
+                 // SAFETY: data is a valid &mut RunState, valid for the full callback duration.\n        \
+                 let state = unsafe {{ &mut *(data as *mut RunState) }};\n        \
+                 let app = match state.owner.take() {{\n            \
+                     Some(a) => a,\n            \
+                     None => {{\n                \
+                         state.result = Some(Err(Box::new(std::io::Error::other(\"App already consumed\"))\n                    \
+                             as Box<dyn std::error::Error + Send + Sync>));\n                \
+                         return std::ptr::null_mut();\n            \
+                     }}\n        \
+                 }};\n        \
+                 let rt_result = tokio::runtime::Builder::new_current_thread()\n            \
+                     .enable_all()\n            \
+                     .build();\n        \
+                 state.result = Some(match rt_result {{\n            \
+                     Ok(rt) => rt\n                \
+                         .block_on(app.{ep_method}({args_str}))\n                \
+                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),\n            \
+                     Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),\n        \
+                 }});\n        \
+                 std::ptr::null_mut()\n    \
+             }}\n    \
+             extern \"C\" fn unblock_run(_data: *mut std::ffi::c_void) {{}}\n\n    \
+             let mut state = RunState {{ owner: Some(owner), result: None }};\n    \
+             // SAFETY: `state` lives until after `rb_thread_call_without_gvl` returns.\n    \
+             unsafe {{\n        \
+                 rb_sys::rb_thread_call_without_gvl(\n            \
+                     Some(run_without_gvl),\n            \
+                     &mut state as *mut RunState as *mut std::ffi::c_void,\n            \
+                     Some(unblock_run),\n            \
+                     std::ptr::null_mut(),\n        \
+                 );\n    \
+             }}\n\n    \
+             state\n        \
+                 .result\n        \
+                 .unwrap_or_else(|| {{\n            \
+                     Err(Box::new(std::io::Error::other(\"server did not run\"))\n                \
+                         as Box<dyn std::error::Error + Send + Sync>)\n        \
+                 }})\n        \
+                 .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
+            fn_name = fn_name,
+            owner_path = owner_path,
+            ep_method = ep_method,
+            args_str = args_str,
         )
     } else {
         if ep.error_type.is_some() {
@@ -1506,6 +1568,14 @@ mod tests {
         assert!(
             output.contains("pub fn test_service_run("),
             "expected `test_service_run` function:\n{output}"
+        );
+        assert!(
+            output.contains("rb_sys::rb_thread_call_without_gvl"),
+            "expected `rb_thread_call_without_gvl` for GVL-safe async run:\n{output}"
+        );
+        assert!(
+            output.contains("new_current_thread"),
+            "expected `new_current_thread` Tokio runtime in run:\n{output}"
         );
     }
 
