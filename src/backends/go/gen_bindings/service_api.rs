@@ -434,7 +434,7 @@ fn gen_registration_method(
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tunsafe.Pointer(&service_handler_callback),\n\
+         \t\tunsafe.Pointer(C.service_handler_callback),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -544,7 +544,7 @@ fn gen_registration_variant(
     out.push_str(&format!(
         "\tret := C.{}_{}_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tunsafe.Pointer(&service_handler_callback),\n\
+         \t\tunsafe.Pointer(C.service_handler_callback),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
@@ -984,7 +984,7 @@ mod tests {
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
         // Verify callback is passed as address of the Go-exported callback function.
-        assert!(go.contains("unsafe.Pointer(&service_handler_callback),"));
+        assert!(go.contains("unsafe.Pointer(C.service_handler_callback),"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }
