@@ -728,6 +728,15 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
         .unwrap_or_else(|| "registerRoute".to_string());
     let route_builder_class = e2e_config.harness.route_builder.as_deref().unwrap_or("RouteBuilder");
 
+    // wasm-bindgen exposes ServerConfig as a class with a default constructor,
+    // so the harness must use `new WasmServerConfig()` and include
+    // `WasmServerConfig` in the destructure import.
+    let server_config_factory = e2e_config.harness.server_config_factory_for_lang("wasm");
+    let server_config_factory_import = e2e_config
+        .harness
+        .server_config_factory_import_for_lang("wasm")
+        .unwrap_or_else(|| "ServerConfig".to_string());
+
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
         minijinja::context! {
@@ -743,6 +752,8 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
             run_method => run_method.as_deref().unwrap_or("run"),
             register_route_method => register_method.as_str(),
             constructor_method => ".new()",
+            server_config_factory => server_config_factory,
+            server_config_factory_import => server_config_factory_import,
         },
     )
 }

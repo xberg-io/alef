@@ -192,14 +192,24 @@ pub fn render_app_harness(
 
     let route_builder_class = e2e_config.harness.route_builder.as_deref().unwrap_or("RouteBuilder");
 
-    // Determine which ServerConfig factory expression to use (backend-specific defaults)
-    let server_config_factory = if imports.iter().any(|imp| imp.contains("/node")) {
-        e2e_config.harness.server_config_factory_for_lang("node")
+    // Determine which ServerConfig factory expression to use (backend-specific defaults).
+    // Node uses `serverConfigDefault()` factory; wasm-bindgen exposes the
+    // `WasmServerConfig` class with a default constructor; generic TypeScript
+    // bindings fall back to `new ServerConfig()`.
+    let factory_lang = if imports.iter().any(|imp| imp.contains("/node")) {
+        "node"
     } else if imports.iter().any(|imp| imp.contains("wasm")) {
-        e2e_config.harness.server_config_factory_for_lang("wasm")
+        "wasm"
     } else {
-        e2e_config.harness.server_config_factory_for_lang("typescript")
+        "typescript"
     };
+    let server_config_factory = e2e_config.harness.server_config_factory_for_lang(factory_lang);
+    // Companion import identifier: when the factory is a bare-identifier call,
+    // the destructure import must include that identifier.
+    let server_config_factory_import = e2e_config
+        .harness
+        .server_config_factory_import_for_lang(factory_lang)
+        .unwrap_or_else(|| "ServerConfig".to_string());
 
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
@@ -217,6 +227,7 @@ pub fn render_app_harness(
             register_route_method => register_method.as_str(),
             constructor_method => constructor_method,
             server_config_factory => server_config_factory,
+            server_config_factory_import => server_config_factory_import,
         },
     )
 }

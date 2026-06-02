@@ -18,6 +18,17 @@ pub enum DependencyMode {
     Registry,
 }
 
+/// Route registration call form for language-specific idioms in e2e harness code generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteCallForm {
+    /// Direct 2-arg: app.route(builder, handler) — PHP reference, C#, Go, Node, TypeScript, etc.
+    Direct,
+    /// Decorator 1-arg returning callable: app.route(builder)(handler) — Python verb-decorator
+    Decorator,
+    /// Block form: app.route(builder) { |req| handler.call(req) } — Ruby blocks
+    Block,
+}
+
 /// Configuration for registry-mode e2e generation (`alef e2e generate --registry`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryConfig {
@@ -209,6 +220,33 @@ impl HarnessConfig {
                 "wasm" => "new WasmServerConfig()".to_string(),
                 _ => "new ServerConfig()".to_string(),
             })
+    }
+
+    /// Get the import name for the ServerConfig factory, if the factory is a bare identifier.
+    /// Returns the identifier to include in the import destructure when the factory
+    /// expression is a function/class that must be imported.
+    /// - "node" → Some("serverConfigDefault")
+    /// - "wasm" → Some("WasmServerConfig")
+    /// - others → None (assumes available in scope or uses `new ClassName()`)
+    pub fn server_config_factory_import_for_lang(&self, lang: &str) -> Option<String> {
+        match lang {
+            "node" => Some("serverConfigDefault".to_string()),
+            "wasm" => Some("WasmServerConfig".to_string()),
+            _ => None,
+        }
+    }
+
+    /// Get the route registration call form for a language (Direct 2-arg, Decorator 1-arg, or Block form).
+    /// Determines how app.route(builder, handler) is emitted for language-specific idioms:
+    /// - Direct: app.route(builder, handler) [PHP reference, most others]
+    /// - Decorator: app.route(builder)(handler) [Python verb-decorator]
+    /// - Block: app.route(builder) { |req| handler.call(req) } [Ruby block]
+    pub fn harness_route_call_form_for_lang(&self, lang: &str) -> RouteCallForm {
+        match lang {
+            "python" => RouteCallForm::Decorator,
+            "ruby" => RouteCallForm::Block,
+            _ => RouteCallForm::Direct,
+        }
     }
 
     /// Get the register_method for `lang` rendered in the language's idiomatic

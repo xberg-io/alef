@@ -10,7 +10,7 @@
 {% for import_name in imports %}
 import _pkg from '{{ import_name }}';
 {% endfor %}
-const { {{ app_class }}, ServerConfig, {{ method_enum }}, {{ route_builder_class }} } = _pkg;
+const { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }} } = _pkg;
 
 // Load fixtures from the inline JSON payload.
 const _FIXTURES = {{fixtures_json}};
