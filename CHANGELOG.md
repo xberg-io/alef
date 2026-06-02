@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   harness/script code to register handlers without Ruby block syntax. Uses plain positional params
   (not keyword params) to avoid Ruby's "positional after keyword" SyntaxError.
 
+- **Ruby e2e harness: replace `Method.const_get` with string TryConvert.** The Ruby harness template
+  was calling `Spikard::Method.const_get(method_str)` to obtain an enum value, but `Method` is not
+  registered as a Ruby constant. Magnus's `TryConvert for Method` accepts strings (`"Get"`, `"get"`),
+  so the template now normalizes the fixture method string via `.capitalize` and passes it directly to
+  `RouteBuilder.new`. Also adds CORS middleware threading to the Ruby harness, mirroring the Python
+  harness.
+
 - **Ruby backend (`magnus`) service.rb placement and autoload.** `service.rb` is now generated into
   `lib/{gem_name_snake}/service.rb` (runtime code path) instead of `sig/` (type-stubs path), and
   `require_relative "{gem_name_snake}/service"` is automatically added to the main gem file when the
