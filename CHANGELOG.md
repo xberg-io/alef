@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Java e2e test classes are now `public` for Maven Surefire test discovery.**
+  JUnit 5 and Maven Surefire 3.5.2+ require test classes to be public for discovery.
+  The `test_file.jinja` template was emitting package-private test classes, causing
+  Maven to skip all tests with "No tests found" errors. All e2e test classes (SmokeTest,
+  ParsingTest, etc.) are now emitted with `public` visibility.
+
 - **C# backend now only emits constructors for methods named `new`.**
   The C# backend was generating constructor wrappers for all static methods returning
   the owner type (e.g., `with_cache_dir`). This caused type mismatches where constructors
