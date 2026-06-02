@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `register_{method_name}(meta..., handler)` positional form, mirroring Python and PHP. Enables
   harness/script code to register handlers without Ruby block syntax.
 
+- **Ruby backend (`magnus`) service.rb placement and autoload.** `service.rb` is now generated into
+  `lib/{gem_name_snake}/service.rb` (runtime code path) instead of `sig/` (type-stubs path), and
+  `require_relative "{gem_name_snake}/service"` is automatically added to the main gem file when the
+  surface defines services. Previously the `App` class was unreachable at runtime.
+
 ### Fixed
 
 - **Dart e2e test post-build processing:** The `alef test --e2e --lang dart` command now runs post-build processing (FRB code generation, handler executor call rewriting) after the test setup phase (`dart pub get`) but before the actual test execution. Previously, any FRB regeneration triggered by the test setup would not be post-processed, causing generated code to carry unrewritten handler calls and breaking compilation. This ensures `alef test` behaves consistently with `alef all` for all languages with post-build steps (dart, node).

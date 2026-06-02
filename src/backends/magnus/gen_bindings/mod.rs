@@ -665,6 +665,13 @@ impl Backend for MagnusBackend {
         );
         content.push('\n');
 
+        // When the surface defines services, the generated service.rb lives at
+        // `lib/{gem_name_snake}/service.rb` and must be required so `App` and similar
+        // classes are available at runtime.
+        if !api.services.is_empty() {
+            content.push_str(&format!("require_relative \"{gem_name_snake}/service\"\n"));
+        }
+
         // Build explicit re-export lists: filter out excluded types and Update/Builder types.
         // Also skip binding-excluded types (service owners / handler-contract traits) — they
         // are exported by the service-API codegen, not the generic struct re-export list.
