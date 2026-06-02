@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Go codegen: pass C function pointer directly to cgo trampoline.**
-  Previously emitted `unsafe.Pointer(&service_handler_callback)`, which is invalid
-  (Go forbids taking the address of any function). Then tried
-  `unsafe.Pointer(C.service_handler_callback)`, which is also invalid (C.service_handler_callback
-  is already a function pointer value). The correct pattern is `C.service_handler_callback`
-  passed directly — cgo handles the conversion. Fixes `go build` failures across
-  all Go-consuming bindings.
+- **Go codegen: pass service_handler_wrapper function pointer to C FFI.**
+  Go forbids taking addresses of exported functions (`//export`), and cgo cannot pass
+  them directly as C function pointers. The solution is to include `callback.h` which
+  provides a static inline wrapper `service_handler_wrapper` that matches the C FFI
+  signature (`char* (*)(void*, const char*)`). Emit `C.service_handler_wrapper`
+  instead of trying to reference the Go-exported function. Fixes `go build` failures
+  across all Go-consuming bindings.
 
 ## [0.21.2] - 2026-06-02
 
