@@ -1016,11 +1016,15 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
     let method_class = http_method_class(&method);
     let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
-    // Determine request body
-    let (has_body, body_ruby) = if let Some(body) = &http.request.body {
-        (true, json_to_ruby(body))
+    // Determine request body.
+    // When the fixture body is a JSON string (e.g. URL-encoded form data like
+    // "a=1&b=2"), it must be sent as a raw string, NOT wrapped in JSON.dump().
+    // Detect this by checking whether the body JSON value is a string.
+    let (has_body, body_ruby, is_raw_body) = if let Some(body) = &http.request.body {
+        let is_raw = body.is_string();
+        (true, json_to_ruby(body), is_raw)
     } else {
-        (false, String::new())
+        (false, String::new(), false)
     };
 
     // Determine response body expectations
@@ -1128,6 +1132,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
             headers_ruby => headers_ruby,
             has_body => has_body,
             body_ruby => body_ruby,
+            is_raw_body => is_raw_body,
             expected_status => http.expected_response.status_code,
             has_text_body => has_text_body,
             text_ruby => text_ruby,
