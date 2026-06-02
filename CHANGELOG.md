@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **php backend: registration variant style emission switching.**
+  The php backend now respects `RegistrationVariant::style` when emitting PHP registration methods.
+  `VerbDecorator` style emits only the direct form (`$app->get(path, handler): self`);
+  `Builder` style emits only the factory form (`$app->getDecorator(path): Closure`);
+  `Hybrid` (default) emits both forms. Matches the behavior already present in the PyO3 and NAPI backends.
+  (`src/backends/php/gen_bindings/service_api.rs`)
+
 - **napi backend: registration variant style emission switching.**
   The napi backend now respects `RegistrationVariant::style` when emitting TypeScript registration methods.
   `VerbDecorator` style emits only the direct form (`app.get(path, handler): this`);
