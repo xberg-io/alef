@@ -1011,6 +1011,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
     };
 
     let method = http.request.method.to_uppercase();
+    let method_class = http_method_class(&method);
     let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
     // Determine request body
@@ -1120,6 +1121,7 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
             fn_name => fn_name,
             description => description_literal,
             method => method,
+            method_class => method_class,
             path => path,
             headers_ruby => headers_ruby,
             has_body => has_body,

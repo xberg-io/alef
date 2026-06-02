@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `\n`, and other special chars (e.g. ndjson response bodies) produce valid Ruby
   double-quoted literals instead of raw embeds that cause `SyntaxError`.
 
+- **Ruby e2e SUT tests now use correct `Net::HTTP` method class names.**
+  `http_test_sut.jinja` previously emitted `Net::HTTP::{{ method }}` (e.g.
+  `Net::HTTP::GET`) which is undefined in Ruby's stdlib. The template now uses
+  `Net::HTTP::{{ method_class }}` where `method_class` is title-cased by the Rust
+  codegen (e.g. `Net::HTTP::Get`, `Net::HTTP::Delete`, `Net::HTTP::Patch`).
+
 ### Fixed
 
 - **Dart FRB loader rewrite now also adds the unprefixed `import 'dart:core';`

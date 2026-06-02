@@ -34,11 +34,11 @@
 {% if has_body %}
       _headers = {{ headers_ruby }}.dup
       _headers['Content-Type'] ||= 'application/json'
-      _req = Net::HTTP::{{ method }}.new(uri.request_uri, _headers)
+      _req = Net::HTTP::{{ method_class }}.new(uri.request_uri, _headers)
       _req.body = JSON.dump({{ body_ruby }})
 {% else %}
       _headers = {{ headers_ruby }}.dup
-      _req = Net::HTTP::{{ method }}.new(uri.request_uri, _headers)
+      _req = Net::HTTP::{{ method_class }}.new(uri.request_uri, _headers)
 {% endif %}
       response = http.request(_req)
       expect(response.code.to_i).to eq({{ expected_status }})
