@@ -1225,7 +1225,7 @@ fn build_command_for(
 }
 
 /// Run post-build processing steps (e.g., patching .d.ts files).
-fn run_post_build(
+pub fn run_post_build(
     lang: Language,
     bc: &crate::core::backend::BuildConfig,
     config: &ResolvedCrateConfig,

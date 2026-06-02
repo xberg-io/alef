@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dart FRB post-processing now runs during `alef all`.** The `fix_handler_executor_calls`
+  post-processor (which rewrites `handler.executeSync(...)` → `generalizedFrbRustBinding.executeSync(...)`)
+  was only invoked during `alef build`, not `alef all`. Since `alef all` is the standard regeneration
+  workflow, post-build steps (including FRB codegen and post-processing rewrites) are now run
+  after bindings are generated. This ensures generated Dart code is valid without requiring
+  a separate build step.
+
 - **`cargo fmt` cleanup in `src/backends/php/gen_bindings/service_api.rs` and
   `src/e2e/codegen/typescript/test_file.rs`.** Recent edits left long
   `out.push_str(&format!(...))` calls and a chained `String::replace` call on

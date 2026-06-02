@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process;
 
-use alef::cli::{cache, commands, dispatch, pipeline, version_pin};
+use alef::cli::{cache, commands, dispatch, pipeline, registry, version_pin};
 
 #[derive(Parser)]
 #[command(
@@ -1346,6 +1346,25 @@ fn main() -> Result<()> {
                     binding_count += pipeline::write_files(&single, &base_dir)?;
                     changed_languages.insert(*lang);
                     let _ = cache::write_generation_hashes(&cache_key, &hashes);
+                }
+
+                // Run post-build processing (e.g., FRB codegen, post-processing rewrites)
+                eprintln!("Running post-build processing...");
+                for &lang in &languages {
+                    let backend = registry::get_backend(lang);
+                    if let Some(bc) = backend.build_config_with_config(resolved_cfg) {
+                        if !bc.post_build.is_empty() {
+                            match pipeline::run_post_build(lang, &bc, resolved_cfg, &base_dir) {
+                                Ok(()) => {
+                                    eprintln!("  [{lang}] post-build processing complete");
+                                }
+                                Err(e) => {
+                                    eprintln!("  [{lang}] post-build processing failed: {e}");
+                                    return Err(e);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 eprintln!("Generating type stubs...");
