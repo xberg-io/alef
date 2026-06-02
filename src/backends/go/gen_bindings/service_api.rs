@@ -94,6 +94,8 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
     out.push_str("/*\n");
     out.push_str("#include <string.h>\n");
     out.push_str(&format!("#include \"{ffi_header}\"\n"));
+    // Callback header provides service_handler_wrapper for passing to C FFI
+    out.push_str("#include \"callback.h\"\n");
     // Forward declaration of the exported Go callback function
     out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
     out.push_str("*/\n");
@@ -434,7 +436,7 @@ fn gen_registration_method(
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.service_handler_callback,\n\
+         \t\tC.service_handler_wrapper,\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -540,11 +542,11 @@ fn gen_registration_variant(
     let upper_prefix = ffi_prefix.to_uppercase();
     // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
     // the registration method name is NOT included in the variant symbol name.
-    // Pass the exported Go callback function's address as an opaque void* pointer.
+    // Pass the wrapper function pointer that casts const char* to char*.
     out.push_str(&format!(
         "\tret := C.{}_{}_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.service_handler_callback,\n\
+         \t\tC.service_handler_wrapper,\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
@@ -983,8 +985,8 @@ mod tests {
         assert!(go.contains("RegisterAddHandler"));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
-        // Verify callback is passed as the C function pointer (no unsafe.Pointer wrapper needed).
-        assert!(go.contains("C.service_handler_callback,"));
+        // Verify callback is passed via the wrapper function which handles type conversion.
+        assert!(go.contains("C.service_handler_wrapper,"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }
