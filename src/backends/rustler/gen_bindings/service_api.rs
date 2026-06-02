@@ -517,11 +517,54 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let mut out = String::new();
 
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use rustler::{LocalPid, ResourceArc, types::atom::Atom, OwnedEnv};\n");
+    out.push_str("use rustler::{Encoder, LocalPid, NifResult, OwnedEnv, ResourceArc, types::atom::Atom};\n");
+    out.push_str("use rustler::Error as NifError;\n");
+    out.push_str("use std::collections::HashMap;\n");
     out.push_str("use std::sync::Arc;\n");
-    out.push_str("use tokio::sync::Mutex as TokioMutex;\n");
-    out.push_str("use std::sync::atomic::{AtomicU64, Ordering};\n\n");
+    out.push_str("use std::sync::atomic::{AtomicU64, Ordering};\n");
+    out.push_str("use std::sync::{Mutex, OnceLock};\n\n");
+
+    out.push_str("/// Atom constants used by the service NIFs.\n");
+    out.push_str("mod atoms {\n");
+    out.push_str("    rustler::atoms! {\n");
+    out.push_str("        ok,\n");
+    out.push_str("        error,\n");
+    out.push_str("        trait_call,\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
     out.push_str("static REPLY_ID_COUNTER: AtomicU64 = AtomicU64::new(0);\n\n");
+
+    // Global registry of pending oneshot senders, keyed by reply_id. The handler
+    // bridge inserts a sender when it sends a `{:trait_call, ...}` message to the
+    // Elixir GenServer; the GenServer (once it has processed the call) invokes
+    // the `complete_trait_call` NIF with the reply_id and the JSON response,
+    // which removes the sender from the map and forwards the response through
+    // the oneshot channel.
+    out.push_str(
+        "type TraitReplySender = tokio::sync::oneshot::Sender<String>;\n\
+         type TraitReplyMap = Mutex<HashMap<u64, TraitReplySender>>;\n\n\
+         static TRAIT_REPLY_MAP: OnceLock<TraitReplyMap> = OnceLock::new();\n\n\
+         fn trait_reply_map() -> &'static TraitReplyMap {\n    \
+             TRAIT_REPLY_MAP.get_or_init(|| Mutex::new(HashMap::new()))\n\
+         }\n\n",
+    );
+
+    // Top-level `complete_trait_call` NIF — invoked by the Elixir GenServer
+    // after handling a `{:trait_call, ...}` message. Removes the pending
+    // sender for `reply_id` from the global map and forwards `response_json`
+    // through the oneshot channel; the awaiting handler-bridge dispatch then
+    // resolves with the JSON body.
+    out.push_str(
+        "/// Complete a pending trait call with the JSON response from Elixir.\n\
+         #[rustler::nif]\n\
+         pub fn complete_trait_call(reply_id: u64, response_json: String) -> Atom {\n    \
+             if let Some(tx) = trait_reply_map().lock().unwrap().remove(&reply_id) {\n        \
+                 let _ = tx.send(response_json);\n    \
+             }\n    \
+             atoms::ok()\n\
+         }\n\n",
+    );
 
     // Emit one handler bridge per unique handler contract referenced
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -592,9 +635,11 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
          /// Wraps an Elixir GenServer pid so it can be used\n\
          /// as `Arc<dyn {trait_name}>` from Rust async code.\n\
          /// Uses message-passing to avoid blocking the BEAM scheduler.\n\
+         /// Pending replies are stored in the module-level `TRAIT_REPLY_MAP`\n\
+         /// keyed by `reply_id`; the GenServer completes them via the\n\
+         /// `complete_trait_call` NIF.\n\
          pub struct {bridge_name} {{\n    \
-             pid: LocalPid,\n    \
-             reply_map: Arc<TokioMutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<String>>>>,\n\
+             pid: LocalPid,\n\
          }}\n\n"
     ));
 
@@ -602,19 +647,14 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         "impl {bridge_name} {{\n    \
              /// Create a bridge from an Elixir GenServer pid.\n    \
              pub fn new(pid: LocalPid) -> Self {{\n        \
-                 Self {{\n            \
-                     pid,\n            \
-                     reply_map: Arc::new(TokioMutex::new(std::collections::HashMap::new())),\n        \
-                 }}\n    \
+                 Self {{ pid }}\n    \
              }}\n\
          }}\n\n"
     ));
 
     // SAFETY: LocalPid is thread-safe in Rustler (it's an atom reference).
-    // The Arc<Mutex<HashMap>> is also Send+Sync.
     out.push_str(&format!(
         "// SAFETY: LocalPid is Send+Sync as guaranteed by Rustler.\n\
-         // Arc<TokioMutex<HashMap>> is Send+Sync.\n\
          unsafe impl Send for {bridge_name} {{}}\n\
          unsafe impl Sync for {bridge_name} {{}}\n\n"
     ));
@@ -662,11 +702,8 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                          let request_json = serde_json::to_string(&{wire_name})\n                    \
                              .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
                          let reply_id = REPLY_ID_COUNTER.fetch_add(1, Ordering::Relaxed);\n                \
-                         let (tx, rx) = tokio::sync::oneshot::channel();\n\n                \
-                         {{\n                    \
-                             let mut map = self.reply_map.lock().await;\n                    \
-                             map.insert(reply_id, tx);\n                \
-                         }}\n\n                \
+                         let (tx, rx) = tokio::sync::oneshot::channel();\n                \
+                         trait_reply_map().lock().unwrap().insert(reply_id, tx);\n\n                \
                          // Send trait_call message to Elixir GenServer\n                \
                          {{\n                    \
                              let pid = self.pid;\n                    \
@@ -1685,7 +1722,7 @@ mod tests {
 
         // Verify that OwnedEnv is imported
         assert!(
-            rust_output.contains("use rustler::{LocalPid, ResourceArc, types::atom::Atom, OwnedEnv}"),
+            rust_output.contains("OwnedEnv"),
             "expected OwnedEnv import in generated code"
         );
 
