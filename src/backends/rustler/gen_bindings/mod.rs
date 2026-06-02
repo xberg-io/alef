@@ -1977,17 +1977,15 @@ app_name = "my_lib"
     /// in the module tree and discovered by the `rustler::init!` macro.
     #[test]
     fn test_service_module_included_when_services_present() {
-        use crate::core::ir::{ServiceDef, MethodDef, EntrypointDef, EntrypointKind, TypeRef};
+        use crate::core::ir::{EntrypointDef, EntrypointKind, MethodDef, ServiceDef, TypeRef};
 
-        let mut config = test_config();
+        let config = test_config();
         let mut api = test_api();
 
         // Add a minimal service to trigger service.rs generation.
         let service = ServiceDef {
             name: "TestService".to_string(),
             rust_path: "test::TestService".to_string(),
-            doc: String::new(),
-            cfg: None,
             constructor: MethodDef {
                 name: "new".to_string(),
                 params: vec![],
