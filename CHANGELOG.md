@@ -227,6 +227,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This public function is then called to obtain the function pointer safely. Fixes
   `go build` failures across all Go-consuming bindings.
 
+## [0.21.4] - 2026-06-02
+
+### Fixed
+
+- **Ruby scaffold: chdir into manifest directory for rb_sys metadata lookup.**
+  `rb_sys 0.9.x` runs `cargo metadata` from the current working directory.
+  When the gem lives inside a Cargo workspace that excludes the Ruby crate
+  (monorepo layout), the metadata lookup resolves to the parent workspace
+  and `RbSys::PackageNotFoundError` is raised because the workspace does not
+  contain the crate. The generated Rakefile now wraps
+  `RbSys::ExtensionTask.new(...)` in `Dir.chdir(MANIFEST_DIR) do ... end` so
+  the metadata lookup resolves to the crate's own `Cargo.toml`. Task
+  definitions still resolve correctly at execution time because the chdir
+  exits before `rake compile` runs.
+
 ## [0.21.3] - 2026-06-02
 
 ### Fixed

@@ -1088,6 +1088,8 @@ fn test_scaffold_ruby_production_features() {
     assert_eq!(files[2].path, PathBuf::from("packages/ruby/Rakefile"));
     assert!(files[2].content.contains("RbSys::ExtensionTask"));
     assert!(files[2].content.contains("my_lib_rb"));
+    assert!(files[2].content.contains("MANIFEST_DIR ="));
+    assert!(files[2].content.contains("Dir.chdir(MANIFEST_DIR)"));
     // Check for extconf.rb generation
     assert_eq!(
         files[3].path,
