@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Java Panama FFM symbol lookups now handle macOS C ABI underscore mangling.**
+  On macOS (Mach-O), C symbols are prefixed with an underscore (e.g., `_ts_pack_detect_language`),
+  but Panama FFM's `SymbolLookup` does not automatically handle this mangling. All method handle
+  lookups now try both unprefixed and underscore-prefixed symbol names using `.or()` chaining,
+  ensuring that compiled C libraries work correctly on macOS.
+
+- **Zig backend now prevents parameter shadowing of module-level functions.**
+  Zig 0.16+ rejects function parameters that shadow file-scope identifiers.
+  When generating opaque handle constructors with parameters (e.g., `cache_dir`),
+  parameter names that would shadow module-level functions are now renamed with
+  an `_arg` suffix (e.g., `cache_dir_arg`). This ensures generated Zig bindings
+  compile without shadowing errors.
+
 - **Java e2e test classes are now `public` for Maven Surefire test discovery.**
   JUnit 5 and Maven Surefire 3.5.2+ require test classes to be public for discovery.
   The `test_file.jinja` template was emitting package-private test classes, causing
