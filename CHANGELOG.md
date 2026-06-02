@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Go codegen: pass service_handler_wrapper function pointer to C FFI.**
-  Go forbids taking addresses of exported functions (`//export`), and cgo cannot pass
-  them directly as C function pointers. The solution is to include `callback.h` which
-  provides a static inline wrapper `service_handler_wrapper` that matches the C FFI
-  signature (`char* (*)(void*, const char*)`). Emit `C.service_handler_wrapper`
-  instead of trying to reference the Go-exported function. Fixes `go build` failures
-  across all Go-consuming bindings.
+- **Go codegen: use cgo-generated function pointer variable for exported Go callback.**
+  Go forbids taking addresses of exported functions (`//export`), so direct passing
+  fails. The solution leverages cgo's automatic variable generation: when Go exports
+  a function `service_handler_callback` with `//export`, cgo creates an internal
+  variable `_Cfpvar_fp_service_handler_callback` containing its function pointer.
+  Use this variable directly instead of trying to address the function. Fixes `go build`
+  failures across all Go-consuming bindings.
 
 ## [0.21.2] - 2026-06-02
 
