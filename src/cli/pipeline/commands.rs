@@ -266,6 +266,37 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
         }
     }
 
+    // Phase 1b (sequential, only when `--e2e`): run each language's post-build
+    // step before the parallel test phase. Many post-build steps shell out to
+    // `cargo build` against the shared `target/` directory (swift, kotlin
+    // android …); running them inside Phase 2's `par_iter` produces the same
+    // textbook cargo race the before-hook serialization (Phase 1) was added
+    // to avoid: rustc temp files (`*.rcgu.o.*`) fail with "No such file or
+    // directory" when a sibling cargo invocation cleans the deps dir under
+    // them. Doing the post-build pass serially before parallel tests start
+    // mirrors the build pipeline's own serialization of post-build steps.
+    if e2e {
+        for &lang in &langs_to_test {
+            let lang_test = config.test_config_for_language(lang);
+            if lang_test.e2e.is_none() {
+                continue;
+            }
+            let Some(backend) = registry::try_get_backend(lang) else {
+                continue;
+            };
+            let Some(bc) = backend.build_config_with_config(config) else {
+                continue;
+            };
+            if bc.post_build.is_empty() {
+                continue;
+            }
+            if let Err(e) = super::run_post_build(lang, &bc, config, &base_dir) {
+                eprintln!("  [{lang}] post-build processing failed before e2e tests: {e}");
+                return Err(e).with_context(|| format!("post-build failed for {lang}"));
+            }
+        }
+    }
+
     // Phase 2 (parallel): run per-language test commands.
     let results: Vec<(Language, anyhow::Result<()>)> = langs_to_test
         .par_iter()
@@ -287,26 +318,12 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
                     }
                 }
             }
-            if e2e {
-                if let Some(e2e_cmd_list) = &lang_test.e2e {
-                    // Before running e2e tests, run post-build processing to ensure any FRB
-                    // regen or other codegen triggered by the test setup (e.g., dart pub get)
-                    // is post-processed correctly. This ensures consistency with `alef all`.
-                    // Skip languages without a binding backend (Rust, C).
-                    if let Some(backend) = registry::try_get_backend(*lang)
-                        && let Some(bc) = backend.build_config_with_config(config)
-                        && !bc.post_build.is_empty()
-                    {
-                        if let Err(e) = super::run_post_build(*lang, &bc, config, &base_dir) {
-                            eprintln!("  [{lang}] post-build processing failed before e2e tests: {e}");
-                            return (*lang, Err(e));
-                        }
-                    }
-
-                    for cmd in e2e_cmd_list.commands() {
-                        if let Err(e) = run_command_streamed_with_env(cmd, Some(&label), &env_vars) {
-                            return (*lang, Err(e));
-                        }
+            if e2e
+                && let Some(e2e_cmd_list) = &lang_test.e2e
+            {
+                for cmd in e2e_cmd_list.commands() {
+                    if let Err(e) = run_command_streamed_with_env(cmd, Some(&label), &env_vars) {
+                        return (*lang, Err(e));
                     }
                 }
             }

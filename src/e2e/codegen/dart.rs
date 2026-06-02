@@ -646,9 +646,14 @@ fn render_test_file(
         let _ = writeln!(out, "Process? _sutProcess;");
         let _ = writeln!(out, "String? _spawnedSutUrl;");
         let _ = writeln!(out);
+        // Prefer `MOCK_SERVER_URL` (exported by `scripts/e2e/run-with-mock-server.sh`
+        // and by `alef test --e2e` mock-server bootstrap) so the tests hit the
+        // ephemeral port the alef-spawned mock-server picked; fall back to a
+        // pre-set `SUT_URL` (external CI orchestration that runs a custom harness)
+        // or the legacy `localhost:8008` only if neither env var is set.
         let _ = writeln!(
             out,
-            "String _sutUrl() => _spawnedSutUrl ?? Platform.environment['SUT_URL'] ?? 'http://localhost:8008';"
+            "String _sutUrl() => _spawnedSutUrl ?? Platform.environment['MOCK_SERVER_URL'] ?? Platform.environment['SUT_URL'] ?? 'http://localhost:8008';"
         );
         let _ = writeln!(out);
     }
@@ -740,7 +745,14 @@ fn render_test_file(
 /// Emitted inside an `async` `setUpAll`; the harness lives at
 /// `../app_harness.dart` relative to the `e2e/dart/test/` directory.
 fn render_dart_sut_spawn(out: &mut String) {
-    let _ = writeln!(out, "    if (Platform.environment['SUT_URL'] == null) {{");
+    // Skip spawning the SUT harness when either `MOCK_SERVER_URL` (alef e2e
+    // wrapper / `scripts/e2e/run-with-mock-server.sh`) or `SUT_URL` (external
+    // CI orchestration) is already set — the parent process has already
+    // arranged the HTTP target the tests should hit.
+    let _ = writeln!(
+        out,
+        "    if (Platform.environment['MOCK_SERVER_URL'] == null && Platform.environment['SUT_URL'] == null) {{"
+    );
     let _ = writeln!(
         out,
         "      final _harness = Platform.script.resolve('../app_harness.dart').toFilePath();"

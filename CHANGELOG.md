@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **dart e2e codegen: read `MOCK_SERVER_URL` for fixture base URL.**
+  Generated dart e2e tests previously fell back to `http://localhost:8008` when no `SUT_URL` env was set, ignoring the `MOCK_SERVER_URL` that `scripts/e2e/run-with-mock-server.sh` (and `alef test --e2e`'s mock-server bootstrap) exports. The `_sutUrl()` helper and the `setUpAll` spawn-skip guard now prefer `MOCK_SERVER_URL` over `SUT_URL`, matching the env var that every other language's e2e suite consumes. (`src/e2e/codegen/dart.rs`)
+
+- **alef test --e2e: serialize per-language `post_build` before parallel test phase.**
+  `[crates.test.<lang>] e2e` previously ran each language's `post_build` step inside the parallel `par_iter` test phase. Backends whose `post_build` shells out to `cargo` (swift, kotlin-android) raced against sibling cargo invocations writing to the shared `target/` directory, surfacing as "could not write output to … `*.rcgu.o.*`: No such file or directory" mid-build. Post-build now runs sequentially after the (already-serial) before-hook phase, mirroring the build pipeline's own serialization of post-build steps. (`src/cli/pipeline/commands.rs`)
+
 ### Changed
 
 - **elixir hex pin: bump rustler from `~> 0.37.0` to `~> 0.38.0`.**
