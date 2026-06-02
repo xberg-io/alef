@@ -402,6 +402,64 @@ pub(super) fn gen_native_ex(
         let _ = write_nif_stub(&mut out, &from_json_fn_name, &params, false);
     }
 
+    // Stubs for service-API NIFs. `service.rs` (emitted by the service-API
+    // codegen) declares the following `#[rustler::nif]` functions; every one
+    // needs a matching Elixir stub or rustler-precompiled's on_load aborts
+    // with `:bad_lib`:
+    //   - `{service}_{ep.method}` per service × entrypoint (e.g. app_run, app_into_router)
+    //   - `{service}_{variant.name}` per service × registration variant
+    //     (e.g. app_get, app_post)
+    //   - top-level `complete_trait_call(reply_id, response_json)` (forwards
+    //     a GenServer-handled response back into the awaiting Rust bridge).
+    if !api.services.is_empty() {
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str("  @doc false\n");
+        last_was_multiline = write_nif_stub(
+            &mut out,
+            "complete_trait_call",
+            &["_reply_id".to_string(), "_response_json".to_string()],
+            last_was_multiline,
+        );
+        emitted_nif_stubs.insert("complete_trait_call".to_string());
+
+        for service in &api.services {
+            let service_snake = service.name.to_snake_case();
+            for ep in &service.entrypoints {
+                let fn_name = format!("{service_snake}_{}", ep.method);
+                if emitted_nif_stubs.insert(fn_name.clone()) {
+                    let mut params = vec!["_registrations".to_string()];
+                    for p in &ep.params {
+                        params.push(format!("_{}", elixir_safe_param_name(&p.name)));
+                    }
+                    if !out.is_empty() && !out.ends_with("\n\n") {
+                        out.push('\n');
+                    }
+                    out.push_str("  @doc false\n");
+                    last_was_multiline = write_nif_stub(&mut out, &fn_name, &params, last_was_multiline);
+                }
+            }
+            for reg in &service.registrations {
+                for variant in &reg.variants {
+                    let fn_name = format!("{service_snake}_{}", variant.name);
+                    if emitted_nif_stubs.insert(fn_name.clone()) {
+                        let mut params = vec!["_registrations".to_string()];
+                        for p in &variant.signature_params {
+                            params.push(format!("_{}", elixir_safe_param_name(&p.name)));
+                        }
+                        params.push("_handler".to_string());
+                        if !out.is_empty() && !out.ends_with("\n\n") {
+                            out.push('\n');
+                        }
+                        out.push_str("  @doc false\n");
+                        last_was_multiline = write_nif_stub(&mut out, &fn_name, &params, last_was_multiline);
+                    }
+                }
+            }
+        }
+    }
+
     // Stubs for whitelisted error-introspection NIF shims (e.g. `<errname>_status_code`,
     // `<errname>_is_transient`, `<errname>_error_type`). These mirror the Rust NIFs
     // emitted by `generate_bindings` so rustler-precompiled's on_load can resolve every
