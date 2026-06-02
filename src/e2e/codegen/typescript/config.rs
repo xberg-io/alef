@@ -169,10 +169,17 @@ pub fn render_app_harness(
     let header = hash::header(CommentStyle::DoubleSlash);
 
     let imports = e2e_config.harness.imports_for_lang("node");
-    let app_class = &e2e_config.harness.app_class;
+    let app_class = e2e_config.harness.app_class_for_lang("node");
     let method_enum = &e2e_config.harness.method_enum;
-    let run_method = &e2e_config.harness.run_method;
-    let register_method = &e2e_config.harness.register_method;
+    let run_method = e2e_config.harness.run_method_for_lang("node");
+    // Honor per-language register_method overrides AND apply JS camelCase
+    // so the canonical `register_route` config emits as `registerRoute`.
+    // Falls back to camelCased default when neither override nor top-level
+    // is set.
+    let register_method = e2e_config
+        .harness
+        .register_method_idiomatic("node")
+        .unwrap_or_else(|| "registerRoute".to_string());
 
     // For NAPI-RS bindings (Node.js/WASM), detect the constructor pattern.
     // If imports include "/node" or "wasm", use App.new() factory method.
@@ -198,7 +205,7 @@ pub fn render_app_harness(
             method_enum => method_enum.as_deref().unwrap_or("Method"),
             route_builder_class => route_builder_class,
             run_method => run_method.as_deref().unwrap_or("run"),
-            register_route_method => register_method.as_deref().unwrap_or("register_route"),
+            register_route_method => register_method.as_str(),
             constructor_method => constructor_method,
         },
     )

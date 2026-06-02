@@ -229,11 +229,16 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
 
     let imports = &e2e_config.harness.imports;
-    let app_class = &e2e_config.harness.app_class;
-    let register_route_method = &e2e_config.harness.register_method;
+    let app_class = e2e_config.harness.app_class_for_lang("python");
+    // Python is snake_case-native; `register_method_idiomatic` preserves
+    // the canonical name verbatim for python.
+    let register_route_method = e2e_config
+        .harness
+        .register_method_idiomatic("python")
+        .unwrap_or_else(|| "register_route".to_string());
     let body_schema_setter = &e2e_config.harness.body_schema_setter;
     let method_enum = &e2e_config.harness.method_enum;
-    let run_method = &e2e_config.harness.run_method;
+    let run_method = e2e_config.harness.run_method_for_lang("python");
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
@@ -257,7 +262,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
         method_enum_import => method_enum_import,
         method_enum_class => method_enum.as_deref().unwrap_or("Method"),
-        register_route_method => register_route_method.as_deref().unwrap_or("register_route"),
+        register_route_method => register_route_method.as_str(),
         run_method => run_method.as_deref().unwrap_or("run"),
         response_body_field => e2e_config.harness.response_body_field.as_str(),
         host => host,

@@ -348,11 +348,15 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_na
 
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
-    let app_class = &e2e_config.harness.app_class;
-    let register_route_method = &e2e_config.harness.register_method;
+    let app_class = e2e_config.harness.app_class_for_lang("swift");
+    // Swift methods are camelCase per Swift API design guidelines.
+    let register_route_method = e2e_config
+        .harness
+        .register_method_idiomatic("swift")
+        .unwrap_or_else(|| "registerRoute".to_string());
     let body_schema_setter = &e2e_config.harness.body_schema_setter;
     let method_enum = &e2e_config.harness.method_enum;
-    let run_method = &e2e_config.harness.run_method;
+    let run_method = e2e_config.harness.run_method_for_lang("swift");
 
     let header = hash::header(CommentStyle::DoubleSlash);
 
@@ -376,7 +380,7 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_na
         route_builder_constructor => "RouteBuilder",
         route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("requestSchemaJson"),
         method_enum_class => method_enum.as_deref().unwrap_or("Method"),
-        register_route_method => register_route_method.as_deref().unwrap_or("registerRoute"),
+        register_route_method => register_route_method.as_str(),
         run_method => run_method.as_deref().unwrap_or("run"),
         response_body_field => e2e_config.harness.response_body_field.as_str(),
         host => host,

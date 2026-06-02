@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **e2e harness `register_method`: apply per-language identifier casing.**
+  The canonical `[crates.e2e.harness] register_method` (and any per-language override) is now rendered in each target language's idiomatic identifier case via a new `HarnessConfig::register_method_idiomatic(lang)` helper: snake_case for python / ruby / elixir / rust / php, camelCase for typescript / node / wasm / dart / swift / kotlin / java, PascalCase for csharp / go. Previously the typescript, wasm, php, swift, java, python, and ruby e2e codegens consumed the raw `register_method` string verbatim, leaking snake_case names like `register_route` into JS / TS / Java harnesses where they don't exist on the binding's App class (`TypeError: app.register_route is not a function`). The wasm renderer additionally never passed `register_route_method` to the template at all, producing the broken `app.(builder, handlerFn)` call. (`src/core/config/e2e.rs`, `src/e2e/codegen/{typescript/config,wasm,php,swift,java,python/config,ruby}.rs`)
+
+### Fixed
+
+- **dart `build.rs` scaffold: re-add post-FRB `fix_handler_executor_calls`.**
+  The generated `build.rs` for dart binding crates ran `flutter_rust_bridge_codegen` followed by `patch_published_loader()` but no longer rewrote the broken `handler.executeSync(SyncTask(...))` / `handler.executeNormal(SyncTask(...))` calls that FRB emits inside service-API methods. In those methods `handler` is a user-supplied callback parameter (`FutureOr<R> Function(T)`), not a `BaseHandler` field, so the generated Dart fails to compile with `The method 'executeSync' isn't defined for the type 'FutureOr<String> Function(String)'`. The scaffold now embeds a `fix_handler_executor_calls()` helper that swaps the receiver to `generalizedFrbRustBinding`, which actually exposes the executor methods. Idempotent and gated on the broken-pattern marker, so it's a no-op once the file is patched. (`src/backends/dart/gen_rust_crate/cargo.rs`)
+
 ## [0.21.6] - 2026-06-02
 
 ### Fixed

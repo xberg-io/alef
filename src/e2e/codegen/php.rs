@@ -601,11 +601,17 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], pkg_path:
     let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
 
     let imports = &e2e_config.harness.imports;
-    let app_class = &e2e_config.harness.app_class;
-    let register_route_method = &e2e_config.harness.register_method;
+    let app_class = e2e_config.harness.app_class_for_lang("php");
+    // PHP wraps via ext-php-rs which historically emits snake_case method
+    // names from the IR. `register_method_idiomatic` keeps snake_case for
+    // PHP so the call site matches what the service-API codegen emits.
+    let register_route_method = e2e_config
+        .harness
+        .register_method_idiomatic("php")
+        .unwrap_or_else(|| "route".to_string());
     let body_schema_setter = &e2e_config.harness.body_schema_setter;
     let method_enum = &e2e_config.harness.method_enum;
-    let run_method = &e2e_config.harness.run_method;
+    let run_method = e2e_config.harness.run_method_for_lang("php");
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
@@ -639,7 +645,7 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], pkg_path:
         app_class => app_class.as_deref().unwrap_or("App"),
         route_builder_import => route_builder_import,
         route_builder_class => "RouteBuilder",
-        register_route_method => register_route_method.as_deref().unwrap_or("route"),
+        register_route_method => register_route_method.as_str(),
         route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
         method_enum_import => method_enum_import,
         method_enum_class => method_enum.as_deref().unwrap_or("Method"),

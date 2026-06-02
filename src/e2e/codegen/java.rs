@@ -383,13 +383,17 @@ fn render_harness_main(
 ) -> String {
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
-    let app_class = e2e_config.harness.app_class.as_deref().unwrap_or("App");
-    let run_method = e2e_config.harness.run_method.as_deref().unwrap_or("run");
+    let app_class_owned = e2e_config.harness.app_class_for_lang("java");
+    let app_class = app_class_owned.as_deref().unwrap_or("App");
+    let run_method_owned = e2e_config.harness.run_method_for_lang("java");
+    let run_method = run_method_owned.as_deref().unwrap_or("run");
+    // Java methods are camelCase by convention. `register_method_idiomatic`
+    // honors `[crates.e2e.harness.overrides.java]` first, then converts the
+    // canonical name to camelCase (e.g. `register_route` → `registerRoute`).
     let register_method = e2e_config
         .harness
-        .register_method
-        .as_deref()
-        .unwrap_or("registerAppRoute");
+        .register_method_idiomatic("java")
+        .unwrap_or_else(|| "registerRoute".to_string());
     let body_field = &e2e_config.harness.response_body_field;
 
     // Collect all HTTP fixtures for this harness to register.
@@ -407,7 +411,7 @@ fn render_harness_main(
         binding_pkg => binding_pkg,
         app_class => app_class,
         run_method => run_method,
-        register_method => register_method,
+        register_method => register_method.as_str(),
         response_body_field => body_field.as_str(),
         host => host,
         port => port,

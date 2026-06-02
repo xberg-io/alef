@@ -192,6 +192,51 @@ impl HarnessConfig {
             .and_then(|o| o.imports.clone())
             .unwrap_or_else(|| self.imports.clone())
     }
+
+    /// Get the register_method for `lang` rendered in the language's idiomatic
+    /// identifier case.
+    ///
+    /// The canonical name in `[crates.e2e.harness] register_method` (and any
+    /// per-language override under `[crates.e2e.harness.overrides.<lang>]`) is
+    /// stored verbatim. Each language has its own identifier convention:
+    ///
+    /// - **snake_case** (python, ruby, elixir, rust, php) — leave verbatim;
+    ///   PHP's PSR-1 prefers camelCase but historic snake_case method names
+    ///   remain idiomatic for binding wrappers.
+    /// - **camelCase** (typescript / node, javascript, dart, swift, kotlin,
+    ///   java) — convert `register_route` → `registerRoute`.
+    /// - **PascalCase** (csharp, go) — convert `register_route` →
+    ///   `RegisterRoute`. Go exports require an upper-case leading character;
+    ///   C# methods are PascalCase by convention.
+    ///
+    /// Returns `None` when neither the per-language override nor the top-level
+    /// `register_method` is set.
+    pub fn register_method_idiomatic(&self, lang: &str) -> Option<String> {
+        self.register_method_for_lang(lang)
+            .map(|name| idiomatic_identifier(&name, lang))
+    }
+}
+
+/// Convert `name` (typically snake_case) into the identifier case idiomatic
+/// for `lang`. Single-word names round-trip unchanged (e.g. `route` stays
+/// `route` in every language).
+fn idiomatic_identifier(name: &str, lang: &str) -> String {
+    use heck::{ToLowerCamelCase, ToUpperCamelCase};
+
+    match lang {
+        // Snake-case-native languages: leave as-is. PHP's PSR-1 prefers
+        // camelCase for method names, but binding consumers (and the PHP
+        // service-API codegen itself) historically emit snake_case methods,
+        // so retain the canonical form here.
+        "python" | "ruby" | "elixir" | "rust" | "php" => name.to_string(),
+        // camelCase languages.
+        "typescript" | "node" | "wasm" | "javascript" | "dart" | "swift"
+        | "kotlin" | "kotlin-android" | "java" => name.to_lower_camel_case(),
+        // PascalCase languages.
+        "csharp" | "go" => name.to_upper_camel_case(),
+        // Unknown language: be conservative and pass through.
+        _ => name.to_string(),
+    }
 }
 
 /// Root e2e configuration from `[e2e]` section of alef.toml.

@@ -275,14 +275,13 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
         ""
     };
 
-    let register_method_override = e2e_config.harness.register_method_for_lang("ruby");
-    let register_route_method_str = if let Some(ref rm) = register_method_override {
-        rm.as_str()
-    } else if let Some(ref rm) = e2e_config.harness.register_method {
-        rm.as_str()
-    } else {
-        "register_route"
-    };
+    // Ruby method names are snake_case by convention. `register_method_idiomatic`
+    // preserves snake_case verbatim for ruby and applies any per-language override.
+    let register_route_method = e2e_config
+        .harness
+        .register_method_idiomatic("ruby")
+        .unwrap_or_else(|| "register_route".to_string());
+    let register_route_method_str = register_route_method.as_str();
 
     let body_schema_setter = &e2e_config.harness.body_schema_setter;
     let method_enum = &e2e_config.harness.method_enum;

@@ -716,9 +716,17 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
     let port = e2e_config.harness.port;
     let header = hash::header(CommentStyle::DoubleSlash);
 
-    let app_class = &e2e_config.harness.app_class;
+    let app_class = e2e_config.harness.app_class_for_lang("wasm");
     let method_enum = &e2e_config.harness.method_enum;
-    let run_method = &e2e_config.harness.run_method;
+    let run_method = e2e_config.harness.run_method_for_lang("wasm");
+    // wasm-bindgen emits JS-idiomatic camelCase method names, so the harness
+    // must call `registerRoute` (or whatever override is configured), not the
+    // canonical snake_case identifier from the config.
+    let register_method = e2e_config
+        .harness
+        .register_method_idiomatic("wasm")
+        .unwrap_or_else(|| "registerRoute".to_string());
+    let route_builder_class = e2e_config.harness.route_builder.as_deref().unwrap_or("RouteBuilder");
 
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
@@ -731,7 +739,10 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
             imports => vec![wasm_pkg_name.to_string()],
             app_class => app_class.as_deref().unwrap_or("App"),
             method_enum => method_enum.as_deref().unwrap_or("Method"),
+            route_builder_class => route_builder_class,
             run_method => run_method.as_deref().unwrap_or("run"),
+            register_route_method => register_method.as_str(),
+            constructor_method => ".new()",
         },
     )
 }
