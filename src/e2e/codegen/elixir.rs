@@ -249,11 +249,22 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let fixtures_json = fixtures_json_str.replace('\\', "\\\\").replace('"', "\\\"");
     let fixtures_json = format!("\"{}\"", fixtures_json);
 
-    let imports = &e2e_config.harness.imports;
-    let app_class = &e2e_config.harness.app_class;
-    let register_route_method = &e2e_config.harness.register_method;
-    let body_schema_setter = &e2e_config.harness.body_schema_setter;
-    let run_method = &e2e_config.harness.run_method;
+    // Apply per-language harness overrides on top of the top-level harness config.
+    let harness_override = e2e_config.harness.overrides.get("elixir");
+    let imports_override = harness_override.and_then(|o| o.imports.as_ref());
+    let imports: &[String] = imports_override.unwrap_or(&e2e_config.harness.imports);
+    let app_class: Option<&str> = harness_override
+        .and_then(|o| o.app_class.as_deref())
+        .or(e2e_config.harness.app_class.as_deref());
+    let register_route_method: Option<&str> = harness_override
+        .and_then(|o| o.register_method.as_deref())
+        .or(e2e_config.harness.register_method.as_deref());
+    let body_schema_setter: Option<&str> = harness_override
+        .and_then(|o| o.body_schema_setter.as_deref())
+        .or(e2e_config.harness.body_schema_setter.as_deref());
+    let run_method: Option<&str> = harness_override
+        .and_then(|o| o.run_method.as_deref())
+        .or(e2e_config.harness.run_method.as_deref());
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
@@ -277,12 +288,12 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
 
     let ctx = minijinja::context! {
         header => header,
-        app_class => app_class.as_deref().unwrap_or("App"),
+        app_class => app_class.unwrap_or("App"),
         route_builder_class => &route_builder_class,
-        route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
+        route_builder_schema_setter => body_schema_setter.unwrap_or("request_schema_json"),
         method_enum_class => &method_enum_class,
-        register_route_method => register_route_method.as_deref().unwrap_or("route"),
-        run_method => run_method.as_deref().unwrap_or("run"),
+        register_route_method => register_route_method.unwrap_or("route"),
+        run_method => run_method.unwrap_or("run"),
         server_config_class => &server_config_class,
         host => host,
         port => port,
