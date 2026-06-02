@@ -210,6 +210,7 @@ pub fn render_app_harness(
         .harness
         .server_config_factory_import_for_lang(factory_lang)
         .unwrap_or_else(|| "ServerConfig".to_string());
+    let import_style = e2e_config.harness.import_style_for_lang(factory_lang);
 
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
@@ -228,6 +229,7 @@ pub fn render_app_harness(
             constructor_method => constructor_method,
             server_config_factory => server_config_factory,
             server_config_factory_import => server_config_factory_import,
+            import_style => import_style,
         },
     )
 }

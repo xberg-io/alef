@@ -736,6 +736,7 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
         .harness
         .server_config_factory_import_for_lang("wasm")
         .unwrap_or_else(|| "ServerConfig".to_string());
+    let import_style = e2e_config.harness.import_style_for_lang("wasm");
 
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
@@ -754,6 +755,7 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
             constructor_method => ".new()",
             server_config_factory => server_config_factory,
             server_config_factory_import => server_config_factory_import,
+            import_style => import_style,
         },
     )
 }

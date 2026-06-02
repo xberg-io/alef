@@ -249,6 +249,16 @@ impl HarnessConfig {
         }
     }
 
+    /// Get the import style for a language's TypeScript harness.
+    /// - "named" for wasm (wasm-bindgen emits only named exports)
+    /// - "default" for node/typescript (Node.js and TypeScript expect default imports)
+    pub fn import_style_for_lang(&self, lang: &str) -> &'static str {
+        match lang {
+            "wasm" => "named",
+            _ => "default",
+        }
+    }
+
     /// Get the register_method for `lang` rendered in the language's idiomatic
     /// identifier case.
     ///

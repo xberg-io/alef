@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- fix(e2e): emit named imports for wasm-bindgen harness (#131)
 - fix(napi): remove unused env parameter from app_run signature (#131)
 - fix(magnus): emit positional Ruby params for route registration (#132)
 

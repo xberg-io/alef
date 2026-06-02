@@ -7,10 +7,16 @@
  * handlers that return expected responses, and serves on a configured port.
  */
 
-{% for import_name in imports %}
+{% if import_style == "named" %}
+{% for import_name in imports -%}
+import { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }} } from '{{ import_name }}';
+{% endfor -%}
+{% else %}
+{% for import_name in imports -%}
 import _pkg from '{{ import_name }}';
-{% endfor %}
+{% endfor -%}
 const { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }} } = _pkg;
+{% endif %}
 
 // Load fixtures from the inline JSON payload.
 const _FIXTURES = {{fixtures_json}};
