@@ -11,6 +11,7 @@
    - headers_ruby: Ruby hash literal for request headers
    - has_body: boolean
    - body_ruby: Ruby literal for request body JSON
+   - is_raw_body: boolean — true when body is a raw string (e.g. form-encoded), skip JSON.dump()
    - expected_status: HTTP status code
    - has_text_body: boolean
    - text_ruby: Ruby literal for expected text response body
@@ -35,7 +36,11 @@
       _headers = {{ headers_ruby }}.dup
       _headers['Content-Type'] ||= 'application/json'
       _req = Net::HTTP::{{ method_class }}.new(uri.request_uri, _headers)
+{% if is_raw_body %}
+      _req.body = {{ body_ruby }}
+{% else %}
       _req.body = JSON.dump({{ body_ruby }})
+{% endif %}
 {% else %}
       _headers = {{ headers_ruby }}.dup
       _req = Net::HTTP::{{ method_class }}.new(uri.request_uri, _headers)
@@ -54,7 +59,7 @@
 {% endif %}
 {% endfor %}
 {% if has_text_body %}
-      expect(response.body).to eq({{ text_ruby }})
+      expect(response.body.to_s).to eq({{ text_ruby }})
 {% elif has_json_body %}
       _body = response.body && !response.body.empty? ? JSON.parse(response.body) : nil
       expect(_body).to eq({{ json_ruby }})
