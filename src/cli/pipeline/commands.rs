@@ -236,6 +236,8 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
         }
     }
 
+    let base_dir = std::env::current_dir()?;
+
     let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
@@ -264,6 +266,19 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
             }
             if e2e {
                 if let Some(e2e_cmd_list) = &lang_test.e2e {
+                    // Before running e2e tests, run post-build processing to ensure any FRB
+                    // regen or other codegen triggered by the test setup (e.g., dart pub get)
+                    // is post-processed correctly. This ensures consistency with `alef all`.
+                    let backend = registry::get_backend(*lang);
+                    if let Some(bc) = backend.build_config_with_config(config) {
+                        if !bc.post_build.is_empty() {
+                            if let Err(e) = super::run_post_build(*lang, &bc, config, &base_dir) {
+                                eprintln!("  [{lang}] post-build processing failed before e2e tests: {e}");
+                                return (*lang, Err(e));
+                            }
+                        }
+                    }
+
                     for cmd in e2e_cmd_list.commands() {
                         if let Err(e) = run_command_streamed_with_env(cmd, Some(&label), &env_vars) {
                             return (*lang, Err(e));
