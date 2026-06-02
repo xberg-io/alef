@@ -254,10 +254,12 @@ fn gen_registration_method(
         })
         .collect();
 
-    let param_sig = if meta_params.is_empty() {
+    // For the main method signature, use positional params (no type annotations)
+    let positional_params: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
+    let param_sig = if positional_params.is_empty() {
         "(&block)".to_owned()
     } else {
-        format!("({}, &block)", meta_params.join(", "))
+        format!("({}, &block)", positional_params.join(", "))
     };
 
     out.push_str(&format!("  def {method_name}{param_sig}\n"));
