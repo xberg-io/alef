@@ -94,10 +94,14 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
     out.push_str("/*\n");
     out.push_str("#include <string.h>\n");
     out.push_str(&format!("#include \"{ffi_header}\"\n"));
-    // Forward declaration of the exported Go callback function.
-    // cgo automatically generates a function pointer variable _Cfpvar_fp_service_handler_callback
-    // that we use to pass the function pointer to the C FFI.
+    // Forward declaration of the exported Go callback function
     out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
+    // Define a function pointer typedef for the callback signature
+    out.push_str("typedef char* (*ServiceHandlerCallbackPtr)(void*, const char*);\n");
+    // Declare a variable that cgo will populate with the address of the exported Go function\n");
+    out.push_str("ServiceHandlerCallbackPtr get_service_handler_callback(void) {\n");
+    out.push_str("  return (ServiceHandlerCallbackPtr)service_handler_callback;\n");
+    out.push_str("}\n");
     out.push_str("*/\n");
     out.push_str("import \"C\"\n\n");
 
@@ -436,7 +440,7 @@ fn gen_registration_method(
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\t_Cfpvar_fp_service_handler_callback,\n\
+         \t\tC.get_service_handler_callback(),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -542,11 +546,11 @@ fn gen_registration_variant(
     let upper_prefix = ffi_prefix.to_uppercase();
     // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
     // the registration method name is NOT included in the variant symbol name.
-    // Pass the cgo-generated function pointer variable for the exported Go callback.
+    // Get the function pointer from a public C helper function.
     out.push_str(&format!(
         "\tret := C.{}_{}_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\t_Cfpvar_fp_service_handler_callback,\n\
+         \t\tC.get_service_handler_callback(),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
@@ -985,8 +989,8 @@ mod tests {
         assert!(go.contains("RegisterAddHandler"));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
-        // Verify callback is passed via cgo-generated function pointer variable.
-        assert!(go.contains("_Cfpvar_fp_service_handler_callback,"));
+        // Verify callback is obtained from public C helper function.
+        assert!(go.contains("C.get_service_handler_callback(),"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }
