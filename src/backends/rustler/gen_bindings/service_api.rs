@@ -272,12 +272,49 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &S
         format!("{{{}}}", meta_names.join(", "))
     };
 
+    out.push_str("    # Wrap handler closure in a process if it's not already one\n");
+    out.push_str("    handler_pid = case handler do\n");
+    out.push_str("      pid when is_pid(pid) -> pid\n");
+    out.push_str("      fun when is_function(fun) ->\n");
+    out.push_str("        {:ok, pid} = GenServer.start_link(__MODULE__.HandlerWrapper, fun)\n");
+    out.push_str("        pid\n");
+    out.push_str("    end\n\n");
     out.push_str(&format!(
-        "    entry = {{\"{}\", {}, handler}}\n",
+        "    entry = {{\"{}\", {}, handler_pid}}\n",
         method_name, meta_tuple
     ));
     out.push_str("    %__MODULE__{self | registrations: [entry | self.registrations]}\n");
     out.push_str("  end\n\n");
+
+    // Emit a simple HandlerWrapper GenServer if this is the route registration
+    if method_name == "route" {
+        out.push_str("  # HandlerWrapper GenServer: wraps a closure for use as a handler\n");
+        out.push_str("  defmodule HandlerWrapper do\n");
+        out.push_str("    use GenServer\n\n");
+        out.push_str("    def start_link(handler_fn) do\n");
+        out.push_str("      GenServer.start_link(__MODULE__, handler_fn)\n");
+        out.push_str("    end\n\n");
+        out.push_str("    def init(handler_fn) do\n");
+        out.push_str("      {:ok, handler_fn}\n");
+        out.push_str("    end\n\n");
+        out.push_str("    def handle_cast({:trait_call, _method, args_json, reply_id}, handler_fn) do\n");
+        out.push_str("      case Jason.decode(args_json) do\n");
+        out.push_str("        {:ok, _args} ->\n");
+        out.push_str("          # Call the wrapped closure\n");
+        out.push_str("          try do\n");
+        out.push_str("            response = handler_fn.(nil)\n");
+        out.push_str("            response_json = Jason.encode!(response)\n");
+        out.push_str("            Native.complete_trait_call(reply_id, response_json)\n");
+        out.push_str("          rescue\n");
+        out.push_str("            _e -> Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"handler error\\\"}\")\n");
+        out.push_str("          end\n");
+        out.push_str("        {:error, _} ->\n");
+        out.push_str("          Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"json decode error\\\"}\")\n");
+        out.push_str("      end\n");
+        out.push_str("      {:noreply, handler_fn}\n");
+        out.push_str("    end\n");
+        out.push_str("  end\n\n");
+    }
 
     // Emit registration variants (decorator-style shortcuts)
     for variant in &reg.variants {
