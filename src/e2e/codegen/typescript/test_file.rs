@@ -472,28 +472,47 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .map(|(_, v)| v.to_ascii_lowercase())
-        .unwrap_or_default();
-    let is_form_body = content_type_lower.split(';').next().map(str::trim).is_some_and(|t| {
-        t.eq_ignore_ascii_case("application/x-www-form-urlencoded") || t.eq_ignore_ascii_case("multipart/form-data")
-    });
+        .unwrap_or_else(|| {
+            http.request
+                .content_type
+                .as_ref()
+                .map(|ct| ct.to_ascii_lowercase())
+                .unwrap_or_default()
+        });
+    let is_form_body = content_type_lower
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| t.eq_ignore_ascii_case("application/x-www-form-urlencoded"));
+    let is_multipart = content_type_lower
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| t.eq_ignore_ascii_case("multipart/form-data"));
 
     // Determine if we need to auto-add Content-Type header for JSON body.
     let has_body = http.request.body.is_some();
     let has_content_type = !content_type_lower.is_empty();
-    let needs_json_content_type = has_body && !is_form_body && !has_content_type;
+    let needs_json_content_type = has_body && !is_form_body && !is_multipart && !has_content_type;
 
-    let has_headers = !http.request.headers.is_empty() || needs_json_content_type;
+    let has_headers = !http.request.headers.is_empty() || needs_json_content_type || is_multipart && has_body;
 
     // Build the body entry if present.
-    let body_entry: Option<String> = http.request.body.as_ref().map(|body| {
+    let body_entry: Option<String> = if let Some(body) = http.request.body.as_ref() {
         let js_body = json_to_js(body);
         let body_is_string = matches!(body, serde_json::Value::String(_));
-        if is_form_body && body_is_string {
-            format!("body: {js_body}")
+
+        // For multipart/form-data or form-urlencoded, the body is raw bytes as a string.
+        // Wrap in Buffer.from() to send as UTF-8 bytes without JSON.stringify.
+        if (is_form_body || is_multipart) && body_is_string {
+            // Raw form-urlencoded or multipart: wrap string in Buffer.from() to send as bytes
+            format!("body: Buffer.from({js_body}, 'utf-8')")
         } else {
             format!("body: JSON.stringify({js_body})")
         }
-    });
+    } else {
+        None
+    };
 
     // Build the fetch init object. Use multi-line form when headers or body
     // are present so the output matches what oxfmt would produce; use inline
@@ -508,6 +527,14 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
                 .request
                 .headers
                 .iter()
+                // Skip Content-Type for multipart fixtures — we'll add the correct one below
+                .filter(|(k, _)| {
+                    if is_multipart && k.eq_ignore_ascii_case("content-type") {
+                        false
+                    } else {
+                        true
+                    }
+                })
                 .map(|(k, v)| {
                     let expanded_v = expand_fixture_templates(v);
                     format!("        \"{}\": \"{}\",", escape_js(k), escape_js(&expanded_v))
@@ -515,6 +542,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
                 .collect();
             if needs_json_content_type {
                 header_lines.push("        \"Content-Type\": \"application/json\",".to_string());
+            }
+            if is_multipart && has_body {
+                // For multipart bodies, add the correct Content-Type with boundary
+                header_lines.push("        \"Content-Type\": \"multipart/form-data; boundary=alef-boundary\",".to_string());
             }
             lines.push("      headers: {".to_string());
             lines.extend(header_lines);
@@ -650,6 +681,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         header_assertions => header_assertions,
         has_validation_errors => has_validation_errors,
         validation_errors => validation_errors,
+        is_multipart => is_multipart,
     };
     let rendered = crate::e2e::template_env::render("typescript/http_test.jinja", ctx);
     out.push_str(&rendered);
