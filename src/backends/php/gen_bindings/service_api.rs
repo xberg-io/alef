@@ -1147,6 +1147,7 @@ mod tests {
                     ..ParamDef::default()
                 }],
                 doc: Some("Register a GET route.".to_owned()),
+                style: Default::default(),
             }],
         };
 

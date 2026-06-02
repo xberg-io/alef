@@ -18,7 +18,9 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
+};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -305,41 +307,19 @@ fn gen_registration_variant(
         }
     }
 
-    // Variant signature: variant_name(self, free_params..., &block) or variant_name(self, free_params..., handler_proc)
-    let param_sig = if free_params_sig.is_empty() {
-        "(&block)".to_owned()
-    } else {
-        format!("({}, &block)", free_params_sig.join(", "))
-    };
-
-    out.push_str(&format!("  def {variant_name}{param_sig}\n"));
-
-    // Documentation
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format_ruby_comment(doc, 4));
-    } else {
-        out.push_str(&format!("    # Register a handler for the {variant_name} variant.\n"));
-    }
-
-    // Build wrapper constructor call if present (for Rust side only, not used here)
-    // In Ruby, we just pass the fixed values via the registrations array
-
-    // Build metadata tuple to pass to base registration
-    // For variants with wrapper_call, include the wrapper param name and fixed values
+    // Build metadata array to pass to the Rust side.
+    // For variants with wrapper_call, include the args in declaration order.
     let mut meta_items = Vec::new();
     if let Some(wc) = &variant.wrapper_call {
-        // For wrapper variants, we include the fixed values in the metadata tuple
         for arg in &wc.args {
             match arg {
                 crate::core::ir::WrapperConstructorArg::Fixed {
                     param_name: _,
                     value_expr,
                 } => {
-                    // Include the fixed value expression
                     meta_items.push(value_expr.clone());
                 }
                 crate::core::ir::WrapperConstructorArg::Free { param } => {
-                    // Include the free param by name
                     meta_items.push(param.name.clone());
                 }
             }
@@ -356,6 +336,28 @@ fn gen_registration_variant(
     } else {
         format!("[{}]", meta_items.join(", "))
     };
+
+    // In Ruby, blocks are the idiomatic callback mechanism regardless of style.
+    // `RegistrationVariantStyle::VerbDecorator` and `Hybrid` both emit the block-
+    // accepting form since Ruby has no separate "decorator factory" concept.
+    // `RegistrationVariantStyle::Builder` is treated the same way.
+    // The style field is carried in the IR so other backends (Python) can
+    // distinguish the forms; Ruby emits one unified block form.
+    let _ = variant.style; // acknowledged; no Ruby-specific branching needed
+
+    let param_sig = if free_params_sig.is_empty() {
+        "(&block)".to_owned()
+    } else {
+        format!("({}, &block)", free_params_sig.join(", "))
+    };
+
+    out.push_str(&format!("  def {variant_name}{param_sig}\n"));
+
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format_ruby_comment(doc, 4));
+    } else {
+        out.push_str(&format!("    # Register a handler for the {variant_name} variant.\n"));
+    }
 
     out.push_str(&format!(
         "    @registrations.push([\"{variant_name}\", {meta_tuple}, block])\n"
@@ -1250,6 +1252,7 @@ mod tests {
                     ..ParamDef::default()
                 }],
                 doc: Some("Register a GET handler for a path.".to_owned()),
+                style: crate::core::ir::RegistrationVariantStyle::Hybrid,
             }],
         };
 

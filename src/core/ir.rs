@@ -126,6 +126,37 @@ pub struct RegistrationDef {
     pub variants: Vec<RegistrationVariant>,
 }
 
+/// How backends should emit a registration variant's host-language surface.
+///
+/// This controls whether the variant is exposed as a builder/decorator factory
+/// (returning a callable that accepts the handler), a direct verb-style method
+/// (accepting the handler inline), or both.
+///
+/// The default is [`RegistrationVariantStyle::Hybrid`], which preserves the
+/// pre-existing behaviour of emitting both forms so existing consumers are not
+/// broken by this IR extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistrationVariantStyle {
+    /// Emit only the builder/decorator-factory form:
+    /// Python: `app.get(path)` returns a decorator; Ruby: `app.get(path) { |req| … }`.
+    Builder,
+    /// Emit only the verb-decorator form:
+    /// Python: `app.get(path, handler)` or `@app.get(path)` (standard decorator);
+    /// Ruby: `app.get(path) { |req| … }` (same block form, handler as block).
+    ///
+    /// In Python this means a single method whose last positional argument is the
+    /// handler callable — matching FastAPI / Flask / Sinatra idioms.
+    VerbDecorator,
+    /// Emit both [`RegistrationVariantStyle::Builder`] and
+    /// [`RegistrationVariantStyle::VerbDecorator`] forms.
+    ///
+    /// This is the default, preserving backward compatibility for consumers that
+    /// have not yet declared an explicit `style`.
+    #[default]
+    Hybrid,
+}
+
 /// A named shortcut over a [`RegistrationDef`] with one or more pinned
 /// parameter values resolved at extract time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +186,13 @@ pub struct RegistrationVariant {
     /// generic docstring referencing the base registration.
     #[serde(default)]
     pub doc: Option<String>,
+    /// How backends should expose this variant's host-language surface.
+    ///
+    /// Defaults to [`RegistrationVariantStyle::Hybrid`] so that consumers which
+    /// do not declare an explicit `style` in `alef.toml` get the previous
+    /// behaviour (both direct-method and decorator-factory forms emitted).
+    #[serde(default)]
+    pub style: RegistrationVariantStyle,
 }
 
 /// A resolved pin: the param being overridden and the expression to substitute

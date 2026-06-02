@@ -68,6 +68,7 @@ pub struct RegistrationSpec {
 /// [[crates.services.registrations.variants]]
 /// name = "get"
 /// fixed = { method = "GET" }
+/// style = "verb_decorator"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistrationVariantSpec {
@@ -85,6 +86,17 @@ pub struct RegistrationVariantSpec {
     /// generic docstring referencing the base registration.
     #[serde(default)]
     pub doc: Option<String>,
+    /// How backends should expose this variant's host-language surface.
+    ///
+    /// Valid values (case-insensitive): `"builder"`, `"verb_decorator"`, `"hybrid"`.
+    /// When absent, defaults to `"hybrid"` (both forms emitted), preserving
+    /// backward compatibility for consumers that have not yet migrated.
+    ///
+    /// - `"builder"` — emit only the decorator-factory form (`app.get(path)` returns a callable).
+    /// - `"verb_decorator"` — emit only the direct method form (`app.get(path, handler)`).
+    /// - `"hybrid"` — emit both forms (default).
+    #[serde(default)]
+    pub style: Option<String>,
 }
 
 /// Per-entrypoint configuration inside a `[[crates.services]]` table.

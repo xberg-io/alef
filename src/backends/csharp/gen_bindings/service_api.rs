@@ -723,6 +723,7 @@ mod tests {
                         ..ParamDef::default()
                     }],
                     doc: Some("Register a GET handler.".to_owned()),
+                    style: Default::default(),
                 },
                 crate::core::ir::RegistrationVariant {
                     name: "post".to_owned(),
@@ -736,6 +737,7 @@ mod tests {
                         ..ParamDef::default()
                     }],
                     doc: None,
+                    style: Default::default(),
                 },
             ],
         };

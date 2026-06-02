@@ -1071,6 +1071,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET handler.".to_owned()),
+            style: Default::default(),
         };
 
         let registration = RegistrationDef {

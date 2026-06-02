@@ -717,6 +717,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET handler.".to_owned()),
+            style: Default::default(),
         });
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
@@ -765,6 +766,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET route.".to_owned()),
+            style: Default::default(),
         });
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");

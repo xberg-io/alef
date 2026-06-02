@@ -15,8 +15,8 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::config::service::{HandlerContractConfig, RegistrationVariantSpec, ServiceConfig};
 use crate::core::ir::{
     ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef,
-    RegistrationVariant, RegistrationVariantOverride, ServiceDef, TypeRef, WrapperConstructorArg,
-    WrapperConstructorCall,
+    RegistrationVariant, RegistrationVariantOverride, RegistrationVariantStyle, ServiceDef, TypeRef,
+    WrapperConstructorArg, WrapperConstructorCall,
 };
 
 /// Run the service extraction pass in-place on `surface`.
@@ -402,6 +402,19 @@ fn parse_entrypoint_kind(s: &str) -> Option<EntrypointKind> {
     }
 }
 
+/// Parse a `style` string from `alef.toml` into a [`RegistrationVariantStyle`].
+///
+/// Unknown values fall back to `Hybrid` so forward-compatible `alef.toml` files
+/// do not hard-fail if a new style name is later introduced.
+fn parse_variant_style(s: Option<&str>) -> RegistrationVariantStyle {
+    match s {
+        Some("builder") => RegistrationVariantStyle::Builder,
+        Some("verb_decorator") => RegistrationVariantStyle::VerbDecorator,
+        Some("hybrid") | None => RegistrationVariantStyle::Hybrid,
+        Some(_) => RegistrationVariantStyle::Hybrid,
+    }
+}
+
 /// Resolve the [`RegistrationVariantSpec`] entries declared in `alef.toml` into
 /// [`RegistrationVariant`]s with pre-built call recipes.
 ///
@@ -550,6 +563,7 @@ fn resolve_via_wrapper(
         }),
         signature_params,
         doc: v_spec.doc.clone(),
+        style: parse_variant_style(v_spec.style.as_deref()),
     })
 }
 
@@ -598,6 +612,7 @@ fn resolve_via_direct(
         wrapper_call: None,
         signature_params,
         doc: v_spec.doc.clone(),
+        style: parse_variant_style(v_spec.style.as_deref()),
     })
 }
 
@@ -900,11 +915,13 @@ pub trait IntoHandler {}
                 name: "get".to_owned(),
                 fixed: [("method".to_owned(), "Get".to_owned())].into_iter().collect(),
                 doc: None,
+                style: None,
             },
             RegistrationVariantSpec {
                 name: "post".to_owned(),
                 fixed: [("method".to_owned(), "Post".to_owned())].into_iter().collect(),
                 doc: None,
+                style: None,
             },
         ];
         cfg.services[0].entrypoints.retain(|e| e.method != "into_router");
@@ -995,6 +1012,7 @@ pub trait IntoHandler {}
                 .into_iter()
                 .collect(),
             doc: None,
+            style: None,
         }];
         cfg.services[0].entrypoints.retain(|e| e.method != "into_router");
         let warnings = extract_services(&mut surface, &cfg);

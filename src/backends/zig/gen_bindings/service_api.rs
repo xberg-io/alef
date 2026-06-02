@@ -662,6 +662,7 @@ mod tests {
                     ..ParamDef::default()
                 }],
                 doc: Some("Register a GET handler.".to_owned()),
+                style: Default::default(),
             });
             reg.variants.push(RegistrationVariant {
                 name: "post".to_owned(),
@@ -675,6 +676,7 @@ mod tests {
                     ..ParamDef::default()
                 }],
                 doc: Some("Register a POST handler.".to_owned()),
+                style: Default::default(),
             });
         }
 

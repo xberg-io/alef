@@ -953,6 +953,7 @@ mod tests {
                     wrapper_call: None,
                     signature_params: vec![],
                     doc: Some("Register a GET handler.".to_owned()),
+                    style: Default::default(),
                 });
             }
         }

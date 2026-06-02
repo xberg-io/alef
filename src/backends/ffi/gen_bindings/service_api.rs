@@ -1297,6 +1297,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET handler.".to_owned()),
+            style: Default::default(),
         };
 
         let registration = RegistrationDef {
@@ -1485,6 +1486,7 @@ mod tests {
             wrapper_call: None,
             signature_params: vec![],
             doc: None,
+            style: Default::default(),
         };
 
         let registration = RegistrationDef {

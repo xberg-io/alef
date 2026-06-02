@@ -90,15 +90,15 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
 
     out.push_str(&format!("package {pkg_name}\n\n"));
 
-    // cgo preamble with C headers and forward-declared exported function
+    // cgo preamble with C headers and helper functions
     out.push_str("/*\n");
     out.push_str("#include <string.h>\n");
     out.push_str(&format!("#include \"{ffi_header}\"\n"));
-    // Forward declaration matching cgo's generated prototype for the //export trampoline
-    // (cgo maps the Go `*C.char` parameter to a non-const `char*`). A static adapter then
-    // supplies the `const char*` callback signature the C registration function expects.
+    // Forward declaration of the Go callback function exported from this Go module.
+    // cgo declares it with non-const char* parameter; we wrap it to provide const char*.
     out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
-    out.push_str("char* service_handler_trampoline(void* ctx, const char* req) {\n");
+    // Wrapper function providing the const char* signature expected by the C FFI.
+    out.push_str("char* _service_handler_const_wrapper(void* ctx, const char* req) {\n");
     out.push_str("\treturn service_handler_callback(ctx, (char*)req);\n");
     out.push_str("}\n");
     out.push_str("*/\n");
@@ -433,13 +433,14 @@ fn gen_registration_method(
     out.push_str("\tctxID := registerHandler(handler)\n");
 
     // Call C registration function.
-    // cgo exposes the static trampoline as an addressable C symbol. Pass its address as
-    // unsafe.Pointer so it satisfies the C callback parameter at the registration boundary.
+    // Pass the wrapper function's address cast to the C function pointer type.
+    // The FFI header defines {PREFIX}ServiceHandlerCallback as a typedef for the callback signature.
     let upper_prefix = ffi_prefix.to_uppercase();
+    let callback_type = format!("{}ServiceHandlerCallback", upper_prefix);
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tunsafe.Pointer(C.service_handler_trampoline),\n\
+         \t\tC.{callback_type}(unsafe.Pointer(C._service_handler_const_wrapper)),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -545,10 +546,12 @@ fn gen_registration_variant(
     let upper_prefix = ffi_prefix.to_uppercase();
     // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
     // the registration method name is NOT included in the variant symbol name.
+    // Pass the wrapper function's address cast to the C function pointer type.
+    let callback_type = format!("{}ServiceHandlerCallback", upper_prefix);
     out.push_str(&format!(
-        "\tret := C.{}_{}_{} (\n\
+        "\tret := C.{}_{}_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tunsafe.Pointer(C.service_handler_trampoline),\n\
+         \t\tC.{callback_type}(unsafe.Pointer(C._service_handler_const_wrapper)),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
@@ -812,6 +815,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET handler.".to_owned()),
+            style: Default::default(),
         };
 
         let registration = RegistrationDef {
@@ -1110,6 +1114,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET handler.".to_owned()),
+            style: Default::default(),
         };
 
         let config = ResolvedCrateConfig {

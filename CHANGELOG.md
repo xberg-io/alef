@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`RegistrationVariantStyle` enum in IR** (`Builder`, `VerbDecorator`, `Hybrid`). Annotates each
+  `RegistrationVariant` with its intended emission style. Defaults to `Hybrid` (backward-compatible).
+  Parseable from `alef.toml` `[[service.registration_variants]]` via `style = "verb_decorator"` etc.
+
+- **Python backend (`pyo3`) verb-decorator emission.** When `style = "verb_decorator"` the generator
+  emits only the direct `.get(path, handler)` form; `style = "builder"` emits only the
+  `.get_decorator(path)` factory; `style = "hybrid"` (default) emits both.
+
+- **Ruby backend (`magnus`) style field threading.** `style` is carried through to the Ruby generator;
+  Ruby currently uses one block-based form for all styles (blocks are idiomatic for all three).
+
 ### Fixed
 
 - **Dart e2e test post-build processing:** The `alef test --e2e --lang dart` command now runs post-build processing (FRB code generation, handler executor call rewriting) after the test setup phase (`dart pub get`) but before the actual test execution. Previously, any FRB regeneration triggered by the test setup would not be post-processed, causing generated code to carry unrewritten handler calls and breaking compilation. This ensures `alef test` behaves consistently with `alef all` for all languages with post-build steps (dart, node).

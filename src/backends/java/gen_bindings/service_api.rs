@@ -581,6 +581,7 @@ mod tests {
                     wrapper_call: None,
                     signature_params: vec![],
                     doc: Some("Register a GET handler.".to_owned()),
+                    style: Default::default(),
                 },
                 crate::core::ir::RegistrationVariant {
                     name: "post".to_owned(),
@@ -588,6 +589,7 @@ mod tests {
                     wrapper_call: None,
                     signature_params: vec![],
                     doc: Some("Register a POST handler.".to_owned()),
+                    style: Default::default(),
                 },
             ],
         };

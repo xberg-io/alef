@@ -17,7 +17,9 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{
+    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
+};
 use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -377,60 +379,16 @@ fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant
     Some(format!("{} = {}", wc.metadata_param, call_expr))
 }
 
-/// Emit a registration variant (shortcut method) for the given variant definition.
-fn gen_registration_variant(
-    out: &mut String,
+/// Compute the shared metadata tuple string and the set of consumed param names
+/// for a registration variant. Used by both emission forms so the logic is not
+/// duplicated.
+fn variant_meta_tuple(
     variant: &crate::core::ir::RegistrationVariant,
     base_reg: &RegistrationDef,
-    _service: &ServiceDef,
-    class_name: &str,
-) {
-    let variant_name = &variant.name;
-    let base_method = &base_reg.method;
-
-    // Build the free params (non-fixed) for the variant signature
-    let mut free_params_sig = Vec::new();
-    for param in &variant.signature_params {
-        let annotation = python_type_annotation(&param.ty);
-        if param.optional {
-            free_params_sig.push(format!("{}: {} | None = None", param.name, annotation));
-        } else {
-            free_params_sig.push(format!("{}: {}", param.name, annotation));
-        }
-    }
-
-    // Variant signature: variant_name(self, free_params..., handler)
-    let params_sig = if free_params_sig.is_empty() {
-        "self, handler: Callable[..., Any]".to_owned()
-    } else {
-        format!("self, {}, handler: Callable[..., Any]", free_params_sig.join(", "))
-    };
-
-    out.push_str(&format!("    def {variant_name}({params_sig}) -> {class_name}:\n"));
-
-    // Documentation
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format_docstring(doc, 8));
-    } else {
-        out.push_str(&format!(
-            "        \"\"\"Register a handler for the {variant_name} variant.\"\"\"\n"
-        ));
-    }
-
-    // Build wrapper constructor call if present
-    if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
-        out.push_str(&format!("        {}\n", wrapper_expr));
-    }
-
-    // Build metadata tuple to pass to base registration. The wrapper consumes
-    // the fixed overrides at construction time, so we only forward the wrapper's
-    // metadata_param (the built wrapper) plus any base metadata params not
-    // consumed by the wrapper construction.
+) -> (String, String) {
     let wrapper_consumed: BTreeSet<&str> = if let Some(wc) = &variant.wrapper_call {
         let mut s = BTreeSet::new();
         s.insert(wc.metadata_param.as_str());
-        // Each wrapper-constructor arg consumes a base-reg metadata param of the
-        // same name, so it must not also be forwarded as a tuple item.
         for arg in &wc.args {
             match arg {
                 crate::core::ir::WrapperConstructorArg::Fixed { param_name, .. } => {
@@ -456,7 +414,7 @@ fn gen_registration_variant(
         }
         meta_items.push(p.name.clone());
     }
-
+    let base_method = base_reg.method.clone();
     let meta_tuple = if meta_items.is_empty() {
         "()".to_owned()
     } else if meta_items.len() == 1 {
@@ -464,14 +422,63 @@ fn gen_registration_variant(
     } else {
         format!("({})", meta_items.join(", "))
     };
+    (base_method, meta_tuple)
+}
+
+/// Emit the direct verb-decorator form: `def get(self, path, handler) -> ClassName`.
+///
+/// Used when `style` is `VerbDecorator` or `Hybrid`.
+fn emit_direct_method(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+    class_name: &str,
+    free_params_sig: &[String],
+    meta_tuple: &str,
+) {
+    let variant_name = &variant.name;
+    let base_method = &base_reg.method;
+
+    let params_sig = if free_params_sig.is_empty() {
+        "self, handler: Callable[..., Any]".to_owned()
+    } else {
+        format!("self, {}, handler: Callable[..., Any]", free_params_sig.join(", "))
+    };
+
+    out.push_str(&format!("    def {variant_name}({params_sig}) -> {class_name}:\n"));
+
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format_docstring(doc, 8));
+    } else {
+        out.push_str(&format!(
+            "        \"\"\"Register a handler for the {variant_name} variant.\"\"\"\n"
+        ));
+    }
+
+    if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
+        out.push_str(&format!("        {}\n", wrapper_expr));
+    }
 
     out.push_str(&format!(
         "        self._registrations.append((\"{base_method}\", {meta_tuple}, handler))\n"
     ));
     out.push_str("        return self\n\n");
+}
 
-    // Emit decorator form: variant_name(self, free_params...)  -> decorator
+/// Emit the builder/decorator-factory form: `def get_decorator(self, path) -> Callable`.
+///
+/// Used when `style` is `Builder` or `Hybrid`.
+fn emit_decorator_factory(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+    free_params_sig: &[String],
+    meta_tuple: &str,
+) {
+    let variant_name = &variant.name;
+    let base_method = &base_reg.method;
     let decorator_name = format!("{variant_name}_decorator");
+
     let params_sig_no_handler = if free_params_sig.is_empty() {
         "self".to_owned()
     } else {
@@ -490,7 +497,6 @@ fn gen_registration_variant(
         ));
     }
 
-    // Build wrapper constructor call if present
     if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
         out.push_str(&format!("        {}\n", wrapper_expr));
     }
@@ -503,6 +509,48 @@ fn gen_registration_variant(
     out.push_str("            return fn\n");
     out.push('\n');
     out.push_str("        return _decorator\n\n");
+}
+
+/// Emit a registration variant (shortcut method) for the given variant definition.
+///
+/// Which forms are emitted depends on [`RegistrationVariant::style`]:
+/// - [`RegistrationVariantStyle::VerbDecorator`] — only the direct method form
+///   (`def get(self, path, handler)`).
+/// - [`RegistrationVariantStyle::Builder`] — only the decorator-factory form
+///   (`def get_decorator(self, path) -> Callable`).
+/// - [`RegistrationVariantStyle::Hybrid`] (default) — both forms.
+fn gen_registration_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+    _service: &ServiceDef,
+    class_name: &str,
+) {
+    // Build the free params (non-fixed) for the variant signature
+    let mut free_params_sig = Vec::new();
+    for param in &variant.signature_params {
+        let annotation = python_type_annotation(&param.ty);
+        if param.optional {
+            free_params_sig.push(format!("{}: {} | None = None", param.name, annotation));
+        } else {
+            free_params_sig.push(format!("{}: {}", param.name, annotation));
+        }
+    }
+
+    let (_base_method, meta_tuple) = variant_meta_tuple(variant, base_reg);
+
+    match variant.style {
+        RegistrationVariantStyle::VerbDecorator => {
+            emit_direct_method(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
+        }
+        RegistrationVariantStyle::Builder => {
+            emit_decorator_factory(out, variant, base_reg, &free_params_sig, &meta_tuple);
+        }
+        RegistrationVariantStyle::Hybrid => {
+            emit_direct_method(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
+            emit_decorator_factory(out, variant, base_reg, &free_params_sig, &meta_tuple);
+        }
+    }
 }
 
 fn gen_registration_method(
@@ -1382,6 +1430,7 @@ mod tests {
                 ..ParamDef::default()
             }],
             doc: Some("Register a GET handler.".to_owned()),
+            style: crate::core::ir::RegistrationVariantStyle::Hybrid,
         };
         surface.services[0].registrations[0].variants.push(variant);
 
