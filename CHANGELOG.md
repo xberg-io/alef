@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- test: sync ErrorVariant fixture fields and scaffold MANIFEST_PATH rename
 - fix(go): preserve enum variant casing in emitted constant values (#134)
 - fix(e2e): emit named imports for wasm-bindgen harness (#131)
 - fix(napi): remove unused env parameter from app_run signature (#131)
