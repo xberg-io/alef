@@ -28,7 +28,7 @@ import java.time.Instant;
 {%- endif %}
 
 /** E2e tests for category: {{ category }}. */
-class {{ test_class_name }} {
+public class {{ test_class_name }} {
 {%- if needs_object_mapper %}
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
