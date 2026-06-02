@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Go code generation: fixed invalid cgo pointer dereference in handler registration.**
+  The generated `service.go` was emitting `unsafe.Pointer(&C.service_handler_trampoline)`, which is invalid
+  because cgo already exposes the trampoline function as an `unsafe.Pointer`. Removed the address-of
+  operator so the generated code compiles. Fixes `packages/go/service.go` build errors across all
+  Go-consuming libraries.
+
 - **TypeScript e2e multipart fixtures now emit correct Content-Type header and Buffer body.**
   Multipart form data fixtures were incorrectly emitting `Content-Type: application/json`
   with a JSON-stringified multipart body. Now the codegen detects multipart/form-data fixtures,
