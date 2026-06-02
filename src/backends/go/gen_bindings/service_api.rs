@@ -392,7 +392,13 @@ fn gen_registration_method(
     // Build method signature with metadata params
     let mut params = vec!["handler HandlerFunc".to_owned()];
     for meta_param in &reg.metadata_params {
-        let go_type = typeref_to_go_type(&meta_param.ty);
+        let mut go_type = typeref_to_go_type(&meta_param.ty);
+        // Opaque types (Named types that wrap FFI pointers) must be passed by pointer
+        if let TypeRef::Named(type_name) = &meta_param.ty {
+            if api.types.iter().any(|t| t.name == *type_name) {
+                go_type = format!("*{}", go_type);
+            }
+        }
         params.push(format!("{} {}", meta_param.name, go_type));
     }
     let param_sig = params.join(", ");

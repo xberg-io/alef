@@ -109,7 +109,7 @@ func main() {
 		}
 
 		// Register the route with the handler.
-		if err := app.{{ register_route_method }}(handler, *builder); err != nil {
+		if err := app.{{ register_route_method }}(handler, builder); err != nil {
 			log.Fatalf("register route %s: %v", fullRoute, err)
 		}
 		builder.Free()
