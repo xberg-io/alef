@@ -71,13 +71,13 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
 /// - Decorator-style registration helpers from [`ServiceDef::registrations`].
 /// - A GenServer that handles `{:trait_call, ...}` messages from Rust.
 /// - A `run` entrypoint that delegates to the native NIF.
-pub(super) fn gen_service_ex(api: &ApiSurface, _module_name: &str) -> String {
+pub(super) fn gen_service_ex(api: &ApiSurface, module_prefix: &str) -> String {
     let mut out = String::new();
 
     out.push_str("# This file is generated. Do not edit.\n\n");
 
     for service in &api.services {
-        gen_service_module(&mut out, service, api);
+        gen_service_module(&mut out, service, api, module_prefix);
     }
 
     out
@@ -107,7 +107,7 @@ fn elixir_heredoc_body(text: &str, indent: usize) -> String {
     out
 }
 
-fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) {
+fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_prefix: &str) {
     let module_name = &service.name;
     let module_snake = service.name.to_snake_case();
 
@@ -121,6 +121,15 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface) 
         out.push_str("  @moduledoc \"\"\"\n");
         out.push_str(&elixir_heredoc_body(&service.doc, 2));
         out.push_str("  \"\"\"\n\n");
+    }
+
+    // Alias the consumer's `Native` module so unqualified `Native.<fn>(...)`
+    // calls in this module's body resolve to `<Prefix>.Native.<fn>(...)`. The
+    // root service module is emitted as bare `defmodule App` and does not
+    // inherit the namespace of sibling wrapper modules (`<Prefix>.RouteBuilder`,
+    // etc.), so this alias is mandatory for the body's NIF calls to compile.
+    if !module_prefix.is_empty() {
+        out.push_str(&format!("  alias {module_prefix}.Native\n\n"));
     }
 
     // Struct definition
@@ -1106,8 +1115,10 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     // Rust glue
     let service_rs = gen_service_rs(api, config);
 
-    // Elixir module
-    let service_ex = gen_service_ex(api, "");
+    // Elixir module — pass the consumer's module prefix (e.g. "Spikard") so the
+    // service module can `alias <Prefix>.Native`.
+    let (_, module_prefix) = super::helpers::get_module_info(api, config);
+    let service_ex = gen_service_ex(api, &module_prefix);
 
     // Determine Elixir package output directory
     let elixir_pkg = config.output_paths.get("elixir").map(PathBuf::from).unwrap_or_else(|| {

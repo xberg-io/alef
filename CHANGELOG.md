@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **rustler service module: emit `alias <Prefix>.Native` so unqualified NIF calls compile.**
+  The generated service module (e.g. `defmodule App`) issues unqualified `Native.app_run(...)` and `Native.complete_trait_call(...)` calls. Sibling wrapper modules (`<Prefix>.RouteBuilder`, etc.) `alias <Prefix>.Native` so the unqualified form resolves; the root service module did not, producing `function Native.app_run/1 is undefined`. The service module now emits the alias when a module prefix is available. (`src/backends/rustler/gen_bindings/service_api.rs`)
+
 - **elixir e2e harness: apply per-language `harness.overrides.elixir` config.**
   The generator previously read `register_method`, `app_class`, `run_method`, `body_schema_setter`, and `imports` directly from the top-level `[crates.e2e.harness]` block, silently ignoring any `[crates.e2e.harness.overrides.elixir]` entries. The override map is now consulted before falling back to the top-level config. (`src/e2e/codegen/elixir.rs`)
 
