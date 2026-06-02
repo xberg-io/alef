@@ -167,15 +167,20 @@ fn ffi_ty_to_csharp_public(rust_ty: &str) -> &'static str {
     "IntPtr"
 }
 
-/// Generate the public factory method `public static TypeName Create(params...)` that
-/// calls `NativeMethods.{TypeName}New(...)` and wraps the returned handle.
-/// Check if a method is a static constructor (returns the owner type by name).
+/// Check if a method is a static constructor (named `new`, returns the owner type by name).
 ///
-/// Returns true ONLY for static methods that take at least one parameter. Zero-arg
+/// Returns true ONLY for static `new` methods that take at least one parameter. Zero-arg
 /// `new()` constructors are already emitted by `gen_opaque_factory_method` via the
 /// configured `client_constructor`, so emitting them here too would produce duplicate
 /// definitions.
+///
+/// Methods like `with_cache_dir` that return the owner type are NOT constructors and are
+/// handled as regular static factory methods. Only methods named `new` generate public
+/// C# constructors.
 fn is_static_constructor(method: &MethodDef, type_name: &str) -> bool {
+    if method.name != "new" {
+        return false;
+    }
     if !method.is_static || method.params.is_empty() {
         return false;
     }
