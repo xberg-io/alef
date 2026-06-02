@@ -3,4 +3,4 @@ fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {
     true
 }
 
-rustler::init!("{{ module }}", load = on_load);
+rustler::init!("{{ module }}", [{{ nifs | join(", ") }}], load = on_load);

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(rustler): explicitly register service NIFs in init! macro list
 - fix(rustler): include service NIFs (app_run, complete_trait_call, app_into_router, per-verb registrations) in init! table (#133)
 - fix(e2e): wire factory import into harness destructure (#131)
 - fix(e2e): emit per-language idiomatic registration call shape (#132)

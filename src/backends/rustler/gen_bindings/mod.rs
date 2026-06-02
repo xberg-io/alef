@@ -1753,8 +1753,19 @@ fn gen_nif_init(
         }
     }
 
-    // Rustler auto-detects #[rustler::nif] functions; explicit list is deprecated
-    let _ = exports; // computed for potential future use
+    // Add service NIFs (emitted by service_api.rs)
+    if !api.services.is_empty() {
+        exports.push("complete_trait_call".to_string());
+        exports.push("app_run".to_string());
+        exports.push("app_into_router".to_string());
+        for http_method in &["get", "post", "put", "patch", "delete", "head", "options", "connect", "trace"] {
+            exports.push(format!("app_{}", http_method));
+        }
+    }
+
+    // Deduplicate and sort for deterministic output
+    exports.sort();
+    exports.dedup();
     // The NIF module name must match the `defmodule` in native.ex, which is
     // `{AppModule}.Native` (e.g., `SampleMarkdown.Native`).
     let module = config
@@ -1828,6 +1839,7 @@ fn gen_nif_init(
             minijinja::context! {
                 registrations => &reg_body,
                 module => &module,
+                nifs => &exports,
             },
         )
         .trim_end()
@@ -1837,6 +1849,7 @@ fn gen_nif_init(
             "rustler_init.rs.jinja",
             minijinja::context! {
                 module => &module,
+                nifs => &exports,
             },
         )
         .trim_end()

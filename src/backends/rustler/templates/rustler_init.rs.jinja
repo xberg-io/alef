@@ -1,1 +1,1 @@
-rustler::init!("{{ module }}");
+rustler::init!("{{ module }}", [{{ nifs | join(", ") }}]);
