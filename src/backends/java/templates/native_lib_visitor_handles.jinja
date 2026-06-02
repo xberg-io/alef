@@ -1,16 +1,22 @@
 
     // Visitor FFI handles
     static final MethodHandle {{ prefix_upper }}_VISITOR_CREATE = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_visitor_create").orElseThrow(),
+        LIB.find("{{ prefix }}_visitor_create")
+            .or(() -> LIB.find("_{{ prefix }}_visitor_create"))  // Try underscore-prefixed variant for macOS
+            .orElseThrow(),
         FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
     );
 
     static final MethodHandle {{ prefix_upper }}_VISITOR_FREE = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_visitor_free").orElseThrow(),
+        LIB.find("{{ prefix }}_visitor_free")
+            .or(() -> LIB.find("_{{ prefix }}_visitor_free"))  // Try underscore-prefixed variant for macOS
+            .orElseThrow(),
         FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
     );
 
     static final MethodHandle {{ prefix_upper }}_OPTIONS_SET_VISITOR_HANDLE = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_options_set_visitor_handle").orElseThrow(),
+        LIB.find("{{ prefix }}_options_set_visitor_handle")
+            .or(() -> LIB.find("_{{ prefix }}_options_set_visitor_handle"))  // Try underscore-prefixed variant for macOS
+            .orElseThrow(),
         FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
     );

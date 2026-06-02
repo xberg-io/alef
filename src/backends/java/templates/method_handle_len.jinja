@@ -1,4 +1,6 @@
     static final MethodHandle {{ handle_name }} = LINKER.downcallHandle(
-        LIB.find("{{ ffi_name }}").orElseThrow(),
+        LIB.find("{{ ffi_name }}")
+            .or(() -> LIB.find("_{{ ffi_name }}"))  // Try underscore-prefixed variant for macOS
+            .orElseThrow(),
         {{ layout }}
     );
