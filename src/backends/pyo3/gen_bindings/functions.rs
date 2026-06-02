@@ -668,6 +668,13 @@ pub(super) fn gen_api_py(
         } else {
             out.push_str("        return None\n");
         }
+        // Narrow `value` to the concrete dataclass for mypy. The signature accepts
+        // `{type_name} | dict[str, Any] | str | None` so callers may pass JSON
+        // strings or raw dicts, but by this point the str/dict branches above
+        // have rebuilt `value` into a `{type_name}` instance. mypy cannot follow
+        // those reassignments and would otherwise flag every `value.<field>`
+        // access below as `Item "str" of "<TypeName> | str" has no attribute …`.
+        out.push_str(&format!("    assert isinstance(value, {type_name})\n"));
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/return_constructed.jinja",
             minijinja::context! {

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3 converters: narrow `value` after str/dict coercion so mypy accepts field access.**
+  `_to_rust_<type>` converters declare their `value` param as `<Type> | dict[str, Any] | str | None` and rebuild it into a dataclass through `if isinstance(value, str): value = json.loads(value)` / `if isinstance(value, dict): value = <Type>(**value)`. mypy cannot follow those reassignments and flagged every subsequent `value.<field>` access (e.g. `_to_rust_chat_completion_request` → `value.model`) with `union-attr: Item "str" of "<Type> | str" has no attribute "model"`. The codegen now emits `assert isinstance(value, <Type>)` after the `if value is None: return None` guard, narrowing `value` to the dataclass and letting mypy clear without `# type: ignore`. (`src/backends/pyo3/gen_bindings/functions.rs`)
+
 - **rustler lib.rs: declare `mod service;` when the API surface includes services.**
   The service-API codegen emits a sibling `service.rs` containing additional `#[rustler::nif]` functions (`app_run`, `app_into_router`, `complete_trait_call`, and per-registration NIFs). `rustler::init!` discovers NIFs across the crate module tree, but `lib.rs` never declared `service` as a module, so every service-side NIF was dead code and Elixir consumers hit `function <Native>.app_run/1 is undefined` at runtime. `lib.rs` now emits `mod service;` whenever the API surface has at least one service. (`src/backends/rustler/gen_bindings/mod.rs`)
 
