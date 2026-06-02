@@ -372,7 +372,12 @@ fn variant_regex() -> &'static Regex {
 /// (e.g. `handler: FutureOr<String> Function(String)`), it emits code that calls
 /// `handler.executeSync(...)` or `handler.executeNormal(...)`, but these methods
 /// don't exist on function types. This rewrite strips the erroneous method calls,
-/// leaving the task wrapper to be executed directly via `generalizedFrbRustBinding`.
+/// leaving the task wrapper to be executed directly.
+///
+/// FRB 2.x does not provide method execution wrappers for generalized task handling;
+/// tasks are executed by calling the handler function directly as a Future-returning
+/// function. This rewrite removes the erroneous method invocation and calls the
+/// handler as a function.
 ///
 /// Example transformation:
 /// ```dart
@@ -382,13 +387,15 @@ fn variant_regex() -> &'static Regex {
 /// );
 ///
 /// // After:
-/// return generalizedFrbRustBinding.executeSync(
+/// return handler(
 ///   SyncTask(...),
 /// );
 /// ```
 pub fn fix_handler_executor_calls(source: &str) -> String {
-    let source = source.replace("handler.executeSync(", "generalizedFrbRustBinding.executeSync(");
-    source.replace("handler.executeNormal(", "generalizedFrbRustBinding.executeNormal(")
+    // Remove erroneous method calls and replace with direct handler invocation.
+    // These are used to execute task wrappers for callback parameters.
+    let source = source.replace("handler.executeSync(", "handler(");
+    source.replace("handler.executeNormal(", "handler(")
 }
 
 /// Rewrite the comma-separated parameter list inside the variant constructor.
