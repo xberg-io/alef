@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **TypeScript HTTP e2e test emitter: emit double-quoted strings and
+  pre-formatted multi-line fetch/toEqual blocks.** The `http_test.jinja`
+  template and `render_http_test_case` emitter were using single-quoted string
+  literals throughout (`it('…', …)`, `SUT_URL || '…'`, `method: 'GET'`,
+  `redirect: 'manual'`, `response.headers.get('…')`, etc.) and built the
+  fetch init object as an inline comma-separated string. oxfmt rewrites all
+  single-quoted string literals to double-quoted ones and expands fetch-init
+  objects that exceed the line-width threshold to multi-line form, so every
+  `alef generate` run produced output that diverged from the formatter. Fixed
+  by switching the template and Rust emitter to emit double-quoted literals
+  throughout. The fetch init object is now emitted in multi-line form when
+  headers or a body are present (matching oxfmt's expansion), and inline only
+  for the simple method+redirect-only case. `toEqual` argument objects are
+  now emitted via a new `json_to_js_multiline` helper so the multi-line layout
+  is stable under oxfmt. The `cache_isolation_setup.jinja` `mkdtempSync` call
+  is also updated to use double quotes. `render_test_case` (non-HTTP path)
+  description escaping is corrected to escape `"` rather than `'`.
+
+- **PHP service API: emit Allman-style braces and single-quoted array literals.**
+  The PHP service-class emitter was generating K&R-style opening braces
+  (`class Foo {`, `public function bar() {`) and double-quoted method-name
+  string literals inside `$this->registrations[]` array initialisers
+  (`["route", ...]`). php-cs-fixer rewrites both to Allman style and
+  single-quoted literals, so every `alef generate` run produced output
+  that diverged from the formatter on the next `prek run --all-files`.
+  All class declarations, constructors, configurator methods, registration
+  methods, verb-decorator variant methods, and entrypoint methods now emit
+  the opening brace on its own line. All method-name string literals inside
+  registration arrays are now emitted with single quotes.
+
 - **napi service.ts / typescript wrapper index.ts: emit double quotes and
   collapse trailing blank line before class close.** The oxfmt formatter
   insists on `from "module"` (double quotes) and refuses a blank line
@@ -23,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.21.1] - 2026-06-02
 
 ### Fixed
+
+- **rustler `RustlerPrecompiled` `base_url` / `targets`: emit single-line.**
+  The 0.21.0 fix that pre-wrapped `base_url:` and `targets:` onto continuation
+  lines assumed mix-format's 98-char default. Downstream repos can override
+  via `.formatter.exs` `line_length:` (e.g. h2m sets 120), and mix-format
+  then unwraps the values to single-line, leaving the working tree dirty.
+  Emit single-line and let mix-format handle layout — both 98 and 120-char
+  line lengths converge in one pass.
 
 - **Swift e2e: filter ExtractionResultExtensions methods by parameter bridgeability.**
   The `ExtractionResultExtensions.swift` emitter was including all methods that
