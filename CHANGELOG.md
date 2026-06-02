@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Net::HTTP::{{ method_class }}` where `method_class` is title-cased by the Rust
   codegen (e.g. `Net::HTTP::Get`, `Net::HTTP::Delete`, `Net::HTTP::Patch`).
 
+- **Ruby e2e validation error `loc` comparisons now use flat array literals.**
+  `render_http_sut_test` was wrapping the multi-element `loc_ruby` (already an
+  array literal like `['query', 'limit']`) inside the template's `[...]` wrapper,
+  producing `[['query', 'limit']]`. The codegen now emits comma-separated element
+  literals (e.g. `'query', 'limit'`) so `[{{ loc_ruby }}]` expands to the correct
+  flat `['query', 'limit']` in generated RSpec `any?` assertions.
+
 ### Fixed
 
 - **Dart FRB loader rewrite now also adds the unprefixed `import 'dart:core';`

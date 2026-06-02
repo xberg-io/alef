@@ -10,7 +10,9 @@ use crate::core::template_versions as tv;
 use crate::core::version::to_rubygems_prerelease;
 use crate::e2e::codegen::resolve_field;
 use crate::e2e::config::E2eConfig;
-use crate::e2e::escape::{escape_ruby_single, ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
+use crate::e2e::escape::{
+    escape_ruby_single, ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident,
+};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{
     Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm, ValidationErrorExpectation,
@@ -1086,11 +1088,11 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
                         .filter_map(|err| {
                             let loc = err.get("loc").and_then(|l| l.as_array())?;
                             let msg = err.get("msg").and_then(|m| m.as_str())?;
-                            let loc_ruby = if loc.len() == 1 {
-                                json_to_ruby(&loc[0])
-                            } else {
-                                json_to_ruby(&serde_json::Value::Array(loc.clone()))
-                            };
+                            // Produce comma-separated element literals so the template can
+                            // wrap them in `[...]` to form a valid Ruby array literal.
+                            // e.g. loc = ["query", "limit"] → loc_ruby = "'query', 'limit'"
+                            // Template: `[{{ loc_ruby }}]` → `['query', 'limit']`
+                            let loc_ruby = loc.iter().map(json_to_ruby).collect::<Vec<_>>().join(", ");
                             // Escape single quotes for embedding in a Ruby single-quoted string.
                             // `ruby_string_literal` would choose double-quotes, but the template
                             // embeds the value directly inside `'...'`, so we must escape `'` → `\'`.
