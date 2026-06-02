@@ -83,7 +83,6 @@ config = %{{ server_config_class }}{
 app = {{ app_class }}.config(app, config)
 
 IO.puts("Harness listening on {{ host }}:{{ port }}")
-IO.flush()
 
 # Run the app
 {{ app_class }}.{{ run_method }}(app)

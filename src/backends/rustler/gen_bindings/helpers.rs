@@ -800,7 +800,17 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
             out.push_str(&format!("  @doc \"{doc_first}\"\n"));
         }
         out.push_str(&format!("  def {method_name}({}) do\n", def_args.join(", ")));
-        out.push_str(&format!("    Native.{nif_fn}({})\n", call_args.join(", ")));
+
+        // For static methods (no receiver) on opaque types, wrap the return value
+        // in the struct if the return type matches the module's type.
+        let is_static = method.receiver.is_none();
+        let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
+        if is_static && returns_self {
+            out.push_str(&format!("    ref = Native.{nif_fn}({})\n", call_args.join(", ")));
+            out.push_str("    %__MODULE__{ref: ref}\n");
+        } else {
+            out.push_str(&format!("    Native.{nif_fn}({})\n", call_args.join(", ")));
+        }
         out.push_str("  end\n\n");
     }
 

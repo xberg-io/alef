@@ -1652,3 +1652,113 @@ fn error_methods_emit_matching_native_ex_stubs() {
         "native.ex stub demoerror_error_type missing:\n{native_content}"
     );
 }
+
+/// Regression test: opaque types with static constructor methods (like `new`) that return
+/// `Self` must wrap the NIF return value in the struct so instance methods receive
+/// `%SampleModule{ref: ...}` instead of a raw reference.
+///
+/// Issue: #119 — Elixir e2e RouteBuilder.new(method, path) returned a raw NIF Reference,
+/// not wrapped in %RouteBuilder{ref: ref}. Subsequent calls like request_schema_json(obj, ...)
+/// failed with BadMapError when trying to extract obj.ref.
+#[test]
+fn opaque_static_constructor_wraps_return_in_struct() {
+    let backend = RustlerBackend;
+
+    // Create an opaque type with a static `new` constructor that returns Self.
+    let opaque_type = TypeDef {
+        name: "RouteBuilder".to_string(),
+        rust_path: "sample::RouteBuilder".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![
+            // Static constructor that returns Self
+            make_static_method("new", TypeRef::Named("RouteBuilder".to_string())),
+            // Instance method that uses the wrapped struct
+            MethodDef {
+                name: "handler_name".into(),
+                params: vec![ParamDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                }],
+                return_type: TypeRef::Named("RouteBuilder".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Set handler name".into(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        is_opaque: true,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Builder for routes".into(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![opaque_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let config = make_config("demo");
+    let files = backend.generate_public_api(&api, &config).unwrap();
+
+    let ex_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("route_builder.ex"))
+        .expect("route_builder.ex must be generated");
+    let content = &ex_file.content;
+
+    // Static `new` must return a wrapped struct, not raw reference
+    assert!(
+        content.contains("def new do") || content.contains("def new("),
+        "new method not found in:\n{content}"
+    );
+
+    // The key assertion: `new` wraps the NIF result in the struct
+    assert!(
+        content.contains("ref = Native.routebuilder_new(") && content.contains("%__MODULE__{ref: ref}"),
+        "static constructor `new` must wrap NIF result in struct; got:\n{content}"
+    );
+
+    // Instance method `handler_name` unpacks obj.ref for the NIF call
+    assert!(
+        content.contains("def handler_name(obj, name) do") && content.contains("Native.routebuilder_handler_name(obj.ref, name)"),
+        "instance method handler_name must unpack obj.ref; got:\n{content}"
+    );
+}
