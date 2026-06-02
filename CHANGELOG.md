@@ -9,12 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Go codegen: pass C-namespaced trampoline pointer instead of `&` Go func.**
-  Emitted `unsafe.Pointer(&service_handler_callback)` for the handler trampoline,
-  but Go forbids taking the address of any function, including exported ones.
-  Switched to `unsafe.Pointer(C.service_handler_callback)` — the cgo extern
-  declaration resolves to the C-side function pointer, which is the canonical
-  cgo-callback wiring. Fixes `go build` failures across all Go-consuming bindings.
+- **Go codegen: pass C function pointer directly to cgo trampoline.**
+  Previously emitted `unsafe.Pointer(&service_handler_callback)`, which is invalid
+  (Go forbids taking the address of any function). Then tried
+  `unsafe.Pointer(C.service_handler_callback)`, which is also invalid (C.service_handler_callback
+  is already a function pointer value). The correct pattern is `C.service_handler_callback`
+  passed directly — cgo handles the conversion. Fixes `go build` failures across
+  all Go-consuming bindings.
 
 ## [0.21.2] - 2026-06-02
 
