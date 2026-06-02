@@ -398,21 +398,16 @@ fn test_native_ex_has_all_nif_stubs() {
         "Should have conversionoptions_any_enabled stub; content:\n{content}"
     );
 
-    // base_url must wrap to a continuation line so mix format --check-formatted does
-    // not rewrite the file on first prek run (default Elixir line length is 98). The
-    // `targets: ~w(...)` line is intentionally left unwrapped — mix format does not
-    // reformat `~w()` blocks regardless of length.
-    assert!(
-        content.contains("base_url:\n      \""),
-        "base_url should be on its own line with 6-space continuation; content:\n{content}"
-    );
+    // base_url and targets are emitted single-line; mix format handles layout per
+    // downstream `.formatter.exs` `line_length:` (default 98). Pre-wrapping at the
+    // generator side caused an idempotence fight against repos with line_length > 98.
     let base_url_line = content
         .lines()
-        .find(|l| l.trim_start().starts_with("\"http"))
-        .expect("base_url continuation line should be present");
+        .find(|l| l.trim_start().starts_with("base_url:"))
+        .expect("base_url line should be present");
     assert!(
-        base_url_line.len() <= 120,
-        "base_url continuation line is unreasonably long: {base_url_line:?}"
+        base_url_line.contains("\"http"),
+        "base_url should be emitted single-line with URL inline: {base_url_line:?}"
     );
 }
 
