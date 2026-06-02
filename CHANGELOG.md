@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **elixir e2e harness: apply per-language `harness.overrides.elixir` config.**
+  The generator previously read `register_method`, `app_class`, `run_method`, `body_schema_setter`, and `imports` directly from the top-level `[crates.e2e.harness]` block, silently ignoring any `[crates.e2e.harness.overrides.elixir]` entries. The override map is now consulted before falling back to the top-level config. (`src/e2e/codegen/elixir.rs`)
+
 - **dart e2e codegen: read `MOCK_SERVER_URL` for fixture base URL.**
   Generated dart e2e tests previously fell back to `http://localhost:8008` when no `SUT_URL` env was set, ignoring the `MOCK_SERVER_URL` that `scripts/e2e/run-with-mock-server.sh` (and `alef test --e2e`'s mock-server bootstrap) exports. The `_sutUrl()` helper and the `setUpAll` spawn-skip guard now prefer `MOCK_SERVER_URL` over `SUT_URL`, matching the env var that every other language's e2e suite consumes. (`src/e2e/codegen/dart.rs`)
 
