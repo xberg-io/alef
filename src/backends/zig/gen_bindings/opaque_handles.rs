@@ -85,7 +85,13 @@ fn ffi_ty_needs_dupez(rust_ty: &str) -> bool {
 
 /// Emit a top-level `pub fn create_<type_snake>(allocator, params...) !TypeName`
 /// constructor that wraps the `c.{prefix}_{type_snake}_new(...)` FFI symbol.
-pub(crate) fn emit_opaque_constructor(ty: &TypeDef, prefix: &str, ctor: &ClientConstructorConfig, out: &mut String) {
+pub(crate) fn emit_opaque_constructor(
+    ty: &TypeDef,
+    prefix: &str,
+    ctor: &ClientConstructorConfig,
+    top_level_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     let type_snake = AsSnakeCase(&ty.name).to_string();
     let upper_prefix = prefix.to_uppercase();
     let has_string_param = ctor.params.iter().any(|p| ffi_ty_needs_dupez(&p.ty));
@@ -100,11 +106,25 @@ pub(crate) fn emit_opaque_constructor(ty: &TypeDef, prefix: &str, ctor: &ClientC
         ""
     };
 
-    // Build param list.
-    let params_str: String = ctor
+    // Rename param names that would shadow a top-level decl (Zig 0.16+ rejects
+    // shadowing of file-scope identifiers by function parameters).
+    let renamed_params: Vec<String> = ctor
         .params
         .iter()
-        .map(|p| format!("{}: {}", p.name, ffi_ty_to_zig(&p.ty)))
+        .map(|p| {
+            if top_level_names.contains(&p.name) {
+                format!("{}_arg", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect();
+
+    // Build param list using renamed names.
+    let params_str: String = renamed_params
+        .iter()
+        .zip(ctor.params.iter())
+        .map(|(renamed_name, p)| format!("{}: {}", renamed_name, ffi_ty_to_zig(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
     let _ = writeln!(
@@ -113,28 +133,28 @@ pub(crate) fn emit_opaque_constructor(ty: &TypeDef, prefix: &str, ctor: &ClientC
         type_name = ty.name,
     );
 
-    // Emit allocator-based dupeZ for string params.
-    for p in &ctor.params {
+    // Emit allocator-based dupeZ for string params, using renamed names.
+    for (renamed_name, p) in renamed_params.iter().zip(ctor.params.iter()) {
         if ffi_ty_needs_dupez(&p.ty) {
             let c_name = format!("{}_z", p.name);
             let _ = writeln!(
                 out,
                 "    const {c_name} = try allocator.dupeZ(u8, {param_name});",
-                param_name = p.name,
+                param_name = renamed_name,
             );
             let _ = writeln!(out, "    defer allocator.free({c_name});");
         }
     }
 
-    // Build the C argument list.
-    let c_args: String = ctor
-        .params
+    // Build the C argument list, using renamed names where needed.
+    let c_args: String = renamed_params
         .iter()
-        .map(|p| {
+        .zip(ctor.params.iter())
+        .map(|(renamed_name, p)| {
             if ffi_ty_needs_dupez(&p.ty) {
                 format!("{}_z.ptr", p.name)
             } else {
-                p.name.clone()
+                renamed_name.clone()
             }
         })
         .collect::<Vec<_>>()
