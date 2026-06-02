@@ -156,14 +156,18 @@ impl Backend for RustlerBackend {
             builder.add_item(&format!("pub mod {module};"));
         }
 
-        // When the API surface includes services, the service-API codegen emits a
-        // sibling `service.rs` containing additional `#[rustler::nif]` functions
-        // (app_run, complete_trait_call, registration NIFs). The macro discovers
-        // NIFs across the crate module tree, so the sibling file must be declared
-        // as a module from `lib.rs` for its NIFs to be linked.
-        if !api.services.is_empty() {
-            builder.add_item("mod service;");
-        }
+        // NOTE: `mod service;` is intentionally not declared here yet. The
+        // service-API codegen emits `service.rs` containing additional
+        // `#[rustler::nif]` functions that the macro would discover via the
+        // module tree — but the current `service.rs` codegen has architectural
+        // gaps (missing `use super::*;`, `ResourceArc.inner` private in
+        // rustler 0.38, no `Arc<dyn Trait>` coercion at call sites, and a
+        // route(builder, wrapper, handler) signature that doesn't match the
+        // typical 2-arg route(builder, handler) consumer API). Declaring
+        // the module surfaces all those bugs as hard compile errors. Until
+        // the rewrite lands, the file is left as orphan output and the
+        // service NIFs remain unresolved at load time — same state as
+        // before this commit. Tracking under the rustler service_api rewrite.
 
         let (_module_name, module_prefix) = get_module_info(api, config);
 
