@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(magnus): emit positional Ruby params for route registration (#132)
 - feat(ir): add `has_lifetime_params` field to `TypeDef`; extractor now accepts structs with lifetime-only generics (e.g. `Foo<'a>`) instead of rejecting all generic structs
 - fix(rustler): qualify opaque ResourceArc wrapper types with `super::` to avoid shadowing by `use spikard::*`; use `(*param).inner.as_ref().clone()` to extract owned core value; emit actual method name for Finalize entrypoints instead of hardcoded `finalize()`
+- fix(rustler): drop explicit NIF list from rustler::init! macro — rustler 0.38 auto-discovers #[rustler::nif] functions via inventory; explicit list causes proc macro panic
 
 - fix(rustler): explicitly register service NIFs in init! macro list
 - fix(rustler): include service NIFs (app_run, complete_trait_call, app_into_router, per-verb registrations) in init! table (#133)
