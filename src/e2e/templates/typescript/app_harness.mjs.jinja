@@ -74,7 +74,7 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
 }
 
 // Configure and start the server
-const config = new ServerConfig();
+const config = {{ server_config_factory }};
 config.host = '{{ host }}';
 config.port = {{ port }};
 app.config(config);

@@ -83,6 +83,9 @@ pub struct HarnessOverride {
     /// Modules/packages to import the SUT app from (overrides HarnessConfig.imports)
     #[serde(default)]
     pub imports: Option<Vec<String>>,
+    /// Expression to instantiate the default ServerConfig (overrides HarnessConfig.server_config_factory)
+    #[serde(default)]
+    pub server_config_factory: Option<String>,
 }
 
 /// Server-shaped e2e harness configuration for HTTP fixtures.
@@ -191,6 +194,21 @@ impl HarnessConfig {
             .get(lang)
             .and_then(|o| o.imports.clone())
             .unwrap_or_else(|| self.imports.clone())
+    }
+
+    /// Get the ServerConfig factory expression for a language, applying language-specific overrides.
+    /// Returns a code expression that instantiates a default ServerConfig.
+    /// Backend-specific defaults: "node" → "serverConfigDefault()", "wasm" → "new WasmServerConfig()".
+    /// Falls back to "new ServerConfig()" for other languages.
+    pub fn server_config_factory_for_lang(&self, lang: &str) -> String {
+        self.overrides
+            .get(lang)
+            .and_then(|o| o.server_config_factory.clone())
+            .unwrap_or_else(|| match lang {
+                "node" => "serverConfigDefault()".to_string(),
+                "wasm" => "new WasmServerConfig()".to_string(),
+                _ => "new ServerConfig()".to_string(),
+            })
     }
 
     /// Get the register_method for `lang` rendered in the language's idiomatic

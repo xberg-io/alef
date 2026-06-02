@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e): emit backend-specific ServerConfig factory expression (#130)
 - fix(e2e/go): poll port readiness before signalling harness ready (#128)
 
 - **post-build RunCommand: skip gracefully when the binary is missing instead of hard-failing the pipeline.**

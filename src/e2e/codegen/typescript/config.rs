@@ -192,6 +192,15 @@ pub fn render_app_harness(
 
     let route_builder_class = e2e_config.harness.route_builder.as_deref().unwrap_or("RouteBuilder");
 
+    // Determine which ServerConfig factory expression to use (backend-specific defaults)
+    let server_config_factory = if imports.iter().any(|imp| imp.contains("/node")) {
+        e2e_config.harness.server_config_factory_for_lang("node")
+    } else if imports.iter().any(|imp| imp.contains("wasm")) {
+        e2e_config.harness.server_config_factory_for_lang("wasm")
+    } else {
+        e2e_config.harness.server_config_factory_for_lang("typescript")
+    };
+
     crate::e2e::template_env::render(
         "typescript/app_harness.mjs.jinja",
         context! {
@@ -207,6 +216,7 @@ pub fn render_app_harness(
             run_method => run_method.as_deref().unwrap_or("run"),
             register_route_method => register_method.as_str(),
             constructor_method => constructor_method,
+            server_config_factory => server_config_factory,
         },
     )
 }
