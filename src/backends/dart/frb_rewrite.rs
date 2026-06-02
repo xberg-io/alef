@@ -406,10 +406,15 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
     //    rewrite every generated method body fails to compile with
     //    "method 'executeNormal' isn't defined for the type
     //    'GeneralizedFrbRustBinding'".
+    //
+    // 3. Remove stray `await` keywords before `handler(` — FRB generates
+    //    `return await handler(...)` for non-async methods that return Future.
+    //    The methods return futures but are not declared async, so await is invalid.
     let source = source.replace("handler.executeSync(", "handler(");
     let source = source.replace("handler.executeNormal(", "handler(");
     let source = source.replace("generalizedFrbRustBinding.executeNormal(", "handler.executeNormal(");
-    source.replace("generalizedFrbRustBinding.executeSync(", "handler.executeSync(")
+    let source = source.replace("generalizedFrbRustBinding.executeSync(", "handler.executeSync(");
+    source.replace("await handler(", "handler(")
 }
 
 /// Rewrite the comma-separated parameter list inside the variant constructor.
