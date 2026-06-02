@@ -266,8 +266,13 @@ fn ensure_loader_imports(source: &str) -> String {
     }
 
     // Replace Uri.parse() with qualified name to avoid conflict with the generated Uri class.
+    // Use a sentinel-protected swap so a second pass over an already-rewritten file
+    // doesn't double-qualify (`_DartCore.Uri.parse` → `_DartCore._DartCore.Uri.parse`).
     // Note: .resolve() is called on Uri instances, so it doesn't need qualification.
+    const SENTINEL: &str = "\u{FEFF}__ALEF_URI_PARSE__\u{FEFF}";
+    result = result.replace("_DartCore.Uri.parse(", SENTINEL);
     result = result.replace("Uri.parse(", "_DartCore.Uri.parse(");
+    result = result.replace(SENTINEL, "_DartCore.Uri.parse(");
 
     result
 }
@@ -482,34 +487,23 @@ fn is_positional_field(name: &str) -> bool {
 /// - Multi-field variant → `value0`, `value1`, ... (uses `field_idx`).
 /// - Otherwise (single-field with no inferable prefix) → `value`.
 fn payload_param_name(type_name: &str, variant_pascal: &str, field_idx: usize, total_fields: usize) -> String {
-    if total_fields > 1 {
-        return format!("value{field_idx}");
-    }
-
-    // Strip a trailing `?` (nullable marker) and any generic args for the
-    // prefix-matching check — but keep them out of the primitive lookup as
-    // well, since `List<int>` should not be considered "primitive".
-    let stripped_type = type_name.trim_end_matches('?');
-    let base_type = stripped_type
-        .split_once('<')
-        .map(|(head, _)| head)
-        .unwrap_or(stripped_type)
-        .trim();
-
-    if let Some(remainder) = base_type.strip_prefix(variant_pascal)
-        && !remainder.is_empty()
-    {
-        return to_lower_camel(remainder);
-    }
-
-    if is_dart_primitive(base_type) {
-        return "value".to_string();
-    }
-
-    "value".to_string()
+    // Disabled: renaming `field<N>` in the factory in lib.dart creates a
+    // signature mismatch with the underlying `<Variant>_<Sub>` class in
+    // lib.freezed.dart (which freezed's build_runner emits with the original
+    // `field<N>` names, since we run build_runner before — not after — the
+    // alef post-build rewrite). The mismatch surfaces at every test compile
+    // as "constructor function type … isn't a subtype of …", blocking the
+    // entire dart e2e suite. Until alef re-runs build_runner after the
+    // rewrite (or the rewrite also patches lib.freezed.dart), keep the
+    // factory params as the canonical `field<N>` so the two files stay in
+    // sync. Callers retain the variant_pascal/type_name parameters for the
+    // future fix.
+    let _ = (type_name, variant_pascal, total_fields);
+    format!("field{field_idx}")
 }
 
 /// Lower the first character of a PascalCase identifier; preserve the rest.
+#[allow(dead_code)]
 fn to_lower_camel(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -519,6 +513,7 @@ fn to_lower_camel(s: &str) -> String {
 }
 
 /// Dart primitive / stdlib types that should map to a generic `value` name.
+#[allow(dead_code)]
 fn is_dart_primitive(type_name: &str) -> bool {
     matches!(
         type_name,
@@ -792,7 +787,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn named_struct_payload_uses_payload_derived_name() {
+    fn named_struct_payload_preserves_field0() {
+        // The factory `field0` is left in place — see `payload_param_name` for
+        // the rationale. Renaming here without also patching lib.freezed.dart
+        // creates a constructor-redirect type mismatch.
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
 
@@ -804,45 +802,41 @@ mod tests {
 "#;
         let out = rewrite_frb_sealed_variants(input);
         assert!(
-            out.contains("required PdfMetadata metadata"),
-            "PdfMetadata payload should be named `metadata`, got:\n{out}"
+            out.contains("required PdfMetadata field0"),
+            "PdfMetadata payload should keep `field0`, got:\n{out}"
         );
         assert!(
-            out.contains("required DocxMetadata metadata"),
-            "DocxMetadata payload should be named `metadata`, got:\n{out}"
+            out.contains("required DocxMetadata field0"),
+            "DocxMetadata payload should keep `field0`, got:\n{out}"
         );
-        assert!(!out.contains("field0"), "no `field0` should remain, got:\n{out}");
     }
 
     #[test]
-    fn primitive_payload_uses_value_name() {
+    fn primitive_payload_preserves_field0() {
         let input = r#"  const factory OutputFormat.custom({required String field0}) =
       OutputFormat_Custom;
 "#;
         let out = rewrite_frb_sealed_variants(input);
         assert!(
-            out.contains("required String value"),
-            "String payload should be named `value`, got:\n{out}"
+            out.contains("required String field0"),
+            "String payload should keep `field0`, got:\n{out}"
         );
-        assert!(!out.contains("field0"), "no `field0` should remain, got:\n{out}");
     }
 
     #[test]
-    fn multi_field_tuple_uses_value0_value1() {
+    fn multi_field_tuple_preserves_field_indices() {
         let input = r#"  const factory Point.xy({required int field0, required int field1}) =
       Point_Xy;
 "#;
         let out = rewrite_frb_sealed_variants(input);
         assert!(
-            out.contains("required int value0"),
-            "first tuple field should be `value0`, got:\n{out}"
+            out.contains("required int field0"),
+            "first tuple field should keep `field0`, got:\n{out}"
         );
         assert!(
-            out.contains("required int value1"),
-            "second tuple field should be `value1`, got:\n{out}"
+            out.contains("required int field1"),
+            "second tuple field should keep `field1`, got:\n{out}"
         );
-        assert!(!out.contains("field0"), "no `field0` should remain, got:\n{out}");
-        assert!(!out.contains("field1"), "no `field1` should remain, got:\n{out}");
     }
 
     #[test]
@@ -884,36 +878,31 @@ class Foo {
     }
 
     #[test]
-    fn fallback_when_prefix_does_not_match_uses_value() {
-        // Variant `Image` with payload `Bitmap` does not share a prefix; the
-        // helper should fall back to `value` rather than producing something
-        // nonsensical.
+    fn unrelated_payload_preserves_field0() {
         let input = r#"  const factory Drawable.image({required Bitmap field0}) =
       Drawable_Image;
 "#;
         let out = rewrite_frb_sealed_variants(input);
         assert!(
-            out.contains("required Bitmap value"),
-            "unrelated payload type should fall back to `value`, got:\n{out}"
+            out.contains("required Bitmap field0"),
+            "unrelated payload type should keep `field0`, got:\n{out}"
         );
     }
 
     #[test]
-    fn nullable_payload_strips_question_mark_for_inference() {
+    fn nullable_payload_preserves_field0() {
         let input = r#"  const factory Either.left({required LeftValue? field0}) =
       Either_Left;
 "#;
         let out = rewrite_frb_sealed_variants(input);
-        // `LeftValue?` starts with variant prefix `Left` so remainder is `Value`.
         assert!(
-            out.contains("required LeftValue? value"),
-            "nullable payload with prefix-matching type should produce `value`, got:\n{out}"
+            out.contains("required LeftValue? field0"),
+            "nullable payload should keep `field0`, got:\n{out}"
         );
     }
 
     #[test]
-    fn realistic_sample_crate_format_metadata_block() {
-        // Mirror the actual frb output shape from the sample_core fixture.
+    fn realistic_sample_crate_format_metadata_block_preserves_field0() {
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
 
@@ -928,14 +917,10 @@ class Foo {
 }
 "#;
         let out = rewrite_frb_sealed_variants(input);
-        assert!(out.contains("required PdfMetadata metadata"));
-        assert!(out.contains("required DocxMetadata metadata"));
-        assert!(out.contains("required ExcelMetadata metadata"));
-        assert!(out.contains("required String value"));
-        assert!(
-            !out.contains("field0"),
-            "all `field0` occurrences must be rewritten, got:\n{out}"
-        );
+        assert!(out.contains("required PdfMetadata field0"));
+        assert!(out.contains("required DocxMetadata field0"));
+        assert!(out.contains("required ExcelMetadata field0"));
+        assert!(out.contains("required String field0"));
         // Structural lines preserved.
         assert!(out.contains("sealed class FormatMetadata"));
         assert!(out.contains("FormatMetadata_Pdf"));
@@ -952,9 +937,7 @@ class Foo {
     }
 
     #[test]
-    fn multiple_distinct_sealed_class_variants_all_rewritten() {
-        // Two distinct sealed classes in the same source file — the regex must
-        // handle multiple non-overlapping matches without interference.
+    fn multiple_distinct_sealed_class_variants_preserve_field0() {
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
 
@@ -974,27 +957,10 @@ sealed class OutputFormat with _$OutputFormat {
 }
 "#;
         let out = rewrite_frb_sealed_variants(input);
-        // FormatMetadata variants
-        assert!(
-            out.contains("required PdfMetadata metadata"),
-            "PdfMetadata should become metadata, got:\n{out}"
-        );
-        assert!(
-            out.contains("required DocxMetadata metadata"),
-            "DocxMetadata should become metadata, got:\n{out}"
-        );
-        // OutputFormat variants
-        assert!(
-            out.contains("required String value"),
-            "String should become value, got:\n{out}"
-        );
-        // `JsonConfig` shares the `Json` prefix with variant `Json`, so the remainder
-        // `Config` is lower-cased to `config`.
-        assert!(
-            out.contains("required JsonConfig config"),
-            "JsonConfig payload (Json prefix → Config remainder) should become `config`, got:\n{out}"
-        );
-        assert!(!out.contains("field0"), "no `field0` should remain, got:\n{out}");
+        assert!(out.contains("required PdfMetadata field0"));
+        assert!(out.contains("required DocxMetadata field0"));
+        assert!(out.contains("required String field0"));
+        assert!(out.contains("required JsonConfig field0"));
     }
 
     /// A minimal `frb_generated.dart` carrying the FRB entrypoint + loader config,
