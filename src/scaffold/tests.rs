@@ -32,6 +32,22 @@ keywords = ["test"]
     cfg.resolve().expect("resolve ok").remove(0)
 }
 
+fn minimal_config_from_toml(extra_crate_config: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(&format!(
+        r#"
+[workspace]
+languages = ["python", "node"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+{extra_crate_config}
+"#,
+    ))
+    .expect("valid toml");
+    cfg.resolve().expect("resolve ok").remove(0)
+}
+
 fn test_api() -> ApiSurface {
     ApiSurface {
         crate_name: "my-lib".to_string(),
@@ -215,6 +231,31 @@ fn test_scaffold_node_package_json_includes_repository_url() {
         Some("git"),
         "`repository.type` must be \"git\" for npm provenance verification"
     );
+}
+
+#[test]
+fn test_scaffold_node_omits_repository_when_unconfigured() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let manifests: Vec<&GeneratedFile> = files
+        .iter()
+        .copied()
+        .filter(|f| f.path.to_string_lossy().ends_with("package.json"))
+        .collect();
+
+    assert!(!manifests.is_empty(), "node package.json files must be emitted");
+    for manifest in manifests {
+        let parsed: serde_json::Value =
+            serde_json::from_str(&manifest.content).expect("emitted package.json must be valid JSON");
+        assert!(
+            parsed.get("repository").is_none(),
+            "unconfigured npm manifest must not invent repository metadata in {}:\n{}",
+            manifest.path.display(),
+            manifest.content
+        );
+    }
 }
 
 #[test]
@@ -1041,6 +1082,24 @@ fn test_scaffold_go_production_format() {
 }
 
 #[test]
+fn test_scaffold_go_uses_inert_module_when_unconfigured() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
+    let files = language_files(&all_files);
+    let go_mod = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/go/go.mod"))
+        .expect("go.mod must be emitted");
+
+    assert!(
+        go_mod.content.starts_with("module example.invalid/my-lib\n"),
+        "unconfigured Go scaffold must use inert example.invalid fallback, got:\n{}",
+        go_mod.content
+    );
+}
+
+#[test]
 fn test_scaffold_java_production_features() {
     let config = test_config();
     let api = test_api();
@@ -1086,10 +1145,9 @@ fn test_scaffold_ruby_production_features() {
     assert_eq!(files[1].path, PathBuf::from("packages/ruby/.rubocop.yml"));
     // Check for Rakefile generation
     assert_eq!(files[2].path, PathBuf::from("packages/ruby/Rakefile"));
-    assert!(files[2].content.contains("RbSys::ExtensionTask"));
+    assert!(files[2].content.contains("Rake::ExtensionTask"));
     assert!(files[2].content.contains("my_lib_rb"));
-    assert!(files[2].content.contains("MANIFEST_DIR ="));
-    assert!(files[2].content.contains("Dir.chdir(MANIFEST_DIR)"));
+    assert!(files[2].content.contains("require \"rake/extensiontask\""));
     // Check for extconf.rb generation
     assert_eq!(
         files[3].path,
@@ -1893,6 +1951,22 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
         "root composer.json must carry the php-ext block; content:\n{}",
         root_composer.content,
     );
+}
+
+#[test]
+fn test_scaffold_php_uses_inert_composer_vendor_when_repository_unconfigured() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
+    let files = language_files(&all_files);
+    let root_composer = files
+        .iter()
+        .find(|f| f.path.to_string_lossy() == "composer.json")
+        .expect("root composer.json must be emitted");
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&root_composer.content).expect("composer.json must be valid JSON");
+    assert_eq!(parsed["name"], "unconfigured/my-lib");
 }
 
 #[test]
@@ -2756,6 +2830,36 @@ fn test_scaffold_gleam() {
         files.iter().all(|f| !f.path.starts_with(".github/workflows")),
         "Gleam scaffold must not emit GitHub workflows"
     );
+}
+
+#[test]
+fn test_scaffold_gleam_uses_configured_license_and_no_fake_github_dependency() {
+    let config = minimal_config_from_toml(
+        r#"
+[crates.scaffold]
+description = "Test library"
+license = "Apache-2.0"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Gleam]).unwrap();
+    let files = language_files(&all_files);
+    let gleam_toml = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/gleam/gleam.toml"))
+        .expect("gleam.toml must be emitted");
+    let readme = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/gleam/README.md"))
+        .expect("README.md must be emitted");
+
+    assert!(gleam_toml.content.contains("licences = [\"Apache-2.0\"]"));
+    assert!(
+        !readme.content.contains("github = \"example/"),
+        "Gleam README must not invent GitHub dependency metadata:\n{}",
+        readme.content
+    );
+    assert!(readme.content.contains("{path = \"../packages/gleam\"}"));
 }
 
 #[test]
