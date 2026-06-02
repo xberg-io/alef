@@ -192,7 +192,7 @@ pub(super) fn gen_api_py(
     // Adapter wrappers reference AsyncIterator in their return annotation, so include it
     // whenever the surface defines any adapters (they emit `async def ... -> AsyncIterator[T]:`).
     let mut typing_parts: Vec<&str> = vec!["Any", "TypeVar"];
-    if needs_cast {
+    if needs_cast || !needed_converters.is_empty() {
         typing_parts.push("cast");
     }
     // AsyncIterator is only needed when at least one adapter uses the streaming pattern.
@@ -674,7 +674,9 @@ pub(super) fn gen_api_py(
         // have rebuilt `value` into a `{type_name}` instance. mypy cannot follow
         // those reassignments and would otherwise flag every `value.<field>`
         // access below as `Item "str" of "<TypeName> | str" has no attribute …`.
-        out.push_str(&format!("    assert isinstance(value, {type_name})\n"));
+        // Using `cast` instead of `assert isinstance` avoids ruff S101 in
+        // generated code while still narrowing for mypy at no runtime cost.
+        out.push_str(&format!("    value = cast({type_name}, value)\n"));
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/return_constructed.jinja",
             minijinja::context! {

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.6] - 2026-06-02
+
+### Fixed
+
+- **pyo3 converters: emit `value = cast(<Type>, value)` instead of `assert isinstance(value, <Type>)`.**
+  The 0.21.5 narrowing fix used `assert isinstance` which trips ruff `S101 (use of assert)` in generated `api.py`. `typing.cast` accomplishes the same mypy narrowing without runtime overhead and without tripping the lint. `cast` is also added to the typing imports whenever any converter is emitted (it lives behind `if needs_cast || !needed_converters.is_empty()`). (`src/backends/pyo3/gen_bindings/functions.rs`)
+
 ## [0.21.5] - 2026-06-02
 
 ### Fixed
