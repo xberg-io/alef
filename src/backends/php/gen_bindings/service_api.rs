@@ -17,7 +17,7 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
@@ -702,11 +702,11 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     }
 }
 
-/// Emit a verb-decorator variant method (e.g., `public function get(path, handler)`).
+/// Emit a verb-decorator variant method(s) based on the registration style.
 ///
-/// For each registered variant, emits a shortcut method named after the verb
-/// (lowercase) that directly calls the base registration method with fixed args
-/// (from overrides) and accepts free args as parameters.
+/// - `VerbDecorator`: Emit only the direct method form (e.g., `get(path, handler): App`)
+/// - `Builder`: Emit only the decorator-factory form (e.g., `getDecorator(path): Closure`)
+/// - `Hybrid`: Emit both direct method and decorator-factory
 fn gen_registration_variant(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
@@ -714,9 +714,10 @@ fn gen_registration_variant(
     base_method: &str,
 ) {
     let variant_name = variant.name.to_lowercase();
+    let callback_param = &reg.callback_param;
 
-    // Build the variant's parameter list from signature_params + callback
-    let mut variant_params: Vec<String> = variant
+    // Build the parameter list for metadata (non-callback) params
+    let meta_params: Vec<String> = variant
         .signature_params
         .iter()
         .map(|p| {
@@ -728,42 +729,113 @@ fn gen_registration_variant(
             }
         })
         .collect();
-    variant_params.push(format!("callable ${}", reg.callback_param));
 
-    let variant_sig = variant_params.join(", ");
+    // Build the full parameter list for direct method (metadata + callback)
+    let mut direct_params = meta_params.clone();
+    direct_params.push(format!("callable ${callback_param}"));
 
-    out.push_str(&format!(
-        "    public function {variant_name}({variant_sig}): callable\n    {{\n"
-    ));
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format_php_comment(doc, 8));
-    }
+    let meta_sig = meta_params.join(", ");
+    let direct_sig = direct_params.join(", ");
 
-    // Call base registration method with fixed overrides + free args
+    // Compute the base registration call arguments
     let mut call_args: Vec<String> = Vec::new();
-
-    // First, emit fixed overrides in the order they appear in the base metadata_params
     for base_param in &reg.metadata_params {
         if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
-            // Fixed: use the value expression verbatim
             call_args.push(override_.value_expr.clone());
-        } else {
-            // Check if this param is in the free signature_params
-            if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
-                call_args.push(format!("${}", sig_param.name));
-            }
+        } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
+            call_args.push(format!("${}", sig_param.name));
         }
     }
-
     let call_sig = call_args.join(", ");
-    let callback_param = &reg.callback_param;
 
-    out.push_str(&format!(
-        "        return function (callable ${callback_param}) {{\n            \
-         return $this->{base_method}({call_sig})(${callback_param});\n        \
-         }};\n",
-    ));
-    out.push_str("    }\n\n");
+    match variant.style {
+        RegistrationVariantStyle::VerbDecorator => {
+            // Emit direct method: $app->get(path, handler): App
+            out.push_str(&format!(
+                "    public function {variant_name}({direct_sig}): self\n    {{\n"
+            ));
+            if let Some(doc) = &variant.doc {
+                out.push_str(&format_php_comment(doc, 8));
+            }
+            out.push_str(&format!(
+                "        $this->registrations[] = ['{base_method}', [{}], ${callback_param}];\n",
+                call_args
+                    .iter()
+                    .filter_map(|arg| {
+                        // Extract variable names from arguments (those starting with '$')
+                        if arg.starts_with('$') {
+                            Some(arg.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            out.push_str("        return $this;\n");
+            out.push_str("    }\n\n");
+        }
+
+        RegistrationVariantStyle::Builder => {
+            // Emit decorator factory: $app->getDecorator(path): Closure
+            let factory_name = format!("{variant_name}Decorator");
+            out.push_str(&format!(
+                "    public function {factory_name}({meta_sig}): Closure\n    {{\n"
+            ));
+            if let Some(doc) = &variant.doc {
+                out.push_str(&format_php_comment(doc, 8));
+            }
+            out.push_str(&format!(
+                "        return function (callable ${callback_param}): self {{\n            \
+                 return $this->{base_method}({call_sig})(${callback_param});\n        \
+                 }};\n"
+            ));
+            out.push_str("    }\n\n");
+        }
+
+        RegistrationVariantStyle::Hybrid => {
+            // Emit both forms
+
+            // 1. Direct method: $app->get(path, handler): App
+            out.push_str(&format!(
+                "    public function {variant_name}({direct_sig}): self\n    {{\n"
+            ));
+            if let Some(doc) = &variant.doc {
+                out.push_str(&format_php_comment(doc, 8));
+            }
+            out.push_str(&format!(
+                "        $this->registrations[] = ['{base_method}', [{}], ${callback_param}];\n",
+                call_args
+                    .iter()
+                    .filter_map(|arg| {
+                        if arg.starts_with('$') {
+                            Some(arg.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            out.push_str("        return $this;\n");
+            out.push_str("    }\n\n");
+
+            // 2. Decorator factory: $app->getDecorator(path): Closure
+            let factory_name = format!("{variant_name}Decorator");
+            out.push_str(&format!(
+                "    public function {factory_name}({meta_sig}): Closure\n    {{\n"
+            ));
+            if let Some(doc) = &variant.doc {
+                out.push_str(&format_php_comment(doc, 8));
+            }
+            out.push_str(&format!(
+                "        return function (callable ${callback_param}): self {{\n            \
+                 return $this->{base_method}({call_sig})(${callback_param});\n        \
+                 }};\n"
+            ));
+            out.push_str("    }\n\n");
+        }
+    }
 }
 
 /// Map a `TypeRef` to a Rust type string for use in generated function signatures.
@@ -1178,6 +1250,308 @@ mod tests {
         assert!(
             output.contains("\"GET\""),
             "expected fixed override `\"GET\"` in variant:\n{output}"
+        );
+    }
+
+    /// `gen_service_php` emits only direct method form for VerbDecorator style.
+    #[test]
+    fn php_output_verb_decorator_style_direct_method_only() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantOverride};
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let registration = RegistrationDef {
+            method: "route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![
+                ParamDef {
+                    name: "method".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+            ],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: None,
+            doc: String::new(),
+            variants: vec![RegistrationVariant {
+                name: "GET".to_owned(),
+                overrides: vec![RegistrationVariantOverride {
+                    param_name: "method".to_owned(),
+                    value_expr: "\"GET\"".to_owned(),
+                }],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET route.".to_owned()),
+                style: RegistrationVariantStyle::VerbDecorator,
+            }],
+        };
+
+        let service = ServiceDef {
+            name: "Router".to_owned(),
+            rust_path: "my_crate::Router".to_owned(),
+            constructor,
+            configurators: vec![],
+            registrations: vec![registration],
+            entrypoints: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "0.1.0".to_owned(),
+            services: vec![service],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+
+        let output = gen_service_php(&api, "my_crate");
+
+        // Should contain direct method
+        assert!(
+            output.contains("public function get(string $path, callable $handler): self"),
+            "expected direct method form for VerbDecorator:\n{output}"
+        );
+
+        // Should NOT contain factory method
+        assert!(
+            !output.contains("public function getDecorator("),
+            "VerbDecorator should not emit factory method:\n{output}"
+        );
+    }
+
+    /// `gen_service_php` emits only decorator-factory form for Builder style.
+    #[test]
+    fn php_output_builder_style_factory_only() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantOverride};
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let registration = RegistrationDef {
+            method: "route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![
+                ParamDef {
+                    name: "method".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+            ],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: None,
+            doc: String::new(),
+            variants: vec![RegistrationVariant {
+                name: "GET".to_owned(),
+                overrides: vec![RegistrationVariantOverride {
+                    param_name: "method".to_owned(),
+                    value_expr: "\"GET\"".to_owned(),
+                }],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET route.".to_owned()),
+                style: RegistrationVariantStyle::Builder,
+            }],
+        };
+
+        let service = ServiceDef {
+            name: "Router".to_owned(),
+            rust_path: "my_crate::Router".to_owned(),
+            constructor,
+            configurators: vec![],
+            registrations: vec![registration],
+            entrypoints: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "0.1.0".to_owned(),
+            services: vec![service],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+
+        let output = gen_service_php(&api, "my_crate");
+
+        // Should contain factory method only
+        assert!(
+            output.contains("public function getDecorator(string $path): Closure"),
+            "expected factory method for Builder style:\n{output}"
+        );
+
+        // Should NOT contain direct method
+        assert!(
+            !output.contains("public function get(string $path, callable $handler): self"),
+            "Builder style should not emit direct method:\n{output}"
+        );
+    }
+
+    /// `gen_service_php` emits both forms for Hybrid style.
+    #[test]
+    fn php_output_hybrid_style_both_forms() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantOverride};
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let registration = RegistrationDef {
+            method: "route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![
+                ParamDef {
+                    name: "method".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                },
+            ],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: None,
+            doc: String::new(),
+            variants: vec![RegistrationVariant {
+                name: "GET".to_owned(),
+                overrides: vec![RegistrationVariantOverride {
+                    param_name: "method".to_owned(),
+                    value_expr: "\"GET\"".to_owned(),
+                }],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET route.".to_owned()),
+                style: RegistrationVariantStyle::Hybrid,
+            }],
+        };
+
+        let service = ServiceDef {
+            name: "Router".to_owned(),
+            rust_path: "my_crate::Router".to_owned(),
+            constructor,
+            configurators: vec![],
+            registrations: vec![registration],
+            entrypoints: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "0.1.0".to_owned(),
+            services: vec![service],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+
+        let output = gen_service_php(&api, "my_crate");
+
+        // Should contain both direct method and factory method
+        assert!(
+            output.contains("public function get(string $path, callable $handler): self"),
+            "expected direct method form for Hybrid:\n{output}"
+        );
+
+        assert!(
+            output.contains("public function getDecorator(string $path): Closure"),
+            "expected factory method for Hybrid style:\n{output}"
         );
     }
 
