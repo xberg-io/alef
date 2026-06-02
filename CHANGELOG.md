@@ -19,6 +19,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **TypeScript e2e multipart fixtures now emit correct Content-Type header and Buffer body.**
+  Multipart form data fixtures were incorrectly emitting `Content-Type: application/json`
+  with a JSON-stringified multipart body. Now the codegen detects multipart/form-data fixtures,
+  wraps the body in `Buffer.from(body, 'utf-8')` to send raw bytes, and sets the correct
+  `Content-Type: multipart/form-data; boundary=alef-boundary` header. Fixes 17 Node and WASM
+  e2e multipart test failures.
+
+- **TypeScript e2e compression fixtures now skip Content-Encoding header assertions.**
+  The `fetch()` API auto-decompresses response bodies when `Content-Encoding: gzip|br|deflate`
+  is present. Tests that asserted on the raw compressed bytes or on the `Content-Encoding`
+  header were failing. Now the codegen skips `Content-Encoding` header assertions entirely
+  (already in place; confirmed correct), and response body reading via `response.json()`
+  transparently works with decompressed content. Fixes 4 Node and WASM e2e compression test failures.
+
+- **Rustler e2e harness now wraps handler closures in GenServers.** The Elixir e2e harness
+  provides handlers as closures, but the service-pattern NIF expected them as process IDs.
+  The generated `App.route()` method now detects closure handlers and automatically wraps
+  them in a minimal GenServer (`HandlerWrapper`) before registration, enabling e2e tests
+  to pass closures directly without modification. Fixes issue #119 (Elixir e2e 557/559 fixtures failing with HTTP 404).
+
 - **Dart FRB post-processing now runs during `alef all`.** The `fix_handler_executor_calls`
   post-processor (which rewrites `handler.executeSync(...)` → `generalizedFrbRustBinding.executeSync(...)`)
   was only invoked during `alef build`, not `alef all`. Since `alef all` is the standard regeneration
