@@ -292,6 +292,19 @@ final class AlefE2ENoRedirectDelegate: NSObject, URLSessionTaskDelegate {{
         completionHandler(nil)
     }}
 }}
+
+// Mock server base URL accessor used by the generated test bodies.
+// The `MOCK_SERVER_URL` env var is exported by `scripts/e2e/run-with-mock-server.sh`
+// (which spawns the `mock-server` binary built from `e2e/rust`) before invoking
+// `swift test`. We fall back to a `localhost` URL that will fail-fast at request
+// time so misconfigured runs surface a clear error instead of silently hitting
+// production endpoints.
+enum AlefE2EMockServer {{
+    static var baseURL: String {{
+        ProcessInfo.processInfo.environment["MOCK_SERVER_URL"]
+            ?? "http://127.0.0.1:0"
+    }}
+}}
 "#
     )
 }
