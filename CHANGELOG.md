@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e c: Makefile prefers dynamic library and falls back cleanly to static link.**
+  The generated C e2e Makefile previously used a single `LDFLAGS = -L$(FFI_LIB_DIR) -Wl,-rpath,$(FFI_LIB_DIR) -l{lib}`
+  regardless of which artifacts were available, which fails at link time when only the static
+  archive `.a` exists (the `-l{lib}` flag cannot find a `.dylib`/`.so` and the static archive
+  needs system framework symbols supplied separately). `LIB_PATH` wildcard order now prefers
+  `.dylib`/`.so` over `.a`, and an `IS_DYNAMIC` detection variable selects between two
+  `LDFLAGS` formulations: dynamic linking via `-l{lib}` with rpath when a shared lib is
+  present, and direct static-archive path linking (`$(FFI_LIB_DIR)/lib{lib}.a`) as the
+  fallback. Surfaced on tslp's C e2e suite failing to link against the FFI lib when only the
+  static archive was emitted. (`src/e2e/codegen/c.rs`)
+
 - **Java Panama FFM symbol lookups now handle macOS C ABI underscore mangling.**
   On macOS (Mach-O), C symbols are prefixed with an underscore (e.g., `_ts_pack_detect_language`),
   but Panama FFM's `SymbolLookup` does not automatically handle this mangling. All method handle

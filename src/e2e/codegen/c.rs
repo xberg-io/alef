@@ -476,9 +476,10 @@ fn render_makefile(
     // BOTH header and lib are present locally. Without the lib check, a tree
     // that has the in-tree header but no local cargo build would skip the
     // download and then fail at link time with "library not found".
+    // Prefer dynamic library (.dylib on macOS, .so on Linux) for system-dependent symbols.
     let _ = writeln!(
         out,
-        "LIB_PATH := $(or $(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.so),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.dylib),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.a),$(wildcard ../../target/release/lib{link_lib_name}.so),$(wildcard ../../target/release/lib{link_lib_name}.dylib),$(wildcard ../../target/release/lib{link_lib_name}.a))"
+        "LIB_PATH := $(or $(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.dylib),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.so),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.a),$(wildcard ../../target/release/lib{link_lib_name}.dylib),$(wildcard ../../target/release/lib{link_lib_name}.so),$(wildcard ../../target/release/lib{link_lib_name}.a))"
     );
     let _ = writeln!(out);
 
@@ -493,12 +494,28 @@ fn render_makefile(
         "FFI_LIB_DIR = $(if $(wildcard $(FFI_DIR)/lib),$(FFI_DIR)/lib,$(if $(wildcard ../../target/release),../../target/release))"
     );
     let _ = writeln!(out);
-    let _ = writeln!(out, "ifneq ($(FFI_INCLUDE),)");
-    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_INCLUDE)");
+    // Detect if we're linking dynamic (.so/.dylib)
     let _ = writeln!(
         out,
-        "    LDFLAGS = -L$(FFI_LIB_DIR) -Wl,-rpath,$(FFI_LIB_DIR) -l{link_lib_name}"
+        "IS_DYNAMIC = $(if $(or $(wildcard $(FFI_LIB_DIR)/lib{link_lib_name}.dylib),$(wildcard $(FFI_LIB_DIR)/lib{link_lib_name}.so)),1,)"
     );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "ifneq ($(FFI_INCLUDE),)");
+    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_INCLUDE)");
+    // Use ifeq for cleaner linker flag logic (avoids comma confusion in nested $(if ...))
+    let _ = writeln!(out, "    ifneq ($(IS_DYNAMIC),)");
+    let _ = writeln!(out, "        # Link dynamically with rpath");
+    let _ = writeln!(
+        out,
+        "        LDFLAGS = -L$(FFI_LIB_DIR) -Wl,-rpath,$(FFI_LIB_DIR) -l{link_lib_name}"
+    );
+    let _ = writeln!(out, "    else");
+    let _ = writeln!(out, "        # Link statically (fallback)");
+    let _ = writeln!(
+        out,
+        "        LDFLAGS = -L$(FFI_LIB_DIR) $(FFI_LIB_DIR)/lib{link_lib_name}.a"
+    );
+    let _ = writeln!(out, "    endif");
     let _ = writeln!(out, "else");
     let _ = writeln!(
         out,
