@@ -101,6 +101,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This public function is then called to obtain the function pointer safely. Fixes
   `go build` failures across all Go-consuming bindings.
 
+## [0.21.3] - 2026-06-02
+
+### Fixed
+
+- **Ruby scaffold: emit `RbSys::ExtensionTask` instead of `Rake::ExtensionTask`.**
+  With `Rake::ExtensionTask`, the parameterized `native[$target]` rake task is
+  not registered even when `cross_compile = true` is set — leading to
+  `rake aborted! Don't know how to build task 'native'` in CI on every
+  platform. The rb-sys-managed `RbSys::ExtensionTask` subclass properly
+  registers the parameterized task and integrates with `rb-sys-dock` for
+  Windows cross-compilation. The Gemfile already pins `rb_sys ~> 0.9` so the
+  require is available.
+
 ## [0.21.2] - 2026-06-02
 
 ### Added

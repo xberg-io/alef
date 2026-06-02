@@ -1086,7 +1086,7 @@ fn test_scaffold_ruby_production_features() {
     assert_eq!(files[1].path, PathBuf::from("packages/ruby/.rubocop.yml"));
     // Check for Rakefile generation
     assert_eq!(files[2].path, PathBuf::from("packages/ruby/Rakefile"));
-    assert!(files[2].content.contains("Rake::ExtensionTask"));
+    assert!(files[2].content.contains("RbSys::ExtensionTask"));
     assert!(files[2].content.contains("my_lib_rb"));
     // Check for extconf.rb generation
     assert_eq!(
