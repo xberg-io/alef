@@ -70,21 +70,19 @@ fn apply_bridge_none_substitutions(call_args: &str, func: &FunctionDef, bridge_n
 }
 
 fn promoted_default_param_names<'a>(
-    params: &'a [crate::core::ir::ParamDef],
-    default_types: &AHashSet<String>,
-    opaque_types: &AHashSet<String>,
+    _params: &'a [crate::core::ir::ParamDef],
+    _default_types: &AHashSet<String>,
+    _opaque_types: &AHashSet<String>,
 ) -> AHashSet<&'a str> {
-    params
-        .iter()
-        .filter_map(|p| match &p.ty {
-            TypeRef::Named(name)
-                if !p.optional && !opaque_types.contains(name.as_str()) && default_types.contains(name.as_str()) =>
-            {
-                Some(p.name.as_str())
-            }
-            _ => None,
-        })
-        .collect()
+    // Kept in lockstep with `promote_default_params`: since required
+    // default-typed params no longer get promoted to optional in the PHP
+    // signature, there are also no names whose call-site argument should be
+    // rewritten to `<arg>.unwrap_or_default()`. Returning an empty set keeps
+    // `apply_default_param_substitutions` a no-op for these params and
+    // prevents emitting `&req_core.unwrap_or_default()` on a value that is
+    // already `T` rather than `Option<T>` (which fails to compile when `T`
+    // has no `Option::unwrap_or_default` of its own).
+    AHashSet::new()
 }
 
 fn promote_default_params(
