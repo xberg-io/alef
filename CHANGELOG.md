@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **scaffold/zig: tag the `build.zig.zon` README code fence with `text`.** The
+  scaffolded README emitted a bare fence for the dependencies snippet, which
+  rumdl-fmt (MD040) keeps re-tagging with `text` while the next `sync-versions`
+  regeneration strips it again — an idempotence fight that left the working tree
+  permanently dirty. Emit `text` directly so both passes converge.
+
 ## [0.21.1] - 2026-06-02
 
 ### Fixed

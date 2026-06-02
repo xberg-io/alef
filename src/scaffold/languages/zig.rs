@@ -107,7 +107,7 @@ zig build test
 
 Add to your `build.zig.zon`:
 
-```
+```text
 .dependencies = .{{
     .{module_name} = .{{
         .path = "path/to/{module_name}",
