@@ -543,6 +543,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_enum_struct_from_core_arm.jinja"),
     ),
     (
+        "rust_enum_struct_stripped_from_core_arm.jinja",
+        include_str!("templates/rust_enum_struct_stripped_from_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_tuple_stripped_from_core_arm.jinja",
+        include_str!("templates/rust_enum_tuple_stripped_from_core_arm.jinja"),
+    ),
+    (
         "enum_data_variants_todo.jinja",
         include_str!("templates/enum_data_variants_todo.jinja"),
     ),
