@@ -311,7 +311,9 @@ pub mod nuget {
 
 pub mod hex {
     // renovate: datasource=hex depName=rustler
-    pub const RUSTLER: &str = "~> 0.38.0";
+    // Version ">= 0.37" accepts both 0.37.x (stable) and 0.38.x (newly released).
+    // This avoids lock file conflicts for consumers with older dependencies.
+    pub const RUSTLER: &str = ">= 0.37";
 
     // renovate: datasource=hex depName=rustler_precompiled
     pub const RUSTLER_PRECOMPILED: &str = "~> 0.9";
@@ -447,5 +449,5 @@ pub mod precommit {
     pub const SAMPLE_CRATE_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.22.15";
+    pub const ALEF_REV: &str = "v0.22.16";
 }
