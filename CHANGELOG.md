@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.12] - 2026-06-03
+
+### Fixed
+
+- fix(dart/frb): register `rust_enum_struct_stripped_from_core_arm.jinja` and `rust_enum_tuple_stripped_from_core_arm.jinja` in the dart backend's static template environment. The two jinja files were created in v0.22.11 but not added to the `TEMPLATES` array in `template_env.rs`, causing a runtime panic "template not found" when alef generated Dart bindings for crates with binding-excluded enum variant fields. (`src/backends/dart/template_env.rs`)
+
 ## [0.22.11] - 2026-06-03
 
 ### Fixed
