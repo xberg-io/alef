@@ -52,9 +52,12 @@ fn typed_default_fn(default: &DefaultValue, ty: &TypeRef) -> Option<(&'static st
         (DefaultValue::BoolLiteral(value), TypeRef::Primitive(PrimitiveType::Bool)) => {
             Some(("bool", value.to_string()))
         }
+        // Only emit String-returning fn for actual String fields. Named (enum-backed struct
+        // wrapper) fields would mismatch the wrapped Named return type at compile time, so
+        // skip emission and let serde fall back to Default for the wrapped type.
         (
             DefaultValue::StringLiteral(value) | DefaultValue::EnumVariant(value),
-            TypeRef::String | TypeRef::Named(_),
+            TypeRef::String,
         ) => Some(("String", format!("{value:?}.to_string()"))),
         (DefaultValue::IntLiteral(value), TypeRef::Primitive(primitive)) => {
             let return_type = match primitive {
