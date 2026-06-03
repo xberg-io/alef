@@ -769,8 +769,13 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         let method = ctx.method.to_lowercase();
         // Force HTTP/1 on every request: the mock server is HTTP/1.1 and Req's
-        // default HTTP/2 negotiation fails with `:pool_not_available`.
-        let mut opts: Vec<String> = vec![REQ_HTTP1_OPT.to_string()];
+        // default HTTP/2 negotiation fails with `:pool_not_available`. Also provide
+        // the finch: AlefE2EFinch option so the test uses the named Finch pool started
+        // in test_helper.exs instead of Req's default lazy init.
+        let mut opts: Vec<String> = vec![
+            REQ_HTTP1_OPT.to_string(),
+            "finch: AlefE2EFinch".to_string(),
+        ];
 
         if let Some(body) = ctx.body {
             let elixir_val = json_to_elixir(body);

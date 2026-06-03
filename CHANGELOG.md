@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(elixir): start named Finch HTTP pool in e2e test_helper before ExUnit, and pass `finch: AlefE2EFinch` in every generated Req call. When tests invoke `Req.{get,post,...}(connect_options: [protocols: [:http1]], ...)`, they bypass Req's default lazy Finch init, requiring an explicit named supervisor. The Finch hex package is now an explicit test dependency in generated mix.exs. Closes #133 (#133)
+
 ## [0.21.8] - 2026-06-03
 
 ### Fixed
