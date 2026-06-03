@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(e2e/typescript): emit `_alefE2eDecompressAndParseJson` helper in HTTP-only test files that declare a non-string JSON body, a partial body, or validation-error assertions. The helper was previously only emitted when `has_non_http_fixtures` was true (non-HTTP function-call fixtures), so HTTP-only category files that used the helper via `http_test.jinja` conditional branches produced "cannot find function" TypeScript compile errors. `http_fixtures_need_decompress_helper` now gates helper emission independently of non-HTTP fixture presence. Added snapshot test asserting the helper is defined when an HTTP fixture declares a JSON body. (`src/e2e/codegen/typescript/test_file.rs`)
+
 ## [0.22.7] - 2026-06-03
 
 ### Fixed
