@@ -400,7 +400,7 @@ fn is_php_scalar(ty: &TypeRef, enum_names: &HashSet<String>) -> bool {
 fn render_composer_json(
     e2e_pkg_name: &str,
     e2e_autoload_ns: &str,
-    extension_name: &str,
+    _extension_name: &str,
     pkg_name: &str,
     pkg_path: &str,
     _pkg_version: &str,
@@ -408,26 +408,29 @@ fn render_composer_json(
 ) -> String {
     let (require_section, autoload_section) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // For `type: php-ext` packages the canonical consumer shape (mirroring
-            // asgrim/example-pie-extension) declares a platform require on
-            // `ext-<name>: "*"` rather than a direct Composer package require.
-            // Composer's platform resolver checks `php -m` for the extension and
-            // treats the require as satisfied once PIE has installed the .so.
+            // Registry-mode test_apps run `install.sh` before `composer install`.
+            // That script bootstraps PIE and installs the extension binary into the
+            // system's extension_dir. Once PIE has installed the extension, it will
+            // be loaded when PHP starts (via default php.ini or explicit `-dextension=`).
             //
-            // A direct `"{pkg_name}": "{pkg_version}"` require fails because
-            // Composer's resolver cross-checks `ext-<name>` against `php -m` and
-            // emits "found but not loaded, likely conflicts" when the extension
-            // hasn't been loaded yet — before `pie install` has run.
+            // The test_app's composer.json does NOT declare `ext-<name>` as a requirement
+            // because:
+            // 1. The extension is installed via PIE, not Composer (Composer can't install
+            //    system binaries).
+            // 2. Declaring `ext-<name>: "*"` in composer.json causes Composer's platform
+            //    resolver to check `php -m` for the extension. If the extension hasn't
+            //    been loaded into the running PHP process yet (which it won't be until
+            //    a fresh PHP invocation with the extension loaded), Composer fails with
+            //    "Root composer.json requires PHP extension ext-<name> * but it is missing".
+            // 3. The extension is guaranteed to be loaded before tests run (install.sh
+            //    ensures this).
             //
-            // `minimum-stability: "dev"` / `prefer-stable: true` are no longer
-            // needed: the platform require `ext-<name>: "*"` carries no stability
-            // constraint, and `php: ">=8.2"` is a platform constraint that is always
-            // satisfied on CI runners. The PIE install step (install.sh) is
-            // responsible for resolving the correct release version.
+            // `php: ">=8.2"` is sufficient — Composer verifies the PHP version at runtime
+            // (always satisfied on CI runners) and development dependencies (phpunit, guzzle)
+            // are the only packages Composer needs to manage.
             let require = format!(
                 r#"  "require": {{
-    "php": ">=8.2",
-    "ext-{extension_name}": "*"
+    "php": ">=8.2"
   }},
   "require-dev": {{
     "phpunit/phpunit": "{phpunit}",
@@ -3200,7 +3203,7 @@ mod composer_json_tests {
     use crate::e2e::config::DependencyMode;
 
     #[test]
-    fn registry_composer_json_uses_ext_platform_req() {
+    fn registry_composer_json_omits_ext_platform_req() {
         let content = render_composer_json(
             "sample_crate/e2e-php",
             "SampleLlm\\\\E2e\\\\",
@@ -3210,10 +3213,14 @@ mod composer_json_tests {
             "1.4.0-rc.32",
             DependencyMode::Registry,
         );
-        // Must declare the ext-<name> platform require.
+        // Must NOT declare the ext-<name> platform require. The extension is
+        // installed via PIE (in install.sh) before `composer install` runs, so
+        // Composer doesn't manage it. Declaring ext-<name> in composer.json causes
+        // Composer's platform resolver to fail when the extension hasn't been
+        // loaded into the current PHP process yet.
         assert!(
-            content.contains(r#""ext-sample_llm": "*""#),
-            "registry composer.json must require ext-sample_llm: *, got:\n{content}"
+            !content.contains(r#""ext-sample_llm":"#),
+            "registry composer.json must NOT require ext-sample_llm (PIE installs it), got:\n{content}"
         );
         // Must declare the php platform require.
         assert!(
@@ -3227,7 +3234,7 @@ mod composer_json_tests {
             "registry composer.json must not contain a direct package require, got:\n{content}"
         );
         // Must NOT carry minimum-stability / prefer-stable (not load-bearing with
-        // platform reqs only).
+        // only php platform req).
         assert!(
             !content.contains("minimum-stability"),
             "registry composer.json must not contain minimum-stability, got:\n{content}"
