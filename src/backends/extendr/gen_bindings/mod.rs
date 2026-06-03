@@ -4131,6 +4131,7 @@ package_name = "testlib"
                         is_tuple: true,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        originally_had_data_fields: false,
                     },
                     EnumVariant {
                         name: "Binary".to_string(),
@@ -4141,6 +4142,7 @@ package_name = "testlib"
                         is_tuple: true,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        originally_had_data_fields: false,
                     },
                 ],
                 doc: "Wire payload variants.".to_string(),
@@ -4361,6 +4363,7 @@ exclude_languages = ["r"]
                     doc: String::new(),
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    originally_had_data_fields: false,
                 },
                 EnumVariant {
                     name: "Err".to_string(),
@@ -4371,6 +4374,7 @@ exclude_languages = ["r"]
                     doc: String::new(),
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    originally_had_data_fields: false,
                 },
             ],
             doc: String::new(),

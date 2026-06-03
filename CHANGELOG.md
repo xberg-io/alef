@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.11] - 2026-06-03
+
+### Fixed
+
+- fix(dart/frb): emit correct wildcard patterns for enum/error variants whose fields are all `alef(skip)`-annotated. Previously the `From<CoreType>` and mirror `From` impls emitted bare unit patterns (`Foo =>`) for struct and tuple variants with all fields skipped, causing E0533. Now emits `Foo { .. }` for struct variants and `Foo(..)` for tuple variants. (`src/backends/dart/gen_rust_crate/mod.rs`, `src/backends/dart/gen_rust_crate/mirror.rs`, `src/core/ir.rs`, `src/extract/extractor/types.rs`, `src/cli/pipeline/extract.rs`, plus new templates `rust_enum_struct_stripped_from_core_arm.jinja` and `rust_enum_tuple_stripped_from_core_arm.jinja`)
+- fix(dart/frb): emit `mut` prefix for opaque-handle parameters declared with `is_mut`, so `&mut handle.inner` in the bridge function body compiles without E0596. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
+
 ## [0.22.10] - 2026-06-03
 
 ### Fixed

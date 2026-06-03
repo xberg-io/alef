@@ -516,6 +516,7 @@ mod tests {
                 has_source: false,
                 has_from: false,
                 is_unit: true,
+                is_tuple: false,
                 doc: "I/O error.".to_string(),
             }],
             doc: "Library errors.".to_string(),
@@ -587,6 +588,7 @@ mod tests {
             has_source: false,
             has_from: false,
             is_unit: true,
+            is_tuple: false,
             doc: String::new(),
         };
         let make_error = |name: &str, variants: Vec<&str>| ErrorDef {

@@ -1748,6 +1748,7 @@ mod tests {
                     has_source: false,
                     has_from: false,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 },
                 ErrorVariant {
@@ -1757,6 +1758,7 @@ mod tests {
                     has_source: false,
                     has_from: true,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 },
                 ErrorVariant {
@@ -1766,6 +1768,7 @@ mod tests {
                     has_source: false,
                     has_from: false,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 },
             ],
@@ -1819,6 +1822,7 @@ mod tests {
                 has_source: false,
                 has_from: false,
                 is_unit: true,
+                is_tuple: false,
                 doc: String::new(),
             }],
             doc: String::new(),
@@ -1845,6 +1849,7 @@ mod tests {
                 has_source: false,
                 has_from: false,
                 is_unit: false,
+                is_tuple: false,
                 doc: String::new(),
             }],
             doc: String::new(),
@@ -1900,6 +1905,7 @@ mod tests {
                 has_source: false,
                 has_from: false,
                 is_unit: true,
+                is_tuple: false,
                 doc: String::new(),
             }],
             doc: String::new(),
@@ -2036,6 +2042,7 @@ mod tests {
                 has_source: false,
                 has_from: false,
                 is_unit: true,
+                is_tuple: false,
                 doc: String::new(),
             }],
             methods: vec![
@@ -2291,6 +2298,7 @@ mod tests {
             has_source: false,
             has_from: false,
             is_unit: false,
+            is_tuple: false,
             doc: String::new(),
         };
         // Template "I/O error: {0}" → strip → "I/O error" → first token "I/O" not an acronym (with `/`),
@@ -2308,6 +2316,7 @@ mod tests {
             has_source: false,
             has_from: false,
             is_unit: false,
+            is_tuple: false,
             doc: String::new(),
         };
         assert_eq!(variant_display_message(&variant), "IO error");
@@ -2322,6 +2331,7 @@ mod tests {
             has_source: false,
             has_from: false,
             is_unit: false,
+            is_tuple: false,
             doc: String::new(),
         };
         let msg = variant_display_message(&variant);
@@ -2342,6 +2352,7 @@ mod tests {
                     has_source: false,
                     has_from: false,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 },
                 ErrorVariant {
@@ -2351,6 +2362,7 @@ mod tests {
                     has_source: false,
                     has_from: false,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 },
                 ErrorVariant {
@@ -2362,6 +2374,7 @@ mod tests {
                     has_source: false,
                     has_from: false,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 },
             ],

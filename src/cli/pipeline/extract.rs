@@ -529,15 +529,41 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
         }
     }
 
+    // Enum variant binding_excluded fields are RETAINED in the IR (like struct fields) so
+    // that "to core" conversion codegen can initialize them with Default::default().
+    // The `originally_had_data_fields` flag is set when all fields are binding_excluded so
+    // that codegen can emit wildcard patterns on the core-type side. Mirror emitters skip
+    // binding_excluded fields when building the public binding surface.
     for enum_def in &mut api.enums {
+        let excluded: Vec<String> = enum_def
+            .variants
+            .iter()
+            .flat_map(|variant| {
+                variant.fields.iter().filter(|f| f.binding_excluded).map(|f| {
+                    let reason = f.binding_exclusion_reason.as_deref().unwrap_or("source binding exclusion");
+                    format!("{}::{}.{} ({reason})", enum_def.name, variant.name, f.name)
+                })
+            })
+            .collect();
+        if !excluded.is_empty() {
+            info!("Hiding binding-excluded enum variant fields: {}", excluded.join(", "));
+        }
         for variant in &mut enum_def.variants {
-            variant.fields.retain(|field| !field.binding_excluded);
+            // Set flag when ALL fields are binding_excluded so codegen knows the core type
+            // still has data fields even though the mirror shows a unit variant.
+            if !variant.fields.is_empty() && variant.fields.iter().all(|f| f.binding_excluded) {
+                variant.originally_had_data_fields = true;
+            }
+            // Do NOT strip — retain fields so to-core conversion codegen can use them.
         }
     }
 
+    // Error variants: same retention policy for binding_excluded fields.
     for error_def in &mut api.errors {
         for variant in &mut error_def.variants {
-            variant.fields.retain(|field| !field.binding_excluded);
+            // Fields are retained; the is_tuple flag (set during extraction) lets codegen
+            // distinguish tuple vs struct variants for wildcard/default-init patterns.
+            let _ = variant; // retention is implicit — no retain() call
         }
     }
 

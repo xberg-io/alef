@@ -202,9 +202,10 @@ fn unit_enum_emits_enum_class() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                    is_tuple: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -212,9 +213,10 @@ fn unit_enum_emits_enum_class() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
-                    is_tuple: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
                 },
             ],
             doc: String::new(),
@@ -335,6 +337,7 @@ fn unit_error_variant_emits_sealed_class() {
                     has_source: false,
                     has_from: false,
                     is_unit: true,
+                    is_tuple: false,
                     doc: String::new(),
                 },
                 ErrorVariant {
@@ -344,6 +347,7 @@ fn unit_error_variant_emits_sealed_class() {
                     has_source: false,
                     has_from: false,
                     is_unit: true,
+                    is_tuple: false,
                     doc: String::new(),
                 },
             ],
@@ -387,6 +391,7 @@ fn error_variant_with_fields_emits_data_class() {
                 has_source: false,
                 has_from: false,
                 is_unit: false,
+                is_tuple: false,
                 doc: String::new(),
             }],
             doc: String::new(),
@@ -429,6 +434,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
                 has_source: false,
                 has_from: false,
                 is_unit: true,
+                is_tuple: false,
                 doc: String::new(),
             }],
             doc: String::new(),
@@ -1260,9 +1266,10 @@ fn make_enum_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         doc: String::new(),
         is_default: false,
         serde_rename: None,
-        is_tuple: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        is_tuple: false,
+        originally_had_data_fields: false,
     }
 }
 
@@ -1274,6 +1281,7 @@ fn make_error_variant(name: &str, fields: Vec<FieldDef>, message: &str) -> Error
         has_source: false,
         has_from: false,
         is_unit: false,
+        is_tuple: false,
         doc: String::new(),
     }
 }

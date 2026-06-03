@@ -686,6 +686,12 @@ pub struct EnumVariant {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_exclusion_reason: Option<String>,
+    /// True when this variant had data fields in the source, but all were stripped by
+    /// `strip_binding_excluded` (i.e. all fields carry `#[cfg_attr(alef, alef(skip))]`).
+    /// Used by codegen to emit wildcard patterns (`{ .. }` or `(..)`) rather than a bare
+    /// unit pattern, which would be a compiler error against the real core type.
+    #[serde(default)]
+    pub originally_had_data_fields: bool,
 }
 
 /// An error type (enum used in Result<T, E>).
@@ -713,7 +719,7 @@ pub struct ErrorDef {
 }
 
 /// An error variant.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ErrorVariant {
     pub name: String,
     /// The `#[error("...")]` message template string, e.g. `"I/O error: {0}"`.
@@ -730,6 +736,11 @@ pub struct ErrorVariant {
     /// True if this is a unit variant (no fields).
     #[serde(default)]
     pub is_unit: bool,
+    /// True if this is a tuple variant (unnamed fields like `Variant(T1, T2)`).
+    /// Needed by codegen to emit the correct wildcard pattern (`(..)`) when all
+    /// fields are `binding_excluded` and stripped before codegen runs.
+    #[serde(default)]
+    pub is_tuple: bool,
     pub doc: String,
 }
 
