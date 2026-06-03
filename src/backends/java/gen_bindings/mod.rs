@@ -432,7 +432,7 @@ impl Backend for JavaBackend {
             }
         }
 
-        // 7. Visitor support files (only when ConversionOptions/ConversionResult types exist)
+        // 7. Visitor support files (only when compatible trait-bridge metadata exists)
         if has_visitor_pattern {
             for (filename, content) in crate::backends::java::gen_visitor::gen_visitor_files(&package, &main_class) {
                 files.push(GeneratedFile {

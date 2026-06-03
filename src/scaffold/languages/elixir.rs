@@ -204,9 +204,17 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // Use a list literal for targets so mix format can wrap each target on its own line.
     // This ensures idempotent formatting regardless of the number of targets or library name length.
     let nif_targets_list: Vec<&str> = nif_targets.split_whitespace().collect();
+    let last_idx = nif_targets_list.len().saturating_sub(1);
     let targets_lines = nif_targets_list
         .iter()
-        .map(|target| format!("            \"{target}\","))
+        .enumerate()
+        .map(|(idx, target)| {
+            if idx == last_idx {
+                format!("            \"{target}\"")
+            } else {
+                format!("            \"{target}\",")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let rustler_crates_block = format!(

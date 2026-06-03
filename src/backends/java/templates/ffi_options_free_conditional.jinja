@@ -1,4 +1,4 @@
-                if (!{{ options_ptr | default("optionsPtr") }}.equals(MemorySegment.NULL)) {
-                    NativeLib.{{ pu }}_{{ options_type_handle | default("CONVERSION_OPTIONS") }}_FREE.invoke({{ options_ptr | default("optionsPtr") }});
-                    {{ options_ptr | default("optionsPtr") }} = MemorySegment.NULL;
+                if (!{{ options_ptr }}.equals(MemorySegment.NULL)) {
+                    NativeLib.{{ pu }}_{{ options_type_handle }}_FREE.invoke({{ options_ptr }});
+                    {{ options_ptr }} = MemorySegment.NULL;
                 }

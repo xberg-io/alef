@@ -319,7 +319,7 @@ impl E2eCodegen for CCodegen {
         if !visitor_fixtures.is_empty() {
             files.push(GeneratedFile {
                 path: output_base.join("test_visitor.c"),
-                content: render_visitor_test_file(&visitor_fixtures, &header, &prefix, e2e_config, config),
+                content: render_visitor_test_file(&visitor_fixtures, &header, &prefix, e2e_config),
                 generated_header: true,
             });
         }
@@ -1888,9 +1888,9 @@ fn render_test_function(
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             if let Some(val) = fixture.input.get(field) {
                 if !val.is_null() {
-                    // Fixture keys are camelCase; the FFI htm_conversion_options_from_json
-                    // deserializes into the Rust ConversionOptions type which uses default
-                    // serde (snake_case). Normalize keys before serializing.
+                    // Fixture keys are camelCase; generated FFI from_json helpers
+                    // deserialize into Rust types using serde's configured casing.
+                    // Normalize keys before serializing.
                     let normalized = super::transform_json_keys_for_language(val, "snake_case");
                     let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                     let escaped = escape_c(&json_str);
@@ -3822,7 +3822,7 @@ fn json_to_c(value: &serde_json::Value) -> String {
 ///
 /// Each test:
 /// 1. Defines static C callback functions for each configured callback slot.
-/// 2. Zero-initialises a `HTMHtmVisitorCallbacks` struct and wires each slot.
+/// 2. Zero-initialises the generated visitor callback struct and wires each slot.
 /// 3. Creates a visitor handle via the configured FFI prefix.
 /// 4. Creates an options handle via the resolved options type's `from_json` symbol.
 /// 5. Attaches the visitor via the configured FFI prefix.
@@ -3830,13 +3830,7 @@ fn json_to_c(value: &serde_json::Value) -> String {
 /// 7. Extracts fields via `alef_json_get_string` and runs `contains`/`not_contains`
 ///    assertions with `assert(…)`.
 /// 8. Frees all handles in reverse allocation order.
-fn render_visitor_test_file(
-    fixtures: &[&Fixture],
-    header: &str,
-    prefix: &str,
-    e2e_config: &E2eConfig,
-    config: &ResolvedCrateConfig,
-) -> String {
+fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str, e2e_config: &E2eConfig) -> String {
     use crate::e2e::fixture::CallbackAction;
 
     let mut out = String::new();
@@ -3861,14 +3855,13 @@ fn render_visitor_test_file(
     for (i, fixture) in fixtures.iter().enumerate() {
         let fn_name = sanitize_ident(&fixture.id);
         let description = &fixture.description;
-        let call_config = e2e_config
-            .resolve_call_for_fixture(
-                fixture.call.as_deref(),
-                &fixture.id,
-                &fixture.resolved_category(),
-                &fixture.tags,
-                &fixture.input,
-            );
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
         let call_info = resolve_call_info(call_config, "c");
         let function_name = call_info.function_name.as_str();
         let options_type_name = call_info.options_type_name.as_str();
@@ -3932,17 +3925,14 @@ fn render_visitor_test_file(
             out,
             "    {prefix_upper}{options_type_name}* _options = {prefix}_{options_type_snake}_from_json(\"{options_escaped}\");"
         );
-        let _ = writeln!(
-            out,
-            "    assert(_options != NULL && \"options from_json failed\");"
-        );
+        let _ = writeln!(out, "    assert(_options != NULL && \"options from_json failed\");");
         let _ = writeln!(out);
 
         // Attach visitor to options.
         let _ = writeln!(out, "    {prefix}_options_set_visitor_handle(_options, _visitor);");
         let _ = writeln!(out);
 
-        // Call htm_convert.
+        // Call the configured C FFI function.
         let _ = writeln!(
             out,
             "    {prefix_upper}{result_type_name}* _result = {function_name}(\"{html_escaped}\", _options);"
@@ -4006,84 +3996,122 @@ fn render_visitor_test_file(
 
 /// C function-pointer parameter list for a given visitor callback method.
 ///
-/// Mirrors the cbindgen-emitted `HTMHtmVisitorCallbacks` slot signatures from
+/// Mirrors the cbindgen-emitted visitor callback slot signatures from
 /// the generated FFI header. Named parameters
 /// are prefixed with `_` so the C compiler does not warn about unused params when
 /// the callback body ignores them.
 fn c_visitor_callback_params(method: &str, context_type: &str) -> String {
     match method {
         "visit_text" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len"
+            )
         }
         "visit_element_start" => {
             format!("const {context_type}* _ctx, void* _user_data, char** out_custom, size_t* out_len")
         }
         "visit_element_end" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
+            )
         }
         "visit_link" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _href, const char* _text, const char* _title, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _href, const char* _text, const char* _title, char** out_custom, size_t* out_len"
+            )
         }
         "visit_image" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _src, const char* _alt, const char* _title, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _src, const char* _alt, const char* _title, char** out_custom, size_t* out_len"
+            )
         }
         "visit_heading" => {
-            format!("const {context_type}* _ctx, void* _user_data, uint32_t _level, const char* _text, const char* _id, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, uint32_t _level, const char* _text, const char* _id, char** out_custom, size_t* out_len"
+            )
         }
         "visit_code_block" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _lang, const char* _code, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _lang, const char* _code, char** out_custom, size_t* out_len"
+            )
         }
         "visit_code_inline" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _code, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _code, char** out_custom, size_t* out_len"
+            )
         }
         "visit_list_item" => {
-            format!("const {context_type}* _ctx, void* _user_data, int32_t _ordered, const char* _marker, const char* _text, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, int32_t _ordered, const char* _marker, const char* _text, char** out_custom, size_t* out_len"
+            )
         }
         "visit_list_start" => {
-            format!("const {context_type}* _ctx, void* _user_data, int32_t _ordered, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, int32_t _ordered, char** out_custom, size_t* out_len"
+            )
         }
         "visit_list_end" => {
-            format!("const {context_type}* _ctx, void* _user_data, int32_t _ordered, const char* _output, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, int32_t _ordered, const char* _output, char** out_custom, size_t* out_len"
+            )
         }
         "visit_table_start" => {
             format!("const {context_type}* _ctx, void* _user_data, char** out_custom, size_t* out_len")
         }
         "visit_table_row" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* const* _cells, size_t _cell_count, int32_t _is_header, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* const* _cells, size_t _cell_count, int32_t _is_header, char** out_custom, size_t* out_len"
+            )
         }
         "visit_table_end" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
+            )
         }
         "visit_blockquote" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _content, size_t _depth, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _content, size_t _depth, char** out_custom, size_t* out_len"
+            )
         }
         "visit_line_break" | "visit_horizontal_rule" | "visit_definition_list_start" | "visit_figure_start" => {
             format!("const {context_type}* _ctx, void* _user_data, char** out_custom, size_t* out_len")
         }
         "visit_custom_element" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _tag_name, const char* _html, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _tag_name, const char* _html, char** out_custom, size_t* out_len"
+            )
         }
         "visit_form" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _action, const char* _method, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _action, const char* _method, char** out_custom, size_t* out_len"
+            )
         }
         "visit_input" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _input_type, const char* _name, const char* _value, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _input_type, const char* _name, const char* _value, char** out_custom, size_t* out_len"
+            )
         }
         "visit_audio" | "visit_video" | "visit_iframe" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _src, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _src, char** out_custom, size_t* out_len"
+            )
         }
         "visit_details" => {
             format!("const {context_type}* _ctx, void* _user_data, int32_t _open, char** out_custom, size_t* out_len")
         }
         "visit_figure_end" | "visit_definition_list_end" => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _output, char** out_custom, size_t* out_len"
+            )
         }
         // Default: single text payload (covers visit_strong, visit_emphasis,
         // visit_strikethrough, visit_underline, visit_subscript, visit_superscript,
         // visit_mark, visit_button, visit_summary, visit_figcaption,
         // visit_definition_term, visit_definition_description).
         _ => {
-            format!("const {context_type}* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len")
+            format!(
+                "const {context_type}* _ctx, void* _user_data, const char* _text, char** out_custom, size_t* out_len"
+            )
         }
     }
 }
@@ -4295,4 +4323,106 @@ pub fn emit_test_backend(
     _fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
     unimplemented!("test_backend emission not yet implemented")
+}
+
+#[cfg(test)]
+mod visitor_tests {
+    use super::{c_visitor_fixture_has_typed_call, render_visitor_test_file};
+    use crate::core::config::e2e::{CallConfig, CallOverride, E2eConfig};
+    use crate::e2e::fixture::{Assertion, CallbackAction, Fixture, VisitorSpec};
+    use std::collections::BTreeMap;
+
+    fn visitor_fixture() -> Fixture {
+        let mut callbacks = BTreeMap::new();
+        callbacks.insert("visit_text".to_string(), CallbackAction::Continue);
+
+        Fixture {
+            id: "custom_names".to_string(),
+            category: None,
+            description: "uses configured names".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({
+                "html": "<p>Hello</p>",
+                "options": { "trim": true }
+            }),
+            mock_response: None,
+            visitor: Some(VisitorSpec { callbacks }),
+            args: vec![],
+            assertions: vec![Assertion {
+                assertion_type: "contains".to_string(),
+                field: None,
+                value: Some(serde_json::json!("Hello")),
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+                return_type: None,
+            }],
+            source: String::new(),
+            http: None,
+        }
+    }
+
+    fn e2e_config_with_c_call() -> E2eConfig {
+        let c_override = CallOverride {
+            function: Some("krz_render_document".to_string()),
+            prefix: Some("krz".to_string()),
+            options_type: Some("RenderConfig".to_string()),
+            result_type: Some("RenderOutput".to_string()),
+            ..Default::default()
+        };
+        let call = CallConfig {
+            function: "render_document".to_string(),
+            overrides: [("c".to_string(), c_override)].into(),
+            ..Default::default()
+        };
+        E2eConfig {
+            call,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn c_visitor_file_uses_configured_call_types_and_symbols() {
+        let fixture = visitor_fixture();
+        let fixtures = vec![&fixture];
+        let content = render_visitor_test_file(&fixtures, "krz.h", "krz", &e2e_config_with_c_call());
+
+        assert!(content.contains("KRZKrzVisitorCallbacks _callbacks"));
+        assert!(content.contains("const KRZKrzNodeContext* _ctx"));
+        assert!(content.contains("KRZRenderConfig* _options = krz_render_config_from_json"));
+        assert!(content.contains("KRZRenderOutput* _result = krz_render_document"));
+        assert!(content.contains("char* _json = krz_render_output_to_json(_result);"));
+        assert!(content.contains("krz_render_output_free(_result);"));
+        assert!(content.contains("krz_render_config_free(_options);"));
+
+        for hardcoded in [
+            "ConversionOptions",
+            "ConversionResult",
+            "conversion_options_from_json",
+            "conversion_result_to_json",
+            "htm_convert",
+            "HTMHtmVisitorCallbacks",
+            "HTMHtmNodeContext",
+        ] {
+            assert!(
+                !content.contains(hardcoded),
+                "visitor C output leaked `{hardcoded}`:\n{content}"
+            );
+        }
+    }
+
+    #[test]
+    fn c_visitor_fixture_without_typed_c_call_is_not_eligible() {
+        let fixture = visitor_fixture();
+        let config = E2eConfig::default();
+
+        assert!(
+            !c_visitor_fixture_has_typed_call(&fixture, &config),
+            "visitor fixtures need a configured C function and options type"
+        );
+    }
 }

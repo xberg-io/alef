@@ -297,12 +297,7 @@ pub(super) fn gen_dts(
             }
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
-                let params = dts_params_with_order(
-                    &func.params,
-                    no_prefix,
-                    !preserves_native_param_order(func),
-                    default_types,
-                );
+                let params = dts_params(&func.params, no_prefix, default_types);
                 // When the function returns a capsule type, use the ecosystem type name
                 // (e.g. `Language` from `tree-sitter`) instead of the Js-prefixed wrapper.
                 let ret = dts_return_type_capsule(
@@ -557,10 +552,6 @@ fn required_after_optional(params: &[ParamDef], default_types: &ahash::AHashSet<
         seen_optional |= is_optional;
     }
     result
-}
-
-fn preserves_native_param_order(func: &FunctionDef) -> bool {
-    matches!(func.name.as_str(), "extract_file" | "extract_file_sync")
 }
 
 /// Render the TypeScript return type for a function/method in `.d.ts`, substituting

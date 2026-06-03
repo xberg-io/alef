@@ -287,7 +287,7 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
 }
 
 #[test]
-fn dts_extract_file_preserves_native_argument_order() {
+fn dts_preserves_native_argument_order_for_defaultable_config_param() {
     let backend = NapiBackend;
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -316,8 +316,8 @@ fn dts_extract_file_preserves_native_argument_order() {
             has_lifetime_params: false,
         }],
         functions: vec![FunctionDef {
-            name: "extract_file".to_string(),
-            rust_path: "test_lib::extract_file".to_string(),
+            name: "process_document".to_string(),
+            rust_path: "test_lib::process_document".to_string(),
             original_rust_path: String::new(),
             params: vec![
                 ParamDef {
@@ -391,13 +391,17 @@ fn dts_extract_file_preserves_native_argument_order() {
         .clone();
     assert!(
         dts.contains(
-            "extractFile(path: string, mimeType?: string | undefined | null, config?: Config | undefined | null)"
+            "processDocument(path: string, mimeType?: string | undefined | null, config?: Config | undefined | null)"
         ),
-        "extractFile declaration must preserve native order without required params after optional ones:\n{dts}"
+        "processDocument declaration must preserve native order from IR-derived defaultability:\n{dts}"
     );
     assert!(
         !dts.contains("mimeType?: string | undefined | null, config: Config"),
-        "extractFile declaration must not emit TS1016-invalid optional-before-required params:\n{dts}"
+        "processDocument declaration must not emit TS1016-invalid optional-before-required params:\n{dts}"
+    );
+    assert!(
+        !dts.contains("extractFile("),
+        "test fixture must prove behavior without extract_file-specific naming:\n{dts}"
     );
 }
 

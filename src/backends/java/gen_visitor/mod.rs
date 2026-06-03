@@ -6,13 +6,13 @@
 //! Java cannot expose method references as raw C function pointers. The generated
 //! code uses Java 21+ Foreign Function & Memory API (Panama) upcall stubs:
 //!
-//! - `NodeContext`: a `record` carrying the fields from `HTMHtmNodeContext`.
+//! - `NodeContext`: a `record` carrying fields from the generated C visitor context.
 //! - `VisitResult`: a `sealed interface` with `Continue`, `Skip`, `PreserveHtml`,
 //!   `Custom`, and `Error` implementations.
 //! - `Visitor`: an `interface` with default no-op methods for all 40 callbacks.
 //! - `VisitorBridge`: a package-private class that allocates one `MemorySegment`
 //!   upcall stub per callback inside a `Arena.ofConfined()` scope, then writes
-//!   all stubs into a flat `MemorySegment` matching `HTMHtmVisitorCallbacks`.
+//!   all stubs into a flat `MemorySegment` matching the generated C callback table.
 //! - convert-with-visitor methods drive the full lifecycle with caller-provided
 //!   IR/config-derived method shape and FFI body fragments.
 

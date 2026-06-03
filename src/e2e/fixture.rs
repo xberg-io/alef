@@ -576,7 +576,6 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
                         expand_json_templates(body);
                     }
                 }
-                normalize_assertions(&mut fixture);
                 fixtures.push(fixture);
             }
         }
@@ -596,52 +595,6 @@ pub fn group_fixtures(fixtures: &[Fixture]) -> Vec<FixtureGroup> {
         .collect();
     result.sort_by(|a, b| a.category.cmp(&b.category));
     result
-}
-
-/// Normalize alias-style assertion fields that are not direct struct-field
-/// accesses on the call's result type but have well-defined semantic meanings.
-///
-/// Currently rewrites:
-/// - `pages_crawled` (with optional `crawl.` namespace prefix) → `count_equals`
-///   on the `pages` field. Semantically "the crawl produced N pages", which
-///   maps to `len(result.pages) == N` when the call's `result_fields` contain
-///   `pages` (i.e. the call returns a `CrawlResult`-shaped value).
-/// - `min_pages` (with optional `crawl.` namespace prefix) → `count_min` on the
-///   `pages` field. Used with `greater_than_or_equal` to assert a lower bound on
-///   the number of pages crawled.
-///
-/// This rewrite operates on the assertion *before* per-language codegen, so
-/// every backend benefits without per-backend changes. When the call's
-/// `result_fields` do not contain `pages`, the rewritten assertion falls
-/// through to the standard `is_valid_for_result` skip path, just like any
-/// other field that does not exist on the result type.
-fn normalize_assertions(fixture: &mut Fixture) {
-    for assertion in fixture.assertions.iter_mut() {
-        let Some(field) = assertion.field.as_deref() else {
-            continue;
-        };
-        // Tolerate both the bare alias and a `crawl.` namespace prefix that
-        // fixtures commonly use to group crawl-related assertions.
-        let bare = field.strip_prefix("crawl.").unwrap_or(field);
-        match bare {
-            "pages_crawled" => {
-                assertion.field = Some("pages".to_string());
-                match assertion.assertion_type.as_str() {
-                    "equals" => assertion.assertion_type = "count_equals".to_string(),
-                    "greater_than_or_equal" => assertion.assertion_type = "count_min".to_string(),
-                    "less_than_or_equal" => assertion.assertion_type = "count_max".to_string(),
-                    _ => {}
-                }
-            }
-            "min_pages" => {
-                assertion.field = Some("pages".to_string());
-                if assertion.assertion_type == "greater_than_or_equal" {
-                    assertion.assertion_type = "count_min".to_string();
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 /// Recursively expand fixture template expressions in all string values of a JSON tree.

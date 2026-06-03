@@ -1426,7 +1426,7 @@ fn render_test_fn(
     let _ = writeln!(out, "    suppress_abort();");
 
     // Visitor fixtures bypass the high-level `convert(html, options)` wrapper
-    // and inline the FFI sequence so we can attach a `HTMHtmVisitorCallbacks`
+    // and inline the FFI sequence so we can attach the generated visitor callbacks
     // vtable to the options handle. The vtable is populated by per-fixture
     // C-callable thunks emitted by `zig_visitors::build_zig_visitor`.
     if let Some(visitor_spec) = &fixture.visitor {
@@ -1747,9 +1747,9 @@ fn render_test_fn(
 }
 
 /// Emit the body of a visitor-bearing test. Drives the FFI directly so we
-/// can attach a `HTMHtmVisitorCallbacks` vtable to the `ConversionOptions`
-/// handle before calling `htm_convert`. The high-level `convert(html,
-/// options)` wrapper cannot carry a visitor because the visitor is a Rust
+/// can attach a generated visitor callbacks vtable to the configured options
+/// handle before calling the configured FFI function. The high-level wrapper
+/// cannot carry a visitor because the visitor is a Rust
 /// trait object, not a JSON-encodable field.
 #[allow(clippy::too_many_arguments)]
 fn emit_visitor_test_body(

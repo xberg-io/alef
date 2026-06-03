@@ -355,3 +355,29 @@ pub(super) fn build_zig_visitor(
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ZigVisitorCTypes, build_zig_visitor};
+    use crate::e2e::fixture::{CallbackAction, VisitorSpec};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn visitor_callbacks_use_configured_c_type_names() {
+        let mut callbacks = BTreeMap::new();
+        callbacks.insert("visit_text".to_string(), CallbackAction::Continue);
+        let spec = VisitorSpec { callbacks };
+        let c_types = ZigVisitorCTypes {
+            context_type: "KRZKrzNodeContext".to_string(),
+            callbacks_type: "KRZKrzVisitorCallbacks".to_string(),
+        };
+
+        let content = build_zig_visitor("custom_names", "krz", &spec, &c_types);
+
+        assert!(content.contains("_ctx: [*c]const c.KRZKrzNodeContext"));
+        assert!(content.contains("var _callbacks: c.KRZKrzVisitorCallbacks"));
+        assert!(content.contains("std.mem.zeroes(c.KRZKrzVisitorCallbacks)"));
+        assert!(!content.contains("c.HTMHtmNodeContext"));
+        assert!(!content.contains("c.HTMHtmVisitorCallbacks"));
+    }
+}

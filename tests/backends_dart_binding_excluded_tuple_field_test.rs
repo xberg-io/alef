@@ -1,10 +1,7 @@
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
-use alef::core::ir::{
-    ApiSurface, CoreWrapper, ErrorDef, ErrorVariant, FieldDef, MethodDef,
-    TypeRef,
-};
+use alef::core::ir::{ApiSurface, CoreWrapper, ErrorDef, ErrorVariant, FieldDef, MethodDef, TypeRef};
 
 fn make_binding_excluded_field(name: &str, ty: TypeRef) -> FieldDef {
     FieldDef {
@@ -56,9 +53,10 @@ fn make_api_with_binding_excluded_error() -> ApiSurface {
                     message_template: Some("tuple with excluded field".to_string()),
                     // A tuple variant where the single field is binding-excluded.
                     // The field type is a synthetic non-Default type like serde_json::Error.
-                    fields: vec![
-                        make_binding_excluded_field("", TypeRef::Named("serde_json::Error".to_string())),
-                    ],
+                    fields: vec![make_binding_excluded_field(
+                        "",
+                        TypeRef::Named("serde_json::Error".to_string()),
+                    )],
                     has_source: false,
                     has_from: false,
                     is_unit: false,
@@ -69,9 +67,10 @@ fn make_api_with_binding_excluded_error() -> ApiSurface {
                     name: "StructWithExcludedField".to_string(),
                     message_template: Some("struct with excluded field".to_string()),
                     // A struct variant where all fields are binding-excluded.
-                    fields: vec![
-                        make_binding_excluded_field("error", TypeRef::Named("serde_json::Error".to_string())),
-                    ],
+                    fields: vec![make_binding_excluded_field(
+                        "error",
+                        TypeRef::Named("serde_json::Error".to_string()),
+                    )],
                     has_source: false,
                     has_from: false,
                     is_unit: false,
@@ -130,7 +129,8 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
 
     // Find the Dart crate Rust file (should contain the mirror conversion impl)
-    let rust_file = files.iter()
+    let rust_file = files
+        .iter()
         .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
         .expect("should have generated a lib.rs file");
 
@@ -138,8 +138,11 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
 
     // Verify that unreachable!() is emitted for the binding-excluded tuple variant,
     // not Default::default()
-    assert!(content.contains("unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\")"),
-        "Expected unreachable!() for tuple variant with binding-excluded field, but got:\n{}", content);
+    assert!(
+        content.contains("unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\")"),
+        "Expected unreachable!() for tuple variant with binding-excluded field, but got:\n{}",
+        content
+    );
 
     // Verify that Default::default() is NOT emitted for the binding-excluded tuple variant
     let lines: Vec<&str> = content.lines().collect();
@@ -149,7 +152,11 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
             in_tuple_variant_arm = true;
         }
         if in_tuple_variant_arm && line.contains("Default::default()") {
-            panic!("Found Default::default() in TupleWithExcludedField arm at line {}: {}", i+1, line);
+            panic!(
+                "Found Default::default() in TupleWithExcludedField arm at line {}: {}",
+                i + 1,
+                line
+            );
         }
         if in_tuple_variant_arm && line.trim().ends_with(",") {
             in_tuple_variant_arm = false;
@@ -163,7 +170,11 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
             in_tuple_variant_arm = true;
         }
         if in_tuple_variant_arm && line.contains("Default::default()") {
-            panic!("Found Default::default() in StructWithExcludedField arm at line {}: {}", i+1, line);
+            panic!(
+                "Found Default::default() in StructWithExcludedField arm at line {}: {}",
+                i + 1,
+                line
+            );
         }
         if in_tuple_variant_arm && line.trim().ends_with(",") {
             in_tuple_variant_arm = false;
