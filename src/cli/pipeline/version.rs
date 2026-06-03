@@ -380,6 +380,13 @@ pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<Strin
         }
     }
 
+    // Swift Package.swift (root seed file with binary URL version)
+    if let Some(found) = extract_version("Package.swift", r#"v(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._]+)*)/LiterLlm"#) {
+        if found != expected {
+            mismatches.push(format!("Package.swift: found {found}, expected {expected}"));
+        }
+    }
+
     Ok(mismatches)
 }
 
@@ -923,12 +930,23 @@ pub fn sync_versions(
         }
     }
 
-    // Swift test_apps/Package.swift and e2e/*/Package.swift: generated entries
-    // use a remote URL dependency with a `from: "X.Y.Z"` version bound. Without
-    // bumping this, `swift package resolve` fetches the prior release when the
-    // test_app is run against a freshly cut tag — causing 404s or wrong-version
-    // failures. The glob crate (0.3.x) does not support brace alternatives, so
-    // we run two separate glob passes.
+    // Swift Package.swift files: root + test_apps + e2e.
+    // Root Package.swift (seed file) uses `url: "...v__ALEF_SWIFT_VERSION__..."` placeholder.
+    // Generated test_apps and e2e entries use `from: "X.Y.Z"` version bounds.
+    // Without bumping these, `swift package resolve` fetches the prior release when
+    // the app is run against a freshly cut tag — causing 404s or wrong-version failures.
+    // The glob crate (0.3.x) does not support brace alternatives, so we run separate passes.
+
+    // Root Package.swift (seed file with binary URL placeholder)
+    if let Ok(content) = std::fs::read_to_string("Package.swift") {
+        let new_content = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
+        if new_content != content {
+            std::fs::write("Package.swift", &new_content)?;
+            updated.push("Package.swift".to_string());
+        }
+    }
+
+    // test_apps/*/Package.swift and e2e/*/Package.swift (generated entries with `from:` bounds)
     for swift_pkg_pattern in &["test_apps/*/Package.swift", "e2e/*/Package.swift"] {
         for swift_pkg in glob::glob(swift_pkg_pattern).into_iter().flatten().flatten() {
             if let Ok(content) = std::fs::read_to_string(&swift_pkg) {
