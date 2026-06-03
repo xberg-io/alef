@@ -2,7 +2,7 @@ use alef::backends::go::GoBackend;
 use alef::backends::go::trait_bridge::gen_trait_bridges_file;
 use alef::core::backend::Backend;
 use alef::core::config::new_config::NewAlefConfig;
-use alef::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use alef::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
 use alef::core::ir::*;
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -1319,6 +1319,159 @@ fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
     }
+}
+
+#[test]
+fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Renderer".to_string(),
+        type_alias: Some("RendererHandle".to_string()),
+        param_name: Some("renderer".to_string()),
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some("RenderOptions".to_string()),
+        options_field: Some("renderer".to_string()),
+        ..TraitBridgeConfig::default()
+    };
+    let mut config = make_config_with_bridges(vec![bridge_cfg]);
+    config.go.as_mut().unwrap().functional_options = vec![];
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Renderer".to_string(),
+                rust_path: "my_lib::Renderer".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![make_trait_method(
+                    "visit_text",
+                    vec![make_trait_param("text", TypeRef::String)],
+                    TypeRef::Unit,
+                    false,
+                )],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                is_trait: true,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+            TypeDef {
+                name: "RenderOptions".to_string(),
+                rust_path: "my_lib::RenderOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field(
+                    "renderer",
+                    TypeRef::Named("RendererHandle".to_string()),
+                    true,
+                )],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+            TypeDef {
+                name: "RenderOutput".to_string(),
+                rust_path: "my_lib::RenderOutput".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("html", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "render".to_string(),
+            rust_path: "my_lib::render".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                make_trait_param("document", TypeRef::String),
+                ParamDef {
+                    optional: true,
+                    ..make_trait_param(
+                        "settings",
+                        TypeRef::Optional(Box::new(TypeRef::Named("RenderOptions".to_string()))),
+                    )
+                },
+            ],
+            return_type: TypeRef::Named("RenderOutput".to_string()),
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: "Render a document.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = GoBackend.generate_bindings(&api, &config).unwrap();
+    let binding = files
+        .iter()
+        .find(|file| file.path.ends_with("binding.go"))
+        .expect("binding.go must be generated")
+        .content
+        .as_str();
+
+    assert!(binding.contains("func Render(document string, settings *RenderOptions) (*RenderOutput, error)"));
+    assert!(binding.contains("if settings != nil && settings.Renderer != nil"));
+    assert!(binding.contains("return renderWithVisitorHelper(document, settings, settings.Renderer)"));
+    assert!(binding.contains("var cOptions *C.KRZRenderOptions"));
+    assert!(binding.contains("cOptions = C.krz_render_options_from_json(tmpStr)"));
+    assert!(binding.contains("ptr := C.krz_render(cDocument, cOptions)"));
+    assert!(binding.contains("defer C.krz_render_output_free(ptr)"));
+    assert!(binding.contains("jsonPtr := C.krz_render_output_to_json(ptr)"));
+    assert!(!binding.contains("convertWithVisitorHelper"));
+    assert!(!binding.contains("HTMConversionOptions"));
+    assert!(!binding.contains("ConversionResult"));
 }
 
 // ---------------------------------------------------------------------------

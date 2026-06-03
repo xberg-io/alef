@@ -1,13 +1,13 @@
 use crate::backends::java::type_map::{java_boxed_type, java_return_type, java_type};
 use crate::codegen::naming::to_java_name;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
+use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
 
-use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java};
+use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java, safe_java_field_name};
 use super::marshal::{
     ffi_param_args, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
     java_ffi_return_expr, marshal_param_to_ffi,
@@ -64,7 +64,7 @@ pub(crate) fn gen_main_class(
     // Generate static methods for free functions
     for func in &api.functions {
         // Always generate sync method (bridge params stripped from signature)
-        gen_sync_function_method(
+        gen_sync_function_method_with_visitor(
             &mut body,
             func,
             prefix,
@@ -74,6 +74,7 @@ pub(crate) fn gen_main_class(
             bridge_type_aliases,
             has_visitor_bridge,
             &clear_fn_handles,
+            visitor_bridge_for_function(func, config).as_ref(),
         );
         body.push('\n');
 
@@ -89,10 +90,23 @@ pub(crate) fn gen_main_class(
     // is the only context that has the `handle` field and streaming helpers in
     // scope. The FFI class is a static-only surface, so it emits nothing here.
 
-    // Add internal convertWithVisitor helper when visitor bridge is configured
+    // Add internal visitor helpers for each function whose options parameter carries
+    // an options-field trait bridge.
     if has_visitor_bridge {
-        body.push_str(&gen_convert_with_visitor_internal_method(class_name, prefix));
-        body.push('\n');
+        for func in &api.functions {
+            if let Some(visitor_bridge) = visitor_bridge_for_function(func, config) {
+                body.push_str(&gen_convert_with_visitor_internal_method(
+                    func,
+                    class_name,
+                    prefix,
+                    &opaque_types,
+                    bridge_param_names,
+                    bridge_type_aliases,
+                    &visitor_bridge,
+                ));
+                body.push('\n');
+            }
+        }
     }
 
     // Add helper methods only if they are referenced in the body
@@ -132,6 +146,7 @@ pub(crate) fn gen_main_class(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub(crate) fn gen_sync_function_method(
     out: &mut String,
     func: &FunctionDef,
@@ -142,6 +157,33 @@ pub(crate) fn gen_sync_function_method(
     bridge_type_aliases: &HashSet<String>,
     has_visitor_bridge: bool,
     clear_fn_handles: &AHashMap<String, String>,
+) {
+    gen_sync_function_method_with_visitor(
+        out,
+        func,
+        prefix,
+        class_name,
+        opaque_types,
+        bridge_param_names,
+        bridge_type_aliases,
+        has_visitor_bridge,
+        clear_fn_handles,
+        None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_sync_function_method_with_visitor(
+    out: &mut String,
+    func: &FunctionDef,
+    prefix: &str,
+    class_name: &str,
+    opaque_types: &AHashSet<String>,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    has_visitor_bridge: bool,
+    clear_fn_handles: &AHashMap<String, String>,
+    visitor_bridge: Option<&VisitorFunctionBridge>,
 ) {
     // Exclude bridge params from the public Java signature. Optional params
     // take the boxed Java type (Integer/Long/Boolean/...) so callers can pass
@@ -177,18 +219,19 @@ pub(crate) fn gen_sync_function_method(
     );
     out.push_str(&method_sig);
 
-    // Check if this is the convert function with visitor support
-    let is_convert_with_visitor_support = has_visitor_bridge
-        && func.name == "convert"
-        && func
-            .params
-            .iter()
-            .any(|p| matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions"));
-
-    // For convert with visitor, handle delegation at the top level
-    if is_convert_with_visitor_support {
-        out.push_str("        if (options != null && options.visitor() != null) {\n");
-        out.push_str("            return convertWithVisitorInternal(html, options);\n");
+    if has_visitor_bridge && let Some(visitor_bridge) = visitor_bridge {
+        out.push_str("        if (");
+        out.push_str(&visitor_bridge.options_param_java);
+        out.push_str(" != null && ");
+        out.push_str(&visitor_bridge.options_param_java);
+        out.push('.');
+        out.push_str(&visitor_bridge.options_field_java);
+        out.push_str("() != null) {\n");
+        out.push_str("            return ");
+        out.push_str(&visitor_bridge.internal_method_name);
+        out.push('(');
+        out.push_str(&public_arg_names(func, bridge_param_names, bridge_type_aliases).join(", "));
+        out.push_str(");\n");
         out.push_str("        }\n");
         out.push('\n');
     }
@@ -474,7 +517,7 @@ pub(crate) fn gen_sync_function_method(
             // CPD-OFF — the FFI tail (null-check resultPtr → result_to_json →
             // free result → null-check jsonPtr → reinterpret → free string →
             // MAPPER.readValue) is intentionally repeated verbatim in
-            // convertWithVisitorInternal below. PMD CPD flags it as a 15-line
+            // the visitor helper below. PMD CPD flags it as a 15-line
             // duplication; extracting it into a helper would require threading
             // the Arena, MAPPER, and free-handle through a private method for
             // marginal benefit. Wrap both copies with CPD-OFF/ON markers
@@ -709,47 +752,128 @@ pub(crate) fn gen_async_wrapper_method(
     out.push_str("    }\n");
 }
 
-/// Generate the internal convertWithVisitor method to delegate visitor handling.
-///
-/// When the public convert method detects a non-null visitor in options,
-/// it delegates to this private method which creates the VisitorBridge
-/// and calls htm_convert_with_visitor internally.
-fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> String {
+#[derive(Debug, Clone)]
+struct VisitorFunctionBridge {
+    options_param_java: String,
+    options_param_c: String,
+    options_type_handle: String,
+    options_field_java: String,
+    internal_method_name: String,
+}
+
+fn visitor_bridge_for_function(func: &FunctionDef, config: &ResolvedCrateConfig) -> Option<VisitorFunctionBridge> {
+    config
+        .trait_bridges
+        .iter()
+        .find_map(|bridge| visitor_bridge_for_trait_bridge(func, bridge))
+}
+
+fn visitor_bridge_for_trait_bridge(func: &FunctionDef, bridge: &TraitBridgeConfig) -> Option<VisitorFunctionBridge> {
+    if bridge.bind_via != BridgeBinding::OptionsField {
+        return None;
+    }
+
+    let options_type = bridge.options_type.as_deref()?;
+    let options_field = bridge.resolved_options_field()?;
+    let options_param = func
+        .params
+        .iter()
+        .find(|param| param_type_name(param) == Some(options_type))?;
+    let options_param_java = to_java_name(&options_param.name);
+
+    Some(VisitorFunctionBridge {
+        options_param_c: format!("c{options_param_java}"),
+        options_type_handle: options_type.to_snake_case().to_uppercase(),
+        options_param_java,
+        options_field_java: safe_java_field_name(options_field),
+        internal_method_name: format!("{}WithVisitorInternal", to_java_name(&func.name)),
+    })
+}
+
+fn param_type_name(param: &ParamDef) -> Option<&str> {
+    match &param.ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => Some(name.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn public_arg_names(
+    func: &FunctionDef,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+) -> Vec<String> {
+    func.params
+        .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
+        .map(|p| to_java_name(&p.name))
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_convert_with_visitor_internal_method(
+    func: &FunctionDef,
+    class_name: &str,
+    prefix: &str,
+    opaque_types: &AHashSet<String>,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    visitor_bridge: &VisitorFunctionBridge,
+) -> String {
     let mut out = String::with_capacity(2048);
     let pu = prefix.to_uppercase();
     let exc = format!("{class_name}Exception");
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
+        .map(|p| {
+            let ptype = if p.optional {
+                java_boxed_type(&p.ty)
+            } else {
+                java_type(&p.ty)
+            };
+            let annotation = if p.optional { "@Nullable " } else { "" };
+            format!("final {annotation}{} {}", ptype, to_java_name(&p.name))
+        })
+        .collect();
+    let return_type = java_return_type(&func.return_type);
 
     out.push_str(&crate::backends::java::template_env::render(
         "convert_with_visitor_signature.jinja",
         minijinja::context! {
+            return_type => &return_type,
+            method_name => &visitor_bridge.internal_method_name,
+            params => params.join(", "),
             exception_class => &exc,
         },
     ));
     out.push_str("        try (var arena = Arena.ofShared();\n");
-    out.push_str("             var bridge = new VisitorBridge(options.visitor())) {\n");
-    out.push_str("            var cHtml = arena.allocateFrom(html);\n");
-    out.push('\n');
-    out.push_str("            MemorySegment optionsPtr = MemorySegment.NULL;\n");
-    out.push_str("            if (options != null) {\n");
-    out.push_str("                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));\n");
-    out.push_str(&crate::backends::java::template_env::render(
-        "ffi_conversion_options_invoke.jinja",
-        minijinja::context! {
-            pu => &pu,
-            var_name => "optJson",
-        },
-    ));
-    out.push_str("            }\n");
-    out.push_str("            if (optionsPtr.equals(MemorySegment.NULL)) {\n");
-    out.push_str("                var defaultJson = arena.allocateFrom(\"{}\");\n");
-    out.push_str(&crate::backends::java::template_env::render(
-        "ffi_conversion_options_invoke.jinja",
-        minijinja::context! {
-            pu => &pu,
-            var_name => "defaultJson",
-        },
-    ));
-    out.push_str("            }\n");
+    out.push_str("             var bridge = new VisitorBridge(");
+    out.push_str(&visitor_bridge.options_param_java);
+    out.push('.');
+    out.push_str(&visitor_bridge.options_field_java);
+    out.push_str("())) {\n");
+    for param in &func.params {
+        if is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
+            continue;
+        }
+        let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
+            TypeRef::Optional(Box::new(param.ty.clone()))
+        } else {
+            param.ty.clone()
+        };
+        marshal_param_to_ffi(
+            &mut out,
+            &to_java_name(&param.name),
+            &effective_ty,
+            opaque_types,
+            prefix,
+        );
+    }
     out.push('\n');
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_visitor_create.jinja",
@@ -758,11 +882,15 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         },
     ));
     out.push_str("            if (visitorHandle.equals(MemorySegment.NULL)) {\n");
-    out.push_str("                if (!optionsPtr.equals(MemorySegment.NULL)) {\n");
+    out.push_str("                if (!");
+    out.push_str(&visitor_bridge.options_param_c);
+    out.push_str(".equals(MemorySegment.NULL)) {\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_free.jinja",
         minijinja::context! {
             pu => &pu,
+            options_ptr => &visitor_bridge.options_param_c,
+            options_type_handle => &visitor_bridge.options_type_handle,
         },
     ));
     out.push_str("                }\n");
@@ -779,18 +907,40 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         "ffi_options_set_visitor.jinja",
         minijinja::context! {
             pu => &pu,
+            options_ptr => &visitor_bridge.options_param_c,
+            options_type_handle => &visitor_bridge.options_type_handle,
         },
     ));
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .flat_map(|p| {
+            if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
+                vec!["MemorySegment.NULL".to_string()]
+            } else {
+                let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
+                    TypeRef::Optional(Box::new(p.ty.clone()))
+                } else {
+                    p.ty.clone()
+                };
+                ffi_param_args(&to_java_name(&p.name), &effective_ty, opaque_types)
+            }
+        })
+        .collect();
+    let ffi_handle = format!("NativeLib.{}_{}", pu, func.name.to_uppercase());
     out.push_str(&crate::backends::java::template_env::render(
-        "ffi_convert_invoke.jinja",
+        "ffi_result_ptr_call.jinja",
         minijinja::context! {
-            pu => &pu,
+            ffi_handle => &ffi_handle,
+            args => call_args.join(", "),
         },
     ));
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_free_conditional.jinja",
         minijinja::context! {
             pu => &pu,
+            options_ptr => &visitor_bridge.options_param_c,
+            options_type_handle => &visitor_bridge.options_type_handle,
         },
     ));
     out.push_str("                if (resultPtr.equals(MemorySegment.NULL)) {\n");
@@ -801,6 +951,9 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         "ffi_result_to_json.jinja",
         minijinja::context! {
             pu => &pu,
+            result_type_handle => return_type_name(&func.return_type)
+                .map(|name| name.to_snake_case().to_uppercase())
+                .unwrap_or_else(|| "OBJECT".to_string()),
         },
     ));
     // CPD-OFF — see the comment on the matching block emitted by the
@@ -811,6 +964,9 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         "ffi_result_free.jinja",
         minijinja::context! {
             pu => &pu,
+            result_type_handle => return_type_name(&func.return_type)
+                .map(|name| name.to_snake_case().to_uppercase())
+                .unwrap_or_else(|| "OBJECT".to_string()),
         },
     ));
     out.push_str("                if (jsonPtr.equals(MemorySegment.NULL)) {\n");
@@ -824,7 +980,19 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             prefix => &pu,
         },
     ));
-    out.push_str("                return MAPPER.readValue(json, ConversionResult.class);\n");
+    if let Some(return_type_name) = return_type_name(&func.return_type) {
+        if matches!(func.return_type, TypeRef::Optional(_)) {
+            out.push_str("                return Optional.ofNullable(MAPPER.readValue(json, ");
+            out.push_str(return_type_name);
+            out.push_str(".class));\n");
+        } else {
+            out.push_str("                return MAPPER.readValue(json, ");
+            out.push_str(return_type_name);
+            out.push_str(".class);\n");
+        }
+    } else {
+        out.push_str("                return MAPPER.readValue(json, Object.class);\n");
+    }
     out.push_str("                // CPD-ON\n");
     out.push_str("            } catch (Throwable e) {\n");
     out.push_str(&crate::backends::java::template_env::render(
@@ -860,6 +1028,17 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     out.push_str("    }\n");
 
     out
+}
+
+fn return_type_name(return_type: &TypeRef) -> Option<&str> {
+    match return_type {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => Some(name.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 #[cfg(test)]
