@@ -766,12 +766,11 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                      let outcome: {wire_output} = async move {{\n                \
                          let req_json = serde_json::to_value(&{wire_name})\n                            \
                              .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         let resp_json: napi::Result<serde_json::Value> = self.handler_fn\n                    \
+                         let resp_json = self.handler_fn\n                    \
                              .call_async(Ok(req_json))\n                    \
-                             .await;\n                \
-                         let resp_value = resp_json\n                    \
+                             .await\n                    \
                              .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         serde_json::from_value(resp_value)\n                    \
+                         serde_json::from_value(resp_json)\n                    \
                              .map_err(|e| Box::new(e) as {box_err})\n            \
                      }}\n            \
                      .await;\n\n            \
@@ -843,6 +842,28 @@ fn gen_run_napi_function(
         let contract_name = &reg.callback_contract;
 
         if let Some(contract) = find_contract(api, contract_name) {
+            // Check if any metadata param is opaque. If so, skip this registration
+            // in the generic app_run function since opaque types cannot be serialized
+            // from JavaScript. Verb shortcuts (get, post, etc.) use wrapper_call to
+            // construct opaque params, so they handle the registration differently.
+            let has_opaque_metadata = reg.metadata_params.iter().any(|p| {
+                if let TypeRef::Named(n) = &p.ty {
+                    api.types
+                        .iter()
+                        .find(|t| &t.name == n && !t.is_trait && t.is_opaque)
+                        .is_some()
+                } else {
+                    false
+                }
+            });
+
+            if has_opaque_metadata {
+                // Skip generic registration for this method in app_run.
+                // Verb variants (which use wrapper_call to construct opaque params)
+                // are sufficient for the binding-side API.
+                continue;
+            }
+
             let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
 
             out.push_str(&format!("            \"{reg_method}\" => {{\n"));
@@ -1073,6 +1094,7 @@ fn gen_variant_napi_method(
 ///
 /// Returns a Rust expression that converts `val` (a `&serde_json::Value`) to the target type.
 /// The generated code uses serde_json's native coercion and type conversions.
+#[allow(clippy::only_used_in_recursion)]
 fn gen_metadata_extraction(ty: &TypeRef, core_import: &str, api: &ApiSurface) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => {
