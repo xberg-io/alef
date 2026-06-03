@@ -135,6 +135,12 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
         tracing::warn!("{w}");
     }
 
+    // Methods declared as [[crates.adapters]].core_path are emitted via adapter
+    // codegen which handles lossy types (BoxStream, BoxFuture). Mark them as
+    // binding_excluded so the public-API validator skips them, but keep them in
+    // the IR so adapter codegen can still look up parameter info.
+    mark_adapter_handled_methods(&mut api, config);
+
     let validation_report = crate::core::validation::validate_api_surface(&api);
     for diagnostic in validation_report.warnings() {
         tracing::warn!("{diagnostic}");
@@ -536,6 +542,46 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Mark methods referenced by `[[crates.adapters]].core_path` as `binding_excluded`.
+///
+/// Adapter codegen emits the binding for these methods directly (handling lossy
+/// types like `BoxStream` / `BoxFuture` per-language), so the public-API validator
+/// should treat them as already-handled. The methods are *not* removed from the
+/// IR — backends look up parameter info from `typ.methods` to generate adapter
+/// wrappers. Backends that iterate `typ.methods` for normal method emission
+/// already filter on `binding_excluded` (or skip via `streaming_method_keys` /
+/// equivalent).
+fn mark_adapter_handled_methods(api: &mut ApiSurface, config: &ResolvedCrateConfig) {
+    use ahash::AHashSet;
+
+    let adapter_handled: AHashSet<(String, String)> = config
+        .adapters
+        .iter()
+        .filter_map(|adapter| {
+            adapter
+                .owner_type
+                .as_deref()
+                .map(|owner| (owner.to_string(), adapter.core_path.clone()))
+        })
+        .collect();
+
+    if adapter_handled.is_empty() {
+        return;
+    }
+
+    for typ in &mut api.types {
+        for method in &mut typ.methods {
+            if adapter_handled.contains(&(typ.name.clone(), method.name.clone())) && !method.binding_excluded {
+                method.binding_excluded = true;
+                if method.binding_exclusion_reason.is_none() {
+                    method.binding_exclusion_reason =
+                        Some(format!("handled by [[crates.adapters]] entry `{}`", method.name));
+                }
+            }
+        }
+    }
 }
 
 /// If `ty` is `Vec<(...)>` or `Option<Vec<(...)>>` — a Vec whose inner element is a tuple

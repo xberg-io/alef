@@ -731,8 +731,8 @@ mod tests {
     fn render_app_harness_emits_options_preflight_handler_for_cors_fixtures() {
         use crate::core::config::e2e::{E2eConfig, HarnessConfig};
         use crate::e2e::fixture::{
-            CorsConfig, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler,
-            HttpMiddleware, HttpRequest,
+            CorsConfig, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpMiddleware,
+            HttpRequest,
         };
         use std::collections::BTreeMap;
 
@@ -787,7 +787,10 @@ mod tests {
             }),
         };
 
-        let groups = vec![FixtureGroup { category: "cors".to_owned(), fixtures: vec![cors_fixture] }];
+        let groups = vec![FixtureGroup {
+            category: "cors".to_owned(),
+            fixtures: vec![cors_fixture],
+        }];
         let e2e_config = E2eConfig {
             harness: HarnessConfig {
                 imports: vec!["my_pkg".to_owned()],

@@ -3139,9 +3139,7 @@ mod gemfile_tests {
     #[test]
     fn app_harness_rb_contains_eaddrinuse_retry_block() {
         use crate::core::config::e2e::{E2eConfig, HarnessConfig};
-        use crate::e2e::fixture::{
-            Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest,
-        };
+        use crate::e2e::fixture::{Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
         use std::collections::BTreeMap;
 
         // Build a minimal HTTP fixture so render_app_harness produces server-pattern content.
@@ -3186,7 +3184,10 @@ mod gemfile_tests {
             }),
         };
 
-        let groups = vec![FixtureGroup { category: "smoke".to_owned(), fixtures: vec![fixture] }];
+        let groups = vec![FixtureGroup {
+            category: "smoke".to_owned(),
+            fixtures: vec![fixture],
+        }];
         let e2e_config = E2eConfig {
             harness: HarnessConfig {
                 imports: vec!["my_gem".to_owned()],

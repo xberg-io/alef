@@ -784,13 +784,7 @@ mod tests {
         // not .to_string() because PathBuf does not implement Display.
         let ty = TypeRef::Path;
         let cast = build_primitive_result_cast(&ty, false);
-        assert!(
-            cast.contains("display()"),
-            "Path cast must use .display(): {cast}"
-        );
-        assert!(
-            cast.contains("to_string()"),
-            "Path cast must use to_string(): {cast}"
-        );
+        assert!(cast.contains("display()"), "Path cast must use .display(): {cast}");
+        assert!(cast.contains("to_string()"), "Path cast must use to_string(): {cast}");
     }
 }

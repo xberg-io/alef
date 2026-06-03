@@ -630,7 +630,13 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         // Indent all method bodies by 4 spaces to sit inside the impl block
         let indented: String = variant_methods
             .lines()
-            .map(|line| if line.is_empty() { String::new() } else { format!("    {line}") })
+            .map(|line| {
+                if line.is_empty() {
+                    String::new()
+                } else {
+                    format!("    {line}")
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n");
         out.push_str(&format!("use crate::{app_type_name};\n\n"));
