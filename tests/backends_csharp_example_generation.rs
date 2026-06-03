@@ -111,6 +111,7 @@ fn test_generated_code_example() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "config".to_string(),
@@ -125,6 +126,7 @@ fn test_generated_code_example() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
             ],
             return_type: TypeRef::String,

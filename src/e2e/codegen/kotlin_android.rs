@@ -1339,6 +1339,7 @@ mod test_backend_tests {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }
     }
 

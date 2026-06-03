@@ -105,6 +105,7 @@ fn test_basic_generation() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -240,6 +241,7 @@ fn bytes_params_are_pinned_before_c_calls() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::Unit,
             is_async: false,
@@ -677,6 +679,7 @@ fn test_methods_generation() {
                         original_type: None,
                         map_is_ahash: false,
                         map_key_is_cow: false,
+                        vec_inner_is_ref: false,
                     }],
                     return_type: TypeRef::Unit,
                     is_async: false,
@@ -850,6 +853,7 @@ fn test_async_function() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::String,
             is_async: true,
@@ -1075,6 +1079,7 @@ fn test_optional_primitive_uses_cgo_types() {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     };
 
     let api = ApiSurface {
@@ -1165,6 +1170,7 @@ fn test_optional_return_type_no_double_pointer() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::Optional(Box::new(TypeRef::String)),
             is_async: false,
@@ -1274,6 +1280,7 @@ fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     }
 }
 

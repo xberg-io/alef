@@ -49,6 +49,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     }
 }
 
@@ -731,6 +732,7 @@ fn real_ir_shape_optional_ref_result_async() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "base_url".to_string(),
@@ -745,6 +747,7 @@ fn real_ir_shape_optional_ref_result_async() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "timeout_secs".to_string(),
@@ -759,6 +762,7 @@ fn real_ir_shape_optional_ref_result_async() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
         ],
         return_type: TypeRef::Named("DemoClient".to_string()),
@@ -793,6 +797,7 @@ fn real_ir_shape_optional_ref_result_async() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::Primitive(PrimitiveType::Bool),
         is_async: false,
@@ -1069,6 +1074,7 @@ fn method_slice_u8_param_receives_jbytearray() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::Optional(Box::new(TypeRef::Named("Tree".to_string()))),
         is_async: false,
@@ -1157,6 +1163,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     };
     let upload_method = MethodDef {
         name: "upload".to_string(),
@@ -1254,6 +1261,7 @@ fn method_pathbuf_param_receives_raw_string() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -1352,6 +1360,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,

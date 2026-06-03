@@ -173,6 +173,7 @@ fn test_generate_public_api_creates_all_files() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "options".to_string(),
@@ -187,6 +188,7 @@ fn test_generate_public_api_creates_all_files() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
             ],
             return_type: TypeRef::String,
@@ -327,6 +329,7 @@ fn test_native_ex_has_all_nif_stubs() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -848,6 +851,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -1107,6 +1111,7 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }
     }
 
@@ -1695,6 +1700,7 @@ fn opaque_static_constructor_wraps_return_in_struct() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 }],
                 return_type: TypeRef::Named("RouteBuilder".to_string()),
                 is_async: false,

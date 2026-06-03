@@ -25,6 +25,7 @@ fn test_visitor_file_emits_prefixed_struct() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: alef::core::ir::TypeRef::Unit,
             is_async: false,

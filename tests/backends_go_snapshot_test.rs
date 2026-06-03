@@ -181,6 +181,7 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "language".to_string(),
@@ -195,6 +196,7 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
         ],
         return_type: TypeRef::String,

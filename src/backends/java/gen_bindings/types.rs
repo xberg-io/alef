@@ -1423,9 +1423,11 @@ fn gen_instance_method(
                     ));
                 }
                 out.push_str("            } finally {\n");
+                let ret_type_snake = return_type_name.to_snake_case();
+                let ret_type_upper = ret_type_snake.to_uppercase();
                 out.push_str(&format!(
-                    "                NativeLib.{}_FREE.invoke(resultPtr);\n",
-                    prefix_upper
+                    "                NativeLib.{}_{}_FREE.invoke(resultPtr);\n",
+                    prefix_upper, ret_type_upper
                 ));
                 out.push_str("            }\n");
                 out.push_str("            // CPD-ON\n");

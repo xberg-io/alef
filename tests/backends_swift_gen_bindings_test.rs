@@ -45,6 +45,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     }
 }
 
@@ -1246,6 +1247,7 @@ fn make_optional_param(name: &str, ty: TypeRef) -> ParamDef {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     }
 }
 

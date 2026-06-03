@@ -45,6 +45,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     }
 }
 
@@ -1462,6 +1463,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -1637,6 +1639,7 @@ fn option_named_return_on_method_uses_map_not_serde_json() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         TypeRef::Optional(Box::new(TypeRef::Named("Node".to_string()))),
     );
@@ -1702,6 +1705,7 @@ fn bytes_ref_param_on_method_passes_borrowed_slice() {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             TypeRef::Optional(Box::new(TypeRef::Named("Tree".to_string()))),
         );
@@ -1759,6 +1763,7 @@ fn path_param_on_method_converts_to_pathbuf() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         TypeRef::Unit,
     );
@@ -1812,6 +1817,7 @@ fn named_ref_param_on_method_passes_borrow_of_inner() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "config".to_string(),
@@ -1826,6 +1832,7 @@ fn named_ref_param_on_method_passes_borrow_of_inner() {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
             ],
             TypeRef::Named("ProcessResult".to_string()),
@@ -1887,6 +1894,7 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         TypeRef::Unit,
     );

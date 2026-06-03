@@ -65,8 +65,7 @@ pub(crate) fn scaffold_ruby_cargo(
         dep_lines.push("futures = \"0.3\"".to_owned());
     }
     if has_services && !dep_lines.iter().any(|l| l.starts_with("rb-sys")) {
-        // See template_versions::gem::RB_SYS for the upper-bound rationale.
-        dep_lines.push("rb-sys = \">= 0.9, < 0.9.128\"".to_owned());
+        dep_lines.push("rb-sys = \"0.9\"".to_owned());
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim();

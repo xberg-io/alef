@@ -56,6 +56,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         original_type: None,
         map_is_ahash: false,
         map_key_is_cow: false,
+        vec_inner_is_ref: false,
     }
 }
 
@@ -541,6 +542,7 @@ fn snapshot_trait_bridge_inbound() {
                                 original_type: None,
                                 map_is_ahash: false,
                                 map_key_is_cow: false,
+                                vec_inner_is_ref: false,
                             },
                             ParamDef {
                                 name: "config".into(),
@@ -555,6 +557,7 @@ fn snapshot_trait_bridge_inbound() {
                                 original_type: None,
                                 map_is_ahash: false,
                                 map_key_is_cow: false,
+                                vec_inner_is_ref: false,
                             },
                         ],
                         TypeRef::Named("ExtractionResult".to_string()),
@@ -576,6 +579,7 @@ fn snapshot_trait_bridge_inbound() {
                             original_type: None,
                             map_is_ahash: false,
                             map_key_is_cow: false,
+                            vec_inner_is_ref: false,
                         }],
                         TypeRef::Primitive(PrimitiveType::Bool),
                         false,

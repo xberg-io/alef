@@ -282,6 +282,7 @@ fn make_opaque_factory_api() -> ApiSurface {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::Named("DefaultClient".into()),
         is_async: false,
@@ -415,6 +416,7 @@ fn make_handle_only_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "url".into(),
@@ -429,6 +431,7 @@ fn make_handle_only_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
         ],
         return_type: TypeRef::String,
@@ -586,6 +589,7 @@ fn make_optional_params_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "base_url".into(),
@@ -600,6 +604,7 @@ fn make_optional_params_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             // timeout_secs: Option<u64> → mapped as Long in JNI, optional=true
             ParamDef {
@@ -615,6 +620,7 @@ fn make_optional_params_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             // max_retries: Option<u32> → mapped as Int in JNI, optional=true
             ParamDef {
@@ -630,6 +636,7 @@ fn make_optional_params_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             // model_hint: Option<String> → mapped as String in JNI, optional=true
             ParamDef {
@@ -645,6 +652,7 @@ fn make_optional_params_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
         ],
         return_type: TypeRef::Named("DefaultClient".into()),
@@ -756,6 +764,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "l".into(),
@@ -770,6 +779,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "i".into(),
@@ -784,6 +794,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "d".into(),
@@ -798,6 +809,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "b".into(),
@@ -812,6 +824,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
             ],
             return_type: TypeRef::String,
@@ -1326,6 +1339,7 @@ fn make_convert_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
                 ParamDef {
                     name: "options".into(),
@@ -1340,6 +1354,7 @@ fn make_convert_api() -> ApiSurface {
                     original_type: None,
                     map_is_ahash: false,
                     map_key_is_cow: false,
+                    vec_inner_is_ref: false,
                 },
             ],
             return_type: TypeRef::Named("ConversionResult".into()),
@@ -1506,6 +1521,7 @@ fn make_batch_function_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::Vec(Box::new(TypeRef::Named("DemoResult".into()))),
             is_async: false,
@@ -2048,6 +2064,7 @@ fn make_trait_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             }],
             return_type: TypeRef::String,
             is_async: true,
@@ -2460,6 +2477,7 @@ fn make_long_signature_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "mime_type".into(),
@@ -2474,6 +2492,7 @@ fn make_long_signature_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
             ParamDef {
                 name: "config".into(),
@@ -2488,6 +2507,7 @@ fn make_long_signature_api() -> ApiSurface {
                 original_type: None,
                 map_is_ahash: false,
                 map_key_is_cow: false,
+                vec_inner_is_ref: false,
             },
         ],
         return_type: TypeRef::Named("ExtractionResult".into()),
@@ -2521,6 +2541,7 @@ fn make_long_signature_api() -> ApiSurface {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }],
         return_type: TypeRef::String,
         is_async: false,
