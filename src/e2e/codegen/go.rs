@@ -196,6 +196,13 @@ impl E2eCodegen for GoCodegen {
             .flat_map(|g| g.fixtures.iter())
             .any(|f| f.http.is_none() && !f.needs_mock_server());
 
+        // Determine if any fixture needs the mock-server binary or HTTP integration tests.
+        let needs_mock_server = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.needs_mock_server());
+        let needs_http_tests = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+
         let needs_main_test = has_file_fixtures
             || groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
                 if f.needs_mock_server() {
@@ -213,12 +220,12 @@ impl E2eCodegen for GoCodegen {
             });
 
         // Emit cmd/harness/main.go when HTTP fixtures are present.
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+        let has_http_fixtures = needs_http_tests;
 
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(&e2e_config.test_documents_dir, has_http_fixtures),
+                content: render_main_test_go(&e2e_config.test_documents_dir, needs_mock_server || needs_http_tests),
                 generated_header: true,
             });
 
@@ -326,29 +333,34 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
 /// The harness is expected at `cmd/harness/main.go` (built as `./harness` binary).
 /// The harness prints `Harness listening on HOST:PORT` on stdout; we poll TCP port availability.
 /// On readiness, we export SUT_URL so all test files can call `os.Getenv("SUT_URL")`.
-fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> String {
+fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bool) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
-    let _ = writeln!(out, "\t\"bufio\"");
-    let _ = writeln!(out, "\t\"fmt\"");
-    if has_http_fixtures {
-        let _ = writeln!(out, "\t\"io\"");
-        let _ = writeln!(out, "\t\"net\"");
-    } else {
-        // "net/http" is used only in the mock-server readiness poll (non-HTTP path).
-        // "strings" is used only to parse MOCK_SERVER_URL= lines (non-HTTP path).
-        let _ = writeln!(out, "\t\"net/http\"");
-        let _ = writeln!(out, "\t\"strings\"");
+    if needs_mock_server_bootstrap {
+        let _ = writeln!(out, "\t\"bufio\"");
     }
     let _ = writeln!(out, "\t\"os\"");
-    let _ = writeln!(out, "\t\"os/exec\"");
+    if needs_mock_server_bootstrap {
+        let _ = writeln!(out, "\t\"os/exec\"");
+    }
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
     let _ = writeln!(out, "\t\"testing\"");
-    let _ = writeln!(out, "\t\"time\"");
+    if needs_mock_server_bootstrap {
+        let _ = writeln!(out, "\t\"fmt\"");
+        let _ = writeln!(out, "\t\"net/http\"");
+        let _ = writeln!(out, "\t\"strings\"");
+        let _ = writeln!(out, "\t\"time\"");
+    } else {
+        // HTTP-fixture harness path: uses io, net.DialTimeout for readiness polling.
+        let _ = writeln!(out, "\t\"fmt\"");
+        let _ = writeln!(out, "\t\"io\"");
+        let _ = writeln!(out, "\t\"net\"");
+        let _ = writeln!(out, "\t\"time\"");
+    }
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
     let _ = writeln!(out, "func TestMain(m *testing.M) {{");
@@ -380,12 +392,11 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out);
-    if !has_http_fixtures {
-        // No HTTP-fixture harness — fixtures rely on the alef-generated
-        // test_apps/rust/ mock-server. Two execution modes:
+    if needs_mock_server_bootstrap {
+        // Mock-server bootstrap path: build + spawn mock-server, parse URL, set env, tear down on exit.
+        // Mirrors the ruby/elixir/c/dart patterns. Two execution modes:
         //   1. External: MOCK_SERVER_URL already set (alef test-apps run parent).
-        //   2. Standalone: build + spawn mock-server, parse URL, set env, tear
-        //      down on exit. Mirrors the ruby/elixir/c/dart patterns.
+        //   2. Standalone: build + spawn mock-server, parse URL, set env, tear down on exit.
         let _ = writeln!(out, "\tif os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
         let _ = writeln!(out, "\t\tos.Exit(m.Run())");
         let _ = writeln!(out, "\t}}");
