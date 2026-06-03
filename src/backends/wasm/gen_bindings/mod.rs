@@ -960,27 +960,24 @@ fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
 
     // Collect every feature name referenced by a cfg attribute on a generated
     // item. Each becomes a passthrough Cargo feature on the binding crate so
-    // `cargo check` does not error with `unexpected cfg condition value`.
+    // rustc does not warn `unexpected cfg condition value` under `-D warnings`.
     //
-    // Features already in the explicit `features` clause (forwarded to the core
-    // dep) are still declared here AND included in the `default = [...]` list
-    // so `#[cfg(feature = X)]` on binding items evaluates true. Without this,
-    // the binding crate has no `X` feature defined, so rustc warns under
-    // `-D warnings` and the cfg-gated items are silently dropped.
-    let explicit_features: std::collections::BTreeSet<String> = features.iter().cloned().collect();
+    // Features are declared but NOT enabled by default. Items behind
+    // `#[cfg(feature = X)]` on the binding crate intentionally evaluate false
+    // when the feature isn't enabled — they're forwarded to the core dep via
+    // the `dep features = [..]` clause, which makes the core types reachable,
+    // but the binding's own mirror items (DTOs, From impls) remain hidden so
+    // serde-Deserialize on trait-object handles like `VisitorHandle` does not
+    // surface in the binding's deserialization surface.
+    let _ = features;
     let cfg_features = collect_cfg_features(api);
     let features_table = if cfg_features.is_empty() {
         String::new()
     } else {
-        let default_features: Vec<&String> = cfg_features.iter().filter(|n| explicit_features.contains(*n)).collect();
-        let mut lines: Vec<String> = cfg_features
+        let lines: Vec<String> = cfg_features
             .iter()
             .map(|name| format!(r#"{name} = ["{core_dep_key}/{name}"]"#))
             .collect();
-        if !default_features.is_empty() {
-            let quoted: Vec<String> = default_features.iter().map(|n| format!(r#""{n}""#)).collect();
-            lines.insert(0, format!("default = [{}]", quoted.join(", ")));
-        }
         format!("[features]\n{}\n\n", lines.join("\n"))
     };
 
@@ -1256,12 +1253,15 @@ serde = { version = "1", features = ["derive", "rc"] }
     }
 
     #[test]
-    fn cargo_toml_explicit_features_in_cfg_attrs_are_enabled_by_default() {
+    fn cargo_toml_declares_explicit_features_as_passthrough_without_enabling_default() {
         // Features in `[crates.wasm.features]` are forwarded to the core crate
         // via the dep features clause AND must still be declared on the binding
-        // crate when they appear in cfg attrs on generated items. They are
-        // declared as passthrough features AND included in `default = [...]`
-        // so `#[cfg(feature = X)]` evaluates true on the binding crate.
+        // crate when they appear in cfg attrs on generated items so rustc does
+        // not warn `unexpected cfg condition value` under `-D warnings`. They
+        // are declared as passthrough but NOT included in `default = [...]`:
+        // binding-side `#[cfg(feature = X)]` items intentionally remain hidden
+        // so trait-object handles like `VisitorHandle` do not leak into the
+        // binding's serde-deserialize surface.
         use crate::core::ir::TypeDef;
 
         let cfg: NewAlefConfig = toml::from_str(
@@ -1304,8 +1304,8 @@ features = ["wasm-target"]
             "wasm-target must be declared as passthrough so rustc sees the feature:\n{cargo_toml}"
         );
         assert!(
-            cargo_toml.contains(r#"default = ["wasm-target"]"#),
-            "wasm-target must be in default so cfg evaluates true:\n{cargo_toml}"
+            !cargo_toml.contains("default = ["),
+            "no default = [...] line — binding-side cfg items stay hidden:\n{cargo_toml}"
         );
         toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
     }

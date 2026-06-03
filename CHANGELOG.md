@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.22] - 2026-06-04
+
+### Fixed
+
+- fix(wasm): declare cfg-referenced features as passthrough on the binding crate without enabling them by default. Previously v0.22.20 added them to `default = [...]`, which made `#[cfg(feature = X)]` evaluate true and exposed trait-object handles like `VisitorHandle` inside the binding's serde-Deserialize Input DTO struct (causing E0277 — trait bound `Arc<Mutex<dyn HtmlVisitor>>: serde::Deserialize` not satisfied). The features are still declared so rustc does not warn under `-D warnings`, but the binding-side `#[cfg(feature = X)]` items intentionally remain hidden — the core dep already enables them via the `dep features = [..]` clause, so the binding can call into the core surface, while the binding's mirror DTOs avoid trying to deserialize non-deserializable handle types. (`src/backends/wasm/gen_bindings/mod.rs`)
+
 ## [0.22.21] - 2026-06-04
 
 ### Fixed
