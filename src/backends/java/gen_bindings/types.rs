@@ -959,6 +959,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_opaque_handle_class(
     package: &str,
     typ: &TypeDef,
@@ -1030,12 +1031,20 @@ pub(crate) fn gen_opaque_handle_class(
 
     // Emit streaming iterator methods (e.g. chatStream(req) -> Iterator<ChatCompletionChunk>).
     for adapter in &streaming_adapters {
-        gen_streaming_method(&mut body, adapter, prefix, &type_snake, main_class);
+        gen_streaming_method(&mut body, adapter, prefix, &type_snake, main_class, to_json_type_names);
     }
 
     // Emit non-streaming instance methods (chat, embed, moderate, …).
     for method in &instance_methods {
-        gen_instance_method(&mut body, method, prefix, &type_snake, main_class, opaque_type_names, to_json_type_names);
+        gen_instance_method(
+            &mut body,
+            method,
+            prefix,
+            &type_snake,
+            main_class,
+            opaque_type_names,
+            to_json_type_names,
+        );
     }
 
     // Emit static factory methods (constructors / preset factories with no receiver).
@@ -1125,7 +1134,15 @@ pub(crate) fn gen_opaque_handle_class(
 }
 
 /// Emit a non-streaming instance method on an opaque-handle owner.
-fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner_snake: &str, main_class: &str, opaque_type_names: &AHashSet<String>, to_json_type_names: &AHashSet<String>) {
+fn gen_instance_method(
+    out: &mut String,
+    method: &MethodDef,
+    prefix: &str,
+    owner_snake: &str,
+    main_class: &str,
+    opaque_type_names: &AHashSet<String>,
+    to_json_type_names: &AHashSet<String>,
+) {
     let method_name = safe_java_method_name(&method.name);
     let prefix_upper = prefix.to_uppercase();
     let owner_upper = owner_snake.to_uppercase();
@@ -1371,43 +1388,93 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
             TypeRef::Named(n) => n.clone(),
             _ => unreachable!(),
         };
-        let ret_snake = return_type_name.to_snake_case();
-        let ret_upper = ret_snake.to_uppercase();
-        let ret_free = format!("NativeLib.{prefix_upper}_{ret_upper}_FREE");
-        let ret_to_json = format!("NativeLib.{prefix_upper}_{ret_upper}_TO_JSON");
-        // When the declared return is `Optional<NamedDto>`, the method signature
-        // is `Optional<NamedDto>` (from `java_return_type`) but the body builds
-        // a bare `NamedDto`; wrap each return site through `Optional.of` /
-        // `Optional.empty` so the body matches the signature.  Non-optional
-        // named returns keep the historical bare-return shape.
-        let (empty_return, success_return) = if is_optional_return {
-            (
-                "java.util.Optional.empty()".to_string(),
-                format!("return java.util.Optional.of(STREAM_MAPPER.readValue(json, {return_type_name}.class));"),
-            )
-        } else {
-            (
-                "null".to_string(),
-                format!("return STREAM_MAPPER.readValue(json, {return_type_name}.class);"),
-            )
-        };
 
-        out.push_str(&crate::backends::java::template_env::render(
-            "stream_method_named_result.jinja",
-            minijinja::context! {
-                ffi_handle => ffi_handle,
-                args_joined => args_joined,
-                named_frees => render_named_frees("            "),
-                to_json => ret_to_json,
-                exception_class => exception_class,
-                method_name => method_name,
-                prefix_upper => prefix_upper,
-                return_type_name => return_type_name,
-                ret_free => ret_free,
-                empty_return => empty_return,
-                success_return => success_return,
-            },
-        ));
+        // Check if the return type is opaque or lacks _to_json in the FFI
+        if opaque_type_names.contains(&return_type_name) || !to_json_type_names.contains(&return_type_name) {
+            // For opaque types, wrap the pointer in a new instance of the return type.
+            // For value types without _to_json (shouldn't happen but be defensive), stub the method.
+            if opaque_type_names.contains(&return_type_name) {
+                // Wrap pointer in new instance: `return new TypeName(resultPtr);`
+                let _success_return = format!("return new {return_type_name}(resultPtr);");
+                let empty_return = if is_optional_return {
+                    "java.util.Optional.empty()".to_string()
+                } else {
+                    "null".to_string()
+                };
+                let success_return_wrapped = if is_optional_return {
+                    format!("return java.util.Optional.of(new {return_type_name}(resultPtr));")
+                } else {
+                    format!("return new {return_type_name}(resultPtr);")
+                };
+                let ret_free = format!("NativeLib.{prefix_upper}_FREE"); // dummy, not used for opaque returns
+
+                out.push_str(&crate::backends::java::template_env::render(
+                    "stream_method_named_result.jinja",
+                    minijinja::context! {
+                        ffi_handle => ffi_handle,
+                        args_joined => args_joined,
+                        named_frees => render_named_frees("            "),
+                        to_json => "",  // no _to_json for opaque types
+                        exception_class => exception_class,
+                        method_name => method_name,
+                        prefix_upper => prefix_upper,
+                        return_type_name => return_type_name,
+                        ret_free => ret_free,
+                        empty_return => empty_return,
+                        success_return => success_return_wrapped,
+                    },
+                ));
+            } else {
+                // Value type without _to_json (defensive stub)
+                out.push_str(&crate::backends::java::template_env::render(
+                    "stream_method_unsupported_return.jinja",
+                    minijinja::context! {
+                        named_frees => render_named_frees("            "),
+                        method_name => method_name,
+                        exception_class => exception_class,
+                    },
+                ));
+            }
+        } else {
+            // Normal value type with _to_json — deserialize from JSON
+            let ret_snake = return_type_name.to_snake_case();
+            let ret_upper = ret_snake.to_uppercase();
+            let ret_free = format!("NativeLib.{prefix_upper}_{ret_upper}_FREE");
+            let ret_to_json = format!("NativeLib.{prefix_upper}_{ret_upper}_TO_JSON");
+            // When the declared return is `Optional<NamedDto>`, the method signature
+            // is `Optional<NamedDto>` (from `java_return_type`) but the body builds
+            // a bare `NamedDto`; wrap each return site through `Optional.of` /
+            // `Optional.empty` so the body matches the signature.  Non-optional
+            // named returns keep the historical bare-return shape.
+            let (empty_return, success_return) = if is_optional_return {
+                (
+                    "java.util.Optional.empty()".to_string(),
+                    format!("return java.util.Optional.of(STREAM_MAPPER.readValue(json, {return_type_name}.class));"),
+                )
+            } else {
+                (
+                    "null".to_string(),
+                    format!("return STREAM_MAPPER.readValue(json, {return_type_name}.class);"),
+                )
+            };
+
+            out.push_str(&crate::backends::java::template_env::render(
+                "stream_method_named_result.jinja",
+                minijinja::context! {
+                    ffi_handle => ffi_handle,
+                    args_joined => args_joined,
+                    named_frees => render_named_frees("            "),
+                    to_json => ret_to_json,
+                    exception_class => exception_class,
+                    method_name => method_name,
+                    prefix_upper => prefix_upper,
+                    return_type_name => return_type_name,
+                    ret_free => ret_free,
+                    empty_return => empty_return,
+                    success_return => success_return,
+                },
+            ));
+        }
     } else if is_ffi_string_return(&dispatch_return) {
         let template = if is_optional_return {
             "stream_method_optional_string_result.jinja"
@@ -1703,7 +1770,14 @@ fn param_needs_null_check(ty: &TypeRef) -> bool {
 /// FFI iterator-handle trio (`_start`, `_next`, `_free`), deserializing each chunk
 /// pointer via `<item>_to_json` + `<item>_free` and rethrowing FFI errors as
 /// `<MainClass>Exception`.
-fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str, owner_snake: &str, main_class: &str) {
+fn gen_streaming_method(
+    out: &mut String,
+    adapter: &AdapterConfig,
+    prefix: &str,
+    owner_snake: &str,
+    main_class: &str,
+    to_json_type_names: &AHashSet<String>,
+) {
     let method_name = adapter.name.to_lower_camel_case();
     let item_type = adapter.item_type.as_deref().unwrap_or("Object");
     let request_type_full = adapter.params[0].ty.as_str();
@@ -1730,7 +1804,12 @@ fn gen_streaming_method(out: &mut String, adapter: &AdapterConfig, prefix: &str,
     let free_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_FREE");
     let req_from_json = format!("{prefix_upper}_{request_upper}_FROM_JSON");
     let req_free = format!("{prefix_upper}_{request_upper}_FREE");
-    let item_to_json = format!("{prefix_upper}_{item_upper}_TO_JSON");
+    // Only include item_to_json if the FFI backend exports it for this type
+    let item_to_json = if to_json_type_names.contains(item_type) {
+        format!("{prefix_upper}_{item_upper}_TO_JSON")
+    } else {
+        String::new()
+    };
     let item_free = format!("{prefix_upper}_{item_upper}_FREE");
 
     out.push_str(&crate::backends::java::template_env::render(
