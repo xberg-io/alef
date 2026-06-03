@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(napi): emit `impl Default for X` after NAPI wrapper struct `impl` block to satisfy clippy's `new_without_default` lint. When an opaque type had `has_default=true` and a parameterless `pub fn new() -> Self` method, the NAPI codegen emitted the constructor impl but not the Default trait, causing clippy to flag with `error: you should consider adding a \`Default\` implementation`. Now `napi_default_constructor()` emits both the `#[napi] impl X { ... }` block and a separate `impl Default for X { fn default() -> Self { Self::new() } }` block. This only occurs for wrapper types with no-arg constructors and prevents unnecessary clippy warnings in downstream NAPI bindings. (`src/backends/napi/gen_bindings/mod.rs`)
 - fix(e2e/python): register OPTIONS preflight handler for CORS-enabled routes. When a fixture declares CORS middleware, the Python harness now emits a separate OPTIONS handler that validates the preflight request (origin, requested method, requested headers) and returns 204 (allowed) or 403 (rejected), matching the TypeScript e2e harness behavior from commit 5ffb09cc2. This fixes the 4 CORS preflight test regressions (cors_preflight_method_not_allowed, cors_preflight_header_not_allowed, cors_max_age, cors_custom_allowed_headers_x_custom) that returned 405 Method Not Allowed instead of the expected 204/403. Mirrors Wave 1D's TS logic in the Python harness template (`src/e2e/templates/python/app_harness.py.jinja`).
 
 ## [Unreleased]

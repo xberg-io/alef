@@ -1243,6 +1243,7 @@ fn napi_variant_wrapper_constructor(
 /// For an explicitly-opaque type with `has_default` that is treated as opaque in NAPI,
 /// emit a `#[napi(constructor)] pub fn new() -> Self` to enable JS `new ClassName()` syntax.
 /// This is a simple wrapper around the Rust `new()` method that returns a default instance.
+/// Also emit `impl Default for X` to satisfy clippy's `new_without_default` lint.
 fn napi_default_constructor(
     typ: &crate::core::ir::TypeDef,
     _mapper: &crate::backends::napi::type_map::NapiMapper,
@@ -1258,7 +1259,7 @@ fn napi_default_constructor(
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
 
     let constructor = format!(
-        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new() -> Self {{\n        Self {{ inner: std::sync::Arc::new({core_path}::new()) }}\n    }}\n}}\n"
+        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new() -> Self {{\n        Self {{ inner: std::sync::Arc::new({core_path}::new()) }}\n    }}\n}}\n\nimpl Default for {struct_name} {{\n    fn default() -> Self {{\n        Self::new()\n    }}\n}}\n"
     );
 
     Some(constructor)
