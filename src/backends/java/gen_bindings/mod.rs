@@ -356,9 +356,21 @@ impl Backend for JavaBackend {
         // 4b. Opaque handle types
         let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
         // Build type classification sets for gating _to_json and _from_json handle references
-        let opaque_type_names: AHashSet<String> = api.types.iter().filter(|t| t.is_opaque).map(|t| t.name.clone()).collect();
-        let to_json_type_names: AHashSet<String> = api.types.iter()
-            .filter(|t| !t.is_opaque && t.has_serde && !t.name.ends_with("Update") && !t.methods.iter().any(|m| m.name == "to_json"))
+        let opaque_type_names: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque)
+            .map(|t| t.name.clone())
+            .collect();
+        let to_json_type_names: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| {
+                !t.is_opaque
+                    && t.has_serde
+                    && !t.name.ends_with("Update")
+                    && !t.methods.iter().any(|m| m.name == "to_json")
+            })
             .map(|t| t.name.clone())
             .collect();
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
