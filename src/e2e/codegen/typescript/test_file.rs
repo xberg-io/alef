@@ -159,12 +159,11 @@ pub fn render_test_file(
                 }
             }
         }
-        // For WASM with visitor specs, ensure WasmConversionOptions and WasmVisitorHandle
-        // are imported so the test can call WasmConversionOptions.default() and
-        // new WasmVisitorHandle(...) to wrap the raw visitor object.
         if lang == "wasm" && fixture.visitor.is_some() {
-            all_options_types.insert("WasmConversionOptions".to_string());
-            all_options_types.insert("WasmVisitorHandle".to_string());
+            if let Some(binding) = wasm_visitor_binding(config, options_type) {
+                all_options_types.insert(binding.options_type);
+                all_options_types.insert(binding.handle_type);
+            }
         }
     }
 
@@ -187,7 +186,7 @@ pub fn render_test_file(
 
     // For WASM, we need to import the options type when:
     // 1. There are json_object args with values, OR
-    // 2. There are visitor specs (which require WasmConversionOptions.default())
+    // 2. There are visitor specs (which require a configured options bridge)
     let has_visitor_fixtures = lang == "wasm" && fixtures.iter().any(|f| f.visitor.is_some());
     let needs_options_import = !all_options_types.is_empty()
         && (has_visitor_fixtures
@@ -874,33 +873,16 @@ fn render_test_case(
     let final_args = if visitor_arg.is_empty() {
         args_str
     } else if lang == "wasm" {
-        // WASM: visitor must be assigned to a WasmConversionOptions class instance.
-        // wasm-bindgen requires the options arg to be an actual class instance, not a
-        // plain object literal. The visitor field setter additionally requires the value
-        // to be a WasmVisitorHandle class instance, so wrap the raw visitor object via
-        // `new WasmVisitorHandle(...)`. args_str shapes: empty (just-visitor), trailing
-        // `undefined` (positional options omitted), trailing IIFE (options already an
-        // IIFE), or other.
-        let iife = format!(
-            "(() => {{ const _u = WasmConversionOptions.default(); _u.visitor = new WasmVisitorHandle({visitor_arg}); return _u; }})()"
-        );
-        if args_str.is_empty() {
-            iife
-        } else if let Some(return_pos) = args_str.rfind("return _u;") {
-            let (iife_body, ret_part) = args_str.split_at(return_pos);
-            format!("{iife_body}_u.visitor = new WasmVisitorHandle({visitor_arg}); {ret_part}")
-        } else if let Some(stripped) = args_str.strip_suffix(", undefined") {
-            // Replace the trailing `undefined` options placeholder with the IIFE.
-            format!("{stripped}, {iife}")
+        if let Some(binding) = wasm_visitor_binding(config, effective_options_type.as_deref()) {
+            apply_wasm_visitor_arg(&args_str, &visitor_arg, &binding)
         } else {
-            // Append the IIFE as the trailing options arg.
-            format!("{args_str}, {iife}")
+            args_str
         }
     } else if lang == "node" {
         // Node: napi-rs cannot deserialize `Option<Object<'static>>` fields from a JS object
         // property, so visitors must be passed as the third positional argument to convert.
-        // The generated `convert(html, options, visitor)` reads this kwarg directly and wraps
-        // it via JsHtmlVisitorBridge.
+        // The generated bridge-aware function reads this kwarg directly and wraps it via
+        // the configured trait bridge.
         if args_str.is_empty() {
             format!("undefined, undefined, {visitor_arg}")
         } else if args_str.contains(", ") {
@@ -1364,7 +1346,7 @@ fn ts_builder_expression_inner(
     depth: usize,
 ) -> String {
     // Use a depth-indexed variable name so nested IFEs don't shadow each other.
-    // Without this, `const _u = WasmConversionOptions.default(); _u.preprocessing =
+    // Without this, `const _u = WasmOptions.default(); _u.preprocessing =
     // (() => { const _u = WasmOptions.default(); ... })()` triggers
     // oxlint `no-shadow` on every nested-options expression.
     let var = format!("_u{depth}");
@@ -1847,6 +1829,60 @@ fn canonical_ts_type_name(lang: &str, type_name: &str, config: &crate::core::con
     }
 }
 
+#[derive(Debug, Clone)]
+struct WasmVisitorBinding {
+    options_type: String,
+    options_field: String,
+    handle_type: String,
+}
+
+fn wasm_visitor_binding(
+    config: &crate::core::config::ResolvedCrateConfig,
+    fallback_options_type: Option<&str>,
+) -> Option<WasmVisitorBinding> {
+    let bridge = config
+        .trait_bridges
+        .iter()
+        .find(|bridge| bridge.options_type.is_some() && bridge.resolved_options_field().is_some())?;
+    let wasm_prefix = config.wasm_type_prefix();
+    let options_type = fallback_options_type
+        .or(bridge.options_type.as_deref())
+        .map(|name| wasm_class_name(name.strip_prefix(&wasm_prefix).unwrap_or(name), &wasm_prefix))?;
+    let handle_type = bridge
+        .type_alias
+        .as_deref()
+        .map(|name| wasm_class_name(name.strip_prefix(&wasm_prefix).unwrap_or(name), &wasm_prefix))
+        .unwrap_or_else(|| format!("Wasm{}Bridge", bridge.trait_name));
+
+    Some(WasmVisitorBinding {
+        options_type,
+        options_field: bridge.resolved_options_field()?.to_string(),
+        handle_type,
+    })
+}
+
+fn apply_wasm_visitor_arg(args_str: &str, visitor_arg: &str, binding: &WasmVisitorBinding) -> String {
+    let visitor_assignment = format!(
+        "_u.{} = new {}({visitor_arg});",
+        snake_to_camel(&binding.options_field),
+        binding.handle_type
+    );
+    let iife = format!(
+        "(() => {{ const _u = {}.default(); {visitor_assignment} return _u; }})()",
+        binding.options_type
+    );
+    if args_str.is_empty() {
+        iife
+    } else if let Some(return_pos) = args_str.rfind("return _u;") {
+        let (iife_body, ret_part) = args_str.split_at(return_pos);
+        format!("{iife_body}{visitor_assignment} {ret_part}")
+    } else if let Some(stripped) = args_str.strip_suffix(", undefined") {
+        format!("{stripped}, {iife}")
+    } else {
+        format!("{args_str}, {iife}")
+    }
+}
+
 /// Detect if cache isolation is needed: checks if any fixture calls `cleanCache`
 /// and if a `configure` function is available.
 /// Returns (has_clean_cache, has_configure).
@@ -2202,6 +2238,52 @@ type_prefix = "Js"
         assert_eq!(
             canonical_ts_type_name("wasm", "WasmExtractionConfig", &resolved),
             "WasmExtractionConfig"
+        );
+    }
+
+    #[test]
+    fn wasm_visitor_binding_uses_trait_bridge_options_metadata() {
+        use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
+
+        let config = ResolvedCrateConfig {
+            trait_bridges: vec![TraitBridgeConfig {
+                trait_name: "Renderer".to_string(),
+                type_alias: Some("RenderHandle".to_string()),
+                param_name: Some("renderer".to_string()),
+                bind_via: BridgeBinding::OptionsField,
+                options_type: Some("RenderOptions".to_string()),
+                options_field: Some("callback".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let binding = wasm_visitor_binding(&config, None).expect("visitor binding");
+        assert_eq!(binding.options_type, "WasmRenderOptions");
+        assert_eq!(binding.options_field, "callback");
+        assert_eq!(binding.handle_type, "WasmRenderHandle");
+    }
+
+    #[test]
+    fn wasm_visitor_arg_uses_configured_field_and_types() {
+        let binding = WasmVisitorBinding {
+            options_type: "WasmRenderOptions".to_string(),
+            options_field: "callback".to_string(),
+            handle_type: "WasmRenderHandle".to_string(),
+        };
+
+        let args = apply_wasm_visitor_arg("html, undefined", "_visitor", &binding);
+        assert!(
+            args.contains("WasmRenderOptions.default()"),
+            "options type must come from metadata, got:\n{args}"
+        );
+        assert!(
+            args.contains("_u.callback = new WasmRenderHandle(_visitor);"),
+            "visitor field and handle type must come from metadata, got:\n{args}"
+        );
+        assert!(
+            !args.contains("WasmConversionOptions") && !args.contains("WasmVisitorHandle"),
+            "must not hard-code conversion visitor names, got:\n{args}"
         );
     }
 

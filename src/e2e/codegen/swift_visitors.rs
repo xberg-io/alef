@@ -7,7 +7,7 @@
 //! All other methods inherit the default implementation (returning `.continue_`).
 //!
 //! The canonical method list mirrors `dart_visitors.rs` — both are sourced from
-//! `crates/sample-markdown/src/visitor/traits.rs`.
+//! the configured visitor trait bridge.
 
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};
 use heck::{ToLowerCamelCase, ToUpperCamelCase};

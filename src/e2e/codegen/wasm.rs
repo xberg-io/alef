@@ -1,7 +1,7 @@
 //! WebAssembly e2e test generator using vitest.
 //!
 //! Reuses the TypeScript test renderer for both HTTP and non-HTTP fixtures,
-//! configured with the `@sample_core/wasm` (or equivalent) package as the import
+//! configured with the generated WASM package as the import
 //! path and `wasm` as the language key for skip/override resolution. Adds
 //! wasm-specific scaffolding: a `setup.ts` chdir to `test_documents/` so
 //! file_path fixtures resolve, and a `globalSetup.ts` that spawns the
@@ -186,11 +186,10 @@ impl E2eCodegen for WasmCodegen {
         let any_fixtures = active_per_group.iter().flat_map(|g| g.iter());
         // The wasm globalSetup spawns the mock server. It must run for any fixture
         // that interpolates `${process.env.MOCK_SERVER_URL}` into a base URL —
-        // i.e. anything with `mock_response` (sample-llm shape) or `http`
-        // (sample_core/sample-crawler shape), not just raw `is_http_test`. The
-        // comment block below this line states the same intent; the previous
-        // condition (`f.is_http_test()`) only detected the consumer-style
-        // `http: { ... }` shape and missed the entire sample-llm fixture set.
+        // i.e. anything with `mock_response` or `http`, not just raw
+        // `is_http_test`. The comment block below this line states the same
+        // intent; the previous condition (`f.is_http_test()`) only detected
+        // the `http: { ... }` shape and missed direct mock-response fixtures.
         let has_http_fixtures = any_fixtures.clone().any(|f| f.needs_mock_server());
         // file_path / bytes args are read off disk by the generated code at runtime;
         // we add a setup.ts chdir to test_documents so relative paths resolve.
@@ -223,8 +222,8 @@ impl E2eCodegen for WasmCodegen {
         });
 
         // Generate vitest.config.ts — globalSetup is needed for any fixture that
-        // interpolates `${process.env.MOCK_SERVER_URL}` (sample-llm `mock_response`
-        // shape or consumer-style `http` shape — both produce `has_http_fixtures`
+        // interpolates `${process.env.MOCK_SERVER_URL}` (`mock_response` or `http`
+        // shape — both produce `has_http_fixtures`
         // via `Fixture::needs_mock_server`). The simple mock-server template spawns
         // the standalone `mock-server` binary; the server-pattern template spawns
         // the consumer's app harness. Selection mirrors the Node typescript codegen.

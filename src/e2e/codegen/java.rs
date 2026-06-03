@@ -1,6 +1,6 @@
 //! Java e2e test generator using JUnit 5.
 //!
-//! Generates `e2e/java/pom.xml` and `src/test/java/dev/sample_core/e2e/{Category}Test.java`
+//! Generates `e2e/java/pom.xml` and language-package test classes
 //! files from JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
 use crate::core::backend::GeneratedFile;
@@ -134,8 +134,8 @@ impl E2eCodegen for JavaCodegen {
         // Check if there are HTTP fixtures that need server-pattern harness
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
         let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
-        // Detect mock-server need (sample-llm `mock_response` shape OR consumer
-        // `http.expected_response` shape). Mirrors kotlin_android codegen.
+        // Detect mock-server need from fixture `mock_response` or `http.expected_response`
+        // shapes. Mirrors kotlin_android codegen.
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
@@ -824,6 +824,11 @@ fn render_test_file(
             }
         }
         let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_om, f, call_cfg, type_defs);
+        if f.visitor.is_some() {
+            if let Some(binding) = java_visitor_binding(config, recipe.options_type) {
+                all_options_types.insert(binding.options_type);
+            }
+        }
         for arg in recipe.args.iter().filter(|arg| arg.arg_type == "handle") {
             let value = super::resolve_field(&f.input, &arg.field);
             if value.is_null() || value.is_object() && value.as_object().is_some_and(|o| o.is_empty()) {
@@ -953,9 +958,7 @@ fn render_test_file(
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
         // Derive streaming DTO imports from declared adapters so each project pulls
-        // in only the types it actually exposes (e.g., sample-crawler gets
-        // CrawlEvent/CrawlStreamRequest/BatchCrawlStreamRequest, sample-llm gets
-        // ChatCompletionChunk/ChatCompletionRequest).
+        // in only the request and item types it actually exposes.
         let mut streaming_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for adapter in adapters {
             if !matches!(adapter.pattern, crate::core::config::extras::AdapterPattern::Streaming) {
@@ -1568,39 +1571,13 @@ fn render_test_method(
     // TypeScript and C# implementations.
     let extra_args_slice: &[String] = recipe.extra_args;
 
-    // Build visitor if present and add to setup
-    let mut visitor_var = String::new();
-    let mut has_visitor_fixture = false;
+    let mut final_args = args_str;
     if let Some(visitor_spec) = &fixture.visitor {
-        visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
-        has_visitor_fixture = true;
-    }
-
-    // When visitor is present, attach it to the options parameter
-    let mut final_args = if has_visitor_fixture {
-        if args_str.is_empty() {
-            format!("new ConversionOptions().withVisitor({})", visitor_var)
-        } else if args_str.contains("new ConversionOptions")
-            || args_str.contains("ConversionOptionsBuilder")
-            || args_str.contains(".builder()")
-        {
-            // Options are being built (either new ConversionOptions(), builder pattern, or .builder().build())
-            // append .withVisitor() call before .build() if present
-            if args_str.contains(".build()") {
-                let idx = args_str.rfind(".build()").unwrap();
-                format!("{}.withVisitor({}){}", &args_str[..idx], visitor_var, &args_str[idx..])
-            } else {
-                format!("{}.withVisitor({})", args_str, visitor_var)
-            }
-        } else if args_str.ends_with(", null") {
-            let base = &args_str[..args_str.len() - 6];
-            format!("{}, new ConversionOptions().withVisitor({})", base, visitor_var)
-        } else {
-            format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
+        let visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
+        if let Some(binding) = java_visitor_binding(config, effective_options_type) {
+            final_args = apply_java_visitor_arg(&mut setup_lines, &final_args, args, &visitor_var, &binding);
         }
-    } else {
-        args_str
-    };
+    }
 
     if !extra_args_slice.is_empty() {
         let extra_str = extra_args_slice.join(", ");
@@ -2888,6 +2865,57 @@ fn build_java_visitor(
     "visitor".to_string()
 }
 
+#[derive(Debug, Clone)]
+struct JavaVisitorBinding {
+    options_type: String,
+    options_field: String,
+}
+
+fn java_visitor_binding(
+    config: &ResolvedCrateConfig,
+    fallback_options_type: Option<&str>,
+) -> Option<JavaVisitorBinding> {
+    let bridge = config
+        .trait_bridges
+        .iter()
+        .find(|bridge| bridge.options_type.is_some() && bridge.resolved_options_field().is_some())?;
+    Some(JavaVisitorBinding {
+        options_type: fallback_options_type
+            .or(bridge.options_type.as_deref())
+            .map(str::to_string)?,
+        options_field: bridge.resolved_options_field()?.to_string(),
+    })
+}
+
+fn apply_java_visitor_arg(
+    setup_lines: &mut Vec<String>,
+    args_str: &str,
+    args: &[crate::e2e::config::ArgMapping],
+    visitor_var: &str,
+    binding: &JavaVisitorBinding,
+) -> String {
+    let wither = format!("with{}", binding.options_field.to_upper_camel_case());
+    if let Some(options_arg) = args
+        .iter()
+        .find(|arg| arg.arg_type == "json_object" && args_str.split(", ").any(|part| part == arg.name))
+    {
+        setup_lines.push(format!(
+            "{} = {}.{}({});",
+            options_arg.name, options_arg.name, wither, visitor_var
+        ));
+        return args_str.to_string();
+    }
+
+    let options_expr = format!("new {}().{}({})", binding.options_type, wither, visitor_var);
+    if args_str.is_empty() {
+        options_expr
+    } else if let Some(stripped) = args_str.strip_suffix(", null") {
+        format!("{stripped}, {options_expr}")
+    } else {
+        format!("{args_str}, {options_expr}")
+    }
+}
+
 /// Emit a Java visitor method for a callback action.
 fn emit_java_visitor_method(
     setup_lines: &mut Vec<String>,
@@ -3448,7 +3476,7 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify that no sample_core-domain names leak into the generated output when
+    /// Verify that no sample-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
     fn java_stub_contains_no_sample_crate_domain_names() {
@@ -3736,5 +3764,31 @@ mod tests {
         assert!(rendered.contains("MAPPER.readValue(\"{\\\"limit\\\":3}\", SessionConfig.class)"));
         assert!(rendered.contains("Sample.createSession(sessionConfig)"));
         assert!(!rendered.contains("CrawlConfig"));
+    }
+
+    #[test]
+    fn java_visitor_arg_uses_trait_bridge_options_metadata() {
+        use crate::core::config::{BridgeBinding, TraitBridgeConfig};
+
+        let config = ResolvedCrateConfig {
+            trait_bridges: vec![TraitBridgeConfig {
+                trait_name: "Renderer".to_string(),
+                type_alias: Some("RenderHandle".to_string()),
+                param_name: Some("renderer".to_string()),
+                bind_via: BridgeBinding::OptionsField,
+                options_type: Some("RenderOptions".to_string()),
+                options_field: Some("callback".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let binding = java_visitor_binding(&config, None).expect("visitor binding");
+        assert_eq!(binding.options_type, "RenderOptions");
+        assert_eq!(binding.options_field, "callback");
+
+        let args = apply_java_visitor_arg(&mut Vec::new(), "html, null", &[], "visitor", &binding);
+        assert_eq!(args, "html, new RenderOptions().withCallback(visitor)");
+        assert!(!args.contains("ConversionOptions"));
     }
 }

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e): derive Java and WASM visitor fixture options from trait-bridge metadata instead of hard-coded conversion option and visitor handle names, and neutralize stale sample-domain comments in e2e generators. (`src/e2e/codegen/{java,typescript,wasm,c,csharp,swift,zig}.rs`)
 - fix(rustler): pre-wrap the `base_url:` line in the generated `Native` module so `mix format`'s default 98-char line width does not flag the URL on consumers with longer GitHub-org/repo paths. The wrapped form is idempotent under `mix format`, eliminating prek/mix-format churn after regen. (`src/backends/rustler/template_env.rs`)
 - fix(dart/frb): annotate slice/Vec `.collect()` closures with explicit parameter types (`|v: &[_]|` / `|v: Vec<_>|`) so the Rust closure signature is inferable when the FFI bridge call site provides no surrounding context. Fixes E0282 type-inference errors in the generated `packages/dart/rust/src/lib.rs` when the source crate returns `Vec<T>` from inherent functions that the FRB wrapper transmutes through. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
 - fix(dart/frb): only synthesize `&v.iter().map(|s| s.as_str()).collect::<Vec<_>>()` when the core parameter is `&[&str]`; previously every `&[String]` parameter was rewritten the same way, producing `&[&str]` borrows that mismatched the core signature. The new `p.vec_inner_is_ref` guard preserves direct `&param_name` borrows for `&[String]` parameters. (`src/backends/dart/gen_rust_crate/mod.rs`)

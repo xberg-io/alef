@@ -1920,7 +1920,7 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
                     }
                     // Non-numeric bracket: HashMap<String, _> key access. FRB / serde
                     // serialize maps as JSON objects, so `field[key]` resolves to
-                    // `.object.get("field").?.object.get("key").?`. Used by sample-markdown's
+                    // `.object.get("field").?.object.get("key").?`. Used by nested fixture objects.
                     // `metadata.document.open_graph[title]` alias pattern where
                     // `open_graph` is a `HashMap<String, String>`.
                     expr = format!("{expr}.object.get(\"{key}\").?.object.get(\"{idx}\").?");
@@ -3158,7 +3158,7 @@ fn emit_test_backend_inner(
     let _ = writeln!(setup, "var {out_err_var}: ?[*c]u8 = null;");
 
     // arg_expr expands into the argument list for the registration call site:
-    // `sample_core.register_fn("test", vtable, &stub, @ptrCast(&out_err))`
+    // `<binding>.register_fn("test", vtable, &stub, @ptrCast(&out_err))`
     // The caller places arg_expr into args_str, which is used as the full argument list
     // of the top-level `{module}.{register_fn}(args_str)` call.
     let arg_expr = format!("\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var})");
