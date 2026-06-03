@@ -1198,15 +1198,20 @@ impl Backend for PhpBackend {
             // block_on, so the Rust function name matches the PHP method name exactly.
             let ext_method_name = func.name.to_lower_camel_case();
             let is_void = matches!(&func.return_type, TypeRef::Unit);
-            // Pass parameters to the native function in their reordered signature order.
-            // The wrapper's param signature is reordered for PHP 8.1 compliance (required first),
-            // so call args must match that reordered signature.
-            // Default-constructible params made optional in the facade must be
-            // coerced to their default constructor when null, since the native ext requires
-            // non-nullable objects.
-            let call_params = params_with_optionality
+            // CRITICAL: Pass parameters to the native function in their ORIGINAL IR order,
+            // not in the reordered wrapper signature order.
+            // The wrapper signature is reordered for PHP 8.1 compliance (required first),
+            // but the native extension method (KreuzcrawlApi::scrape) expects parameters
+            // in the original IR order (as registered via #[php_impl]).
+            // When IR has optional params before required ones, the two orders differ.
+            // Example: IR is (engine: Option<Engine>, url: String)
+            //   → Wrapper signature: (string $url, ?Engine $engine = null) [reordered]
+            //   → Native call: ($engine ?? new Engine(), $url) [IR order]
+            // Build call args from visible_params (original order), not from
+            // the reordered params_with_optionality.
+            let call_params = visible_params
                 .iter()
-                .map(|(p, _)| {
+                .map(|p| {
                     // Only apply the `?? new Type()` coercion for params that are
                     // explicitly optional (p.optional) or default-constructible.
                     // Params that are required in the Rust API are passed as-is.

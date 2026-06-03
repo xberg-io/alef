@@ -1482,6 +1482,10 @@ impl Backend for RustlerBackend {
                     exception_module => &exception_module,
                 },
             ));
+            // mix-format requires a blank line before each top-level def.
+            // The next adapter iteration will emit `@doc` for the _start wrapper,
+            // so insert the separator here.
+            content.push('\n');
         }
 
         // Top-level flat wrappers for non-streaming methods on opaque types
