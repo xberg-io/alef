@@ -24,6 +24,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -75,6 +76,19 @@ func main() {
 		log.Fatalf("new app: %v", err)
 	}
 
+	// Map fixture method names (UPPERCASE) to framework method enum constants (PascalCase).
+	methodMap := map[string]{{ import_alias }}.Method{
+		"GET":     {{ import_alias }}.MethodGet,
+		"POST":    {{ import_alias }}.MethodPost,
+		"PUT":     {{ import_alias }}.MethodPut,
+		"PATCH":   {{ import_alias }}.MethodPatch,
+		"DELETE":  {{ import_alias }}.MethodDelete,
+		"HEAD":    {{ import_alias }}.MethodHead,
+		"OPTIONS": {{ import_alias }}.MethodOptions,
+		"CONNECT": {{ import_alias }}.MethodConnect,
+		"TRACE":   {{ import_alias }}.MethodTrace,
+	}
+
 	// Register a handler for each fixture.
 	for fixtureID, fixture := range fixtures {
 		if fixture.HTTP == nil {
@@ -97,7 +111,12 @@ func main() {
 		fullRoute := fmt.Sprintf("/fixtures/%s%s", fixtureID, route)
 
 		// Convert method string (GET, POST, etc.) to the framework's method enum.
-		builder, err := {{ import_alias }}.RouteBuilderNew({{ import_alias }}.Method(method), fullRoute)
+		m, ok := methodMap[strings.ToUpper(method)]
+		if !ok {
+			log.Printf("skipping fixture %s: unknown method %s", fixtureID, method)
+			continue
+		}
+		builder, err := {{ import_alias }}.RouteBuilderNew(m, fullRoute)
 		if err != nil {
 			log.Fatalf("create route builder: %v", err)
 		}

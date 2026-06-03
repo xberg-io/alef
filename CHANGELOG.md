@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(go): emit method-name lookup table in e2e harness to convert fixture UPPERCASE method names (GET, POST, ...) to framework enum constants (MethodGet, MethodPost, ...). Fixture JSON always uses UPPERCASE; alef 5a912bbc9 changed Go enum constants to preserve Rust PascalCase. The harness now maps via `methodMap := map[string]Method{ "GET": MethodGet, ... }` before passing to RouteBuilderNew, fixing spikard#134 where unsupported method names returned -1 and aborted before app.Run().
 - fix(elixir): start named Finch HTTP pool in e2e test_helper before ExUnit, and pass `finch: AlefE2EFinch` in every generated Req call. When tests invoke `Req.{get,post,...}(connect_options: [protocols: [:http1]], ...)`, they bypass Req's default lazy Finch init, requiring an explicit named supervisor. The Finch hex package is now an explicit test dependency in generated mix.exs. Closes #133 (#133)
 
 ## [0.21.8] - 2026-06-03
