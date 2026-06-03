@@ -28,6 +28,9 @@ export async function setup() {
     { stdio: ['pipe', 'pipe', 'inherit'] }
   );
 
+  const proc = serverProcess;
+  if (!proc) throw new Error('Failed to spawn mock-server process');
+
   const { url, servers } = await new Promise<{ url: string; servers: Record<string, string> }>((resolveSetup, reject) => {
     let collectedUrl = '';
     let collectedServers: Record<string, string> = {};
@@ -38,7 +41,7 @@ export async function setup() {
       if (settled) return;
       settled = true;
       clearTimeout(startupTimeout);
-      serverProcess!.stdout.off('data', onData);
+      proc.stdout.off('data', onData);
       resolveSetup(result);
     };
 
@@ -64,11 +67,11 @@ export async function setup() {
 
     const startupTimeout = setTimeout(() => {
       settled = true;
-      serverProcess!.stdout.off('data', onData);
+      proc.stdout.off('data', onData);
       reject(new Error('Mock server startup timeout'));
     }, 30000);
 
-    serverProcess!.stdout.on('data', onData);
+    proc.stdout.on('data', onData);
   });
 
   process.env.MOCK_SERVER_URL = url;
