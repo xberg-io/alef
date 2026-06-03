@@ -726,4 +726,90 @@ mod tests {
             "single-element testpaths should stay inline. got: {out}"
         );
     }
+
+    #[test]
+    fn render_app_harness_emits_options_preflight_handler_for_cors_fixtures() {
+        use crate::core::config::e2e::{E2eConfig, HarnessConfig};
+        use crate::e2e::fixture::{
+            CorsConfig, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler,
+            HttpMiddleware, HttpRequest,
+        };
+        use std::collections::BTreeMap;
+
+        let cors_fixture = Fixture {
+            id: "cors_preflight_test".to_owned(),
+            description: "CORS preflight test".to_owned(),
+            category: Some("cors".to_owned()),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: "test".to_owned(),
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/api/test".to_owned(),
+                    method: "GET".to_owned(),
+                    body_schema: None,
+                    parameters: BTreeMap::new(),
+                    middleware: Some(HttpMiddleware {
+                        cors: Some(CorsConfig {
+                            allow_origins: vec!["https://example.com".to_owned()],
+                            allow_methods: vec!["GET".to_owned(), "POST".to_owned()],
+                            allow_headers: vec!["Content-Type".to_owned()],
+                            expose_headers: vec![],
+                            max_age: Some(3600),
+                            allow_credentials: false,
+                        }),
+                        ..Default::default()
+                    }),
+                },
+                request: HttpRequest {
+                    method: "OPTIONS".to_owned(),
+                    path: "/api/test".to_owned(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
+                    body: None,
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 204,
+                    body: None,
+                    body_partial: None,
+                    headers: BTreeMap::new(),
+                    validation_errors: None,
+                },
+            }),
+        };
+
+        let groups = vec![FixtureGroup { category: "cors".to_owned(), fixtures: vec![cors_fixture] }];
+        let e2e_config = E2eConfig {
+            harness: HarnessConfig {
+                imports: vec!["my_pkg".to_owned()],
+                ..HarnessConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        let out = render_app_harness(&e2e_config, &groups);
+
+        // The harness must emit an OPTIONS preflight handler for the CORS-enabled fixture
+        assert!(
+            out.contains("make_cors_preflight_handler"),
+            "expected `make_cors_preflight_handler` in generated app_harness.py for CORS fixture:\n{out}"
+        );
+        assert!(
+            out.contains("options_builder"),
+            "expected `options_builder` registration in generated app_harness.py:\n{out}"
+        );
+        assert!(
+            out.contains("Options"),
+            "expected `Options` method enum variant in generated app_harness.py:\n{out}"
+        );
+    }
 }

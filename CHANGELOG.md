@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - fix(napi, wasm): wrap per-verb registration shortcuts (`get`, `post`, ...) inside an `impl App` block in the generated `service.rs`. The previous emission produced top-level `pub fn get(&mut self, ...)` free functions which is invalid Rust outside an impl context. (`src/backends/napi/gen_bindings/service_api.rs`, `src/backends/wasm/gen_bindings/service_api.rs`)
+- fix(e2e/python): add snapshot test asserting OPTIONS preflight handler is emitted for CORS-enabled fixtures in `app_harness.py`. The template fix from commit 39d43c375 was still present; the snapshot test guards against future regressions. (`src/e2e/codegen/python/config.rs`)
 
 ## [0.22.6] - 2026-06-03
 
