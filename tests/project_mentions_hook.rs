@@ -122,10 +122,15 @@ fn reports_mentions_in_source_comments() {
 #[test]
 fn accepts_explicit_alef_owned_infrastructure_mentions() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let file = dir.path().join("config.toml");
+    let file = dir.path().join("publish.yaml");
     fs::write(
         &file,
-        "docs_host = \"docs.<repo>.kreuzberg.dev\"\norg = \"github.com/kreuzberg-dev/alef\"\n",
+        concat!(
+            "uses: kreuzberg-dev/actions/setup-rust@v1\n",
+            "repo: kreuzberg-dev/alef\n",
+            "tap: kreuzberg-dev/homebrew-tap\n",
+            "docs_host: docs.<repo>.kreuzberg.dev\n",
+        ),
     )
     .expect("write fixture");
 
@@ -139,7 +144,7 @@ fn accepts_explicit_alef_owned_infrastructure_mentions() {
 }
 
 #[test]
-fn reports_project_mentions_next_to_allowed_infrastructure() {
+fn reports_downstream_repos_in_infrastructure_namespace() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("config.toml");
     fs::write(
@@ -158,6 +163,73 @@ fn reports_project_mentions_next_to_allowed_infrastructure() {
     assert!(
         stderr.contains("forbidden project mention `kreuzberg`"),
         "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn reports_downstream_domain_types_in_production_generator_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let backend_dir = dir.path().join("src").join("backends").join("swift");
+    fs::create_dir_all(&backend_dir).expect("create backend dir");
+    let file = backend_dir.join("gen_visitor.rs");
+    fs::write(&file, "if type_name == \"InternalDocument\" { emit_special_case(); }\n").expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject downstream domain type special-casing"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `InternalDocument`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("must not hard-code downstream domain types"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn reports_conversion_options_visitor_special_paths_in_codegen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let codegen_dir = dir.path().join("src").join("codegen");
+    fs::create_dir_all(&codegen_dir).expect("create codegen dir");
+    let file = codegen_dir.join("visitor.rs");
+    fs::write(
+        &file,
+        "if visitor_options == \"ConversionOptions\" { emit_special_case(); }\n",
+    )
+    .expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject conversion visitor special paths"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `ConversionOptions`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn accepts_downstream_domain_type_names_outside_production_generator_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cli_dir = dir.path().join("src").join("cli");
+    fs::create_dir_all(&cli_dir).expect("create cli dir");
+    let file = cli_dir.join("help.rs");
+    fs::write(&file, "let example = \"InternalDocument\";\n").expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

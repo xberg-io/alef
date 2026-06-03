@@ -20,7 +20,7 @@ Every step has a hard verification — never assume; always check.
 - User asks to bump alef version
 - After a stack of fix/feat commits that need a version cycle
 - After a breaking change is committed (must bump MINOR pre-1.0, MAJOR otherwise)
-- When downstream repos (kreuzberg, etc.) need a new pin
+- When downstream repos need a new pin
 
 ## Hard rules
 
@@ -159,7 +159,7 @@ If any of those are empty, redo the failed step — do not move on.
 
 ### 8. Downstream pins
 
-For any consumer repo (kreuzberg etc.) that pins this version, open a follow-up
+For any consumer repo that pins this version, open a follow-up
 PR that bumps the pin. Don't bundle that into the release commit.
 
 ## Anti-patterns

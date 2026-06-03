@@ -317,7 +317,7 @@ impl Backend for JavaBackend {
                         &complex_enums,
                         &sealed_unions_with_unwrapped,
                         &lang_rename_all,
-                        has_visitor_pattern,
+                        &config.trait_bridges,
                         &main_class,
                         builder_mode,
                         &enum_defaults,

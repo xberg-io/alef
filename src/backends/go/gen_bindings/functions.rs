@@ -1,7 +1,8 @@
 use super::methods::gen_param_to_c;
 use super::types::{emit_type_doc, go_return_expr};
 use crate::backends::go::type_map::{go_optional_type, go_type};
-use crate::codegen::naming::{go_param_name, to_go_name};
+use crate::codegen::naming::{go_param_name, pascal_to_snake, to_go_name};
+use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
@@ -126,7 +127,7 @@ pub(super) fn gen_function_wrapper(
     // signature so callers can pass nil to omit them.  This is simpler and more correct than
     // the earlier variadic approach which broke when more than one trailing optional existed.
     // Bridge params (visitor handles) are stripped from the public signature and integrated
-    // into the function via ConversionOptions.Visitor field instead.
+    // into the function via the configured options field instead.
     let mut param_strs: Vec<String> = Vec::new();
     for p in func.params.iter() {
         if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
@@ -487,23 +488,43 @@ pub(super) fn gen_function_wrapper(
     out
 }
 
-/// Generate a custom wrapper for the `convert` function that integrates visitor support.
+/// Generate a custom wrapper for an options-field visitor bridge function.
 ///
-/// When options.Visitor is not nil, the wrapper delegates to convertWithVisitorHelper.
-/// Otherwise, it calls the base convert via the FFI layer (with nil visitor).
+/// When the configured options field is not nil, the wrapper delegates to the visitor helper.
+/// Otherwise, it calls the base FFI function without attaching a visitor bridge.
 pub(super) fn gen_convert_with_visitor_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
     _value_only_types: &std::collections::HashSet<String>,
+    bridge_cfg: &TraitBridgeConfig,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
     let func_go_name = to_go_name(&func.name);
     emit_type_doc(&mut out, &func_go_name, &func.doc, "runs the generated conversion.");
 
-    // Find the html and options parameters.
-    let options_param = func.params.iter().find(|p| p.name == "options");
+    let options_type = bridge_cfg
+        .options_type
+        .as_deref()
+        .expect("go options-field bridge requires options_type");
+    let options_field = bridge_cfg
+        .resolved_options_field()
+        .expect("go options-field bridge requires options_field or param_name");
+    let options_param = func
+        .params
+        .iter()
+        .find(|p| type_ref_named_type(&p.ty) == Some(options_type));
+    let options_go_name = options_param.map(|p| go_param_name(&p.name));
+    let options_field_go = to_go_name(options_field);
+    let helper_name = format!("{}WithVisitorHelper", func.name.to_snake_case());
+    let return_type_name = named_return_type(&func.return_type)
+        .expect("go options-field visitor wrapper currently requires a named return type");
+    let return_go_type = go_optional_type(&func.return_type).into_owned();
+    let return_type_str = format!(" ({return_go_type}, error)");
+    let options_c_type = format!("{}{}", ffi_prefix.to_uppercase(), options_type);
+    let options_type_snake = pascal_to_snake(options_type);
+    let return_type_snake = pascal_to_snake(return_type_name);
 
     let mut param_strs: Vec<String> = Vec::new();
     for p in &func.params {
@@ -522,72 +543,86 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     }
     let params_str = param_strs.join(", ");
 
-    // Return type is (*ConversionResult, error) for convert
     out.push_str(&crate::backends::go::template_env::render(
         "function_signature.jinja",
         minijinja::context! {
             func_name => func_go_name,
             params => &params_str,
-            return_type => " (*ConversionResult, error)",
+            return_type => &return_type_str,
         },
     ));
 
-    // Check if options.Visitor is set and delegate to helper
-    if options_param.is_some() {
-        out.push_str("\tif options != nil && options.Visitor != nil {\n");
-        out.push_str("\t\treturn convertWithVisitorHelper(html, options, options.Visitor)\n");
+    if let Some(options_var) = options_go_name.as_deref() {
+        let helper_args = func
+            .params
+            .iter()
+            .map(|p| go_param_name(&p.name))
+            .chain(std::iter::once(format!("{options_var}.{options_field_go}")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "\tif {options_var} != nil && {options_var}.{options_field_go} != nil {{\n"
+        ));
+        out.push_str(&format!("\t\treturn {helper_name}({helper_args})\n"));
         out.push_str("\t}\n");
         out.push('\n');
     }
 
-    // Otherwise, call the FFI convert directly (no visitor).
+    // Otherwise, call the FFI function directly without visitor support.
     let func_snake = func.name.to_snake_case();
     let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
 
-    out.push_str("\tcHTML := C.CString(html)\n");
-    out.push_str("\tdefer C.free(unsafe.Pointer(cHTML))\n");
-    out.push('\n');
+    let mut c_args = Vec::new();
+    for param in &func.params {
+        if type_ref_named_type(&param.ty) == Some(options_type) {
+            c_args.push("cOptions".to_string());
+            continue;
+        }
+        let go_name = go_param_name(&param.name);
+        let c_name = go_param_name(&format!("c_{}", param.name));
+        if matches!(param.ty, TypeRef::String | TypeRef::Path) {
+            out.push_str(&format!("\t{c_name} := C.CString({go_name})\n"));
+            out.push_str(&format!("\tdefer C.free(unsafe.Pointer({c_name}))\n"));
+            out.push('\n');
+            c_args.push(c_name);
+        } else {
+            c_args.push(go_name);
+        }
+    }
 
-    // Handle options parameter.
     if options_param.is_some() {
-        out.push_str("\tvar cOptions *C.HTMConversionOptions\n");
-        out.push_str("\tif options != nil {\n");
-        out.push_str("\t\tjsonBytes, err := json.Marshal(options)\n");
+        let options_var = options_go_name.as_deref().expect("checked above");
+        out.push_str(&format!("\tvar cOptions *C.{options_c_type}\n"));
+        out.push_str(&format!("\tif {options_var} != nil {{\n"));
+        out.push_str(&format!("\t\tjsonBytes, err := json.Marshal({options_var})\n"));
         out.push_str("\t\tif err != nil {\n");
         out.push_str("\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)\n");
         out.push_str("\t\t}\n");
         out.push_str("\t\ttmpStr := C.CString(string(jsonBytes))\n");
-        out.push_str(&crate::backends::go::template_env::render(
-            "c_options_from_json_with_name.jinja",
-            minijinja::context! {
-                ffi_prefix => ffi_prefix,
-            },
+        out.push_str(&format!(
+            "\t\tcOptions = C.{ffi_prefix}_{options_type_snake}_from_json(tmpStr)\n"
         ));
+        out.push_str("\t\tif cOptions == nil {\n");
+        out.push_str("\t\t\tif err := lastError(); err != nil {\n");
+        out.push_str("\t\t\t\tC.free(unsafe.Pointer(tmpStr))\n");
+        out.push_str("\t\t\t\treturn nil, err\n");
+        out.push_str("\t\t\t}\n");
+        out.push_str("\t\t\tC.free(unsafe.Pointer(tmpStr))\n");
+        out.push_str(&format!(
+            "\t\t\treturn nil, fmt.Errorf(\"failed to decode {}\")\n",
+            options_type_snake.replace('_', " ")
+        ));
+        out.push_str("\t\t}\n");
         out.push_str("\t\tC.free(unsafe.Pointer(tmpStr))\n");
-        out.push_str(&crate::backends::go::template_env::render(
-            "c_options_defer_free_with_name.jinja",
-            minijinja::context! {
-                ffi_prefix => ffi_prefix,
-            },
+        out.push_str(&format!(
+            "\t\tdefer C.{ffi_prefix}_{options_type_snake}_free(cOptions)\n"
         ));
         out.push_str("\t}\n");
         out.push('\n');
 
-        out.push_str(&crate::backends::go::template_env::render(
-            "c_ptr_assign_func.jinja",
-            minijinja::context! {
-                ffi_name => &ffi_name,
-                options_var => "cOptions",
-            },
-        ));
+        out.push_str(&format!("\tptr := {ffi_name}({})\n", c_args.join(", ")));
     } else {
-        out.push_str(&crate::backends::go::template_env::render(
-            "c_ptr_assign_func.jinja",
-            minijinja::context! {
-                ffi_name => &ffi_name,
-                options_var => "nil",
-            },
-        ));
+        out.push_str(&format!("\tptr := {ffi_name}({})\n", c_args.join(", ")));
     }
 
     out.push_str("\tif ptr == nil {\n");
@@ -597,18 +632,17 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     out.push_str("\t\treturn nil, fmt.Errorf(\"conversion returned nil\")\n");
     out.push_str("\t}\n");
     out.push_str(&crate::backends::go::template_env::render(
-        "c_conversion_result_free.jinja",
+        "free_type.jinja",
         minijinja::context! {
             ffi_prefix => ffi_prefix,
+            type_snake => &return_type_snake,
+            ptr => "ptr",
         },
     ));
     out.push('\n');
 
-    out.push_str(&crate::backends::go::template_env::render(
-        "c_conversion_result_to_json.jinja",
-        minijinja::context! {
-            ffi_prefix => ffi_prefix,
-        },
+    out.push_str(&format!(
+        "\tjsonPtr := C.{ffi_prefix}_{return_type_snake}_to_json(ptr)\n"
     ));
     out.push_str("\tif jsonPtr == nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to convert result to JSON\")\n");
@@ -619,7 +653,7 @@ pub(super) fn gen_convert_with_visitor_wrapper(
             ffi_prefix => ffi_prefix,
         },
     ));
-    out.push_str("\tvar result ConversionResult\n");
+    out.push_str(&format!("\tvar result {return_type_name}\n"));
     out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
     out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)\n");
     out.push_str("\t}\n");
@@ -630,6 +664,18 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     ));
 
     out
+}
+
+fn type_ref_named_type(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => type_ref_named_type(inner),
+        _ => None,
+    }
+}
+
+fn named_return_type(ty: &TypeRef) -> Option<&str> {
+    type_ref_named_type(ty)
 }
 
 /// Emit a module-level wrapper function for a streaming adapter.

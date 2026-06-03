@@ -9,9 +9,13 @@ import sys
 from pathlib import Path
 from re import Pattern
 
-MESSAGE = (
+PROJECT_MENTION_MESSAGE = (
     "Alef must stay project-agnostic; model downstream differences through "
     "`alef.toml` or generic config, not project-name special cases."
+)
+DOMAIN_TYPE_MESSAGE = (
+    "Alef generator code must not hard-code downstream domain types; model these "
+    "branches through generic IR metadata or backend configuration."
 )
 
 DOC_EXTENSIONS = {
@@ -55,16 +59,27 @@ PROJECT_NAMES = {
     "lllm": ("lllm",),
 }
 
-INFRASTRUCTURE_ALLOWLIST = (
-    "kreuzberg-dev",
+ALEF_INFRASTRUCTURE_ALLOWLIST = (
+    "kreuzberg-dev/actions",
+    "kreuzberg-dev/alef",
+    "kreuzberg-dev/ai-rulez",
+    "kreuzberg-dev/homebrew-tap",
+    "github.com/kreuzberg-dev/pre-commit-hooks",
+    "owner: kreuzberg-dev",
     "kreuzberg-bot",
     "bot@kreuzberg.dev",
-    "github.com/kreuzberg-dev/",
-    "https://github.com/kreuzberg-dev/",
-    "git@github.com:kreuzberg-dev/",
     "docs.<repo>.kreuzberg.dev",
-    "context-kreuzberg-brand-and-docs",
     "kreuzberg, inc.",
+)
+
+DOWNSTREAM_DOMAIN_TYPES = (
+    "InternalDocument",
+    "ExtractionConfig",
+    "EmbeddingConfig",
+    "ChunkingConfig",
+    "BatchBytesItem",
+    "BatchFileItem",
+    "ConversionOptions",
 )
 
 
@@ -74,7 +89,20 @@ def build_pattern(parts: tuple[str, ...]) -> Pattern[str]:
 
 
 PATTERNS = {name: build_pattern(parts) for name, parts in PROJECT_NAMES.items()}
-INFRASTRUCTURE_PATTERNS = tuple(re.compile(re.escape(allowed), re.IGNORECASE) for allowed in INFRASTRUCTURE_ALLOWLIST)
+INFRASTRUCTURE_PATTERNS = tuple(
+    re.compile(re.escape(allowed), re.IGNORECASE) for allowed in ALEF_INFRASTRUCTURE_ALLOWLIST
+)
+DOMAIN_TYPE_PATTERNS = tuple(
+    (name, re.compile(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])"))
+    for name in DOWNSTREAM_DOMAIN_TYPES
+)
+DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
+    "==",
+    "!=",
+    "match ",
+    "matches!",
+    "ends_with(",
+)
 
 
 def is_enforced_path(path: Path) -> bool:
@@ -84,6 +112,14 @@ def is_enforced_path(path: Path) -> bool:
     if any(part in SKIP_PATH_PARTS for part in path.parts):
         return False
     return path.suffix.lower() not in DOC_EXTENSIONS
+
+
+def is_production_generator_path(path: Path) -> bool:
+    parts = path.parts
+    if "src" not in parts:
+        return False
+    src_index = parts.index("src")
+    return len(parts) > src_index + 1 and parts[src_index + 1] in {"backends", "codegen"}
 
 
 def read_text(path: Path) -> str | None:
@@ -112,6 +148,15 @@ def normalize_for_project_mentions(line: str) -> str:
     return with_camel_boundaries.lower()
 
 
+def is_domain_type_special_case(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith(("//", "///", "#")):
+        return False
+    if "assert" in stripped:
+        return False
+    return any(marker in stripped for marker in DOMAIN_TYPE_SPECIAL_CASE_MARKERS)
+
+
 def violations_for_file(path: Path) -> list[str]:
     if not is_enforced_path(path):
         return []
@@ -126,6 +171,10 @@ def violations_for_file(path: Path) -> list[str]:
         for name, pattern in PATTERNS.items():
             if pattern.search(masked_line):
                 violations.append(f"{path}:{line_number}: forbidden project mention `{name}`")
+        if is_production_generator_path(path) and is_domain_type_special_case(line):
+            for name, pattern in DOMAIN_TYPE_PATTERNS:
+                if pattern.search(line):
+                    violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
     return violations
 
 
@@ -143,7 +192,8 @@ def main(argv: list[str] | None = None) -> int:
     if violations:
         for violation in violations:
             print(violation, file=sys.stderr)
-        print(f"\n{MESSAGE}", file=sys.stderr)
+        print(f"\n{PROJECT_MENTION_MESSAGE}", file=sys.stderr)
+        print(DOMAIN_TYPE_MESSAGE, file=sys.stderr)
         return 1
     return 0
 

@@ -6,17 +6,17 @@
 //!
 //! 1. `{prefix}_options_set_{field}` — a setter that wraps the vtable bridge in a
 //!    `Rc<RefCell<dyn Trait>>` and stores it on `options.{field}`.  Callers (Go, Java, C#)
-//!    invoke this before calling `{prefix}_convert`.
-//! 2. `{prefix}_convert` — a convert wrapper that passes options (with the embedded
-//!    visitor) directly to the core call.  Replaces the sanitized stub that the normal
+//!    invoke this before calling the generated FFI wrapper for the configured function.
+//! 2. `{prefix}_{function}` — a function wrapper that passes options (with the embedded
+//!    visitor) directly to the core call. Replaces sanitized stubs that the normal
 //!    free-function path would emit for functions whose signature the IR sanitizer marks
 //!    unimplementable due to the trait-object field.
 //!
 //! The `{prefix}_convert_with_visitor` export from the legacy `visitor_callbacks` path is
-//! NOT emitted in this mode — a single `{prefix}_convert` suffices.
+//! NOT emitted in this mode; the IR/config-derived wrapper is the public FFI entrypoint.
 
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
-use crate::core::ir::TypeDef;
+use crate::core::ir::{FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
 use crate::codegen::generators::trait_bridge::format_param_type;
@@ -30,7 +30,7 @@ use crate::core::ir::{MethodDef, ReceiverKind};
 ///
 /// The setter wraps the vtable bridge handle in a thin `Rc<RefCell<VtableRef>>` delegating
 /// wrapper and stores it in the options struct's visitor field.  Callers must invoke this
-/// before passing options to `{prefix}_convert`.
+/// before passing options to the generated options-field bridge wrapper.
 ///
 /// # Parameters
 ///
@@ -65,8 +65,9 @@ pub fn gen_options_set_bridge(
         r#"/// Attach a vtable visitor bridge to a `{options_type_name}` options struct.
 ///
 /// The `{handle_type}` encapsulates a set of C function pointers that receive visit
-/// callbacks during generated conversion.  Call this setter before `{prefix}_convert`
-/// to activate visitor callbacks.  Pass `visitor = null` to clear a previously attached visitor.
+/// callbacks during generated conversion. Call this setter before invoking the generated
+/// options-field bridge wrapper to activate visitor callbacks. Pass `visitor = null` to clear
+/// a previously attached visitor.
 ///
 /// Neither pointer is consumed: the caller retains ownership of both `options` and `visitor`
 /// and must free them independently after conversion completes.
@@ -76,7 +77,7 @@ pub fn gen_options_set_bridge(
 /// `options` must be a non-null pointer returned by `{prefix}_{options_type_snake}_new` (or
 /// equivalent), valid for write access.  `visitor` must be a non-null pointer returned by
 /// `{prefix}_{handle_snake}_new`, or null.  Both must remain valid for the duration of any
-/// subsequent `{prefix}_convert` call.
+/// subsequent options-field bridge wrapper call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {fn_name}(
     options: *mut {core_import}::{options_type_name},
@@ -129,71 +130,74 @@ pub unsafe extern "C" fn {fn_name}(
     )
 }
 
-/// Generate the `{prefix}_convert` function for the `options_field` bridge mode.
+/// Generate a function wrapper for the `options_field` bridge mode.
 ///
-/// In this mode the visitor is embedded in `ConversionOptions.{field}` via the setter.
-/// The generated `{prefix}_convert` passes options (including the embedded visitor) directly
-/// to the core `convert` call.  It replaces the sanitized stub the generic free-function
-/// path would otherwise emit for the sanitized `convert` signature.
+/// In this mode the bridge is embedded in the configured options field via the setter.
+/// The generated wrapper passes options, including the embedded bridge, directly to the
+/// core function. This derives names and types from IR/config instead of hardcoded
+/// downstream-shaped conversion names.
+pub fn gen_function_with_options_field_bridge(
+    prefix: &str,
+    core_import: &str,
+    func: &FunctionDef,
+    options_param: &ParamDef,
+    options_type_name: &str,
+) -> Option<String> {
+    let ffi_function_name = format!("{prefix}_{}", ffi_symbol_component(&func.name));
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let return_type_name = named_type_name(&func.return_type)?;
+    let options_param_name = &options_param.name;
+    let non_options_params: Vec<&ParamDef> = func.params.iter().filter(|p| p.name != options_param.name).collect();
+    if !non_options_params
+        .iter()
+        .all(|param| matches!(param.ty, TypeRef::String | TypeRef::Char))
+    {
+        return None;
+    }
+    let params = render_bridge_params(&non_options_params, options_param, core_import);
+    let null_checks = render_bridge_null_checks(&non_options_params);
+    let conversions = render_bridge_param_conversions(&non_options_params);
+    let call_args = render_bridge_call_args(&func.params, options_param_name);
+    let return_type_snake = ffi_symbol_component(return_type_name);
+
+    Some(format!(
+        r#"/// Run `{func_name}` with configured options-field bridge support.
 ///
-/// # Parameters
-///
-/// - `prefix`: the FFI symbol prefix (e.g. `"htm"`).
-/// - `core_import`: the Rust crate name for the core library (e.g. `"sample_markdown_rs"`).
-pub fn gen_convert_with_options_field_bridge(prefix: &str, core_import: &str) -> String {
-    let fn_name = format!("{prefix}_convert");
-    format!(
-        r#"/// Run conversion.
-///
-/// Returns a heap-allocated [`ConversionResult`] on success, or null on failure.
+/// Returns a heap-allocated [`{return_type_name}`] on success, or null on failure.
 /// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
-/// The returned pointer must be freed with `{prefix}_conversion_result_free`.
+/// The returned pointer must be freed with `{prefix}_{return_type_snake}_free`.
 ///
-/// If a visitor was attached to `options` via `{prefix}_options_set_visitor`, it will
-/// receive callbacks during conversion.
-///
-/// # Arguments
-///
-/// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
-/// - `options`: optional conversion options (with optional embedded visitor); pass null for defaults.
+/// If a bridge was attached to `{options_param_name}`, it will be passed through to the core call.
 ///
 /// # Safety
 ///
-/// `html` must be a valid, non-null, null-terminated UTF-8 string.
-/// `options` must be a valid pointer or null.
-/// Returned pointer must be freed with `{prefix}_conversion_result_free`.
+/// Pointer arguments must be valid for the duration of this call. Returned pointer must be
+/// freed with `{prefix}_{return_type_snake}_free`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn {fn_name}(
-    html: *const std::ffi::c_char,
-    options: *const {core_import}::ConversionOptions,
-) -> *mut {core_import}::ConversionResult {{
+pub unsafe extern "C" fn {ffi_function_name}(
+{params}
+) -> *mut {core_import}::{return_type_name} {{
     clear_last_error();
+{null_checks}
+{conversions}
 
-    if html.is_null() {{
-        set_last_error(1, "Null pointer passed for html");
-        return std::ptr::null_mut();
-    }}
-
-    // SAFETY: null check above guarantees html is a valid pointer; string is valid UTF-8 from caller.
-    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
-        Ok(s) => s,
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in html parameter");
-            return std::ptr::null_mut();
-        }}
-    }};
-
-    // Clone options out of the pointer.  Any visitor attached via
-    // `{prefix}_options_set_visitor` is embedded in options.visitor and will be
-    // picked up automatically by the core convert call.
-    let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
+    // Clone options out of the pointer. Any bridge attached via the generated setter is
+    // embedded in the options value and will be picked up automatically by the core call.
+    let {options_param_name}_rs: Option<{core_import}::{options_type_name}> = if {options_param_name}.is_null() {{
         None
     }} else {{
-        // SAFETY: null check above guarantees options is a valid pointer.
-        Some(unsafe {{ &*options }}.clone())
+        // SAFETY: null check above guarantees {options_param_name} is a valid pointer.
+        Some(unsafe {{ &*{options_param_name} }}.clone())
     }};
 
-    match {core_import}::convert(html_str, options_rs) {{
+    match {core_fn_path}({call_args}) {{
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {{
             set_last_error(2, &e.to_string());
@@ -202,9 +206,19 @@ pub unsafe extern "C" fn {fn_name}(
     }}
 }}"#,
         prefix = prefix,
-        fn_name = fn_name,
+        func_name = func.name,
+        ffi_function_name = ffi_function_name,
+        core_fn_path = core_fn_path,
         core_import = core_import,
-    )
+        params = params,
+        null_checks = null_checks,
+        conversions = conversions,
+        call_args = call_args,
+        options_param_name = options_param_name,
+        options_type_name = options_type_name,
+        return_type_name = return_type_name,
+        return_type_snake = return_type_snake,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -283,4 +297,86 @@ fn build_arg_list(method: &MethodDef, _core_import: &str, _type_paths: &HashMap<
 /// Convert a PascalCase identifier to snake_case.
 pub(crate) fn ffi_symbol_component(s: &str) -> String {
     pascal_to_snake(s)
+}
+
+fn named_type_name(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name),
+        TypeRef::Optional(inner) => named_type_name(inner),
+        _ => None,
+    }
+}
+
+fn render_bridge_params(non_options_params: &[&ParamDef], options_param: &ParamDef, core_import: &str) -> String {
+    let mut params: Vec<String> = non_options_params
+        .iter()
+        .filter_map(|param| match param.ty {
+            TypeRef::String | TypeRef::Char => Some(format!("    {}: *const std::ffi::c_char", param.name)),
+            _ => None,
+        })
+        .collect();
+    let options_type = named_type_name(&options_param.ty).unwrap_or_default();
+    params.push(format!(
+        "    {}: *const {core_import}::{options_type}",
+        options_param.name
+    ));
+    params.join(",\n")
+}
+
+fn render_bridge_null_checks(non_options_params: &[&ParamDef]) -> String {
+    let mut out = String::new();
+    for param in non_options_params {
+        if matches!(param.ty, TypeRef::String | TypeRef::Char) {
+            out.push_str(&format!(
+                r#"
+    if {name}.is_null() {{
+        set_last_error(1, "Null pointer passed for {name}");
+        return std::ptr::null_mut();
+    }}
+"#,
+                name = param.name
+            ));
+        }
+    }
+    out
+}
+
+fn render_bridge_param_conversions(non_options_params: &[&ParamDef]) -> String {
+    let mut out = String::new();
+    for param in non_options_params {
+        if matches!(param.ty, TypeRef::String | TypeRef::Char) {
+            out.push_str(&format!(
+                r#"
+    // SAFETY: null check above guarantees {name} is a valid pointer.
+    let {name}_rs = match unsafe {{ std::ffi::CStr::from_ptr({name}) }}.to_str() {{
+        Ok(s) => s,
+        Err(_) => {{
+            set_last_error(1, "Invalid UTF-8 in {name} parameter");
+            return std::ptr::null_mut();
+        }}
+    }};
+"#,
+                name = param.name
+            ));
+        }
+    }
+    out
+}
+
+fn render_bridge_call_args(params: &[ParamDef], options_param_name: &str) -> String {
+    params
+        .iter()
+        .map(|param| {
+            if param.name == options_param_name {
+                format!("{}_rs", param.name)
+            } else if matches!(param.ty, TypeRef::String | TypeRef::Char) && param.is_ref {
+                format!("{}_rs", param.name)
+            } else if matches!(param.ty, TypeRef::String | TypeRef::Char) {
+                format!("{}_rs.to_string()", param.name)
+            } else {
+                param.name.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

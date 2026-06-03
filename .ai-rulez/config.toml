@@ -8,24 +8,6 @@ gitignore = true
 presets = ['claude', 'codex', 'copilot', 'cursor', 'antigravity']
 builtins = ['rust', 'default-commands']
 
-[[includes]]
-name = 'kreuzberg-core'
-source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
-path = 'modules/core'
-merge_strategy = 'local-override'
-
-[[includes]]
-name = 'kreuzberg-languages'
-source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
-path = 'modules/languages'
-merge_strategy = 'local-override'
-
-[[includes]]
-name = 'kreuzberg-cicd'
-source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
-path = 'modules/cicd'
-merge_strategy = 'local-override'
-
 [[skills]]
 name = 'release-procedure'
 path = '.ai-rulez/skills/release-procedure'
