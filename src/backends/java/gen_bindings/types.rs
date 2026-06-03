@@ -1804,13 +1804,18 @@ fn param_needs_null_check(ty: &TypeRef) -> bool {
 /// FFI iterator-handle trio (`_start`, `_next`, `_free`), deserializing each chunk
 /// pointer via `<item>_to_json` + `<item>_free` and rethrowing FFI errors as
 /// `<MainClass>Exception`.
+///
+/// NOTE: Streaming item types must have serde derives in the Rust source.
+/// This codegen always emits the `{PREFIX}_{ITEM}_TO_JSON` symbol name, which must
+/// exist in the C FFI layer. If a cfg-gated type (e.g. `#[cfg(not(wasm32))]`)
+/// lacks the symbol, that indicates a C FFI generation failure, not a Java codegen issue.
 fn gen_streaming_method(
     out: &mut String,
     adapter: &AdapterConfig,
     prefix: &str,
     owner_snake: &str,
     main_class: &str,
-    to_json_type_names: &AHashSet<String>,
+    _to_json_type_names: &AHashSet<String>,
 ) {
     let method_name = adapter.name.to_lower_camel_case();
     let item_type = adapter.item_type.as_deref().unwrap_or("Object");
@@ -1838,12 +1843,10 @@ fn gen_streaming_method(
     let free_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_FREE");
     let req_from_json = format!("{prefix_upper}_{request_upper}_FROM_JSON");
     let req_free = format!("{prefix_upper}_{request_upper}_FREE");
-    // Only include item_to_json if the FFI backend exports it for this type
-    let item_to_json = if to_json_type_names.contains(item_type) {
-        format!("{prefix_upper}_{item_upper}_TO_JSON")
-    } else {
-        String::new()
-    };
+    // For streaming item types, always derive the to_json symbol from the item type name.
+    // Streaming items must have serde derives (checked at adapter validation time);
+    // if the FFI symbol is missing, that's a C FFI generation issue, not Java codegen.
+    let item_to_json = format!("{prefix_upper}_{item_upper}_TO_JSON");
     let item_free = format!("{prefix_upper}_{item_upper}_FREE");
 
     out.push_str(&crate::backends::java::template_env::render(
