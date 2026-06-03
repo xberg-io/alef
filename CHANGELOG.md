@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-06-03
+
+### Fixed
+
+- fix(e2e/go): add mock-server bootstrap to TestMain for standalone smoke. When no HTTP-fixture harness is present but fixtures rely on the alef-generated `test_apps/rust/` mock-server, TestMain now (1) defers to `MOCK_SERVER_URL` if the parent provided it, otherwise (2) builds the mock-server via `cargo build --release --manifest-path ../rust/Cargo.toml --bin mock-server`, spawns it, parses the `MOCK_SERVER_URL=<url>` stdout sentinel, exports the env var, and registers a Process.Kill cleanup. Mirrors the ruby/elixir/c/dart patterns from `a7fb9cbd0`. Without this, `task test-apps:smoke:go` against published packages failed with `[2] builder error` because no orchestrator set MOCK_SERVER_URL. (`src/e2e/codegen/go.rs`)
+
 ### Fixed
 
 - fix(rustler): only pre-wrap `base_url:` in the `RustlerPrecompiled` use clause. `targets:` and `force_build:` were also being wrapped, but they fit on a single line so `mix format --check-formatted` flagged them as needing un-wrap. Now matches mix format's idempotent shape. (`src/backends/rustler/template_env.rs`)

@@ -332,17 +332,17 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
+    let _ = writeln!(out, "\t\"bufio\"");
+    let _ = writeln!(out, "\t\"fmt\"");
     if has_http_fixtures {
-        let _ = writeln!(out, "\t\"fmt\"");
         let _ = writeln!(out, "\t\"io\"");
         let _ = writeln!(out, "\t\"net\"");
     }
     let _ = writeln!(out, "\t\"os\"");
-    if has_http_fixtures {
-        let _ = writeln!(out, "\t\"os/exec\"");
-    }
+    let _ = writeln!(out, "\t\"os/exec\"");
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
+    let _ = writeln!(out, "\t\"strings\"");
     let _ = writeln!(out, "\t\"testing\"");
     if has_http_fixtures {
         let _ = writeln!(out, "\t\"time\"");
@@ -379,7 +379,62 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out);
     if !has_http_fixtures {
-        // No HTTP fixtures → no harness binary is emitted. Just run tests.
+        // No HTTP-fixture harness — fixtures rely on the alef-generated
+        // test_apps/rust/ mock-server. Two execution modes:
+        //   1. External: MOCK_SERVER_URL already set (alef test-apps run parent).
+        //   2. Standalone: build + spawn mock-server, parse URL, set env, tear
+        //      down on exit. Mirrors the ruby/elixir/c/dart patterns.
+        let _ = writeln!(out, "\tif os.Getenv(\"MOCK_SERVER_URL\") != \"\" {{");
+        let _ = writeln!(out, "\t\tos.Exit(m.Run())");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "\tmockBin := filepath.Join(dir, \"..\", \"rust\", \"target\", \"release\", \"mock-server\")"
+        );
+        let _ = writeln!(
+            out,
+            "\tmockManifest := filepath.Join(dir, \"..\", \"rust\", \"Cargo.toml\")"
+        );
+        let _ = writeln!(out, "\tif _, err := os.Stat(mockBin); os.IsNotExist(err) {{");
+        let _ = writeln!(out, "\t\tfmt.Fprintln(os.Stderr, \"Building mock-server...\")");
+        let _ = writeln!(
+            out,
+            "\t\tbuild := exec.Command(\"cargo\", \"build\", \"--release\", \"--manifest-path\", mockManifest, \"--bin\", \"mock-server\")"
+        );
+        let _ = writeln!(out, "\t\tbuild.Stdout = os.Stderr");
+        let _ = writeln!(out, "\t\tbuild.Stderr = os.Stderr");
+        let _ = writeln!(out, "\t\tif err := build.Run(); err != nil {{");
+        let _ = writeln!(out, "\t\t\tpanic(fmt.Sprintf(\"mock-server build failed: %v\", err))");
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")");
+        let _ = writeln!(out, "\tcmd := exec.Command(mockBin, fixturesDir)");
+        let _ = writeln!(out, "\tstdout, err := cmd.StdoutPipe()");
+        let _ = writeln!(out, "\tif err != nil {{ panic(err) }}");
+        let _ = writeln!(out, "\tcmd.Stderr = os.Stderr");
+        let _ = writeln!(out, "\tif err := cmd.Start(); err != nil {{ panic(err) }}");
+        let _ = writeln!(out, "\tdefer func() {{ _ = cmd.Process.Kill() }}()");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "\tscanner := bufio.NewScanner(stdout)");
+        let _ = writeln!(out, "\tscanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)");
+        let _ = writeln!(out, "\tfor scanner.Scan() {{");
+        let _ = writeln!(out, "\t\tline := scanner.Text()");
+        let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
+        let _ = writeln!(
+            out,
+            "\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
+        );
+        let _ = writeln!(out, "\t\t\tbreak");
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tif os.Getenv(\"MOCK_SERVER_URL\") == \"\" {{");
+        let _ = writeln!(out, "\t\tpanic(\"mock-server did not emit MOCK_SERVER_URL\")");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\t// Drain remaining stdout asynchronously so the pipe doesn't fill.");
+        let _ = writeln!(out, "\tgo func() {{ for scanner.Scan() {{ }} }}()");
+        let _ = writeln!(out);
         let _ = writeln!(out, "\tos.Exit(m.Run())");
         let _ = writeln!(out, "}}");
         return out;
