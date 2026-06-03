@@ -7,10 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.22.15] - 2026-06-03
-
 ### Fixed
 
+- fix(rustler): pre-wrap the `base_url:` line in the generated `Native` module so `mix format`'s default 98-char line width does not flag the URL on consumers with longer GitHub-org/repo paths. The wrapped form is idempotent under `mix format`, eliminating prek/mix-format churn after regen. (`src/backends/rustler/template_env.rs`)
 - fix(dart/frb): annotate slice/Vec `.collect()` closures with explicit parameter types (`|v: &[_]|` / `|v: Vec<_>|`) so the Rust closure signature is inferable when the FFI bridge call site provides no surrounding context. Fixes E0282 type-inference errors in the generated `packages/dart/rust/src/lib.rs` when the source crate returns `Vec<T>` from inherent functions that the FRB wrapper transmutes through. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
 - fix(dart/frb): only synthesize `&v.iter().map(|s| s.as_str()).collect::<Vec<_>>()` when the core parameter is `&[&str]`; previously every `&[String]` parameter was rewritten the same way, producing `&[&str]` borrows that mismatched the core signature. The new `p.vec_inner_is_ref` guard preserves direct `&param_name` borrows for `&[String]` parameters. (`src/backends/dart/gen_rust_crate/mod.rs`)
 - fix(sync-versions): substitute the version component of zig package `hash` entries in `alef.toml` when the workspace version is bumped. Zig hashes have the format `<name>-<version>-<base64sha>`; on version bump the version part is replaced inline while the base64 sha is preserved (refreshed later by `zig fetch --save` during the publish workflow). Includes regression tests covering rc-prerelease substitution, release substitution, no-op, and malformed-hash paths. (`src/cli/pipeline/version.rs`)
