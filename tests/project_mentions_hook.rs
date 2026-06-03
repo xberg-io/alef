@@ -217,6 +217,64 @@ fn reports_conversion_options_visitor_special_paths_in_codegen() {
 }
 
 #[test]
+fn reports_conversion_and_extraction_result_special_paths_in_codegen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let codegen_dir = dir.path().join("src").join("codegen");
+    fs::create_dir_all(&codegen_dir).expect("create codegen dir");
+    let conversion_file = codegen_dir.join("conversion.rs");
+    let extraction_file = codegen_dir.join("extraction.rs");
+    fs::write(
+        &conversion_file,
+        "if return_type == \"ConversionResult\" { emit_special_case(); }\n",
+    )
+    .expect("write conversion fixture");
+    fs::write(
+        &extraction_file,
+        "if return_type == \"ExtractionResult\" { emit_special_case(); }\n",
+    )
+    .expect("write extraction fixture");
+
+    let output = run_hook(&[&conversion_file, &extraction_file]);
+
+    assert!(!output.status.success(), "hook should reject result type special paths");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `ConversionResult`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("forbidden downstream domain type `ExtractionResult`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn reports_split_concatenated_template_literals_in_codegen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let template_dir = dir
+        .path()
+        .join("src")
+        .join("backends")
+        .join("typescript")
+        .join("templates");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    let file = template_dir.join("types.ts.jinja");
+    fs::write(&file, "export class {{ \"Conversion\" ~ \"Options\" }} {}\n").expect("write template fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject split concatenated domain type literals"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `ConversionOptions`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn reports_embedded_visitor_bridge_class_names_in_codegen() {
     let dir = tempfile::tempdir().expect("tempdir");
     let backend_dir = dir.path().join("src").join("backends").join("java");

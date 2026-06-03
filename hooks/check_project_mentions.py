@@ -74,11 +74,13 @@ ALEF_INFRASTRUCTURE_ALLOWLIST = (
 DOWNSTREAM_DOMAIN_TYPES = (
     "InternalDocument",
     "ExtractionConfig",
+    "ExtractionResult",
     "EmbeddingConfig",
     "ChunkingConfig",
     "BatchBytesItem",
     "BatchFileItem",
     "ConversionOptions",
+    "ConversionResult",
     "HtmlVisitor",
     "IHtmlVisitor",
     "OcrBackend",
@@ -92,12 +94,28 @@ def build_pattern(parts: tuple[str, ...]) -> Pattern[str]:
     return re.compile(rf"(?<![a-z0-9]){body}(?![a-z0-9])")
 
 
+def split_camel_name(name: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+|[0-9]+", name))
+
+
+def build_split_domain_type_pattern(name: str) -> Pattern[str]:
+    parts = split_camel_name(name)
+    if len(parts) <= 1:
+        return re.compile(r"$^")
+    joiner = r"""["'`]*\s*(?:~|\+|,)\s*["'`]*"""
+    body = joiner.join(re.escape(part) for part in parts)
+    return re.compile(rf"(?<![A-Za-z0-9_]){body}(?![A-Za-z0-9_])")
+
+
 PATTERNS = {name: build_pattern(parts) for name, parts in PROJECT_NAMES.items()}
 INFRASTRUCTURE_PATTERNS = tuple(
     re.compile(re.escape(allowed), re.IGNORECASE) for allowed in ALEF_INFRASTRUCTURE_ALLOWLIST
 )
 DOMAIN_TYPE_PATTERNS = tuple(
     (name, re.compile(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])")) for name in DOWNSTREAM_DOMAIN_TYPES
+)
+SPLIT_DOMAIN_TYPE_PATTERNS = tuple(
+    (name, build_split_domain_type_pattern(name)) for name in DOWNSTREAM_DOMAIN_TYPES
 )
 DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
     "==",
@@ -181,6 +199,15 @@ def is_domain_type_special_case(line: str) -> bool:
     )
 
 
+def is_split_domain_type_literal(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith(("//", "///", "#")):
+        return False
+    if "assert" in stripped:
+        return False
+    return any(pattern.search(line) for _, pattern in SPLIT_DOMAIN_TYPE_PATTERNS)
+
+
 def violations_for_file(path: Path) -> list[str]:
     if not is_enforced_path(path):
         return []
@@ -195,8 +222,13 @@ def violations_for_file(path: Path) -> list[str]:
         for name, pattern in PATTERNS.items():
             if pattern.search(masked_line):
                 violations.append(f"{path}:{line_number}: forbidden project mention `{name}`")
-        if is_production_generator_path(path) and is_domain_type_special_case(line):
+        if is_production_generator_path(path) and (
+            is_domain_type_special_case(line) or is_split_domain_type_literal(line)
+        ):
             for name, pattern in DOMAIN_TYPE_PATTERNS:
+                if pattern.search(line):
+                    violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
+            for name, pattern in SPLIT_DOMAIN_TYPE_PATTERNS:
                 if pattern.search(line):
                     violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
     return violations

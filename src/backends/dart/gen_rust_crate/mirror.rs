@@ -276,9 +276,11 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
         } else if !variant.is_unit && variant.is_tuple && variant.fields.iter().all(|f| f.binding_excluded) {
             // Tuple variant with all fields binding_excluded: mirror has a dummy `field0: String`
             // (emitted by emit_mirror_error), so FRB generates struct-syntax patterns.
-            // Reconstruct the core variant with Default::default() for the stripped field.
+            // However, the excluded field's type may not implement Default. Since the variant
+            // can never be constructed on the dart side (the excluded field is omitted from the mirror),
+            // this arm is unreachable and we emit unreachable!() instead of attempting Default::default().
             out.push_str(&format!(
-                "            {name}::{vname} {{ field0: _ }} => Self::{vname}(Default::default()),\n",
+                "            {name}::{vname} {{ .. }} => unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\"),\n",
                 name = error.name
             ));
         } else if !variant.is_unit && variant.fields.is_empty() {
@@ -288,15 +290,12 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 name = error.name
             ));
         } else if variant.fields.iter().all(|f| f.binding_excluded) {
-            // Non-tuple variant with all fields binding_excluded: struct variant, init with defaults.
-            let args: Vec<String> = variant
-                .fields
-                .iter()
-                .map(|f| format!("{}: Default::default()", f.name))
-                .collect();
+            // Non-tuple variant with all fields binding_excluded: struct variant.
+            // The excluded fields' types may not implement Default. Since the variant
+            // can never be constructed on the dart side (all fields are omitted from the mirror),
+            // this arm is unreachable and we emit unreachable!() instead of attempting Default::default().
             out.push_str(&format!(
-                "            {name}::{vname} => Self::{vname} {{ {} }},\n",
-                args.join(", "),
+                "            {name}::{vname} {{ .. }} => unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\"),\n",
                 name = error.name
             ));
         } else {

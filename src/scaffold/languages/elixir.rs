@@ -201,13 +201,17 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     };
 
     // Format rustler_crates in multi-line pre-formatted shape to match mix format's output.
-    // mix format enforces 98-char line limit by default, so single-line shape
-    // (which can exceed 140 chars with many targets) gets reflowed. Emit pre-formatted
-    // to avoid format drift on sync-versions check.
+    // Use a list literal for targets so mix format can wrap each target on its own line.
+    // This ensures idempotent formatting regardless of the number of targets or library name length.
+    let nif_targets_list: Vec<&str> = nif_targets.split_whitespace().collect();
+    let targets_lines = nif_targets_list
+        .iter()
+        .map(|target| format!("            \"{target}\","))
+        .collect::<Vec<_>>()
+        .join("\n");
     let rustler_crates_block = format!(
-        "rustler_crates: [\n        {nif_atom}: [\n          mode: :release,\n          targets: ~w({nif_targets})\n        ]\n      ],",
+        "rustler_crates: [\n        {nif_atom}: [\n          mode: :release,\n          targets: [\n{targets_lines}\n          ]\n        ]\n      ],",
         nif_atom = format_args!("{app_name}_nif"),
-        nif_targets = nif_targets,
     );
 
     // `lib/` is populated when either (a) at least one non-OptionsField trait

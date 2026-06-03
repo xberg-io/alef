@@ -10,91 +10,100 @@
 //! variant).
 //!
 //! Callbacks not present in the fixture stay null in the
-//! `HTMHtmVisitorCallbacks` struct; the FFI defaults those to `Continue`
+//! configured visitor callback struct; the FFI defaults those to `Continue`
 //! behaviour from the generated FFI visitor bridge.
 
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};
 use heck::ToSnakeCase;
 use std::fmt::Write as FmtWrite;
 
+pub(super) struct ZigVisitorCTypes {
+    pub(super) context_type: String,
+    pub(super) callbacks_type: String,
+}
+
 /// Parameter list (typed Zig signature) for the C callback that backs a
 /// `HtmVisitorCallbacks::visit_*` slot. The shape mirrors the cbindgen-
 /// emitted function pointer type — see
 /// the generated FFI header for the
 /// canonical signatures.
-fn callback_params(method: &str) -> &'static str {
+fn callback_params(method: &str, c_types: &ZigVisitorCTypes) -> String {
+    callback_params_template(method).replace("{context_type}", &c_types.context_type)
+}
+
+fn callback_params_template(method: &str) -> &'static str {
     match method {
         "visit_text" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_element_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_element_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_link" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _href: [*c]const u8, _text: [*c]const u8, _title: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _href: [*c]const u8, _text: [*c]const u8, _title: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_image" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _src: [*c]const u8, _alt: [*c]const u8, _title: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _src: [*c]const u8, _alt: [*c]const u8, _title: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_heading" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _level: u32, _text: [*c]const u8, _id: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _level: u32, _text: [*c]const u8, _id: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_code_block" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _lang: [*c]const u8, _code: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _lang: [*c]const u8, _code: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_code_inline" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _code: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _code: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_list_item" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, _marker: [*c]const u8, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _ordered: i32, _marker: [*c]const u8, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_list_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _ordered: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_list_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _ordered: i32, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _ordered: i32, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_table_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_table_row" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _cells: [*c]const [*c]const u8, _cell_count: usize, _is_header: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _cells: [*c]const [*c]const u8, _cell_count: usize, _is_header: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_table_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_blockquote" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _content: [*c]const u8, _depth: usize, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _content: [*c]const u8, _depth: usize, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_line_break" | "visit_horizontal_rule" | "visit_definition_list_start" | "visit_figure_start" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_custom_element" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _tag_name: [*c]const u8, _html: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _tag_name: [*c]const u8, _html: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_form" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _action: [*c]const u8, _method: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _action: [*c]const u8, _method: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_input" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _input_type: [*c]const u8, _name: [*c]const u8, _value: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _input_type: [*c]const u8, _name: [*c]const u8, _value: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_audio" | "visit_video" | "visit_iframe" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _src: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _src: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_details" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _open: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _open: i32, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         "visit_figure_end" | "visit_definition_list_end" => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _output: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
         // Default: single text payload (covers visit_strong/emphasis/strikethrough/
         // underline/subscript/superscript/mark/button/summary/figcaption/
         // definition_term/definition_description).
         _ => {
-            "_ctx: [*c]const c.HTMHtmNodeContext, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
+            "_ctx: [*c]const c.{context_type}, _user_data: ?*anyopaque, _text: [*c]const u8, out_custom: [*c][*c]u8, out_len: [*c]usize"
         }
     }
 }
@@ -309,11 +318,16 @@ fn escape_zig_string(s: &str) -> String {
 /// source as a single multi-line string ready to splice into the test
 /// body. The caller is expected to bracket the test with
 /// `defer c.htm_visitor_free(_visitor);`.
-pub(super) fn build_zig_visitor(fixture_id: &str, module_name: &str, spec: &VisitorSpec) -> String {
+pub(super) fn build_zig_visitor(
+    fixture_id: &str,
+    module_name: &str,
+    spec: &VisitorSpec,
+    c_types: &ZigVisitorCTypes,
+) -> String {
     let struct_id = fixture_id.to_snake_case();
     let mut out = String::new();
     // Local `c` alias so the per-fixture thunk signatures can name C struct
-    // types (`c.HTMHtmNodeContext`, `c.HTMHtmVisitorCallbacks`) without
+    // types from the cbindgen header without
     // re-importing the cbindgen header at file scope.
     let _ = writeln!(out, "    const c = {module_name}.c;");
     // Per-fixture container struct with one pub thunk per fixture-configured method.
@@ -322,7 +336,7 @@ pub(super) fn build_zig_visitor(fixture_id: &str, module_name: &str, spec: &Visi
     let mut callbacks: Vec<(&String, &CallbackAction)> = spec.callbacks.iter().collect();
     callbacks.sort_by(|a, b| a.0.cmp(b.0));
     for (method, action) in &callbacks {
-        let params = callback_params(method);
+        let params = callback_params(method, c_types);
         let body = callback_body(method, action);
         let _ = writeln!(out, "        pub fn {method}({params}) callconv(.c) i32 {{");
         out.push_str(&body);
@@ -333,7 +347,8 @@ pub(super) fn build_zig_visitor(fixture_id: &str, module_name: &str, spec: &Visi
     // Build a zero-initialised callbacks struct and wire each configured slot.
     let _ = writeln!(
         out,
-        "    var _callbacks: c.HTMHtmVisitorCallbacks = std.mem.zeroes(c.HTMHtmVisitorCallbacks);"
+        "    var _callbacks: c.{callbacks_type} = std.mem.zeroes(c.{callbacks_type});",
+        callbacks_type = c_types.callbacks_type
     );
     for (method, _) in &callbacks {
         let _ = writeln!(out, "    _callbacks.{method} = &TestVisitor_{struct_id}.{method};");

@@ -137,12 +137,13 @@ pub(super) fn gen_native_ex(
     };
 
     out.push_str(&hash::header(CommentStyle::Hash));
+    let nif_targets_list: Vec<&str> = nif_targets.split_whitespace().collect();
     let ctx = minijinja::context! {
         app_module => app_module,
         app_name => app_name,
         repo_url => repo_url,
         build_env_var => build_env_var,
-        nif_targets => nif_targets,
+        nif_targets_list => nif_targets_list,
     };
     out.push_str(&template_env::render("native_module_header.jinja", ctx));
 

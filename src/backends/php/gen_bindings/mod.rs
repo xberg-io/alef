@@ -1159,18 +1159,28 @@ impl Backend for PhpBackend {
                 context! { method_name => &method_name },
             ));
 
-            let params: Vec<String> = visible_params
-                .iter()
+            // Determine optionality for each param, then reorder: required first, optional second.
+            // PHP 8.1 deprecates required parameters after optional ones, so we must sort.
+            let mut params_with_optionality: Vec<(&crate::core::ir::ParamDef, bool)> = visible_params
+                .into_iter()
                 .map(|p| {
-                    let ptype = php_type(&p.ty);
                     // Make param optional if:
                     // 1. It's explicitly optional OR
                     // 2. IR says its named type has a no-arg constructor
-                    // Do NOT make params optional just because they come after an optional param.
-                    // Required parameters in the Rust API must remain required in the PHP wrapper
-                    // to preserve type safety and catch errors at the PHP layer.
                     let should_be_optional = p.optional || is_optional_default_constructible_param(p);
-                    if should_be_optional {
+                    (p, should_be_optional)
+                })
+                .collect();
+
+            // Sort: required params first (false), then optional params (true).
+            // This ensures PHP 8.1+ doesn't complain about required params after optional ones.
+            params_with_optionality.sort_by_key(|(_, is_optional)| *is_optional);
+
+            let params: Vec<String> = params_with_optionality
+                .iter()
+                .map(|(p, should_be_optional)| {
+                    let ptype = php_type(&p.ty);
+                    if *should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
                         format!("{} ${}", ptype, p.name)
@@ -1188,16 +1198,15 @@ impl Backend for PhpBackend {
             // block_on, so the Rust function name matches the PHP method name exactly.
             let ext_method_name = func.name.to_lower_camel_case();
             let is_void = matches!(&func.return_type, TypeRef::Unit);
-            // Pass parameters to the native function in their ORIGINAL order (not sorted).
-            // The native extension expects parameters in the order defined in the Rust function.
-            // The PHP facade reorders them only in its own signature for PHP syntax compliance,
-            // but must pass them in the original order when calling the native method.
+            // Pass parameters to the native function in their reordered signature order.
+            // The wrapper's param signature is reordered for PHP 8.1 compliance (required first),
+            // so call args must match that reordered signature.
             // Default-constructible params made optional in the facade must be
             // coerced to their default constructor when null, since the native ext requires
             // non-nullable objects.
-            let call_params = visible_params
+            let call_params = params_with_optionality
                 .iter()
-                .map(|p| {
+                .map(|(p, _)| {
                     // Only apply the `?? new Type()` coercion for params that are
                     // explicitly optional (p.optional) or default-constructible.
                     // Params that are required in the Rust API are passed as-is.

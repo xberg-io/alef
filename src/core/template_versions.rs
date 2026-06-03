@@ -311,9 +311,9 @@ pub mod nuget {
 
 pub mod hex {
     // renovate: datasource=hex depName=rustler
-    // Version ">= 0.37" accepts both 0.37.x (stable) and 0.38.x (newly released).
+    // Version "~> 0.37" accepts both 0.37.x (stable) and 0.38.x (newly released).
     // This avoids lock file conflicts for consumers with older dependencies.
-    pub const RUSTLER: &str = ">= 0.37";
+    pub const RUSTLER: &str = "~> 0.37";
 
     // renovate: datasource=hex depName=rustler_precompiled
     pub const RUSTLER_PRECOMPILED: &str = "~> 0.9";

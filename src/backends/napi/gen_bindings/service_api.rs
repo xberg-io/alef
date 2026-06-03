@@ -751,6 +751,10 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // We serialize the request to a serde_json::Value before calling, then
     // deserialize the serde_json::Value response. napi 3.x implements
     // ToNapiValue/FromNapiValue for serde_json::Value via its serde bridge.
+    //
+    // CRITICAL: Explicitly type the `resp_json` result to avoid type inference
+    // from propagating the outer Box<dyn Error + Send + Sync> error type back into
+    // the napi::Error generic type, which would fail the `S: AsRef<str>` bound.
     out.push_str(&format!(
         "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
              fn {dispatch_name}(\n        \
@@ -762,11 +766,12 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                      let outcome: {wire_output} = async move {{\n                \
                          let req_json = serde_json::to_value(&{wire_name})\n                            \
                              .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         let resp_json = self.handler_fn\n                    \
+                         let resp_json: napi::Result<serde_json::Value> = self.handler_fn\n                    \
                              .call_async(Ok(req_json))\n                    \
-                             .await\n                    \
+                             .await;\n                \
+                         let resp_value = resp_json\n                    \
                              .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         serde_json::from_value(resp_json)\n                    \
+                         serde_json::from_value(resp_value)\n                    \
                              .map_err(|e| Box::new(e) as {box_err})\n            \
                      }}\n            \
                      .await;\n\n            \
@@ -859,7 +864,7 @@ fn gen_run_napi_function(
                     ));
                     out.push_str(&format!(
                         "                    {}\n",
-                        gen_metadata_extraction(&param.ty, core_import)
+                        gen_metadata_extraction(&param.ty, core_import, api)
                     ));
                     out.push_str("                };\n");
                 }
@@ -1068,7 +1073,7 @@ fn gen_variant_napi_method(
 ///
 /// Returns a Rust expression that converts `val` (a `&serde_json::Value`) to the target type.
 /// The generated code uses serde_json's native coercion and type conversions.
-fn gen_metadata_extraction(ty: &TypeRef, _core_import: &str) -> String {
+fn gen_metadata_extraction(ty: &TypeRef, core_import: &str, api: &ApiSurface) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => {
             "val.as_str().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected string metadata\"))?.to_owned()".to_owned()
@@ -1112,11 +1117,36 @@ fn gen_metadata_extraction(ty: &TypeRef, _core_import: &str) -> String {
             }
         }
         TypeRef::Optional(inner) => {
-            let inner_extraction = gen_metadata_extraction(inner, "");
+            let inner_extraction = gen_metadata_extraction(inner, core_import, api);
             format!("if val.is_null() {{ None }} else {{ Some({{ {inner_extraction} }}) }}")
         }
+        TypeRef::Named(n) => {
+            // Check if this Named type is opaque in the API surface
+            let is_opaque = api.types
+                .iter()
+                .find(|t| &t.name == n && !t.is_trait && t.is_opaque)
+                .is_some();
+
+            if is_opaque {
+                // For opaque types: deserialize as the NAPI binding wrapper class,
+                // then unwrap .inner to get the core type.
+                // This follows the pattern: extract wrapper, then unwrap.inner
+                format!(
+                    "{{ \
+                        let binding = serde_json::from_value::<crate::{name}>(val.clone()) \
+                            .map_err(|e| napi::Error::from_reason(format!(\"opaque type deserialization failed: {{}}\", e)))?; \
+                        binding.inner.clone() \
+                    }}",
+                    name = n
+                )
+            } else {
+                // For non-opaque Named types: deserialize directly via serde_json
+                "serde_json::from_value(val.clone())
+                    .map_err(|e| napi::Error::from_reason(format!(\"metadata deserialization failed: {}\", e)))?".to_owned()
+            }
+        }
         _ => {
-            // For Named types and other complex types: deserialize directly from serde_json::Value
+            // For other complex types: deserialize directly from serde_json::Value
             "serde_json::from_value(val.clone())
                 .map_err(|e| napi::Error::from_reason(format!(\"metadata deserialization failed: {}\", e)))?".to_owned()
         }

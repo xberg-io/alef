@@ -1,5 +1,5 @@
 //! Generate Java visitor support: interface, NodeContext record, VisitResult sealed interface,
-//! VisitorBridge (upcall stubs), and convertWithVisitor method.
+//! VisitorBridge (upcall stubs), and IR-driven convert-with-visitor method fragments.
 //!
 //! # Panama FFM upcall strategy
 //!
@@ -13,9 +13,8 @@
 //! - `VisitorBridge`: a package-private class that allocates one `MemorySegment`
 //!   upcall stub per callback inside a `Arena.ofConfined()` scope, then writes
 //!   all stubs into a flat `MemorySegment` matching `HTMHtmVisitorCallbacks`.
-//! - `convertWithVisitor`: static method on the wrapper class that drives the full
-//!   lifecycle: marshal options → create `VisitorBridge` → `htm_visitor_create` →
-//!   `htm_convert_with_visitor` → deserialise JSON result → `htm_visitor_free`.
+//! - convert-with-visitor methods drive the full lifecycle with caller-provided
+//!   IR/config-derived method shape and FFI body fragments.
 
 mod callbacks;
 mod files;
@@ -59,17 +58,69 @@ pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
     )
 }
 
-/// Generate the `convertWithVisitor` method body to inject into the main wrapper class.
+/// Explicit inputs for rendering a convert-with-visitor method.
 ///
 /// Returns the method source as a string (without surrounding class braces).
-pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String {
-    let pu = prefix.to_uppercase();
-    let exc = format!("{class_name}Exception");
+pub struct ConvertWithVisitorMethod<'a> {
+    pub return_type: &'a str,
+    pub method_name: &'a str,
+    pub params: &'a str,
+    pub exception_class: &'a str,
+    pub prefix: &'a str,
+    pub visitor_arg: &'a str,
+    pub marshal_body: &'a str,
+    pub invoke_body: &'a str,
+}
+
+/// Generate a convert-with-visitor method from IR/config-derived inputs.
+///
+/// Returns the method source as a string (without surrounding class braces).
+pub fn gen_convert_with_visitor_method(method: &ConvertWithVisitorMethod<'_>) -> String {
+    assert!(
+        !method.return_type.is_empty(),
+        "convert-with-visitor return type must be derived before rendering"
+    );
+    assert!(
+        !method.method_name.is_empty(),
+        "convert-with-visitor method name must be derived before rendering"
+    );
+    assert!(
+        !method.params.is_empty(),
+        "convert-with-visitor parameters must be derived before rendering"
+    );
+    assert!(
+        !method.exception_class.is_empty(),
+        "convert-with-visitor exception class must be derived before rendering"
+    );
+    assert!(
+        !method.prefix.is_empty(),
+        "convert-with-visitor native prefix must be derived before rendering"
+    );
+    assert!(
+        !method.visitor_arg.is_empty(),
+        "convert-with-visitor visitor argument must be derived before rendering"
+    );
+    assert!(
+        !method.marshal_body.is_empty(),
+        "convert-with-visitor marshal body must be derived before rendering"
+    );
+    assert!(
+        !method.invoke_body.is_empty(),
+        "convert-with-visitor invoke body must be derived before rendering"
+    );
+
+    let pu = method.prefix.to_uppercase();
     crate::backends::java::template_env::render(
         "convert_with_visitor.jinja",
         minijinja::context! {
-            exception_class => exc,
+            return_type => method.return_type,
+            method_name => method.method_name,
+            params => method.params,
+            exception_class => method.exception_class,
             prefix_upper => pu,
+            visitor_arg => method.visitor_arg,
+            marshal_body => method.marshal_body,
+            invoke_body => method.invoke_body,
         },
     )
 }
@@ -113,13 +164,31 @@ mod tests {
     }
 
     #[test]
-    fn gen_convert_with_visitor_method_uses_correct_prefix() {
-        let out = gen_convert_with_visitor_method("Htm", "htm");
-        assert!(out.contains("convertWithVisitor"), "must define convertWithVisitor");
-        assert!(out.contains("HtmException"), "must use correct exception type");
+    fn gen_convert_with_visitor_method_uses_explicit_method_shape() {
+        let out = gen_convert_with_visitor_method(&ConvertWithVisitorMethod {
+            return_type: "RenderResult",
+            method_name: "renderWithVisitor",
+            params: "String source, RenderOptions options, Visitor visitor",
+            exception_class: "RendererException",
+            prefix: "rnd",
+            visitor_arg: "visitor",
+            marshal_body: "var cSource = arena.allocateFrom(source);",
+            invoke_body: "return invokeRender(cSource, visitorHandle);",
+        });
+        assert!(out.contains("renderWithVisitor"), "must define explicit method name");
+        assert!(out.contains("RendererException"), "must use explicit exception type");
+        assert!(out.contains("RenderResult"), "must use explicit IR-derived return type");
         assert!(
-            out.contains("NativeLib.HTM_VISITOR_CREATE"),
+            out.contains("NativeLib.RND_VISITOR_CREATE"),
             "must call correct native handle"
+        );
+        assert!(
+            !out.contains("ConversionResult") && !out.contains("ConversionOptions"),
+            "must not synthesize legacy conversion DTO names"
+        );
+        assert!(
+            !out.contains("CONVERSION_OPTIONS") && !out.contains("CONVERT_WITH_VISITOR"),
+            "must not synthesize legacy conversion native handle names"
         );
     }
 }

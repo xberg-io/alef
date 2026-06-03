@@ -517,6 +517,26 @@ pub(crate) fn gen_native_lib(
         }
     }
 
+    // Collect all stream item and request types from adapters. Even if a type's has_serde
+    // is false in the IR (due to cfg gating), if it's an adapter item/request type, the FFI
+    // backend MUST export _to_json/_from_json symbols for them — streaming types are always
+    // serializable by contract.
+    let stream_item_types: AHashSet<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter_map(|a| a.item_type.as_ref())
+        .cloned()
+        .collect();
+    let stream_request_types: AHashSet<String> = config
+        .adapters
+        .iter()
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+        .filter_map(|a| a.params.first().map(|p| p.ty.as_str()))
+        .filter_map(|ty| ty.rsplit("::").next()) // Strip module path
+        .map(|s| s.to_string())
+        .collect();
+
     // Streaming-adapter method handles. For each `[[crates.adapters]]` entry with
     // pattern = "streaming", emit three downcall handles for the FFI iterator-handle
     // functions (`_start`, `_next`, `_free`) plus the request `_from_json`/`_free`
@@ -585,8 +605,10 @@ pub(crate) fn gen_native_lib(
         let request_snake = request_type.to_snake_case();
         let request_upper = request_snake.to_uppercase();
 
-        // Only emit if the FFI backend exports a _from_json for this type
-        if from_json_type_names.contains(request_type) {
+        // Emit if the FFI backend exports a _from_json for this type, OR if it's a stream request type.
+        // Stream request types are always serializable by contract, even if has_serde is false in IR
+        // (due to cfg gating); the FFI backend guarantees a _from_json symbol for all stream requests.
+        if from_json_type_names.contains(request_type) || stream_request_types.contains(request_type) {
             let req_from_json_handle = format!("{prefix_upper}_{request_upper}_FROM_JSON");
             let req_from_json_ffi = format!("{prefix}_{request_snake}_from_json");
             if emitted_from_json_handles.insert(req_from_json_handle.clone()) {
@@ -616,8 +638,10 @@ pub(crate) fn gen_native_lib(
         let item_snake = item_type.to_snake_case();
         let item_upper = item_snake.to_uppercase();
 
-        // Only emit if the FFI backend exports a _to_json for this type
-        if to_json_type_names.contains(item_type) {
+        // Emit if the FFI backend exports a _to_json for this type, OR if it's a stream item type.
+        // Stream item types are always serializable by contract, even if has_serde is false in IR
+        // (due to cfg gating); the FFI backend guarantees a _to_json symbol for all stream items.
+        if to_json_type_names.contains(item_type) || stream_item_types.contains(item_type) {
             let item_to_json_handle = format!("{prefix_upper}_{item_upper}_TO_JSON");
             let item_to_json_ffi = format!("{prefix}_{item_snake}_to_json");
             if emitted_to_json_handles.insert(item_to_json_handle.clone()) {

@@ -1,31 +1,7 @@
-{% set legacy_result = "Conversion" ~ "Result" -%}
-{% set legacy_options = "Conversion" ~ "Options" -%}
-{% set legacy_params = "String html, " ~ legacy_options ~ " options, Visitor visitor" -%}
-{% set legacy_marshal_body -%}
-var cHtml = arena.allocateFrom(html);
-            MemorySegment optionsPtr = MemorySegment.NULL;
-            if (options != null) {
-                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));
-                optionsPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERSION_OPTIONS_FROM_JSON.invoke(optJson);
-            }
-{%- endset %}
-{% set legacy_invoke_body -%}
-var resultPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);
-                if (!optionsPtr.equals(MemorySegment.NULL)) {
-                    NativeLib.{{ prefix_upper }}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);
-                }
-                if (resultPtr.equals(MemorySegment.NULL)) {
-                    checkLastError();
-                    return null;
-                }
-                var markdown = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);
-                NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(resultPtr);
-                return new {{ legacy_result }}(markdown, null, null, null, null, null);
-{%- endset %}
-    public static {{ return_type | default(legacy_result) }} {{ method_name | default("convertWithVisitor") }}({{ params | default(legacy_params) }}) throws {{ exception_class }} {
+    public static {{ return_type }} {{ method_name }}({{ params }}) throws {{ exception_class }} {
         try (var arena = Arena.ofShared();
-             var bridge = new VisitorBridge({{ visitor_arg | default("visitor") }})) {
-            {{ marshal_body | default(legacy_marshal_body) }}
+             var bridge = new VisitorBridge({{ visitor_arg }})) {
+            {{ marshal_body }}
 
             var visitorHandle = (MemorySegment) NativeLib.{{ prefix_upper }}_VISITOR_CREATE.invoke(bridge.callbacksStruct());
             if (visitorHandle.equals(MemorySegment.NULL)) {
@@ -33,7 +9,7 @@ var resultPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERT_WITH_VISITO
             }
 
             try {
-                {{ invoke_body | default(legacy_invoke_body) }}
+                {{ invoke_body }}
             } catch (Throwable e) {
                 throw new {{ exception_class }}("FFI call failed", e);
             } finally {

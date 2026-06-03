@@ -13,7 +13,7 @@ use crate::e2e::escape::{escape_zig, sanitize_filename};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 use anyhow::{Result, bail};
-use heck::{ToShoutySnakeCase, ToSnakeCase};
+use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -1439,6 +1439,7 @@ fn render_test_fn(
             options_value.as_ref(),
             visitor_spec,
             module_name,
+            ffi_prefix,
             &fixture.assertions,
             expects_error,
             field_resolver,
@@ -1758,6 +1759,7 @@ fn emit_visitor_test_body(
     options_value: Option<&serde_json::Value>,
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
     module_name: &str,
+    ffi_prefix: &str,
     assertions: &[Assertion],
     expects_error: bool,
     field_resolver: &FieldResolver,
@@ -1769,7 +1771,13 @@ fn emit_visitor_test_body(
     let _ = writeln!(out);
 
     // 1. Per-fixture visitor struct + callbacks table.
-    let visitor_block = super::zig_visitors::build_zig_visitor(fixture_id, module_name, visitor_spec);
+    let c_prefix = ffi_prefix.to_uppercase();
+    let visitor_type_stem = ffi_prefix.to_pascal_case();
+    let c_types = super::zig_visitors::ZigVisitorCTypes {
+        context_type: format!("{c_prefix}{visitor_type_stem}NodeContext"),
+        callbacks_type: format!("{c_prefix}{visitor_type_stem}VisitorCallbacks"),
+    };
+    let visitor_block = super::zig_visitors::build_zig_visitor(fixture_id, module_name, visitor_spec, &c_types);
     out.push_str(&visitor_block);
 
     // 2. Materialise the visitor handle (HtmVisitor opaque, attached via

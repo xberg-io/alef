@@ -135,14 +135,12 @@ fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
 #[test]
 fn targets_with_many_platforms_wraps_at_keyword() {
     // Test that the native module header with many NIF targets (7+ platforms)
-    // wraps the `~w(...)` value onto a continuation line. This is a regression test
-    // for kreuzcrawl, which has 7 targets that would exceed 98+ chars on a single line
-    // if not wrapped:
-    // targets: ~w(x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu ...)  [too long]
+    // uses a multi-line list literal so each target fits within the consumer's
+    // line_length (120 chars). This is a regression test for kreuzcrawl, which
+    // has 7 targets that would exceed 120 chars on a single ~w(...) line.
     //
-    // Even though the continued ~w(...) line may still exceed line_length when
-    // rendered, the wrapping at the keyword level ensures that mix format doesn't
-    // place the keyword and value together on a single line.
+    // Multi-line list format ensures mix format wraps each target on its own line,
+    // and no single line in the targets list exceeds the 120-char limit.
 
     let mut env = minijinja::Environment::new();
     let template_str = r#"defmodule {{ app_module }}.Native do
@@ -154,8 +152,11 @@ fn targets_with_many_platforms_wraps_at_keyword() {
     base_url:
       "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
     version: Mix.Project.config()[:version],
-    targets:
-      ~w({{ nif_targets }}),
+    targets: [
+{% for target in nif_targets_list -%}
+      "{{ target }}",
+{% endfor -%}
+    ],
     nif_versions: ["2.16", "2.17"],
     force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev]
 
@@ -173,26 +174,46 @@ fn targets_with_many_platforms_wraps_at_keyword() {
             app_name => "kreuzcrawl",
             repo_url => "https://github.com/kreuzberg-dev/kreuzcrawl",
             build_env_var => "KREUZCRAWL_BUILD",
-            nif_targets => "x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc",
+            nif_targets_list => vec![
+                "x86_64-unknown-linux-gnu",
+                "aarch64-unknown-linux-gnu",
+                "x86_64-unknown-linux-musl",
+                "aarch64-unknown-linux-musl",
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+                "x86_64-pc-windows-msvc",
+            ],
         })
         .expect("template renders");
 
-    // The wrapped form should have targets keyword on its own line, with ~w(...) below
+    // The multi-line list form ensures mix format wraps each target on its own line
     assert!(
-        rendered.contains("    targets:\n      ~w("),
-        "targets keyword and value should be wrapped across lines, got:\n{}",
+        rendered.contains("    targets: ["),
+        "targets should use list literal form, got:\n{}",
         rendered
     );
 
-    // Verify that the targets keyword is NOT on the same line as the value
+    // Verify each target is on its own line
+    let lines_with_targets: Vec<&str> = rendered
+        .lines()
+        .filter(|l| l.contains("x86_64-unknown-linux-gnu") || l.contains("aarch64-apple-darwin"))
+        .collect();
+    assert!(
+        lines_with_targets.len() >= 2,
+        "targets should be split across multiple lines, got:\n{}",
+        rendered
+    );
+
+    // Verify each line is under 120 characters (consumer's line_length)
     for line in rendered.lines() {
-        if line.contains("targets:") {
+        if line.contains("\"") && line.contains("-") {
+            // This is a target line
             assert!(
-                !line.contains("~w("),
-                "targets keyword and ~w() value should not be on the same line: {}",
+                line.len() <= 120,
+                "target line exceeds 120 chars ({}): {}",
+                line.len(),
                 line
             );
-            break;
         }
     }
 }

@@ -42,6 +42,14 @@ impl TypeMapper for Pyo3Mapper {
             // Use PyVisitorRef wrapper: a newtype that wraps Py<PyAny> and implements Clone
             // via Python::with_gil, allowing the binding struct to derive Clone.
             Cow::Borrowed("PyVisitorRef")
+        } else if name == "Value" {
+            // Bare `Value` references that the source crate did not fully qualify as
+            // `serde_json::Value`. Map to `serde_json::Value` so the generated struct
+            // compiles without scope issues (PyO3 structs need all types fully qualified
+            // or in scope via imports). Unlike NAPI, PyO3 does not auto-convert
+            // serde_json::Value, so fields remain as serde_json::Value and callers
+            // handle JSON serialization in getter/setter methods if needed.
+            Cow::Borrowed("serde_json::Value")
         } else {
             Cow::Borrowed(name)
         }

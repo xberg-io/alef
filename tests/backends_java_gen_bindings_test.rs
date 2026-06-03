@@ -3814,3 +3814,158 @@ fn test_facade_no_java_lang_imports() {
         );
     }
 }
+
+/// Regression test: streaming adapter item types must have _to_json handles in NativeLib,
+/// even if the type has has_serde=false in the IR (due to cfg gating).
+/// Without the fix, this would cause: "cannot find symbol: variable KCRAWL_CRAWL_EVENT_TO_JSON"
+#[test]
+fn test_streaming_adapter_item_to_json_handle_emitted_unconditionally() {
+    let backend = JavaBackend;
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "crawl_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "kcrawl"
+
+[crates.java]
+package = "dev.kreuzberg.kreuzcrawl"
+
+[[crates.adapters]]
+name = "crawl"
+pattern = "streaming"
+core_path = "crawl"
+owner_type = "CrawlEngine"
+item_type = "CrawlEvent"
+request_type = "crawl_lib::CrawlRequest"
+
+[[crates.adapters.params]]
+name = "request"
+type = "CrawlRequest"
+"#,
+    );
+
+    // CrawlEvent has has_serde=false (simulating cfg-gated serde derive)
+    let api = ApiSurface {
+        crate_name: "crawl_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "CrawlEngine".to_string(),
+                rust_path: "crawl_lib::CrawlEngine".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "crawl".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: true,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    sanitized: false,
+                }],
+                is_opaque: true,
+                is_trait: false,
+                has_serde: false,
+                has_default: false,
+                doc: String::new(),
+                original_generic_args: vec![],
+                is_repr_c: false,
+                can_be_null: false,
+                newtype_wrapper_type: None,
+                native_transform_attr: None,
+                is_error_type: false,
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+            TypeDef {
+                name: "CrawlEvent".to_string(),
+                rust_path: "crawl_lib::CrawlEvent".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_trait: false,
+                has_serde: false, // Simulates cfg-gated serde derive
+                has_default: false,
+                doc: String::new(),
+                original_generic_args: vec![],
+                is_repr_c: false,
+                can_be_null: false,
+                newtype_wrapper_type: None,
+                native_transform_attr: None,
+                is_error_type: false,
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+            TypeDef {
+                name: "CrawlRequest".to_string(),
+                rust_path: "crawl_lib::CrawlRequest".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_trait: false,
+                has_serde: true,
+                has_default: false,
+                doc: String::new(),
+                original_generic_args: vec![],
+                is_repr_c: false,
+                can_be_null: false,
+                newtype_wrapper_type: None,
+                native_transform_attr: None,
+                is_error_type: false,
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generation failed: {:?}", result);
+    let files = result.unwrap();
+
+    // Check NativeLib.java for _to_json handle for CrawlEvent (stream item type)
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeLib"))
+        .expect("NativeLib.java must be emitted");
+
+    // Even though CrawlEvent has has_serde=false, because it's a streaming item type,
+    // NativeLib must emit KCRAWL_CRAWL_EVENT_TO_JSON handle (referenced by streaming_iterator_method)
+    assert!(
+        native_lib.content.contains("KCRAWL_CRAWL_EVENT_TO_JSON"),
+        "NativeLib must emit KCRAWL_CRAWL_EVENT_TO_JSON MethodHandle for streaming item type CrawlEvent, even with has_serde=false. Got:\n{}",
+        native_lib.content
+    );
+
+    // Also verify _from_json is emitted for the request type
+    assert!(
+        native_lib.content.contains("KCRAWL_CRAWL_REQUEST_FROM_JSON"),
+        "NativeLib must emit KCRAWL_CRAWL_REQUEST_FROM_JSON MethodHandle for streaming request type CrawlRequest. Got:\n{}",
+        native_lib.content
+    );
+}
