@@ -72,17 +72,17 @@ impl E2eCodegen for ZigE2eCodegen {
         // Explicit hash override from alef.toml takes precedence over auto-fetch.
         let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
 
+        // Use the crate name for constructing the release URL (hyphenated form).
+        let crate_name = &config.name;
+
         // Detect if the explicit hash is stale: if it contains an embedded version
         // string (format: `<crate>-X.Y.Z-<hash>`) and that version doesn't match
         // the current pkg_version, warn and recommend regeneration.
         let hash_is_stale = if let Some(ref h) = explicit_hash {
-            detect_stale_zig_hash(h, &pkg_version, &crate_name)
+            detect_stale_zig_hash(h, &pkg_version, crate_name)
         } else {
             false
         };
-
-        // Use the crate name for constructing the release URL (hyphenated form).
-        let crate_name = &config.name;
         // Resolve the full `https://<host>/<org>/<repo>` URL.  Prefer the
         // explicit `[e2e.registry] github_repo` override when set; otherwise
         // fall back to `config.github_repo()` (which reads `[scaffold]
@@ -309,6 +309,61 @@ impl E2eCodegen for ZigE2eCodegen {
 // Zig content-multihash resolution
 // ---------------------------------------------------------------------------
 
+/// Detect if a Zig package hash contains a stale embedded version.
+///
+/// Zig package hashes are formatted as `<crate>-<version>-<multihash>`.
+/// This function extracts the embedded version and compares it against
+/// the current package version. If they differ, the hash is stale and
+/// should be regenerated with `alef sync-versions`.
+///
+/// Returns `true` if the hash is stale (embedded version != current version).
+/// Logs a warning in that case.
+fn detect_stale_zig_hash(hash: &str, current_version: &str, crate_name: &str) -> bool {
+    // Hash format: `{crate_name}-{version}-{multihash}`
+    // Example: `liter_llm-1.4.0-rc.42-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
+    let prefix = format!("{crate_name}-");
+    if !hash.starts_with(&prefix) {
+        return false;
+    }
+
+    // Remove the crate name prefix and split the rest by dashes.
+    let rest = &hash[prefix.len()..];
+    let parts: Vec<&str> = rest.split('-').collect();
+
+    // Reconstruct the version by iterating through parts until we hit
+    // the hash-like segment (long alphanumeric or underscore string).
+    let mut version_parts: Vec<&str> = Vec::new();
+    for (i, part) in parts.iter().enumerate() {
+        // Last part is always the hash; don't include it.
+        if i == parts.len() - 1 {
+            break;
+        }
+
+        version_parts.push(part);
+
+        // Heuristic: if this part looks like a hash (>20 chars or contains underscores/alphanumerics),
+        // and we've accumulated at least one version part, stop here.
+        if part.len() > 20 || (part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && i > 0) {
+            // This is likely the hash segment; remove it from version_parts.
+            version_parts.pop();
+            break;
+        }
+    }
+
+    let embedded_version = version_parts.join("-");
+
+    if embedded_version != current_version {
+        tracing::warn!(
+            "zig package hash mismatch: hash contains version '{}', but current version is '{}'; \
+             regenerate with `alef sync-versions`",
+            embedded_version, current_version
+        );
+        return true;
+    }
+
+    false
+}
+
 /// Path to the on-disk hash cache: `~/.cache/alef/zig-hashes.json` on Unix /
 /// `%LOCALAPPDATA%\alef\zig-hashes.json` on Windows.
 ///
@@ -458,6 +513,7 @@ fn resolve_zig_hash(explicit: Option<&str>, url: &str) -> Option<String> {
 // Rendering
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn render_build_zig_zon(
     pkg_name: &str,
     pkg_path: &str,
@@ -466,6 +522,7 @@ fn render_build_zig_zon(
     platform_hashes: &BTreeMap<String, (String, Option<String>)>,
     crate_name: &str,
     github_repo: &str,
+    hash_is_stale: bool,
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -475,7 +532,14 @@ fn render_build_zig_zon(
             // The build.zig script links against the prebuilt FFI library included in the tarball.
             let url = format!("{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
             let hash_str = match platform_hashes.values().next().and_then(|(_, h)| h.as_ref()) {
-                Some(h) => format!("\"{h}\""),
+                Some(h) => {
+                    if hash_is_stale {
+                        // Hash is stale; emit as a comment so zig fetch can auto-compute the correct hash.
+                        format!("// STALE: regenerate with `alef sync-versions`\n            // .hash = \"{h}\"")
+                    } else {
+                        format!("\"{h}\"")
+                    }
+                }
                 None => "\"TODO\"".to_string(),
             };
             format!(
@@ -3194,6 +3258,7 @@ mod zig_hash_tests {
             &platform_hashes,
             "sample-llm",
             "https://github.com/sample_crate-dev/sample-llm",
+            false,
         );
         assert!(
             content.contains(&format!(".hash = \"{hash}\"")),
@@ -3227,6 +3292,7 @@ mod zig_hash_tests {
             &platform_hashes,
             "sample-llm",
             "https://github.com/sample_crate-dev/sample-llm",
+            false,
         );
         assert!(
             content.contains(".hash = \"TODO\""),
@@ -3254,6 +3320,7 @@ mod zig_hash_tests {
             &platform_hashes,
             "sample-markdown-rs",
             "https://github.com/sample_crate-dev/sample-markdown",
+            false,
         );
         // Verify the generic (no-suffix) URL is present with proper repo segment.
         let expected_url = "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
