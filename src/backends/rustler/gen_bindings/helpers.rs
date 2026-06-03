@@ -138,12 +138,25 @@ pub(super) fn gen_native_ex(
 
     out.push_str(&hash::header(CommentStyle::Hash));
     let nif_targets_list: Vec<&str> = nif_targets.split_whitespace().collect();
+    let last_idx = nif_targets_list.len().saturating_sub(1);
+    let nif_targets_block = nif_targets_list
+        .iter()
+        .enumerate()
+        .map(|(idx, target)| {
+            if idx == last_idx {
+                format!("      \"{target}\"")
+            } else {
+                format!("      \"{target}\",")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let ctx = minijinja::context! {
         app_module => app_module,
         app_name => app_name,
         repo_url => repo_url,
         build_env_var => build_env_var,
-        nif_targets_list => nif_targets_list,
+        nif_targets_block => nif_targets_block,
     };
     out.push_str(&template_env::render("native_module_header.jinja", ctx));
 

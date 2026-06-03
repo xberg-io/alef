@@ -2506,9 +2506,9 @@ fn render_assertion(
                 return;
             }
             // ---- keywords / keywords_count ----
-            // C# ExtractionResult does not expose extracted_keywords; skip.
+            // The generated C# result type does not expose this fixture alias; skip.
             "keywords" | "keywords_count" => {
-                let skipped_reason = format!("field '{f}' not available on C# ExtractionResult");
+                let skipped_reason = format!("field '{f}' not available on the generated C# result type");
                 let rendered = crate::e2e::template_env::render(
                     "csharp/assertion.jinja",
                     minijinja::context! {

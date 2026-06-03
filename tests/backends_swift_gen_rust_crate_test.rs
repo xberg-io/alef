@@ -849,6 +849,12 @@ fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
     cfg
 }
 
+fn config_with_plugin_bridge(trait_name: &str, super_trait: &str) -> ResolvedCrateConfig {
+    let mut cfg = config_with_bridge(trait_name);
+    cfg.trait_bridges[0].super_trait = Some(super_trait.to_string());
+    cfg
+}
+
 /// Test 1: a trait with only sync unit methods emits the correct extern block and wrapper.
 #[test]
 fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
@@ -978,6 +984,71 @@ fn trait_bridge_async_method_emits_block_on() {
     assert!(
         lib.content.contains(r#"format!("{{\"ok\": {}}}""#) && lib.content.contains(r#"format!("{{\"err\": {}}}""#),
         "async Result trampoline must emit JSON envelope: {}",
+        lib.content
+    );
+}
+
+#[test]
+fn inbound_plugin_impl_uses_qualified_super_trait_config_path() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![make_trait_type("OcrBackend", "demo::plugins::OcrBackend", vec![])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let cfg = config_with_plugin_bridge("OcrBackend", "demo::plugin_api::Plugin");
+
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content
+            .contains("impl demo::plugin_api::Plugin for SwiftOcrBackendWrapper"),
+        "inbound plugin impl must use the configured super_trait path; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content
+            .contains("impl demo_crate::plugins::Plugin for SwiftOcrBackendWrapper"),
+        "inbound plugin impl must not assume a plugins module convention; got:\n{}",
+        lib.content
+    );
+}
+
+#[test]
+fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![make_trait_type("OcrBackend", "demo::plugins::OcrBackend", vec![])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let cfg = config_with_plugin_bridge("OcrBackend", "Plugin");
+
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("could not resolve its Rust path"),
+        "unresolved Plugin super-trait must emit a clear diagnostic; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content
+            .contains("impl demo_crate::plugins::Plugin for SwiftOcrBackendWrapper"),
+        "inbound plugin impl must not fall back to demo_crate::plugins::Plugin; got:\n{}",
         lib.content
     );
 }

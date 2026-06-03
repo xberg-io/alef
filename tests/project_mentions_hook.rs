@@ -280,7 +280,7 @@ fn reports_embedded_visitor_bridge_class_names_in_codegen() {
     let backend_dir = dir.path().join("src").join("backends").join("java");
     fs::create_dir_all(&backend_dir).expect("create backend dir");
     let file = backend_dir.join("ffi_class.rs");
-    fs::write(&file, r#"out.push_str("new VisitorBridge(config.hook())");"#).expect("write fixture");
+    fs::write(&file, r#"out.push_str("new JsHtmlVisitorBridge(config.hook())");"#).expect("write fixture");
 
     let output = run_hook(&[&file]);
 
@@ -290,7 +290,7 @@ fn reports_embedded_visitor_bridge_class_names_in_codegen() {
     );
     let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
     assert!(
-        stderr.contains("forbidden downstream domain type `VisitorBridge`"),
+        stderr.contains("forbidden downstream domain type `HtmlVisitor`"),
         "stderr: {stderr}"
     );
 }

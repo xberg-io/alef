@@ -24,9 +24,7 @@ static TEMPLATES: &[(&str, &str)] = &[
     base_url: "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
     version: Mix.Project.config()[:version],
     targets: [
-{%- for target in nif_targets_list %}
-      "{{ target }}"{% if not loop.last %},{% endif %}
-{%- endfor %}
+{{ nif_targets_block }}
     ],
     nif_versions: ["2.16", "2.17"],
     force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev]

@@ -233,15 +233,12 @@ pub(crate) fn emit_inbound_wrapper(
         trait_def.rust_path.replace('-', "_")
     };
 
-    // Resolve Plugin super-trait path; fall back to `{source_crate}::plugins::Plugin`.
-    let plugin_path = api
-        .types
-        .iter()
-        .find(|t| t.is_trait && (t.name == "Plugin" || t.name.ends_with("::Plugin")))
-        .map(|t| t.rust_path.replace('-', "_"))
-        .unwrap_or_else(|| format!("{source_crate}::plugins::Plugin"));
-
     let emit_plugin = has_plugin_super(bridge_config);
+    let plugin_path = if emit_plugin {
+        resolve_plugin_supertrait_path(api, bridge_config)
+    } else {
+        None
+    };
     let mut out = String::new();
 
     // No module-scope phantom impl for the inbound (Swift-side) trait: the matching
@@ -305,14 +302,22 @@ pub(crate) fn emit_inbound_wrapper(
 
     // 2. Plugin super-trait impl — only when the trait declares Plugin as a super-trait.
     if emit_plugin {
-        out.push_str(&crate::backends::swift::template_env::render(
-            "inbound_plugin_impl.rs.jinja",
-            minijinja::context! {
-                plugin_path => &plugin_path,
-                wrapper_name => &wrapper_name,
-                result_type => result_type(source_crate, error_type, "()"),
-            },
-        ));
+        if let Some(plugin_path) = plugin_path.as_deref() {
+            out.push_str(&crate::backends::swift::template_env::render(
+                "inbound_plugin_impl.rs.jinja",
+                minijinja::context! {
+                    plugin_path => plugin_path,
+                    wrapper_name => &wrapper_name,
+                    result_type => result_type(source_crate, error_type, "()"),
+                },
+            ));
+        } else {
+            out.push_str(&format!(
+                "compile_error!(\"Swift inbound trait bridge for `{trait_name}` declares a Plugin super-trait, \
+                 but Alef could not resolve its Rust path. Set `super_trait` to a fully-qualified Rust path \
+                 such as `crate_name::Plugin`, or ensure the Plugin trait is present in the extracted IR.\");\n\n"
+            ));
+        }
     }
     let _ = trait_snake;
 
@@ -392,6 +397,24 @@ pub(crate) fn emit_inbound_wrapper(
     }
 
     out
+}
+
+/// Resolve the Plugin super-trait path from explicit config or extracted IR.
+///
+/// A fully-qualified `super_trait` config value is authoritative. A simple `Plugin`
+/// value is resolved from the IR so generated code follows the source crate's actual
+/// module layout. Missing IR is intentionally left unresolved instead of assuming a
+/// `{source_crate}::plugins::Plugin` convention.
+fn resolve_plugin_supertrait_path(api: &ApiSurface, bridge_config: &TraitBridgeConfig) -> Option<String> {
+    let super_trait = bridge_config.super_trait.as_deref()?;
+    if super_trait.contains("::") {
+        return Some(super_trait.replace('-', "_"));
+    }
+
+    api.types
+        .iter()
+        .find(|t| t.is_trait && t.name == super_trait && !t.rust_path.is_empty())
+        .map(|t| t.rust_path.replace('-', "_"))
 }
 
 /// Build a [`TraitBridgeSpec`] from inbound-wrapper context so the

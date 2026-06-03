@@ -541,13 +541,13 @@ mod tests {
         let path_map = ahash::AHashMap::new();
         assert_eq!(
             c_param_type_with_paths_and_enums(
-                &TypeRef::Optional(Box::new(TypeRef::Named("ExtractionResult".to_string()))),
+                &TypeRef::Optional(Box::new(TypeRef::Named("OperationOutput".to_string()))),
                 CORE,
                 &path_map,
                 &enum_names,
                 true
             ),
-            "*const my_crate::ExtractionResult"
+            "*const my_crate::OperationOutput"
         );
     }
 }

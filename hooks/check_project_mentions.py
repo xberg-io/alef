@@ -84,7 +84,6 @@ DOWNSTREAM_DOMAIN_TYPES = (
     "HtmlVisitor",
     "IHtmlVisitor",
     "OcrBackend",
-    "VisitorBridge",
     "VisitorHandle",
 )
 
@@ -107,6 +106,10 @@ def build_split_domain_type_pattern(name: str) -> Pattern[str]:
     return re.compile(rf"(?<![A-Za-z0-9_]){body}(?![A-Za-z0-9_])")
 
 
+def build_embedded_domain_type_pattern(name: str) -> Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9_])[A-Z][A-Za-z0-9_]*{name}[A-Za-z0-9_]*(?![A-Za-z0-9_])")
+
+
 PATTERNS = {name: build_pattern(parts) for name, parts in PROJECT_NAMES.items()}
 INFRASTRUCTURE_PATTERNS = tuple(
     re.compile(re.escape(allowed), re.IGNORECASE) for allowed in ALEF_INFRASTRUCTURE_ALLOWLIST
@@ -116,6 +119,9 @@ DOMAIN_TYPE_PATTERNS = tuple(
 )
 SPLIT_DOMAIN_TYPE_PATTERNS = tuple(
     (name, build_split_domain_type_pattern(name)) for name in DOWNSTREAM_DOMAIN_TYPES
+)
+EMBEDDED_DOMAIN_TYPE_PATTERNS = tuple(
+    (name, build_embedded_domain_type_pattern(name)) for name in DOWNSTREAM_DOMAIN_TYPES
 )
 DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
     "==",
@@ -229,6 +235,9 @@ def violations_for_file(path: Path) -> list[str]:
                 if pattern.search(line):
                     violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
             for name, pattern in SPLIT_DOMAIN_TYPE_PATTERNS:
+                if pattern.search(line):
+                    violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
+            for name, pattern in EMBEDDED_DOMAIN_TYPE_PATTERNS:
                 if pattern.search(line):
                     violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
     return violations

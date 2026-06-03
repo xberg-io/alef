@@ -3528,7 +3528,7 @@ mod test_backend_tests {
         let method = MethodDef {
             name: "extract_bytes".to_string(),
             params: vec![],
-            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            return_type: TypeRef::Named("OperationOutput".to_string()),
             is_async: false,
             is_static: false,
             error_type: None,
@@ -3557,8 +3557,8 @@ mod test_backend_tests {
         );
         // Named type must be qualified with the binding package.
         assert!(
-            output.contains("dev.example.ExtractionResult"),
-            "return type must use dev.example.ExtractionResult, got:\n{output}"
+            output.contains("dev.example.OperationOutput"),
+            "return type must use dev.example.OperationOutput, got:\n{output}"
         );
         // Must NOT contain old hardcoded dev.sample_crate.
         assert!(
@@ -3615,7 +3615,7 @@ mod test_backend_tests {
         let method = MethodDef {
             name: "extract_bytes".to_string(),
             params: vec![],
-            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            return_type: TypeRef::Named("OperationOutput".to_string()),
             is_async: false,
             is_static: false,
             error_type: None,
@@ -3640,8 +3640,8 @@ mod test_backend_tests {
         // With empty binding_pkg, named types are unqualified.
         // Method names must use snake_case to match the interface.
         assert!(
-            output.contains("public ExtractionResult extract_bytes"),
-            "return type must use ExtractionResult (unqualified, empty pkg) with snake_case method name, got:\n{output}"
+            output.contains("public OperationOutput extract_bytes"),
+            "return type must use OperationOutput (unqualified, empty pkg) with snake_case method name, got:\n{output}"
         );
         // Must NOT contain hardcoded dev.sample_crate.
         assert!(

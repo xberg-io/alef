@@ -1,7 +1,7 @@
 //! Kotlin Android e2e test generator using kotlin.test and JUnit 5.
 //!
 //! Generates host-JVM tests that validate the AAR-bundled Java facade and Kotlin wrapper
-//! via JNA against libsample_core_ffi. Tests are emitted to `e2e/kotlin_android/src/test/kotlin/`
+//! via JNA against the generated FFI library. Tests are emitted to `e2e/kotlin_android/src/test/kotlin/`
 //! without requiring an Android emulator — the tests run directly on the host JVM against
 //! the shared library.
 

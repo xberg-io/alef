@@ -1432,6 +1432,7 @@ fn render_test_fn(
     if let Some(visitor_spec) = &fixture.visitor {
         let html = fixture.input.get("html").and_then(|v| v.as_str()).unwrap_or_default();
         let options_value = fixture.input.get("options").cloned();
+        let visitor_symbols = resolve_zig_visitor_call_symbols(call_config, &recipe, ffi_prefix);
         emit_visitor_test_body(
             out,
             &fixture.id,
@@ -1439,7 +1440,7 @@ fn render_test_fn(
             options_value.as_ref(),
             visitor_spec,
             module_name,
-            ffi_prefix,
+            &visitor_symbols,
             &fixture.assertions,
             expects_error,
             field_resolver,
@@ -1746,6 +1747,69 @@ fn render_test_fn(
     let _ = writeln!(out, "}}");
 }
 
+struct ZigVisitorCallSymbols {
+    visitor_prefix: String,
+    visitor_create: String,
+    visitor_free: String,
+    options_from_json: String,
+    options_free: String,
+    options_set_visitor_handle: String,
+    function_name: String,
+    result_free: String,
+    result_to_json: String,
+    free_string: String,
+    last_error_code: String,
+}
+
+fn resolve_zig_visitor_call_symbols(
+    call_config: &crate::core::config::e2e::CallConfig,
+    recipe: &crate::e2e::codegen::recipe::ResolvedE2eCallRecipe<'_>,
+    ffi_prefix: &str,
+) -> ZigVisitorCallSymbols {
+    let c_override = call_config.overrides.get("c");
+    let function_name = c_override
+        .and_then(|override_config| override_config.function.as_ref())
+        .cloned()
+        .or_else(|| {
+            recipe
+                .override_config
+                .and_then(|override_config| override_config.function.as_ref())
+                .cloned()
+        })
+        .unwrap_or_else(|| call_config.function.clone());
+    let options_type_name = c_override
+        .and_then(|override_config| override_config.options_type.as_deref())
+        .or(recipe.options_type)
+        .unwrap_or_default()
+        .to_string();
+    let options_type_snake = options_type_name.to_snake_case();
+    let result_type_name = c_override
+        .and_then(|override_config| override_config.result_type.as_ref())
+        .cloned()
+        .or_else(|| {
+            recipe
+                .override_config
+                .and_then(|override_config| override_config.result_type.as_ref())
+                .cloned()
+        })
+        .unwrap_or_else(|| call_config.function.to_pascal_case());
+    let result_type_snake = result_type_name.to_snake_case();
+
+    ZigVisitorCallSymbols {
+        visitor_prefix: ffi_prefix.to_string(),
+        visitor_create: format!("{ffi_prefix}_visitor_create"),
+        visitor_free: format!("{ffi_prefix}_visitor_free"),
+        options_from_json: format!("{ffi_prefix}_{options_type_snake}_from_json"),
+        options_free: format!("{ffi_prefix}_{options_type_snake}_free"),
+        options_set_visitor_handle: format!("{ffi_prefix}_options_set_visitor_handle"),
+        function_name,
+        result_free: format!("{ffi_prefix}_{result_type_snake}_free"),
+        result_to_json: format!("{ffi_prefix}_{result_type_snake}_to_json"),
+        free_string: format!("{ffi_prefix}_free_string"),
+        last_error_code: format!("{ffi_prefix}_last_error_code"),
+    }
+}
+
 /// Emit the body of a visitor-bearing test. Drives the FFI directly so we
 /// can attach a generated visitor callbacks vtable to the configured options
 /// handle before calling the configured FFI function. The high-level wrapper
@@ -1759,7 +1823,7 @@ fn emit_visitor_test_body(
     options_value: Option<&serde_json::Value>,
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
     module_name: &str,
-    ffi_prefix: &str,
+    symbols: &ZigVisitorCallSymbols,
     assertions: &[Assertion],
     expects_error: bool,
     field_resolver: &FieldResolver,
@@ -1771,8 +1835,8 @@ fn emit_visitor_test_body(
     let _ = writeln!(out);
 
     // 1. Per-fixture visitor struct + callbacks table.
-    let c_prefix = ffi_prefix.to_uppercase();
-    let visitor_type_stem = ffi_prefix.to_pascal_case();
+    let c_prefix = symbols.visitor_prefix.to_uppercase();
+    let visitor_type_stem = symbols.visitor_prefix.to_pascal_case();
     let c_types = super::zig_visitors::ZigVisitorCTypes {
         context_type: format!("{c_prefix}{visitor_type_stem}NodeContext"),
         callbacks_type: format!("{c_prefix}{visitor_type_stem}VisitorCallbacks"),
@@ -1780,13 +1844,17 @@ fn emit_visitor_test_body(
     let visitor_block = super::zig_visitors::build_zig_visitor(fixture_id, module_name, visitor_spec, &c_types);
     out.push_str(&visitor_block);
 
-    // 2. Materialise the visitor handle (HtmVisitor opaque, attached via
-    //    htm_options_set_visitor_handle).
+    // 2. Materialise the visitor handle and attach it to the configured options handle.
     let _ = writeln!(
         out,
-        "    const _visitor = {module_name}.c.htm_visitor_create(&_callbacks);"
+        "    const _visitor = {module_name}.c.{visitor_create}(&_callbacks);",
+        visitor_create = symbols.visitor_create
     );
-    let _ = writeln!(out, "    defer {module_name}.c.htm_visitor_free(_visitor);");
+    let _ = writeln!(
+        out,
+        "    defer {module_name}.c.{visitor_free}(_visitor);",
+        visitor_free = symbols.visitor_free
+    );
 
     // 3. Options handle: always allocate one (even when the fixture supplies
     //    no `options`) so we have somewhere to attach the visitor. The FFI
@@ -1803,12 +1871,18 @@ fn emit_visitor_test_body(
     let _ = writeln!(out, "    defer std.heap.c_allocator.free(_options_z);");
     let _ = writeln!(
         out,
-        "    const _options = {module_name}.c.htm_conversion_options_from_json(_options_z.ptr);"
+        "    const _options = {module_name}.c.{options_from_json}(_options_z.ptr);",
+        options_from_json = symbols.options_from_json
     );
-    let _ = writeln!(out, "    defer {module_name}.c.htm_conversion_options_free(_options);");
     let _ = writeln!(
         out,
-        "    {module_name}.c.htm_options_set_visitor_handle(_options, _visitor);"
+        "    defer {module_name}.c.{options_free}(_options);",
+        options_free = symbols.options_free
+    );
+    let _ = writeln!(
+        out,
+        "    {module_name}.c.{options_set_visitor_handle}(_options, _visitor);",
+        options_set_visitor_handle = symbols.options_set_visitor_handle
     );
 
     // 4. HTML buffer + convert call.
@@ -1820,29 +1894,41 @@ fn emit_visitor_test_body(
     let _ = writeln!(out, "    defer std.heap.c_allocator.free(_html_z);");
     let _ = writeln!(
         out,
-        "    const _result = {module_name}.c.htm_convert(_html_z.ptr, _options);"
+        "    const _result = {module_name}.c.{function_name}(_html_z.ptr, _options);",
+        function_name = symbols.function_name
     );
 
     if expects_error {
         // Error-path: _result null OR last error code non-zero.
         let _ = writeln!(
             out,
-            "    try testing.expect(_result == null or {module_name}.c.htm_last_error_code() != 0);"
+            "    try testing.expect(_result == null or {module_name}.c.{last_error_code}() != 0);",
+            last_error_code = symbols.last_error_code
         );
         let _ = writeln!(
             out,
-            "    if (_result) |r| {module_name}.c.htm_conversion_result_free(r);"
+            "    if (_result) |r| {module_name}.c.{result_free}(r);",
+            result_free = symbols.result_free
         );
         return;
     }
 
     let _ = writeln!(out, "    try testing.expect(_result != null);");
-    let _ = writeln!(out, "    defer {module_name}.c.htm_conversion_result_free(_result.?);");
     let _ = writeln!(
         out,
-        "    const _json_ptr = {module_name}.c.htm_conversion_result_to_json(_result.?);"
+        "    defer {module_name}.c.{result_free}(_result.?);",
+        result_free = symbols.result_free
     );
-    let _ = writeln!(out, "    defer {module_name}.c.htm_free_string(_json_ptr);");
+    let _ = writeln!(
+        out,
+        "    const _json_ptr = {module_name}.c.{result_to_json}(_result.?);",
+        result_to_json = symbols.result_to_json
+    );
+    let _ = writeln!(
+        out,
+        "    defer {module_name}.c.{free_string}(_json_ptr);",
+        free_string = symbols.free_string
+    );
     let _ = writeln!(out, "    const _result_json = std.mem.sliceTo(_json_ptr, 0);");
     let _ = writeln!(
         out,
@@ -2150,13 +2236,11 @@ fn render_json_assertion(
                 return;
             }
             // `keywords` is a fixture alias that does not map cleanly onto the
-            // serialized JSON ExtractionResult (the real JSON key is
-            // `extracted_keywords`, which itself may be absent when keyword
-            // extraction yields nothing). Matching the Python codegen, skip.
+            // serialized JSON result shape. Matching the Python codegen, skip.
             "keywords" | "keywords_count" => {
                 let _ = writeln!(
                     out,
-                    "    // skipped: field '{f}' not available on JSON-struct ExtractionResult"
+                    "    // skipped: field '{f}' not available on the JSON-struct result"
                 );
                 return;
             }
@@ -3176,6 +3260,100 @@ fn emit_test_backend_inner(
         arg_expr,
         type_imports: Vec::new(),
         teardown_block: String::new(),
+    }
+}
+
+#[cfg(test)]
+mod zig_visitor_tests {
+    use super::{emit_visitor_test_body, resolve_zig_visitor_call_symbols};
+    use crate::core::config::e2e::{CallConfig, CallOverride};
+    use crate::e2e::field_access::FieldResolver;
+    use crate::e2e::fixture::{CallbackAction, VisitorSpec};
+    use std::collections::{BTreeMap, HashMap, HashSet};
+
+    #[test]
+    fn visitor_body_uses_configured_ffi_call_symbols() {
+        let c_override = CallOverride {
+            function: Some("abc_render_document".to_string()),
+            options_type: Some("RenderOptions".to_string()),
+            result_type: Some("RenderResult".to_string()),
+            ..Default::default()
+        };
+        let zig_override = CallOverride {
+            function: Some("renderDocument".to_string()),
+            options_type: Some("WrapperOptions".to_string()),
+            result_type: Some("WrapperResult".to_string()),
+            ..Default::default()
+        };
+        let call = CallConfig {
+            function: "render".to_string(),
+            overrides: [("c".to_string(), c_override), ("zig".to_string(), zig_override)].into(),
+            ..Default::default()
+        };
+        let fixture = crate::e2e::fixture::Fixture {
+            id: "configured_symbols".to_string(),
+            category: None,
+            description: "configured symbols".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({ "html": "<p>Hello</p>", "options": { "trim": true } }),
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: String::new(),
+            http: None,
+        };
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve("zig", &fixture, &call, &[]);
+        let symbols = resolve_zig_visitor_call_symbols(&call, &recipe, "abc");
+        let mut callbacks = BTreeMap::new();
+        callbacks.insert("visit_text".to_string(), CallbackAction::Continue);
+        let visitor_spec = VisitorSpec { callbacks };
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        let mut content = String::new();
+        emit_visitor_test_body(
+            &mut content,
+            "configured_symbols",
+            "<p>Hello</p>",
+            fixture.input.get("options"),
+            &visitor_spec,
+            "sample",
+            &symbols,
+            &[],
+            false,
+            &resolver,
+        );
+
+        assert!(content.contains("sample.c.abc_render_options_from_json"));
+        assert!(content.contains("sample.c.abc_options_set_visitor_handle"));
+        assert!(content.contains("sample.c.abc_render_document(_html_z.ptr, _options)"));
+        assert!(content.contains("sample.c.abc_render_result_to_json"));
+        assert!(content.contains("sample.c.abc_render_result_free"));
+
+        for hardcoded in [
+            "htm_conversion_options_from_json",
+            "htm_options_set_visitor_handle",
+            "htm_convert",
+            "htm_conversion_result_to_json",
+            "htm_conversion_result_free",
+            "WrapperOptions",
+            "WrapperResult",
+            "renderDocument",
+        ] {
+            assert!(
+                !content.contains(hardcoded),
+                "visitor Zig output leaked `{hardcoded}`:\n{content}"
+            );
+        }
     }
 }
 

@@ -1029,11 +1029,8 @@ fn render_test_case(
         }
     });
 
-    // Embedding calls require extended timeout due to model downloads
-    let timeout_ms = if fixture.tags.contains(&"embeddings".to_string())
-        || fixture.call.as_deref().is_some_and(|c| c.contains("embed"))
-        || function_name.contains("embed")
-    {
+    // Long-running fixtures opt in explicitly through tags.
+    let timeout_ms = if fixture.tags.contains(&"embeddings".to_string()) {
         "600000"
     } else {
         "30000"

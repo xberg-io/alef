@@ -317,7 +317,7 @@ fn escape_zig_string(s: &str) -> String {
 /// initialisation + visitor handle setup). Returns the rendered Zig
 /// source as a single multi-line string ready to splice into the test
 /// body. The caller is expected to bracket the test with
-/// `defer c.htm_visitor_free(_visitor);`.
+/// the matching generated visitor free call.
 pub(super) fn build_zig_visitor(
     fixture_id: &str,
     module_name: &str,
