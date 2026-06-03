@@ -24,7 +24,8 @@ static TEMPLATES: &[(&str, &str)] = &[
     base_url:
       "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
     version: Mix.Project.config()[:version],
-    targets: ~w({{ nif_targets }}),
+    targets:
+      ~w({{ nif_targets }}),
     nif_versions: ["2.16", "2.17"],
     force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev]
 
@@ -282,7 +283,7 @@ pub fn {{ func_name }}_with_visitor({{ with_params_str }}) -> Result<(), String>
         let _ = result_env.send_and_clear(&pid, |env| {
             match {{ core_fn_path }}({{ with_call_args_str }}) {
                 Ok(val) => {
-                    let result: ConversionResult = val.into();
+                    let result = val.into();
                     let ok_atom = rustler::types::atom::Atom::from_str(env, "ok").unwrap().to_term(env);
                     let result_term = result.encode(env);
                     rustler::types::tuple::make_tuple(env, &[ok_atom, result_term])
@@ -315,7 +316,7 @@ pub fn {{ func_name }}_with_visitor({{ vis_params_str }}) -> Result<(), String> 
             // Run conversion and return result term to send back to BEAM
             let conversion_result = match {{ core_fn_path }}({{ vis_call_args_str }}) {
                 Ok(val) => {
-                    let result: ConversionResult = val.into();  // Convert from core::ConversionResult to NIF::ConversionResult
+                    let result = val.into();
                     Ok(result)
                 },
                 Err(e) => Err(e.to_string()),
