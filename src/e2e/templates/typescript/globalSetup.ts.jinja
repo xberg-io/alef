@@ -1,7 +1,7 @@
-{{ header }}import { spawn } from 'child_process';
+{{ header }}import { spawn, ChildProcess } from 'child_process';
 import { resolve } from 'path';
 
-let serverProcess: any;
+let serverProcess: ChildProcess | undefined;
 
 // HTTP client wrapper for making requests to mock server
 const createApp = (baseUrl: string) => ({
@@ -17,7 +17,7 @@ export async function setup() {
   // MOCK_SERVER_URL into our environment. In that case, reuse it and skip
   // spawning a local binary entirely. Only self-spawn when it is unset.
   if (process.env.MOCK_SERVER_URL) {
-    (globalThis as any).app = createApp(process.env.MOCK_SERVER_URL);
+    (globalThis as unknown as { app: ReturnType<typeof createApp> }).app = createApp(process.env.MOCK_SERVER_URL);
     return;
   }
 
@@ -28,7 +28,7 @@ export async function setup() {
     { stdio: ['pipe', 'pipe', 'inherit'] }
   );
 
-  const { url, servers } = await new Promise<{ url: string; servers: Record<string, string> }>((resolve, reject) => {
+  const { url, servers } = await new Promise<{ url: string; servers: Record<string, string> }>((resolveSetup, reject) => {
     let collectedUrl = '';
     let collectedServers: Record<string, string> = {};
     let buffer = '';
@@ -38,11 +38,11 @@ export async function setup() {
       if (settled) return;
       settled = true;
       clearTimeout(startupTimeout);
-      serverProcess.stdout.off('data', onData);
-      resolve(result);
+      serverProcess!.stdout.off('data', onData);
+      resolveSetup(result);
     };
 
-    const onData = (data: any) => {
+    const onData = (data: Buffer) => {
       buffer += data.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
@@ -64,11 +64,11 @@ export async function setup() {
 
     const startupTimeout = setTimeout(() => {
       settled = true;
-      serverProcess.stdout.off('data', onData);
+      serverProcess!.stdout.off('data', onData);
       reject(new Error('Mock server startup timeout'));
     }, 30000);
 
-    serverProcess.stdout.on('data', onData);
+    serverProcess!.stdout.on('data', onData);
   });
 
   process.env.MOCK_SERVER_URL = url;
@@ -78,7 +78,7 @@ export async function setup() {
   process.env.MOCK_SERVERS = JSON.stringify(servers);
 
   // Make app available globally to all tests
-  (globalThis as any).app = createApp(url);
+  (globalThis as unknown as { app: ReturnType<typeof createApp> }).app = createApp(url);
 }
 
 export async function teardown() {
@@ -87,20 +87,20 @@ export async function teardown() {
   const child = serverProcess;
   serverProcess = undefined;
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolveReady) => {
     if (child.exitCode !== null || child.signalCode !== null) {
-      resolve();
+      resolveReady();
       return;
     }
 
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
-      resolve();
+      resolveReady();
     }, 5000);
 
     child.once('close', () => {
       clearTimeout(timeout);
-      resolve();
+      resolveReady();
     });
 
     child.stdin.end();
