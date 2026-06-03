@@ -21,7 +21,8 @@ static TEMPLATES: &[(&str, &str)] = &[
   use RustlerPrecompiled,
     otp_app: :{{ app_name }},
     crate: "{{ app_name }}_nif",
-    base_url: "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
+    base_url:
+      "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
     version: Mix.Project.config()[:version],
     targets: ~w({{ nif_targets }}),
     nif_versions: ["2.16", "2.17"],

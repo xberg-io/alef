@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(rustler): wrap long `base_url:` in native module header template to satisfy mix format line-length constraints.
+
 ## [0.22.0] - 2026-06-03
 
 ### Fixed
