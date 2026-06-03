@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/ruby): discover dynamic port via TCPServer probe in app_harness.rb and read HARNESS_PORT= from stdout in spec_helper to avoid port collision across sequential test runs (#132)
+
 ## [0.21.7] - 2026-06-03
 
 ### Fixed

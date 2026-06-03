@@ -18,9 +18,16 @@
 # frozen_string_literal: true
 
 require "json"
+require "socket"
 require "{{ imports[0] }}"
 
 module AppHarness
+  # Discover an available port by probing with TCPServer.
+  probe = TCPServer.new('127.0.0.1', 0)
+  port = probe.addr[1]
+  probe.close
+  PORT = port
+
   # Load fixtures from the JSON payload.
   FIXTURES_JSON = {{ fixtures_json }}
   FIXTURES = JSON.parse(FIXTURES_JSON, symbolize_names: true)
@@ -90,8 +97,8 @@ module AppHarness
   end
 
   # Configure and start the server.
-  APP.config({{ server_config_class }}.new(host: "{{ host }}", port: {{ port }}))
-  puts "Harness listening on {{ host }}:{{ port }}"
+  APP.config({{ server_config_class }}.new(host: "{{ host }}", port: PORT))
+  puts "HARNESS_PORT=#{PORT}"
   STDOUT.flush
   APP.{{ run_method }}
 end

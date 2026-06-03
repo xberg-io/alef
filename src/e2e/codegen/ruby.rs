@@ -376,7 +376,7 @@ fn render_spec_helper(
     _gem_name: &str,
     module_path: &str,
     harness_host: &str,
-    harness_port: u16,
+    _harness_port: u16,
 ) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
@@ -412,6 +412,8 @@ fn render_spec_helper(
     if uses_harness {
         let _ = writeln!(out);
         let _ = writeln!(out, "require 'socket'");
+        let _ = writeln!(out, "require 'open3'");
+        let _ = writeln!(out, "require 'timeout'");
         let _ = writeln!(out);
         let harness_setup = format!(
             r#"# Spawn the app harness for server-pattern e2e tests.
@@ -424,21 +426,43 @@ RSpec.configure do |config|
     unless File.exist?(harness_bin)
       raise "app_harness.rb not found at #{{harness_bin}}"
     end
-    proc = Process.spawn('ruby', harness_bin)
-    @_harness_pid = proc
-    url = "http://{}:{}"
-    # Poll until the harness accepts TCP connections. The harness
-    # may print a listening banner before the runtime has finished binding,
-    # so port availability is the authoritative readiness signal.
+    # Spawn the harness and read its stdout to extract the dynamic port.
+    @_harness_stdin, @_harness_stdout, @_harness_stderr, @_harness_thread = Open3.popen3('ruby', harness_bin)
+    @_harness_pid = @_harness_thread.pid
+    harness_port = nil
+    # Read stdout line-by-line until we see HARNESS_PORT=<port>
     deadline = Time.now + 15.0
-    ready = false
     while Time.now < deadline
-      if !Process.waitpid(@_harness_pid, Process::WNOHANG).nil?
+      if @_harness_thread.status.nil?
         # Process died early
         break
       end
       begin
-        TCPSocket.new('{}', {}).close
+        Timeout.timeout(0.1) do
+          line = @_harness_stdout.readline
+          if line =~ /^HARNESS_PORT=(\d+)/
+            harness_port = $1.to_i
+            break
+          end
+        end
+      rescue Timeout::Error, EOFError, Errno::EAGAIN
+        sleep(0.05)
+      end
+    end
+    unless harness_port
+      Process.kill('TERM', @_harness_pid) rescue nil
+      raise "App harness did not report port within 15s"
+    end
+    url = "http://{}:#{{harness_port}}"
+    # Verify the harness is reachable by attempting a TCP connection.
+    ready = false
+    while Time.now < deadline
+      if @_harness_thread.status.nil?
+        # Process died
+        break
+      end
+      begin
+        TCPSocket.new('{}', harness_port).close
         ready = true
         break
       rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH
@@ -447,7 +471,7 @@ RSpec.configure do |config|
     end
     unless ready
       Process.kill('TERM', @_harness_pid) rescue nil
-      raise "App harness did not become reachable on {}:{} within 15s"
+      raise "App harness did not become reachable on {}:#{{harness_port}} within 15s"
     end
     ENV['SUT_URL'] = url
   end
@@ -460,7 +484,7 @@ RSpec.configure do |config|
   end
 end
 "#,
-            harness_host, harness_port, harness_host, harness_port, harness_host, harness_port
+            harness_host, harness_host, harness_host
         );
         out.push_str(&harness_setup);
     } else if has_mock_server_fixtures {
