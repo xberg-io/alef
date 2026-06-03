@@ -290,7 +290,8 @@ pub(super) fn gen_free_function_len_companion(
                 &p.ty,
                 _core_import,
                 path_map,
-                enum_names
+                enum_names,
+                false // len companion params are ABI-alignment dummies; is_mut irrelevant
             )
         ));
         if matches!(p.ty, TypeRef::Bytes) {
@@ -461,7 +462,13 @@ pub(super) fn gen_method_wrapper(
         params.push(format!(
             "    {}: {}",
             param_name,
-            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(&p.ty, core_import, path_map, enum_names,)
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
+                &p.ty,
+                core_import,
+                path_map,
+                enum_names,
+                p.is_mut,
+            )
         ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
@@ -563,23 +570,6 @@ pub(super) fn gen_method_wrapper(
         ));
     }
 
-    // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
-    // gen_param_conversion produces a Vec<String> ({name}_rs), but the core expects &[&str].
-    // A &Vec<String> cannot coerce to &[&str], so we collect a Vec<&str> first.
-    for p in &method.params {
-        if p.is_ref && !p.optional {
-            if let TypeRef::Vec(inner) = &p.ty {
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                    let rs = format!("{}_rs", p.name);
-                    out.push_str(&crate::backends::ffi::template_env::render(
-                        "vec_string_refs.jinja",
-                        context! { rs_name => rs.clone() },
-                    ));
-                }
-            }
-        }
-    }
-
     // Build the call expression — pass &ref for String/Bytes params, owned for Path/Named
     let is_owned_receiver = method.receiver.as_ref() == Some(&ReceiverKind::Owned);
     let arg_names: Vec<String> = method
@@ -593,10 +583,10 @@ pub(super) fn gen_method_wrapper(
                     if p.is_ref { format!("{rs}.as_path()") } else { rs }
                 }
                 TypeRef::Named(_) if !p.optional => {
-                    // Pass by value when method takes owned (Owned receiver or is_ref=false)
-                    if p.is_mut {
-                        format!("&mut {rs}")
-                    } else if is_owned_receiver || !p.is_ref {
+                    // When is_mut=true, the local rs is already `&mut T` (bound via
+                    // `let rs = unsafe { &mut *ptr }`). Pass it directly — adding
+                    // `&mut` would produce `&mut &mut T` (E0308).
+                    if p.is_mut || is_owned_receiver || !p.is_ref {
                         rs
                     } else {
                         format!("&{rs}")
@@ -640,12 +630,12 @@ pub(super) fn gen_method_wrapper(
                     // If is_ref=true, convert to Option<&Value>; else pass owned
                     if p.is_ref { format!("{rs}.as_ref()") } else { rs }
                 }
-                TypeRef::Vec(inner) if !p.optional => {
-                    // Vec<String> with is_ref=true: core expects &[&str].
-                    // Use the {rs}_refs intermediate (Vec<&str>) and pass as slice.
-                    if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                        format!("&{rs}_refs")
-                    } else if p.is_mut {
+                TypeRef::Vec(_inner) if !p.optional => {
+                    // When is_ref=true, pass &rs — &Vec<T> coerces to &[T].
+                    // This covers both &[String] and (via Deref) other &[T] slices.
+                    // The previous `_refs` intermediate (Vec<&str>) was incorrect for
+                    // &[String] params (produced &Vec<&str> which doesn't satisfy &[String]).
+                    if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref {
                         format!("&{rs}")
@@ -915,7 +905,13 @@ pub(super) fn gen_free_function(
         params.push(format!(
             "    {}: {}",
             param_name,
-            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(&p.ty, core_import, path_map, enum_names,)
+            crate::backends::ffi::type_map::c_param_type_with_paths_and_enums(
+                &p.ty,
+                core_import,
+                path_map,
+                enum_names,
+                p.is_mut,
+            )
         ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
@@ -987,23 +983,6 @@ pub(super) fn gen_free_function(
         ));
     }
 
-    // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
-    // gen_param_conversion produces a Vec<String> ({name}_rs), but the core expects &[&str].
-    // A &Vec<String> cannot coerce to &[&str], so we collect a Vec<&str> first.
-    for p in &func.params {
-        if p.is_ref && !p.optional {
-            if let TypeRef::Vec(inner) = &p.ty {
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                    let rs = format!("{}_rs", p.name);
-                    out.push_str(&crate::backends::ffi::template_env::render(
-                        "vec_string_refs.jinja",
-                        context! { rs_name => rs.clone() },
-                    ));
-                }
-            }
-        }
-    }
-
     // Call — pass &ref for String/Bytes/Named params, owned for Path
     let arg_names: Vec<String> = func
         .params
@@ -1025,8 +1004,10 @@ pub(super) fn gen_free_function(
                     if p.is_ref { format!("&{rs}") } else { rs }
                 }
                 TypeRef::Named(_) if !p.optional => {
-                    // Pass by value when function takes owned (is_ref=false)
-                    if p.is_mut { format!("&mut {rs}") } else if p.is_ref { format!("&{rs}") } else { rs }
+                    // When is_mut=true, the local rs is already `&mut T` (bound via
+                    // `let rs = unsafe { &mut *ptr }`). Pass it directly — adding
+                    // `&mut` would produce `&mut &mut T` (E0308).
+                    if p.is_mut || !p.is_ref { rs } else { format!("&{rs}") }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     // Only convert to &str slice when the core param is a reference (&str).
@@ -1057,12 +1038,12 @@ pub(super) fn gen_free_function(
                     // If is_ref=true, convert to Option<&Value>; else pass owned
                     if p.is_ref { format!("{rs}.as_ref()") } else { rs }
                 }
-                TypeRef::Vec(inner) if !p.optional => {
-                    // Vec<String> with is_ref=true: core expects &[&str].
-                    // Use the {rs}_refs intermediate (Vec<&str>) and pass as slice.
-                    if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                        format!("&{rs}_refs")
-                    } else if p.is_mut {
+                TypeRef::Vec(_inner) if !p.optional => {
+                    // When is_ref=true, pass &rs — &Vec<T> coerces to &[T].
+                    // This covers both &[String] and (via Deref) other &[T] slices.
+                    // The previous `_refs` intermediate (Vec<&str>) was incorrect for
+                    // &[String] params (produced &Vec<&str> which doesn't satisfy &[String]).
+                    if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref {
                         format!("&{rs}")
@@ -1340,16 +1321,21 @@ pub(super) fn gen_param_conversion_with_enums(
                 // Optional enum passed as i32 sentinel: reconstruct via private Rust helper.
                 // Use match+explicit return rather than `?` because the outer function may return
                 // *mut T or i32, not Result/Option, so the ? operator is unavailable.
+                //
+                // IMPORTANT: the local variable name is `{rs_name}` (derived from the FFI param
+                // name), NOT from `enum_snake` (which is derived from the type name). The
+                // conversion helper is named `{enum_snake}_from_i32_rs` and receives `{name}`
+                // (the actual FFI param), not `{enum_snake}` which may differ when param name
+                // != snake_case(type_name) (e.g. param `strategy` of type `RedactionStrategy`).
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&format!(
-                    "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
+                    "    let {rs_name} = match {enum_snake}_from_i32_rs({name}) {{\n        \
                      Some(v) => v,\n        \
                      None => {{\n            \
-                     set_last_error(1, \"invalid enum discriminant for {1}\");\n            \
-                     {2}\n        \
+                     set_last_error(1, \"invalid enum discriminant for {type_name}\");\n            \
+                     {fail_ret}\n        \
                      }},\n    \
                      }};\n",
-                    enum_snake, type_name, fail_ret
                 ));
             }
             TypeRef::Named(_type_name) => {
@@ -1508,16 +1494,21 @@ pub(super) fn gen_param_conversion_with_enums(
                 // Enum passed as i32: reconstruct using the private Rust helper.
                 // Use match+explicit return rather than `?` because the outer function may return
                 // *mut T or i32, not Result/Option, so the ? operator is unavailable.
+                //
+                // IMPORTANT: the local variable name is `{rs_name}` (derived from the FFI param
+                // name, e.g. `strategy_rs`), NOT `{enum_snake}_rs` (which would use the type
+                // name, e.g. `redaction_strategy_rs`). The conversion helper is still named
+                // `{enum_snake}_from_i32_rs` but it receives `{name}` (the actual FFI param).
+                // This fixes the mismatch when param name != snake_case(type_name).
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&format!(
-                    "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
+                    "    let {rs_name} = match {enum_snake}_from_i32_rs({name}) {{\n        \
                      Some(v) => v,\n        \
                      None => {{\n            \
-                     set_last_error(1, \"invalid enum discriminant for {1}\");\n            \
-                     {2}\n        \
+                     set_last_error(1, \"invalid enum discriminant for {type_name}\");\n            \
+                     {fail_ret}\n        \
                      }},\n    \
                      }};\n",
-                    enum_snake, type_name, fail_ret
                 ));
             }
             TypeRef::Named(_type_name) => {
@@ -1638,24 +1629,27 @@ mod tests {
     fn return_type_needs_non_serde_named_primitive_vec_not_affected() {
         // Vec<String>, Vec<u64> etc. never need serde check.
         let serde_names: AHashSet<String> = AHashSet::new();
-        assert!(!return_type_needs_non_serde_named(&TypeRef::Vec(Box::new(TypeRef::String)), &serde_names));
-        assert!(
-            !return_type_needs_non_serde_named(
-                &TypeRef::Vec(Box::new(TypeRef::Primitive(crate::core::ir::PrimitiveType::U64))),
-                &serde_names
-            )
-        );
+        assert!(!return_type_needs_non_serde_named(
+            &TypeRef::Vec(Box::new(TypeRef::String)),
+            &serde_names
+        ));
+        assert!(!return_type_needs_non_serde_named(
+            &TypeRef::Vec(Box::new(TypeRef::Primitive(crate::core::ir::PrimitiveType::U64))),
+            &serde_names
+        ));
     }
 
     #[test]
-    fn named_param_is_mut_emits_mut_ref_at_call_site() {
-        // Regression: Named non-optional param with is_mut=true must produce &mut rs
-        // at the call site, not &rs.
+    fn named_param_is_mut_call_site_passes_local_directly() {
+        // Regression (Bug 2): When is_mut=true, the conversion template binds the local
+        // via `let result_rs = unsafe { &mut *result }` — the local is already `&mut T`.
+        // The call site must pass `result_rs` directly, NOT `&mut result_rs`, which would
+        // produce `&mut &mut T` (E0308 mismatched types).
         use crate::core::ir::ParamDef;
 
         let p = ParamDef {
-            name: "config".to_string(),
-            ty: TypeRef::Named("TranslationConfig".to_string()),
+            name: "result".to_string(),
+            ty: TypeRef::Named("ExtractionResult".to_string()),
             optional: false,
             default: None,
             sanitized: false,
@@ -1667,16 +1661,61 @@ mod tests {
             map_is_ahash: false,
             map_key_is_cow: false,
         };
-        let rs = "config_rs".to_string();
-        let _enum_names: AHashSet<String> = AHashSet::new();
+        let rs = format!("{}_rs", p.name);
         // Simulate the call-site arm for Named non-optional with is_mut
+        // (mirrors the TypeRef::Named(!p.optional) arm in gen_free_function / gen_method_wrapper)
         let result = if p.is_mut {
-            format!("&mut {rs}")
+            // Local is already &mut T — pass directly, no extra &mut prefix.
+            rs.clone()
         } else if p.is_ref {
             format!("&{rs}")
         } else {
             rs.clone()
         };
-        assert_eq!(result, "&mut config_rs", "is_mut Named param call site must emit &mut");
+        assert_eq!(
+            result, "result_rs",
+            "is_mut Named param must pass local directly (already &mut T)"
+        );
+    }
+
+    #[test]
+    fn enum_param_local_name_uses_param_name_not_type_name() {
+        // Regression (Bug 3): enum-discriminant params must name the local after the FFI
+        // param (e.g. `strategy_rs`), not after the type (e.g. `redaction_strategy_rs`).
+        // The conversion helper is still `{type_snake}_from_i32_rs` but the local and its
+        // call site use `{param_name}_rs`.
+        use crate::core::ir::ParamDef;
+
+        let mut enum_names: AHashSet<String> = AHashSet::new();
+        enum_names.insert("RedactionStrategy".to_string());
+
+        let p = ParamDef {
+            name: "strategy".to_string(), // param name differs from type snake
+            ty: TypeRef::Named("RedactionStrategy".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+        };
+
+        // Run the real conversion generator.
+        let output = gen_param_conversion_with_enums(&p, false, false, &TypeRef::Unit, "sample_crate", &enum_names);
+
+        // Must bind to `strategy_rs` (from param name), not `redaction_strategy_rs` (from type).
+        assert!(
+            output.contains("let strategy_rs ="),
+            "enum local must be named after param (strategy_rs), got:\n{output}"
+        );
+        // Must call the helper with the actual param name `strategy`, not `redaction_strategy`.
+        assert!(
+            output.contains("redaction_strategy_from_i32_rs(strategy)"),
+            "enum helper must receive the FFI param name (strategy), got:\n{output}"
+        );
     }
 }

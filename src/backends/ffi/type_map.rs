@@ -240,11 +240,18 @@ pub fn is_passthrough_return(ty: &TypeRef) -> bool {
     )
 }
 
+/// Maps a TypeRef to the C FFI parameter type, using full rust_path from path_map for Named
+/// types and emitting `i32` for enum types.
+///
+/// When `is_mut` is true and the type is a non-enum Named type, the pointer is `*mut` instead
+/// of `*const` — required when the core function takes `&mut T` rather than `&T` or `T`.
+/// Optional Named types are always `*const` (null = None), regardless of `is_mut`.
 pub fn c_param_type_with_paths_and_enums(
     ty: &TypeRef,
     core_import: &str,
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
+    is_mut: bool,
 ) -> Cow<'static, str> {
     match ty {
         TypeRef::Named(name) => {
@@ -256,7 +263,9 @@ pub fn c_param_type_with_paths_and_enums(
                     .get(name.as_str())
                     .cloned()
                     .unwrap_or_else(|| format!("{core_import}::{name}"));
-                Cow::Owned(format!("*const {full_path}"))
+                // Use *mut when the core param is &mut T — caller must pass a mutable pointer.
+                let ptr_kind = if is_mut { "*mut" } else { "*const" };
+                Cow::Owned(format!("{ptr_kind} {full_path}"))
             }
         }
         TypeRef::Optional(inner) => {
@@ -269,6 +278,7 @@ pub fn c_param_type_with_paths_and_enums(
                         .get(name.as_str())
                         .cloned()
                         .unwrap_or_else(|| format!("{core_import}::{name}"));
+                    // Optional Named is always *const — null signals None.
                     Cow::Owned(format!("*const {inner_type}"))
                 }
             } else {
@@ -460,7 +470,13 @@ mod tests {
         enum_names.insert("Method".to_string());
         let path_map = ahash::AHashMap::new();
         assert_eq!(
-            c_param_type_with_paths_and_enums(&TypeRef::Named("Method".to_string()), CORE, &path_map, &enum_names),
+            c_param_type_with_paths_and_enums(
+                &TypeRef::Named("Method".to_string()),
+                CORE,
+                &path_map,
+                &enum_names,
+                false
+            ),
             "i32"
         );
     }
@@ -475,7 +491,8 @@ mod tests {
                 &TypeRef::Optional(Box::new(TypeRef::Named("Status".to_string()))),
                 CORE,
                 &path_map,
-                &enum_names
+                &enum_names,
+                false
             ),
             "i32"
         );
@@ -490,9 +507,47 @@ mod tests {
                 &TypeRef::Named("RouteBuilder".to_string()),
                 CORE,
                 &path_map,
-                &enum_names
+                &enum_names,
+                false
             ),
             "*const my_crate::RouteBuilder"
+        );
+    }
+
+    #[test]
+    fn test_param_named_type_is_mut_emits_mut_pointer() {
+        // Regression: when the core param is &mut T, the FFI declaration must be *mut T,
+        // not *const T — otherwise the unsafe { &mut *ptr } dereference in the body is
+        // E0596 (cannot borrow `*ptr` as mutable, as it is behind a `*const` pointer).
+        let enum_names = ahash::AHashSet::new();
+        let path_map = ahash::AHashMap::new();
+        assert_eq!(
+            c_param_type_with_paths_and_enums(
+                &TypeRef::Named("ExtractionResult".to_string()),
+                CORE,
+                &path_map,
+                &enum_names,
+                true
+            ),
+            "*mut my_crate::ExtractionResult"
+        );
+    }
+
+    #[test]
+    fn test_param_optional_named_is_mut_stays_const_pointer() {
+        // Optional Named is always *const regardless of is_mut — null signals None and
+        // the caller cannot meaningfully pass a mutable optional pointer.
+        let enum_names = ahash::AHashSet::new();
+        let path_map = ahash::AHashMap::new();
+        assert_eq!(
+            c_param_type_with_paths_and_enums(
+                &TypeRef::Optional(Box::new(TypeRef::Named("ExtractionResult".to_string()))),
+                CORE,
+                &path_map,
+                &enum_names,
+                true
+            ),
+            "*const my_crate::ExtractionResult"
         );
     }
 }
