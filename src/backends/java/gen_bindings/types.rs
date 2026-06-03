@@ -966,6 +966,8 @@ pub(crate) fn gen_opaque_handle_class(
     adapters: &[AdapterConfig],
     main_class: &str,
     enum_names: &AHashSet<String>,
+    opaque_type_names: &AHashSet<String>,
+    to_json_type_names: &AHashSet<String>,
 ) -> String {
     let class_name = &typ.name;
     let type_snake = class_name.to_snake_case();
@@ -1033,7 +1035,7 @@ pub(crate) fn gen_opaque_handle_class(
 
     // Emit non-streaming instance methods (chat, embed, moderate, …).
     for method in &instance_methods {
-        gen_instance_method(&mut body, method, prefix, &type_snake, main_class);
+        gen_instance_method(&mut body, method, prefix, &type_snake, main_class, opaque_type_names, to_json_type_names);
     }
 
     // Emit static factory methods (constructors / preset factories with no receiver).
@@ -1123,7 +1125,7 @@ pub(crate) fn gen_opaque_handle_class(
 }
 
 /// Emit a non-streaming instance method on an opaque-handle owner.
-fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner_snake: &str, main_class: &str) {
+fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner_snake: &str, main_class: &str, opaque_type_names: &AHashSet<String>, to_json_type_names: &AHashSet<String>) {
     let method_name = safe_java_method_name(&method.name);
     let prefix_upper = prefix.to_uppercase();
     let owner_upper = owner_snake.to_uppercase();

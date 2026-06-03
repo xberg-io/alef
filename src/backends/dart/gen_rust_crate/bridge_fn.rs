@@ -429,9 +429,7 @@ fn build_named_in_transmute(
     if is_mut {
         // SAFETY: MirrorT and CoreT are guaranteed layout-compatible (same fields, repr(C) or
         // plain struct). Casting &mut MirrorT → &mut CoreT is sound.
-        return format!(
-            "unsafe {{ std::mem::transmute::<&mut {mirror_name}, &mut {core_ty}>(&mut {name}) }}"
-        );
+        return format!("unsafe {{ std::mem::transmute::<&mut {mirror_name}, &mut {core_ty}>(&mut {name}) }}");
     }
     if is_ref {
         return format!("unsafe {{ std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{name}) }}");
@@ -469,7 +467,9 @@ fn return_transmute_expr(
                 if returns_ref {
                     // v is &[T]; iter() yields &T — must clone before converting via From.
                     if opaque_type_names.contains(mirror_name.as_str()) {
-                        format!("|v| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect::<Vec<_>>()")
+                        format!(
+                            "|v| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect::<Vec<_>>()"
+                        )
                     } else {
                         format!("|v| v.iter().map(|x| {mirror_name}::from(x.clone())).collect::<Vec<_>>()")
                     }
@@ -558,9 +558,7 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
                 // PathBuf does not implement Display; use to_string_lossy().into_owned().
                 ".into_iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>()".to_string()
             }
-            TypeRef::String | TypeRef::Char => {
-                ".into_iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string()
-            }
+            TypeRef::String | TypeRef::Char => ".into_iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string(),
             TypeRef::Vec(inner2) => {
                 if let TypeRef::Primitive(prim) = inner2.as_ref() {
                     let target = primitive_name(prim);
@@ -652,19 +650,19 @@ mod tests {
     fn is_mut_named_opaque_emits_mut_inner() {
         // Regression: opaque handle parameter with is_mut=true must produce &mut name.inner,
         // not &name.inner (which would fail when core fn takes &mut T).
-        let p = make_param("result", TypeRef::Named("ExtractionResult".to_string()), false, true, false);
+        let p = make_param(
+            "result",
+            TypeRef::Named("ExtractionResult".to_string()),
+            false,
+            true,
+            false,
+        );
         let mut opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
         opaque.insert("ExtractionResult".to_string());
         let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
         let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-        let expr = dart_call_arg_with_mirror_transmute(
-            &p,
-            "mylib",
-            &type_paths,
-            &needs_from,
-            &opaque,
-        );
+        let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
         assert_eq!(expr, "&mut result.inner", "is_mut opaque param must use &mut: {expr}");
     }
 
@@ -672,7 +670,13 @@ mod tests {
     fn is_mut_named_from_emits_mut_borrow() {
         // Regression: Named param with types_needing_from_conversion and is_mut=true
         // must produce &mut CoreTy::from(name).
-        let p = make_param("cfg", TypeRef::Named("TranslationConfig".to_string()), false, true, false);
+        let p = make_param(
+            "cfg",
+            TypeRef::Named("TranslationConfig".to_string()),
+            false,
+            true,
+            false,
+        );
         let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
         needs_from.insert("TranslationConfig".to_string());

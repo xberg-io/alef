@@ -158,7 +158,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             // The file writer will detect the .jar extension and decode it automatically.
             files.push(GeneratedFile {
                 path: output_base.join("gradle/wrapper/gradle-wrapper.jar"),
-                content: get_gradle_wrapper_jar_base64().to_string(),
+                content: get_gradle_wrapper_jar_base64(),
                 generated_header: false,
             });
         }
@@ -273,10 +273,13 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
 /// Return the gradle-wrapper.jar content as base64-encoded string.
 /// This JAR is the official Gradle 8.5 wrapper JAR from the Gradle project.
 /// It is stored as base64 so it can be embedded as a string and decoded at write time.
-fn get_gradle_wrapper_jar_base64() -> &'static str {
+fn get_gradle_wrapper_jar_base64() -> String {
     // Gradle 8.5 wrapper JAR (42KB) encoded as base64.
     // Source: https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar
     include_str!("../../../assets/gradle-wrapper-8.5.jar.b64")
+        .chars()
+        .filter(|ch| !ch.is_ascii_whitespace())
+        .collect()
 }
 
 /// Returns true when `ty` is a `Named(T)` reference (or `Optional<Named(T)>`)

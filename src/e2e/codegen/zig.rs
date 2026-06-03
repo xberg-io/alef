@@ -320,7 +320,7 @@ impl E2eCodegen for ZigE2eCodegen {
 /// Logs a warning in that case.
 fn detect_stale_zig_hash(hash: &str, current_version: &str, crate_name: &str) -> bool {
     // Hash format: `{crate_name}-{version}-{multihash}`
-    // Example: `liter_llm-1.4.0-rc.42-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
+    // Example: `demo_crate-1.4.0-rc.42-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
     let prefix = format!("{crate_name}-");
     if !hash.starts_with(&prefix) {
         return false;

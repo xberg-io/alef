@@ -447,5 +447,5 @@ pub mod precommit {
     pub const SAMPLE_CRATE_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.22.0";
+    pub const ALEF_REV: &str = "v0.22.4";
 }

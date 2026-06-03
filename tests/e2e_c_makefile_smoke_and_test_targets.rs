@@ -9,7 +9,10 @@
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::c::CCodegen;
-use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
+use alef::e2e::fixture::{
+    Assertion, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest, MockResponse,
+};
+use std::collections::BTreeMap;
 
 fn build_config_with_mock() -> NewAlefConfig {
     let toml_src = r#"
@@ -55,7 +58,12 @@ fn build_fixture_with_http() -> FixtureGroup {
             env: None,
             call: None,
             input: serde_json::json!({ "messages": "hello" }),
-            mock_response: Some(serde_json::json!({ "content": "hi there" })),
+            mock_response: Some(MockResponse {
+                status: 200,
+                body: Some(serde_json::json!({ "content": "hi there" })),
+                stream_chunks: None,
+                headers: BTreeMap::new(),
+            }),
             visitor: None,
             args: Vec::new(),
             assertions: vec![Assertion {
@@ -69,12 +77,31 @@ fn build_fixture_with_http() -> FixtureGroup {
                 return_type: None,
             }],
             source: "test.json".to_string(),
-            http: Some(serde_json::json!({
-                "method": "POST",
-                "path": "/v1/chat/completions",
-                "body": { "messages": "hello" },
-                "response": { "content": "hi there" }
-            })),
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/v1/chat/completions".to_string(),
+                    method: "POST".to_string(),
+                    body_schema: None,
+                    parameters: BTreeMap::new(),
+                    middleware: None,
+                },
+                request: HttpRequest {
+                    method: "POST".to_string(),
+                    path: "/v1/chat/completions".to_string(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
+                    body: Some(serde_json::json!({ "messages": "hello" })),
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 200,
+                    body: Some(serde_json::json!({ "content": "hi there" })),
+                    body_partial: None,
+                    headers: BTreeMap::new(),
+                    validation_errors: None,
+                },
+            }),
         }],
     }
 }

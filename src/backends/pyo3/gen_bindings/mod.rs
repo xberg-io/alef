@@ -1966,19 +1966,24 @@ fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, mapper: &Pyo
 /// This is used to determine whether we should emit an `impl Default for Type` block.
 ///
 /// Returns true only when:
+/// - The type has `has_default = true` (indicating it has impl Default in core Rust)
 /// - The type has at least one method named "new"
-/// - That method takes no parameters
-/// - The method returns `Self` (not `Result<Self>` or anything else)
+/// - That method takes no parameters and is static (receiver.is_none())
 /// - No existing `impl Default` is already present in the impl_block
 fn should_emit_default_impl(typ: &crate::core::ir::TypeDef, impl_block: &str) -> bool {
+    // Only emit if the core Rust type has impl Default
+    if !typ.has_default {
+        return false;
+    }
+
     // Check if Default impl already exists
     if impl_block.contains("impl Default") {
         return false;
     }
 
-    // Check if there's a no-arg new() method that returns Self
+    // Check if there's a no-arg static new() method
     typ.methods.iter().any(|m| {
-        m.name == "new" && m.params.is_empty() && matches!(m.return_type, crate::core::ir::TypeRef::Unit) // Methods use Unit for Self
+        m.name == "new" && m.params.is_empty() && m.receiver.is_none() // static method (not &self or &mut self)
     })
 }
 

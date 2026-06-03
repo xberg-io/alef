@@ -7,7 +7,9 @@
 use alef::core::config::new_config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::go::GoCodegen;
-use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, HttpFixture, HttpHandler, HttpRequest, HttpResponse};
+use alef::e2e::fixture::{
+    Assertion, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest, MockResponse,
+};
 use std::collections::BTreeMap;
 
 fn build_config() -> (alef::e2e::config::E2eConfig, alef::core::config::ResolvedCrateConfig) {
@@ -51,9 +53,12 @@ fn make_mock_server_fixture() -> FixtureGroup {
             env: None,
             call: None,
             input: serde_json::json!({}),
-            mock_response: Some(alef::e2e::fixture::MockResponse::Body(
-                serde_json::json!({"status": "ok"}),
-            )),
+            mock_response: Some(MockResponse {
+                status: 200,
+                body: Some(serde_json::json!({"status": "ok"})),
+                stream_chunks: None,
+                headers: BTreeMap::new(),
+            }),
             visitor: None,
             args: Vec::new(),
             assertions: vec![Assertion {
@@ -172,7 +177,7 @@ fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
                     body: None,
                     content_type: None,
                 },
-                expected_response: HttpResponse {
+                expected_response: HttpExpectedResponse {
                     status_code: 200,
                     body: None,
                     body_partial: None,

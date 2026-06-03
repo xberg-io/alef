@@ -350,6 +350,17 @@ impl Backend for PhpBackend {
                     &streaming_method_keys,
                     &config.trait_bridges,
                 ));
+
+                // Emit impl Default if the type has a no-arg new() -> Self.
+                // This satisfies clippy's should_implement_trait lint.
+                if has_no_arg_new_returning_self(typ) {
+                    let default_impl = format!(
+                        "impl Default for {} {{\n    fn default() -> Self {{\n        Self::new()\n    }}\n}}",
+                        typ.name
+                    );
+                    builder.add_item(&default_impl);
+                }
+
                 // Client constructor — emit a #[php_method] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
                     let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[php_method]");
@@ -2207,6 +2218,14 @@ fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
 ///
 /// This mirrors the `client_constructors` path but drives from the IR's static `new` method
 /// rather than a hand-written body template.
+/// Check if an opaque type has a no-arg `pub fn new() -> Self` (not Result).
+/// If true, clippy will flag `should_implement_trait`, so we need to emit `impl Default`.
+fn has_no_arg_new_returning_self(typ: &crate::core::ir::TypeDef) -> bool {
+    typ.methods
+        .iter()
+        .any(|m| m.name == "new" && m.receiver.is_none() && m.params.is_empty() && m.error_type.is_none())
+}
+
 fn php_variant_wrapper_constructor(
     typ: &crate::core::ir::TypeDef,
     mapper: &crate::backends::php::type_map::PhpMapper,

@@ -445,7 +445,10 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
         // when the first test request fires. A 1-second connect-poll closes
         // that window without the panic the previous code would have hit if
         // the connect ever blocked.
-        let _ = writeln!(out, "\t// Poll the mock-server URL until it answers (axum::serve start race).");
+        let _ = writeln!(
+            out,
+            "\t// Poll the mock-server URL until it answers (axum::serve start race)."
+        );
         let _ = writeln!(out, "\t{{");
         let _ = writeln!(out, "\t\turl := os.Getenv(\"MOCK_SERVER_URL\")");
         let _ = writeln!(out, "\t\tready := false");
