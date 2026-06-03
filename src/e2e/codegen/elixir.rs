@@ -310,7 +310,12 @@ fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2e
         let host = &e2e_config.harness.host;
         let port = e2e_config.harness.port;
         format!(
-            r#"ExUnit.start()
+            r#"# Start a named Finch pool before ExUnit. When tests call Req with
+# connect_options: [protocols: [:http1]], they bypass Req's default lazy
+# init and require an explicit Finch supervisor to be running.
+{{:ok, _}} = Finch.start_link(name: AlefE2EFinch)
+
+ExUnit.start()
 
 # Spawn app_harness subprocess and set SUT_URL
 # If SUT_URL is already set, a parent process started a shared harness.
@@ -374,7 +379,12 @@ end
 "#
         )
     } else if has_http_tests {
-        r#"ExUnit.start()
+        r#"# Start a named Finch pool before ExUnit. When tests call Req with
+# connect_options: [protocols: [:http1]], they bypass Req's default lazy
+# init and require an explicit Finch supervisor to be running.
+{:ok, _} = Finch.start_link(name: AlefE2EFinch)
+
+ExUnit.start()
 
 # Spawn mock-server binary and set MOCK_SERVER_URL for all tests.
 #
@@ -3288,6 +3298,48 @@ mod test_backend_tests {
                 .contains(&format!("{{:ok, {}}}", emission.arg_expr)),
             "setup_block must start GenServer and assign its PID to the arg_expr variable, got:\n{}",
             emission.setup_block
+        );
+    }
+}
+
+#[cfg(test)]
+mod test_helper_tests {
+    use super::render_test_helper;
+    use crate::e2e::config::E2eConfig;
+
+    fn make_e2e_config() -> E2eConfig {
+        E2eConfig::default()
+    }
+
+    /// The `uses_harness=true` path (server-pattern) must start a named Finch pool
+    /// before `ExUnit.start()` so that `Req` calls with `finch: AlefE2EFinch` work.
+    #[test]
+    fn test_helper_harness_path_includes_named_finch_supervisor() {
+        let config = make_e2e_config();
+        let output = render_test_helper(false, true, &config);
+        assert!(
+            output.contains("Finch.start_link(name: AlefE2EFinch)"),
+            "uses_harness path must start named Finch pool, got:\n{output}"
+        );
+        assert!(
+            output.contains("ExUnit.start()"),
+            "uses_harness path must call ExUnit.start(), got:\n{output}"
+        );
+    }
+
+    /// The `has_http_tests=true` (mock-server) path must also start a named Finch pool
+    /// so that `Req` calls with `finch: AlefE2EFinch` work.
+    #[test]
+    fn test_helper_http_path_includes_named_finch_supervisor() {
+        let config = make_e2e_config();
+        let output = render_test_helper(true, false, &config);
+        assert!(
+            output.contains("Finch.start_link(name: AlefE2EFinch)"),
+            "has_http_tests path must start named Finch pool, got:\n{output}"
+        );
+        assert!(
+            output.contains("ExUnit.start()"),
+            "has_http_tests path must call ExUnit.start(), got:\n{output}"
         );
     }
 }

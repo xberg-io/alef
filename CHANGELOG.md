@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(e2e/elixir): emit `Finch.start_link(name: AlefE2EFinch)` before `ExUnit.start()` in both the `uses_harness` (server-pattern) and `has_http_tests` (mock-server) branches of `render_test_helper`. The inline string template was missing the named Finch pool start that the jinja template `test_helper_server.exs.jinja` correctly included, causing `:pool_not_available` on all `Req` calls that reference `finch: AlefE2EFinch`. Added snapshot tests for both branches. (`src/e2e/codegen/elixir.rs`)
+
 - fix(dart): emit `&mut self` receiver and `.inner` borrow for opaque-handle parameters with `is_mut=true` in opaque method bodies. When a core method takes `&mut self` or a param takes `&mut T`, the Dart FRB bridge now correctly propagates mutability. Opaque handle params use `&mut param.inner`; Named transmute params use `&mut` borrow in the transmute expression; From-converted params use `&mut Type::from(param)`. (`src/backends/dart/gen_rust_crate/mod.rs`)
 - fix(dart): emit `Vec<Named>` parameter conversions for `is_mut=true` and `is_ref=true` in opaque method bodies. When core takes `&mut [Named]`, the bridge now emits `std::slice::from_raw_parts_mut(...)`; when core takes `&[Named]`, emits `std::slice::from_raw_parts(...)` to convert the transmuted Vec into a proper slice. Also handle From-converted Vec<Named> with `is_ref=true`. (`src/backends/dart/gen_rust_crate/mod.rs`)
 - fix(dart): add `collect::<Vec<_>>()` turbofish in opaque method body field-conversion closures. Bare `collect()` in optional Vec<Named> element-conversions triggered E0282 type inference failures. All call sites now use explicit turbofish. (`src/backends/dart/gen_rust_crate/mod.rs`)
