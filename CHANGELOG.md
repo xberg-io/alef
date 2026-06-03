@@ -7,11 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.8] - 2026-06-03
+
+### Fixed
+
+- fix(java): restore method-handle emission for opaque-type instance methods (`_new`, `_free`, and user-defined methods like `_parse`, `_set_language`, `_reset`) while still skipping the FFI-non-existent `_default` / `_to_json` / `_from_json` triple. The previous fix in `aaf084d99` over-corrected by skipping ALL opaque-type method-handle emission, which broke opaque-handle Java wrappers that need to call `NativeLib.<PREFIX>_<TYPE>_<METHOD>` for instance methods. (`src/backends/java/gen_bindings/native_lib.rs`)
 - fix(e2e/typescript): emit `_alefE2eDecompressAndParseJson` helper in HTTP-only test files that declare a non-string JSON body, a partial body, or validation-error assertions. The helper was previously only emitted when `has_non_http_fixtures` was true (non-HTTP function-call fixtures), so HTTP-only category files that used the helper via `http_test.jinja` conditional branches produced "cannot find function" TypeScript compile errors. `http_fixtures_need_decompress_helper` now gates helper emission independently of non-HTTP fixture presence. Added snapshot test asserting the helper is defined when an HTTP fixture declares a JSON body. (`src/e2e/codegen/typescript/test_file.rs`)
+- style: clippy `if_same_then_else` cleanup in FFI bridge-field codegen — fold the duplicate `options_param_name` / String-ref branches into a single guard. (`src/backends/ffi/gen_bridge_field.rs`)
+
+### Merged
+
+- Merge `codex/generic-cleanup-pass3` (`62d19bd51`): continues the generic-codegen cleanup — derives Java, Go, and FFI visitor bridge wrappers from `TraitBridgeConfig` and IR function signatures instead of `convert`-shaped type names, adds central warning diagnostics for unresolved/lossy surfaces, and moves e2e call defaults into a shared recipe resolver. (`src/backends/{ffi,go,java}`, `src/core/validation`, `src/e2e/codegen`)
 
 ## [0.22.7] - 2026-06-03
 
 ### Fixed
+
+- fix(codegen): continue generic cleanup by deriving Java, Go, and FFI visitor bridge wrappers from `TraitBridgeConfig` and IR function signatures instead of `convert`-shaped type names, add central warning diagnostics for unresolved/lossy surfaces, and move e2e call defaults into a shared recipe resolver. (`src/backends/{ffi,go,java}`, `src/core/validation`, `src/e2e/codegen`)
 
 - fix(java): skip `_default` / `_to_json` / `_from_json` MethodHandle emission inside the opaque-type method loop. The FFI backend never exports these C functions for opaque types — only for non-opaque, serde-derivable, non-`Update` value types — so emitting `LIB.find("ts_pack_parser_default")` made JVM clinit throw `NoSuchElementException`. The opaque-type method-handle loop in `gen_native_lib` now skips these three method names per iteration while continuing to emit handles for `_new`, `_free`, and all user-defined instance methods (`_parse`, `_set_language`, `_reset`, …) that the opaque-handle Java wrappers in `gen_opaque_handle_class` reference via `NativeLib.<PREFIX>_<TYPE>_<METHOD>`. Mirrors the predicate semantics of `should_emit_to_json_handle` / `should_emit_from_json_handle`. (`src/backends/java/gen_bindings/native_lib.rs`)
 

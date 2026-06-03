@@ -241,16 +241,24 @@ pub fn render_test_file(
     // and `serde_json::from_value(…)` can be resolved without a trailing positional arg.
     // Import the named type so it is in scope in every test function in this file.
     if file_has_call_based {
-        let rust_options_type = e2e_config
-            .call
-            .overrides
-            .get("rust")
-            .and_then(|o| o.options_type.as_deref());
-        if let Some(opts_type) = rust_options_type {
-            // Only emit if the call has a json_object arg (the type annotation is only
-            // added to json_object bindings).
-            let has_json_object_arg = e2e_config.call.args.iter().any(|a| a.arg_type == "json_object");
-            if has_json_object_arg && body_references_symbol(&body_buf, opts_type) {
+        let mut option_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for fixture in fixtures {
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+            if recipe.args.iter().any(|a| a.arg_type == "json_object") {
+                if let Some(opts_type) = recipe.options_type {
+                    option_types.insert(opts_type.to_string());
+                }
+            }
+        }
+        for opts_type in option_types {
+            if body_references_symbol(&body_buf, &opts_type) {
                 let _ = writeln!(out, "use {module}::{opts_type};");
             }
         }
@@ -405,7 +413,8 @@ pub fn render_test_function(
     let has_mock = fixture.mock_response.is_some();
 
     // Resolve Rust-specific overrides early since we need them for returns_result.
-    let rust_overrides = call_config.overrides.get("rust");
+    let call_recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+    let rust_overrides = call_recipe.override_config;
 
     // Determine if this call returns Result<T, E>. Per-rust override takes precedence.
     // When client_factory is set, methods always return Result<T>.
@@ -442,11 +451,11 @@ pub fn render_test_function(
 
     // Extract additional overrides for argument shaping.
     let wrap_options_in_some = rust_overrides.is_some_and(|o| o.wrap_options_in_some);
-    let extra_args: Vec<String> = rust_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let extra_args: Vec<String> = call_recipe.extra_args.to_vec();
     // options_type from the rust override (e.g. "ConversionOptions") — used to annotate
     // `Default::default()` and `serde_json::from_value(…)` bindings so Rust can infer
     // the concrete type without a trailing positional argument to guide inference.
-    let options_type: Option<String> = rust_overrides.and_then(|o| o.options_type.clone());
+    let options_type: Option<String> = call_recipe.options_type.map(str::to_string);
 
     // When the fixture declares a visitor that is passed via an options-field (the
     // sample-markdown core `convert` API accepts visitor only through

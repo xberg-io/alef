@@ -1,13 +1,10 @@
-// convertWithVisitorHelper converts HTML with visitor support.
-// Called by Convert() when options.Visitor is not nil.
-// Returns the ConversionResult or an error.
-func convertWithVisitorHelper(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {
-	cHTML := C.CString(html)
-	defer C.free(unsafe.Pointer(cHTML))
+// {{ helper_name }} calls the FFI function with visitor support.
+func {{ helper_name }}({{ helper_params }}) (*{{ result_type }}, error) {
+{{ helper_setup }}
 
 	var cOptions *C.{{ conversion_options_type }}
-	if options != nil {
-		optionsBytes, err := json.Marshal(options)
+	if {{ options_var }} != nil {
+		optionsBytes, err := json.Marshal({{ options_var }})
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal options: %w", err)
 		}
@@ -18,7 +15,7 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 			if err := lastError(); err != nil {
 				return nil, err
 			}
-			return nil, fmt.Errorf("failed to decode conversion options")
+			return nil, fmt.Errorf("failed to decode {{ options_type }}")
 		}
 		defer C.{{ fn_options_free }}(cOptions)
 	}
@@ -31,7 +28,7 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 			if err := lastError(); err != nil {
 				return nil, err
 			}
-			return nil, fmt.Errorf("failed to create default conversion options")
+			return nil, fmt.Errorf("failed to create default {{ options_type }}")
 		}
 		defer C.{{ fn_options_free }}(cOptions)
 	}
@@ -51,7 +48,7 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 	// Attach the bridge to the options struct so convert() picks it up.
 	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ bridge_c_type }})(bridge))
 
-	ptr := C.{{ fn_convert }}(cHTML, cOptions)
+	ptr := C.{{ fn_convert }}({{ helper_call_args }})
 	if ptr == nil {
 		if err := lastError(); err != nil {
 			return nil, err
@@ -66,9 +63,9 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 	}
 	defer C.free(unsafe.Pointer(jsonPtr))
 
-	var result ConversionResult
+	var result {{ result_type }}
 	if err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {
-		return nil, fmt.Errorf("failed to decode conversion result: %w", err)
+		return nil, fmt.Errorf("failed to decode {{ result_type }}: %w", err)
 	}
 	return &result, nil
 }

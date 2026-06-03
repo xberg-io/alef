@@ -921,6 +921,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
         &fixture.tags,
         &fixture.input,
     );
+    let call_recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     // Build per-call field resolver using the effective field sets for this call.
     let call_field_resolver = FieldResolver::new_with_dart_first_class(
         e2e_config.effective_fields(call_config),
@@ -993,10 +994,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
     //                               helper and pass the result as a named parameter `req:`.
     //   All other values (or absent) — existing behaviour (batch arrays, config objects,
     //   generic JSON arrays, or nothing).
-    let options_type: Option<&str> = call_overrides.and_then(|o| o.options_type.as_deref());
-    let options_via: &str = call_overrides
-        .and_then(|o| o.options_via.as_deref())
-        .unwrap_or("kwargs");
+    let options_type: Option<&str> = call_recipe.options_type;
+    let options_via: &str = call_recipe.options_via;
 
     // Build argument list from fixture.input and resolved args (fixture.args or call_config.args).
     // Use `resolve_field` (respects the `field` path like "input.data") rather than
@@ -1065,7 +1064,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
     let mut setup_lines: Vec<String> = Vec::new();
     let mut args = Vec::new();
 
-    for arg_def in fixture.resolved_args(call_config) {
+    for arg_def in call_recipe.args {
         match arg_def.arg_type.as_str() {
             "mock_url" => {
                 let name = arg_def.name.clone();
@@ -1244,7 +1243,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                 // Polyglot repos expose their Dart surface through a hand-written facade
                 // (e.g. `SampleMarkupBridge.convert(String html, {ConversionOptions? options})`,
                 // `SampleLanguagePackBridge.process(String source, ProcessConfig config)`,
-                // `SampleCrateBridge.extractBytes(Uint8List content, String mimeType, [ExtractionConfig? config])`)
+                // `SampleCrateBridge.extractBytes(Uint8List content, String mimeType, [SampleSettings? settings])`)
                 // that wraps the FRB-generated bridge methods. Those facades follow the
                 // Rust idiom: required args are positional, optional args are named with
                 // defaults. The "always emit named" heuristic targets the raw FRB bridge
@@ -1260,7 +1259,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                 // extract method — both `extractBytes`/`extractBytesSync` (where it is a
                 // required `String mimeType`) and `extractFile`/`extractFileSync` (where
                 // it is a required-but-nullable `String? mimeType`). It always precedes
-                // the trailing optional `[ExtractionConfig? config]`, so it can never be
+                // the trailing optional config slot, so it can never be
                 // a Dart named parameter. The `optional` flag on the call config marks it
                 // optional only because `extract_file`'s Rust signature takes
                 // `Option<&str>`; it does not change the Dart facade's positional shape.
@@ -1306,7 +1305,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                     if elem_type == "String" && arg_value.is_array() {
                         // Scalar string array (e.g. `texts: ["a", "b"]` for embed_texts).
                         // The `SampleCrateBridge` facade declares these parameters as required
-                        // positional (e.g. `embedTexts(List<String> texts, EmbeddingConfig config)`),
+                        // positional (e.g. `embedTexts(List<String> texts, SampleSettings settings)`),
                         // so the list literal must be passed positionally — matching the
                         // facade contract rather than the underlying FRB bridge's named-arg
                         // convention.
@@ -1358,48 +1357,30 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                             args.push(format!("req: {var_name}"));
                         }
                     }
+                } else if call_recipe.should_materialize_json_object(arg_def, arg_value) && arg_value.is_null() {
+                    if let Some(opts_type) = options_type {
+                        let var_name = format!("_{}", arg_def.name);
+                        let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                        setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
+                        args.push(var_name);
+                    }
                 } else if arg_def.name == "config" {
                     if let serde_json::Value::Object(map) = &arg_value {
                         if !map.is_empty() {
-                            // When the call override specifies a non-default `options_type`
-                            // (e.g. `EmbeddingConfig` for `embed_texts`), or the override map
-                            // contains a non-scalar field that the literal `ExtractionConfig`
-                            // constructor cannot express (e.g. `output_format: "markdown"` is
-                            // a tagged enum, not a plain string), fall back to the
-                            // FRB-generated `create<Type>FromJson(json: '...')` helper which
-                            // round-trips the JSON through serde and so preserves enum tags,
-                            // nested configs, and string-valued enum variants verbatim.
-                            let explicit_options =
-                                options_type.is_some_and(|t| t != "ExtractionConfig" && t != "FileExtractionConfig");
-                            let has_non_scalar = map.values().any(|v| {
-                                matches!(
-                                    v,
-                                    serde_json::Value::String(_)
-                                        | serde_json::Value::Object(_)
-                                        | serde_json::Value::Array(_)
-                                )
-                            });
-                            if explicit_options || has_non_scalar {
-                                let opts_type = options_type.unwrap_or("ExtractionConfig");
-                                let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
-                                let escaped_json = escape_dart(&json_str);
-                                let var_name = format!("_{}", arg_def.name);
-                                let dart_fn = type_name_to_create_from_json_dart(opts_type);
-                                setup_lines
-                                    .push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
-                                args.push(var_name);
-                            } else {
-                                // Fixture provides scalar-only overrides — build an
-                                // `ExtractionConfig` constructor literal with defaults,
-                                // overriding only the bool/int fields present in the
-                                // fixture JSON. Handles configs such as
-                                // {force_ocr:true, disable_ocr:true} that toggle error paths.
-                                args.push(emit_extraction_config_dart(map));
-                            }
+                            // Round-trip object config JSON through a generated helper.
+                            // Prefer explicit type metadata; the arg name fallback is only
+                            // a neutral best effort for legacy configs.
+                            let opts_type = options_type.unwrap_or(&arg_def.name);
+                            let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                            let escaped_json = escape_dart(&json_str);
+                            let var_name = format!("_{}", arg_def.name);
+                            let dart_fn = type_name_to_create_from_json_dart(opts_type);
+                            setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
+                            args.push(var_name);
                         } else {
                             // Empty config object: construct a default instance via FRB's
                             // `create<Type>FromJson(json: '{}')` helper (supports all
-                            // config types, not just ExtractionConfig). This ensures the
+                            // configured config types). This ensures the
                             // call signature matches the binding, which expects a required
                             // config parameter even when all fields use their defaults.
                             if let Some(opts_type) = options_type {
@@ -1412,12 +1393,14 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                     } else if arg_def.optional {
                         // Fixture has no config block (null/absent) but the Dart facade
                         // declares the arg as a required-positional non-nullable type
-                        // (e.g. `embed_texts_async(texts, config)` with `EmbeddingConfig`).
+                        // (e.g. `embed_texts_async(texts, settings)` with `SampleSettings`).
                         // Construct a default instance via FRB's
-                        // `create<Type>FromJson(json: '{}')` helper. Skip when no
-                        // `options_type` is configured — those calls go through the
-                        // `ExtractionConfig?` nullable facade path where omission is allowed.
-                        if let Some(opts_type) = options_type {
+                        // `create<Type>FromJson(json: '{}')` helper when IR metadata says
+                        // the configured type has a default.
+                        if let Some(opts_type) = options_type.filter(|_| {
+                            call_recipe.json_object_arg_has_default(arg_def)
+                                || call_recipe.should_materialize_json_object(arg_def, arg_value)
+                        }) {
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
                             setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
@@ -2239,56 +2222,6 @@ fn field_to_dart_accessor(path: &str) -> String {
     result
 }
 
-/// Emits a Dart `ExtractionConfig(...)` constructor with default values, overriding
-/// fields present in `overrides` (from fixture JSON, snake_case keys).
-///
-/// Only simple scalar overrides (bool, int) are supported. Complex nested types
-/// (ocr, chunking, etc.) are left at their defaults (null).
-fn emit_extraction_config_dart(overrides: &serde_json::Map<String, serde_json::Value>) -> String {
-    // Collect scalar overrides; convert keys to camelCase.
-    let mut field_overrides: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for (key, val) in overrides {
-        let camel = snake_to_camel(key);
-        let dart_val = match val {
-            serde_json::Value::Bool(b) => {
-                if *b {
-                    "true".to_string()
-                } else {
-                    "false".to_string()
-                }
-            }
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => format!("'{s}'"),
-            _ => continue, // skip complex nested objects
-        };
-        field_overrides.insert(camel, dart_val);
-    }
-
-    let use_cache = field_overrides.remove("useCache").unwrap_or_else(|| "true".to_string());
-    let enable_quality_processing = field_overrides
-        .remove("enableQualityProcessing")
-        .unwrap_or_else(|| "true".to_string());
-    let force_ocr = field_overrides
-        .remove("forceOcr")
-        .unwrap_or_else(|| "false".to_string());
-    let disable_ocr = field_overrides
-        .remove("disableOcr")
-        .unwrap_or_else(|| "false".to_string());
-    let include_document_structure = field_overrides
-        .remove("includeDocumentStructure")
-        .unwrap_or_else(|| "false".to_string());
-    let use_layout_for_markdown = field_overrides
-        .remove("useLayoutForMarkdown")
-        .unwrap_or_else(|| "false".to_string());
-    let max_archive_depth = field_overrides
-        .remove("maxArchiveDepth")
-        .unwrap_or_else(|| "3".to_string());
-
-    format!(
-        "ExtractionConfig(useCache: {use_cache}, enableQualityProcessing: {enable_quality_processing}, forceOcr: {force_ocr}, disableOcr: {disable_ocr}, resultFormat: ResultFormat.unified, outputFormat: OutputFormat.plain(), includeDocumentStructure: {include_document_structure}, useLayoutForMarkdown: {use_layout_for_markdown}, maxArchiveDepth: {max_archive_depth})"
-    )
-}
-
 // ---------------------------------------------------------------------------
 // HTTP server test rendering — DartTestClientRenderer impl + thin driver wrapper
 // ---------------------------------------------------------------------------
@@ -3092,19 +3025,19 @@ pub fn emit_test_backend(
 }
 
 /// Map a Dart type, with an explicit bridge carrier for internal-only types.
-/// For example, InternalDocument maps to InternalDocumentBridge so tests preserve
-/// the Rust trait contract instead of substituting the public ExtractionResult DTO.
+/// Internal named types use a generated `<TypeName>Bridge` carrier so tests preserve
+/// the Rust trait contract instead of substituting a public DTO.
 fn map_dart_type_with_fallback(
     mapper: &crate::backends::dart::type_map::DartMapper,
     ty: &crate::core::ir::TypeRef,
 ) -> String {
     use crate::codegen::type_mapper::TypeMapper as _;
-    let mapped = mapper.map_type(ty);
-    // If the type is an unpublished internal type, use the generated opaque JSON bridge.
-    if mapped.contains("Internal") {
-        return "InternalDocumentBridge".to_string();
+    if let crate::core::ir::TypeRef::Named(name) = ty {
+        if name.contains("Internal") {
+            return format!("{name}Bridge");
+        }
     }
-    mapped.to_string()
+    mapper.map_type(ty).to_string()
 }
 
 /// Emit a Dart default value for a type, with special handling for enums and internal types.
@@ -3116,7 +3049,7 @@ fn emit_dart_default_for_type(
 
     // Map internal-only types to the opaque bridge carrier for default generation.
     let effective_ty = match ty {
-        TypeRef::Named(name) if name.contains("Internal") => TypeRef::Named("InternalDocumentBridge".to_string()),
+        TypeRef::Named(name) if name.contains("Internal") => TypeRef::Named(format!("{name}Bridge")),
         _ => ty.clone(),
     };
 
@@ -3260,7 +3193,7 @@ mod test_backend_tests {
                 make_param("content", TypeRef::Bytes),
                 make_param("mime_type", TypeRef::String),
             ],
-            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            return_type: TypeRef::Named("SampleResult".to_string()),
             is_async: true,
             is_static: false,
             error_type: Some("anyhow::Error".to_string()),
@@ -3301,7 +3234,7 @@ mod test_backend_tests {
             "string param must map to String, got:\n{output}"
         );
         assert!(
-            output.contains("Future<ExtractionResult>"),
+            output.contains("Future<SampleResult>"),
             "return type must be concrete not dynamic, got:\n{output}"
         );
         assert!(

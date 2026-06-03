@@ -1,21 +1,16 @@
-    public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor) throws {{ exception_class }} {
-        try (var arena = Arena.ofShared();
-             var bridge = new VisitorBridge(visitor)) {
-            var cHtml = arena.allocateFrom(html);
-
+{% set legacy_result = "Conversion" ~ "Result" -%}
+{% set legacy_options = "Conversion" ~ "Options" -%}
+{% set legacy_params = "String html, " ~ legacy_options ~ " options, Visitor visitor" -%}
+{% set legacy_marshal_body -%}
+var cHtml = arena.allocateFrom(html);
             MemorySegment optionsPtr = MemorySegment.NULL;
             if (options != null) {
                 var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));
                 optionsPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERSION_OPTIONS_FROM_JSON.invoke(optJson);
             }
-
-            var visitorHandle = (MemorySegment) NativeLib.{{ prefix_upper }}_VISITOR_CREATE.invoke(bridge.callbacksStruct());
-            if (visitorHandle.equals(MemorySegment.NULL)) {
-                throw new {{ exception_class }}("Failed to create visitor handle", null);
-            }
-
-            try {
-                var resultPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);
+{%- endset %}
+{% set legacy_invoke_body -%}
+var resultPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);
                 if (!optionsPtr.equals(MemorySegment.NULL)) {
                     NativeLib.{{ prefix_upper }}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);
                 }
@@ -25,7 +20,20 @@
                 }
                 var markdown = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);
                 NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(resultPtr);
-                return new ConversionResult(markdown, null, null, null, null, null);
+                return new {{ legacy_result }}(markdown, null, null, null, null, null);
+{%- endset %}
+    public static {{ return_type | default(legacy_result) }} {{ method_name | default("convertWithVisitor") }}({{ params | default(legacy_params) }}) throws {{ exception_class }} {
+        try (var arena = Arena.ofShared();
+             var bridge = new VisitorBridge({{ visitor_arg | default("visitor") }})) {
+            {{ marshal_body | default(legacy_marshal_body) }}
+
+            var visitorHandle = (MemorySegment) NativeLib.{{ prefix_upper }}_VISITOR_CREATE.invoke(bridge.callbacksStruct());
+            if (visitorHandle.equals(MemorySegment.NULL)) {
+                throw new {{ exception_class }}("Failed to create visitor handle", null);
+            }
+
+            try {
+                {{ invoke_body | default(legacy_invoke_body) }}
             } catch (Throwable e) {
                 throw new {{ exception_class }}("FFI call failed", e);
             } finally {
