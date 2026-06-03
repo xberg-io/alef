@@ -124,7 +124,11 @@ pub mod pypi {
 
 pub mod gem {
     // renovate: datasource=rubygems depName=rb_sys
-    pub const RB_SYS: &str = "~> 0.9";
+    // Bundler's gemspec DSL rejects comma-joined requirements ("Illformed
+    // requirement"); a single constraint string is required. The 0.9.128 mingw
+    // sysroot issue is enforced at the cross-compile layer, not in the
+    // published-gem constraint.
+    pub const RB_SYS: &str = ">= 0.9";
 
     // renovate: datasource=rubygems depName=sorbet-runtime
     pub const SORBET_RUNTIME: &str = "~> 0.5";
