@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.23] - 2026-06-04
+
+### Fixed
+
+- fix(wasm): mark fields whose Named type is non-deserializable (`!has_serde || is_trait || is_opaque`) with `#[serde(skip)]` in generated Input DTOs. Previously v0.22.22's "declare features without default" fix avoided the warning under `cargo check --all-features` BUT failed under `cargo check --workspace --all-features` (the polyrepo prek hook), because `--all-features` enables the wasm crate's own `visitor` feature, making the cfg evaluate true and exposing the trait-object `VisitorHandle` field to serde::Deserialize, producing E0277. The new heuristic queries the IR for the field's Named type and emits `#[serde(skip)]` when the type is a trait object, opaque handle, or otherwise lacks `serde::Deserialize`. The DTO struct still carries the field for symmetry, but it deserializes to None and the From impl propagates None. (`src/backends/wasm/gen_bindings/functions.rs`, `src/backends/wasm/gen_bindings/mod.rs`)
+
 ## [0.22.22] - 2026-06-04
 
 ### Fixed

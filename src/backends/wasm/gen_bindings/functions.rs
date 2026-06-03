@@ -35,18 +35,23 @@ pub(super) fn gen_input_dto_for_type(
 ) -> (String, String) {
     // Legacy signature without feature gating info — used by tests and legacy callers.
     // For actual WASM backend generation, use gen_input_dto_for_type_with_cfg.
-    gen_input_dto_for_type_with_cfg(type_name, core_import, type_def, &[], &[])
+    gen_input_dto_for_type_with_cfg(type_name, core_import, type_def, &[], &[], &std::collections::HashSet::new())
 }
 
 /// Generate an Input DTO struct with feature-gate awareness.
 /// exclude_types: list of types that don't compile in the target (e.g., LayoutDetectionConfig on WASM)
 /// enabled_features: list of features enabled in the target's feature set
+/// non_deserializable_type_names: names of IR types whose Rust definition does not
+///   implement `serde::Deserialize` — typically trait objects, type aliases over
+///   `dyn Trait`, or opaque handles. Fields referencing one of these by Named type
+///   are emitted with `#[serde(skip)]` so the DTO derives `Deserialize` cleanly.
 pub(super) fn gen_input_dto_for_type_with_cfg(
     type_name: &str,
     core_import: &str,
     type_def: &crate::core::ir::TypeDef,
     exclude_types: &[String],
     enabled_features: &[String],
+    non_deserializable_type_names: &std::collections::HashSet<String>,
 ) -> (String, String) {
     let input_name = format!("{}Input", type_name);
     let core_path = format!("{}::{}", core_import, type_name);
@@ -68,9 +73,22 @@ pub(super) fn gen_input_dto_for_type_with_cfg(
                 true
             };
 
-            // Fields whose type is excluded OR whose cfg is not satisfied are marked as skipped
-            // so they appear in the DTO struct for symmetry, but are not deserialized from JS
-            let is_skipped = field_references_excluded || !cfg_satisfied;
+            // Detect fields whose Named type does not derive serde::Deserialize
+            // (trait objects, type aliases over `dyn Trait`, opaque handles).
+            // Optional<Named> unwraps to Named for this check.
+            let inner_ty = match &f.ty {
+                crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+            let field_references_non_deserializable = matches!(
+                inner_ty,
+                crate::core::ir::TypeRef::Named(name) if non_deserializable_type_names.contains(name)
+            );
+
+            // Fields whose type is excluded OR whose cfg is not satisfied OR whose type
+            // is a non-deserializable opaque handle are skipped: they appear in the DTO
+            // struct for symmetry, but are not deserialized from JS.
+            let is_skipped = field_references_excluded || !cfg_satisfied || field_references_non_deserializable;
 
             let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
             let camel_case_name = to_node_name(&f.name);
@@ -1661,6 +1679,7 @@ mod tests {
             &type_def,
             &[],                        // No excluded types
             &["streaming".to_string()], // Only "streaming" is enabled, NOT "layout"
+            &std::collections::HashSet::new(),
         );
 
         // The layout_config field should have a cfg guard since "layout" is not enabled
@@ -1683,6 +1702,7 @@ mod tests {
             &type_def,
             &[],                     // No excluded types
             &["layout".to_string()], // "layout" IS enabled
+            &std::collections::HashSet::new(),
         );
 
         // Now the layout_config field should NOT be skipped (cfg is satisfied)
