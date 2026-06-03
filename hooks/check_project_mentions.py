@@ -130,6 +130,7 @@ DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
     "matches!",
     "ends_with(",
     "unwrap_or(",
+    "unwrap_or_else(",
 )
 DOMAIN_TYPE_EMBEDDED_BEHAVIOR_MARKERS = (
     "class ",
@@ -223,12 +224,22 @@ def violations_for_file(path: Path) -> list[str]:
         return []
 
     violations: list[str] = []
+    pending_rust_cfg_test = False
+    rust_cfg_test_depth: int | None = None
     for line_number, line in enumerate(content.splitlines(), start=1):
+        started_rust_cfg_test_region = False
+        if path.suffix == ".rs" and line.strip() == "#[cfg(test)]":
+            pending_rust_cfg_test = True
+        elif pending_rust_cfg_test and path.suffix == ".rs" and "{" in line:
+            rust_cfg_test_depth = line.count("{") - line.count("}")
+            pending_rust_cfg_test = False
+            started_rust_cfg_test_region = True
+        in_rust_cfg_test_region = rust_cfg_test_depth is not None
         masked_line = normalize_for_project_mentions(mask_allowed_infrastructure(line))
         for name, pattern in PATTERNS.items():
             if pattern.search(masked_line):
                 violations.append(f"{path}:{line_number}: forbidden project mention `{name}`")
-        if is_production_generator_path(path) and (
+        if is_production_generator_path(path) and not in_rust_cfg_test_region and (
             is_domain_type_special_case(line) or is_split_domain_type_literal(line)
         ):
             for name, pattern in DOMAIN_TYPE_PATTERNS:
@@ -240,6 +251,10 @@ def violations_for_file(path: Path) -> list[str]:
             for name, pattern in EMBEDDED_DOMAIN_TYPE_PATTERNS:
                 if pattern.search(line):
                     violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
+        if rust_cfg_test_depth is not None and not started_rust_cfg_test_region:
+            rust_cfg_test_depth += line.count("{") - line.count("}")
+            if rust_cfg_test_depth <= 0:
+                rust_cfg_test_depth = None
     return violations
 
 

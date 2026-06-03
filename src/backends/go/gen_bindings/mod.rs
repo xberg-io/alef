@@ -196,16 +196,18 @@ impl Backend for GoBackend {
             generated_header: true,
         }];
 
-        // Generate visitor.go when a visitor bridge is configured.
-        if has_visitor_bridge {
+        // Generate visitor.go when an options-field visitor bridge is configured.
+        if has_visitor_bridge && let Some(bridge_cfg) = visitor_bridge_cfg {
             // Derive vtable_trait_name and options_field from the first options-field bridge,
-            // falling back to sensible defaults for legacy function-param bridges.
-            let (vtable_trait_name, options_field) = visitor_bridge_cfg
-                .and_then(|b| {
-                    let field = b.resolved_options_field()?;
-                    Some((b.trait_name.clone(), field.to_string()))
-                })
-                .unwrap_or_else(|| ("HtmlVisitor".to_string(), "visitor".to_string()));
+            // which is the only bridge shape that can attach a visitor to an options DTO.
+            let Some(options_field) = bridge_cfg.resolved_options_field() else {
+                return Err(crate::core::AlefError::Config(
+                    "Go visitor generation requires trait bridge options_field metadata".to_string(),
+                )
+                .into());
+            };
+            let vtable_trait_name = bridge_cfg.trait_name.clone();
+            let options_field = options_field.to_string();
 
             // Look up the visitor trait def in the IR.
             let trait_map: std::collections::HashMap<&str, &crate::core::ir::TypeDef> = api
@@ -214,12 +216,10 @@ impl Backend for GoBackend {
                 .filter(|t| t.is_trait)
                 .map(|t| (t.name.as_str(), t))
                 .collect();
-            let visitor_trait = visitor_bridge_cfg.and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
-            let visitor_function = visitor_bridge_cfg.and_then(|b| find_options_bridge_function(api, b));
+            let visitor_trait = trait_map.get(bridge_cfg.trait_name.as_str()).copied();
+            let visitor_function = find_options_bridge_function(api, bridge_cfg);
 
-            let visitor_content = if let (Some(vt), Some(visitor_func), Some(bridge_cfg)) =
-                (visitor_trait, visitor_function, visitor_bridge_cfg)
-            {
+            let visitor_content = if let (Some(vt), Some(visitor_func)) = (visitor_trait, visitor_function) {
                 strip_trailing_whitespace(&crate::backends::go::gen_visitor::gen_visitor_file(
                     &pkg_name,
                     &ffi_prefix,
