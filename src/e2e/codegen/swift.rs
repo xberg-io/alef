@@ -3706,7 +3706,7 @@ mod test_backend_tests {
         }
     }
 
-    /// Verify that no sample_core-domain names leak into the generated output when
+    /// Verify that no sample-domain names leak into the generated output when
     /// the trait bridge is configured for a synthetic `TestTrait` in `testlib`.
     #[test]
     fn swift_stub_contains_no_sample_crate_domain_names() {
