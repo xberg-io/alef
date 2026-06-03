@@ -226,4 +226,31 @@ mod tests {
             "got:\n{out}"
         );
     }
+
+    #[test]
+    fn render_cargo_toml_has_no_issues_docs_header_line() {
+        // Regression: older alef injected a `# Issues & docs: …` header line via
+        // header_for_config. cargo-sort always strips it, so every prek run
+        // oscillated between cargo-sort removing it and alef re-adding it.
+        // The e2e rust Cargo.toml must use the plain hash::header (no issues_url).
+        let out = render_cargo_toml(
+            "my-crate",
+            "my_crate",
+            "../../crates/my-crate",
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            DependencyMode::Local,
+            None,
+            &[],
+        );
+        assert!(
+            !out.contains("Issues & docs:"),
+            "e2e Cargo.toml must not contain 'Issues & docs:' — cargo-sort strips it, \
+             causing prek to loop forever:\n{out}"
+        );
+    }
 }

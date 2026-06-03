@@ -1059,8 +1059,8 @@ crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = {{ version = "0.4", features = ["wasm_js"] }}
-getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"] }}
 getrandom_02 = {{ package = "getrandom", version = "0.2", features = ["js"] }}
+getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"] }}
 "#,
         header = header,
         pkg_prefix = pkg_prefix,
@@ -1296,6 +1296,54 @@ features = ["wasm-target"]
             !cargo_toml.contains(r#"wasm-target = ["test-lib/wasm-target"]"#),
             "wasm-target must not be re-emitted as passthrough:\n{cargo_toml}"
         );
+        toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
+    }
+
+    #[test]
+    fn cargo_toml_has_no_issues_docs_line_and_getrandom_deps_are_alphabetical() {
+        // Regression: older alef emitted a `# Issues & docs: …` header line into
+        // the wasm Cargo.toml, which cargo-sort unconditionally strips, causing
+        // prek to oscillate between the two tools forever. The wasm Cargo.toml
+        // must use the plain `hash::header` (no issues_url) so cargo-sort is
+        // satisfied on every run.
+        //
+        // The [target.*.dependencies] block must list getrandom_02 before
+        // getrandom_03 so cargo-sort's alphabetical pass is a no-op.
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+        let config = make_config();
+        let cargo_toml = super::gen_cargo_toml(&api, &config);
+
+        assert!(
+            !cargo_toml.contains("Issues & docs:"),
+            "Cargo.toml must not contain 'Issues & docs:' line — cargo-sort strips it and \
+             alef re-emits it, causing prek to loop forever:\n{cargo_toml}"
+        );
+
+        // Verify getrandom_02 appears before getrandom_03 (alphabetical order).
+        let pos_02 = cargo_toml
+            .find("getrandom_02")
+            .expect("getrandom_02 must be present in target deps");
+        let pos_03 = cargo_toml
+            .find("getrandom_03")
+            .expect("getrandom_03 must be present in target deps");
+        assert!(
+            pos_02 < pos_03,
+            "getrandom_02 must appear before getrandom_03 (alphabetical order for cargo-sort \
+             compatibility); got getrandom_02 at {pos_02}, getrandom_03 at {pos_03}:\n{cargo_toml}"
+        );
+
+        // Valid TOML throughout.
         toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
     }
 
