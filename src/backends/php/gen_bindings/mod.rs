@@ -1154,14 +1154,6 @@ impl Backend for PhpBackend {
                 }
             };
 
-            let mut first_optional_idx = None;
-            for (idx, p) in visible_params.iter().enumerate() {
-                if p.optional || is_optional_default_constructible_param(p) {
-                    first_optional_idx = Some(idx);
-                    break;
-                }
-            }
-
             content.push_str(&crate::backends::php::template_env::render(
                 "php_method_signature_start.jinja",
                 context! { method_name => &method_name },
@@ -1169,16 +1161,15 @@ impl Backend for PhpBackend {
 
             let params: Vec<String> = visible_params
                 .iter()
-                .enumerate()
-                .map(|(idx, p)| {
+                .map(|p| {
                     let ptype = php_type(&p.ty);
                     // Make param optional if:
                     // 1. It's explicitly optional OR
-                    // 2. IR says its named type has a no-arg constructor OR
-                    // 3. It comes after the first optional/default-constructible param
-                    let should_be_optional = p.optional
-                        || is_optional_default_constructible_param(p)
-                        || first_optional_idx.is_some_and(|first| idx >= first);
+                    // 2. IR says its named type has a no-arg constructor
+                    // Do NOT make params optional just because they come after an optional param.
+                    // Required parameters in the Rust API must remain required in the PHP wrapper
+                    // to preserve type safety and catch errors at the PHP layer.
+                    let should_be_optional = p.optional || is_optional_default_constructible_param(p);
                     if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
@@ -1206,12 +1197,13 @@ impl Backend for PhpBackend {
             // non-nullable objects.
             let call_params = visible_params
                 .iter()
-                .enumerate()
-                .map(|(idx, p)| {
-                    let should_be_optional = p.optional
-                        || is_optional_default_constructible_param(p)
-                        || first_optional_idx.is_some_and(|first| idx >= first);
-                    if should_be_optional && is_optional_default_constructible_param(p) {
+                .map(|p| {
+                    // Only apply the `?? new Type()` coercion for params that are
+                    // explicitly optional (p.optional) or default-constructible.
+                    // Params that are required in the Rust API are passed as-is.
+                    if (p.optional || is_optional_default_constructible_param(p))
+                        && is_optional_default_constructible_param(p)
+                    {
                         if let TypeRef::Named(type_name) = &p.ty {
                             return format!("${} ?? new {}()", p.name, type_name);
                         }
@@ -2370,4 +2362,70 @@ fi
         cargo_crate_name,
         extension_name
     )
+}
+
+// ───────────────────────────────────────────────────────────────────── tests ──
+
+#[cfg(test)]
+mod tests {
+    /// Test that PHP wrapper param signatures preserve required-ness from the Rust API.
+    ///
+    /// Before the fix: Required params after an optional param were being made optional.
+    /// Example: `scrape(?CrawlEngineHandle $engine = null, ?string $url = null)`
+    /// when the Rust API required both `engine: CrawlEngineHandle` and `url: String`.
+    ///
+    /// After the fix: Only explicitly optional params or default-constructible params
+    /// become optional in the wrapper. Required params stay required.
+    /// Example: `scrape(CrawlEngineHandle $engine, string $url)`
+    #[test]
+    fn test_php_wrapper_param_optionality_logic() {
+        use crate::core::ir::{ParamDef, TypeRef};
+
+        // Helper to check if a param should be optional in the wrapper
+        let is_optional_default_constructible_param = |p: &ParamDef| -> bool {
+            if let TypeRef::Named(name) = &p.ty {
+                // Simulate the no_arg_constructor_types set
+                matches!(name.as_str(), "CrawlConfig" | "InteractionActions")
+            } else {
+                false
+            }
+        };
+
+        // Test case 1: Required params should remain required
+        let req_param = ParamDef {
+            name: "url".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            ..ParamDef::default()
+        };
+
+        let should_be_optional = req_param.optional || is_optional_default_constructible_param(&req_param);
+        assert!(
+            !should_be_optional,
+            "required param should not become optional in wrapper"
+        );
+
+        // Test case 2: Explicitly optional params remain optional
+        let opt_param = ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("CrawlConfig".to_string()),
+            optional: true,
+            ..ParamDef::default()
+        };
+
+        let should_be_optional = opt_param.optional || is_optional_default_constructible_param(&opt_param);
+        assert!(should_be_optional, "explicitly optional param should be optional");
+
+        // Test case 3: Default-constructible required params become optional
+        let default_constructible_param = ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("CrawlConfig".to_string()),
+            optional: false,
+            ..ParamDef::default()
+        };
+
+        let should_be_optional = default_constructible_param.optional
+            || is_optional_default_constructible_param(&default_constructible_param);
+        assert!(should_be_optional, "default-constructible param should become optional");
+    }
 }

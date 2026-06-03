@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(php): PHP wrapper method signatures now preserve required-ness of parameters from the inner Rust API. Previously, all parameters after the first optional param were made optional in the wrapper signature, causing phpstan type-check failures when required parameters were passed as nullable. The fix: only explicitly optional params or default-constructible named params become optional in the wrapper; required params stay required, mirroring the inner API exactly. (`src/backends/php/gen_bindings/mod.rs`)
 - fix(e2e/typescript): type `serverProcess` as `ChildProcess | undefined`, rename Promise-callback parameter from `resolve` to `resolveSetup` and `resolveReady` to avoid shadowing the `resolve` import from `node:path`, type `data` callback as `Buffer` instead of `any`, and cast `globalThis` via `unknown` to avoid `any` in globalSetup template. Fixes oxlint `no-explicit-any` and `no-shadow` errors in generated TS e2e tests. (`src/e2e/templates/typescript/globalSetup.ts.jinja`)
 
 ## [0.22.15] - 2026-06-03
