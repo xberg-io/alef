@@ -650,6 +650,11 @@ pub(crate) fn gen_native_lib(
     // excluded — those use the (`_start`, `_next`, `_free`) iterator-handle trio above.
     // Bytes-result methods use the (out_ptr, out_len, out_cap) triple convention,
     // mirroring `is_bytes_result` for free functions.
+    //
+    // NOTE: This loop only processes NON-OPAQUE types. Opaque types do NOT have FFI
+    // method exports (neither instance nor static), so method handles are not generated
+    // for them. Their Java wrappers in gen_opaque_handle_class are pure Java code with
+    // no FFI calls.
     let streaming_adapter_method_keys: AHashSet<(String, String)> = config
         .adapters
         .iter()
@@ -659,7 +664,7 @@ pub(crate) fn gen_native_lib(
             Some((owner, a.name.to_snake_case()))
         })
         .collect();
-    for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
+    for typ in api.types.iter().filter(|t| !t.is_opaque && !t.is_trait) {
         for method in &typ.methods {
             if streaming_adapter_method_keys.contains(&(typ.name.clone(), method.name.to_snake_case())) {
                 continue;
