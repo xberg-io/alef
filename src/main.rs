@@ -1941,16 +1941,49 @@ fn main() -> Result<()> {
                         let output_root = base_dir.join(e2e_ref.effective_output());
 
                         // --clean: delete the per-language directories before regen.
+                        // Preserve lock files (go.sum, go.mod is regenerated, etc.) — generators
+                        // should not own dependency lock files.
                         if clean {
                             let langs_to_clean: Vec<String> = lang
                                 .as_deref()
                                 .map(|ls| ls.iter().map(|s| s.to_string()).collect())
                                 .unwrap_or_else(|| e2e_ref.languages.clone());
+                            let lock_files = [
+                                "go.sum",
+                                "go.mod",
+                                "package-lock.json",
+                                "pnpm-lock.yaml",
+                                "yarn.lock",
+                                "Gemfile.lock",
+                                "composer.lock",
+                                "uv.lock",
+                                "pubspec.lock",
+                            ];
                             for lang_name in &langs_to_clean {
                                 let lang_dir = output_root.join(lang_name);
                                 if lang_dir.exists() {
+                                    // Save lock files before deletion
+                                    let mut saved_locks = std::collections::HashMap::new();
+                                    for lock_file in &lock_files {
+                                        let lock_path = lang_dir.join(lock_file);
+                                        if lock_path.exists() {
+                                            if let Ok(content) = std::fs::read(&lock_path) {
+                                                saved_locks.insert(lock_path.clone(), content);
+                                            }
+                                        }
+                                    }
+
                                     std::fs::remove_dir_all(&lang_dir)
                                         .with_context(|| format!("failed to remove {}", lang_dir.display()))?;
+
+                                    // Restore lock files after deletion
+                                    std::fs::create_dir_all(&lang_dir)
+                                        .with_context(|| format!("failed to recreate {}", lang_dir.display()))?;
+                                    for (lock_path, content) in saved_locks {
+                                        std::fs::write(&lock_path, content).with_context(|| {
+                                            format!("failed to restore lock file {}", lock_path.display())
+                                        })?;
+                                    }
                                 }
                             }
                         }
