@@ -743,8 +743,8 @@ fn render_test_file(
 ///
 /// Emitted inside an `async` `setUpAll`; the harness lives at
 /// `../app_harness.dart` relative to the `e2e/dart/test/` directory.
-/// Uses `Directory.current` to resolve paths, which is reliable under `dart test`
-/// (unlike `Platform.script`, which resolves to a tmpdir when tests are staged).
+/// Resolves paths relative to the test file (via `Platform.script`), which remains
+/// stable relative-path-wise even though `Platform.script` resolves to a tmpdir under `dart test`.
 fn render_dart_sut_spawn(out: &mut String) {
     // Skip spawning any server when either `MOCK_SERVER_URL` (alef e2e
     // wrapper / `scripts/e2e/run-with-mock-server.sh`) or `SUT_URL` (external
@@ -756,7 +756,7 @@ fn render_dart_sut_spawn(out: &mut String) {
     );
     let _ = writeln!(
         out,
-        "      final _harness = Directory.current.uri.resolve('app_harness.dart').toFilePath();"
+        "      final _harness = Platform.script.resolve('../app_harness.dart').toFilePath();"
     );
     let _ = writeln!(out, "      if (File(_harness).existsSync()) {{");
     let _ = writeln!(
@@ -791,6 +791,7 @@ fn render_dart_sut_spawn(out: &mut String) {
     // test). Build the alef-generated mock-server binary if it is missing, then spawn
     // it and capture `MOCK_SERVER_URL=` from its stdout — the same sentinel line that
     // Ruby spec_helper and the `alef test-apps run` orchestrator read.
+    // Resolve paths relative to the test file to locate the mock-server project.
     let _ = writeln!(out, "      }} else {{");
     let _ = writeln!(
         out,
@@ -798,11 +799,11 @@ fn render_dart_sut_spawn(out: &mut String) {
     );
     let _ = writeln!(
         out,
-        "        final _mockBin = Directory.current.uri.resolve('rust/target/release/mock-server').toFilePath();"
+        "        final _mockBin = Platform.script.resolve('../../rust/target/release/mock-server').toFilePath();"
     );
     let _ = writeln!(
         out,
-        "        final _mockManifest = Directory.current.uri.resolve('rust/Cargo.toml').toFilePath();"
+        "        final _mockManifest = Platform.script.resolve('../../rust/Cargo.toml').toFilePath();"
     );
     let _ = writeln!(out, "        if (!File(_mockBin).existsSync()) {{");
     let _ = writeln!(
@@ -816,7 +817,7 @@ fn render_dart_sut_spawn(out: &mut String) {
     let _ = writeln!(out, "        }}");
     let _ = writeln!(
         out,
-        "        final _fixturesDir = Directory.current.uri.resolve('fixtures').toFilePath();"
+        "        final _fixturesDir = Platform.script.resolve('../../../fixtures').toFilePath();"
     );
     let _ = writeln!(
         out,
@@ -3246,6 +3247,7 @@ mod test_backend_tests {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }
     }
 
