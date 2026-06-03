@@ -3,6 +3,7 @@ use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::hash;
 use crate::core::ir::ApiSurface;
 use anyhow::Context as _;
+use base64::Engine;
 use rayon::prelude::*;
 use std::path::Path;
 use tracing::{debug, info};
@@ -199,25 +200,49 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
 
     all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
         let full_path = base_dir.join(&file.path);
-        let normalized = normalize_content(&file.path, &file.content);
-        // Skip the write when on-disk bytes already match (modulo the
-        // post-write `alef:hash:` line injected by `finalize_hashes`).
-        // `std::fs::write` is unconditional truncate+write; updating mtime
-        // on identical content trips pre-commit/prek's modification check
-        // and breaks every alef-driven hook for downstream repos.
-        if let Ok(existing) = std::fs::read_to_string(&full_path) {
-            let existing_body = crate::core::hash::strip_hash_line(&existing);
-            let normalized_body = crate::core::hash::strip_hash_line(&normalized);
-            if existing_body == normalized_body {
-                apply_shebang_chmod(&full_path, &normalized)?;
-                debug!("  unchanged: {}", full_path.display());
-                return Ok(());
+
+        // Check if this is a binary file that needs base64 decoding.
+        let is_jar_file = full_path.extension().is_some_and(|ext| ext == "jar");
+
+        if is_jar_file {
+            // Decode base64 content to binary.
+            let binary_content = base64::engine::general_purpose::STANDARD
+                .decode(&file.content)
+                .with_context(|| format!("failed to decode base64 for {}", full_path.display()))?;
+
+            // Skip the write when on-disk bytes already match.
+            if let Ok(existing) = std::fs::read(&full_path) {
+                if existing == binary_content {
+                    debug!("  unchanged: {}", full_path.display());
+                    return Ok(());
+                }
             }
+
+            std::fs::write(&full_path, &binary_content)
+                .with_context(|| format!("failed to write binary file {}", full_path.display()))?;
+            debug!("  wrote: {}", full_path.display());
+        } else {
+            // Text file handling (existing logic).
+            let normalized = normalize_content(&full_path, &file.content);
+            // Skip the write when on-disk bytes already match (modulo the
+            // post-write `alef:hash:` line injected by `finalize_hashes`).
+            // `std::fs::write` is unconditional truncate+write; updating mtime
+            // on identical content trips pre-commit/prek's modification check
+            // and breaks every alef-driven hook for downstream repos.
+            if let Ok(existing) = std::fs::read_to_string(&full_path) {
+                let existing_body = crate::core::hash::strip_hash_line(&existing);
+                let normalized_body = crate::core::hash::strip_hash_line(&normalized);
+                if existing_body == normalized_body {
+                    apply_shebang_chmod(&full_path, &normalized)?;
+                    debug!("  unchanged: {}", full_path.display());
+                    return Ok(());
+                }
+            }
+            std::fs::write(&full_path, &normalized)
+                .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
+            apply_shebang_chmod(&full_path, &normalized)?;
+            debug!("  wrote: {}", full_path.display());
         }
-        std::fs::write(&full_path, &normalized)
-            .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
-        apply_shebang_chmod(&full_path, &normalized)?;
-        debug!("  wrote: {}", full_path.display());
         Ok(())
     })?;
 

@@ -154,6 +154,13 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
                 content: GRADLE_WRAPPER_WINDOWS.to_string(),
                 generated_header: false,
             });
+            // Emit gradle-wrapper.jar as base64-encoded content.
+            // The file writer will detect the .jar extension and decode it automatically.
+            files.push(GeneratedFile {
+                path: output_base.join("gradle/wrapper/gradle-wrapper.jar"),
+                content: get_gradle_wrapper_jar_base64().to_string(),
+                generated_header: false,
+            });
         }
 
         // Generate test files per category. Path mirrors the configured Kotlin
@@ -262,6 +269,15 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Return the gradle-wrapper.jar content as base64-encoded string.
+/// This JAR is the official Gradle 8.5 wrapper JAR from the Gradle project.
+/// It is stored as base64 so it can be embedded as a string and decoded at write time.
+fn get_gradle_wrapper_jar_base64() -> &'static str {
+    // Gradle 8.5 wrapper JAR (42KB) encoded as base64.
+    // Source: https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar
+    include_str!("../../../assets/gradle-wrapper-8.5.jar.b64")
+}
 
 /// Returns true when `ty` is a `Named(T)` reference (or `Optional<Named(T)>`)
 /// where `T` is **not** a known struct name. Such fields are enum-typed and
@@ -1085,6 +1101,25 @@ mod tests {
         assert!(
             GRADLE_WRAPPER_WINDOWS.contains("org.gradle.wrapper.GradleWrapperMain"),
             "gradlew.bat must invoke GradleWrapperMain"
+        );
+    }
+
+    /// gradle-wrapper.jar must be emitted as base64-encoded content.
+    /// The file writer will detect the .jar extension and decode it automatically.
+    #[test]
+    fn gradle_wrapper_jar_is_base64_encoded() {
+        let jar_b64 = get_gradle_wrapper_jar_base64();
+        // Base64 content should start with the ZIP file magic bytes encoded as base64.
+        // ZIP files start with PK (0x504B), which encodes to "UEsD" in base64.
+        assert!(
+            jar_b64.starts_with("UEsD"),
+            "gradle-wrapper.jar base64 must start with encoded ZIP magic bytes 'UEsD', got:\n{}",
+            &jar_b64[..std::cmp::min(50, jar_b64.len())]
+        );
+        // Base64 should be valid (no newlines in the embedded constant).
+        assert!(
+            !jar_b64.contains('\n'),
+            "gradle-wrapper.jar base64 must not contain newlines"
         );
     }
 }

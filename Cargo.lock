@@ -37,6 +37,7 @@ version = "0.22.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "base64",
  "blake3",
  "clap",
  "criterion",
