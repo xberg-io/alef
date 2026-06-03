@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(php): remove incorrect type-name heuristic that made required `Config`-type parameters optional. The codegen was incorrectly making required parameters optional when their type name matched a pattern (e.g., `ProcessConfig`) and the type had `impl Default`. This conflicted with phpstan, which enforced the Rust signature's requirement. Now respects the IR's explicit `optional` flag; only makes params optional when explicitly marked OR when they follow another optional param (PHP syntax constraint). The `?? new Foo()` fallback is now only applied to params made nullable by the constraint, not to required params with Default impls. `ProcessConfig $config` in PHP wrapper was incorrectly `?ProcessConfig $config = null` with `?? new ProcessConfig()`, now correctly `ProcessConfig $config` (required, no fallback). (`src/backends/php/gen_bindings/mod.rs`)
 - fix(rustler): wrap long `base_url:` in native module header template to satisfy mix format line-length constraints.
 
 ## [0.22.0] - 2026-06-03
