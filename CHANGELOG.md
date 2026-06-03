@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.7] - 2026-06-03
+
+### Fixed
+
 - fix(java): skip method handle emission for opaque-type methods (both instance and static). Opaque types do not have FFI method exports — only `_free` handles for deallocating the opaque pointer itself. The loop that generates method handles in `NativeLib.java` now filters to `!t.is_opaque` to prevent `NoSuchElementException` at JVM clinit when `LIB.find()` tries to locate non-existent symbols like `ts_pack_parser_default`. Java wrappers in opaque-handle classes (`Parser.ofDefault()`, etc.) are pure-Java methods with no FFI calls. This mirrors the fix for `_to_json`/`_from_json` handle gating by opaque-type predicate. (`src/backends/java/gen_bindings/native_lib.rs`)
 
 - fix(e2e/go): gate TestMain mock-server bootstrap on `needs_mock_server || needs_http_tests`, matching the Rust scaffold's bin-emission predicate. Without this, fixtures without HTTP/mock-server still got an unconditional `cargo build --bin mock-server` that failed when the bin was correctly not emitted. (`src/e2e/codegen/go.rs`)
@@ -16,12 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/elixir): emit `Finch.start_link(name: AlefE2EFinch)` before `ExUnit.start()` in both the `uses_harness` (server-pattern) and `has_http_tests` (mock-server) branches of `render_test_helper`. The inline string template was missing the named Finch pool start that the jinja template `test_helper_server.exs.jinja` correctly included, causing `:pool_not_available` on all `Req` calls that reference `finch: AlefE2EFinch`. Added snapshot tests for both branches. (`src/e2e/codegen/elixir.rs`)
 
 - fix(dart): emit `&mut self` receiver and `.inner` borrow for opaque-handle parameters with `is_mut=true` in opaque method bodies. When a core method takes `&mut self` or a param takes `&mut T`, the Dart FRB bridge now correctly propagates mutability. Opaque handle params use `&mut param.inner`; Named transmute params use `&mut` borrow in the transmute expression; From-converted params use `&mut Type::from(param)`. (`src/backends/dart/gen_rust_crate/mod.rs`)
+
 - fix(dart): emit `Vec<Named>` parameter conversions for `is_mut=true` and `is_ref=true` in opaque method bodies. When core takes `&mut [Named]`, the bridge now emits `std::slice::from_raw_parts_mut(...)`; when core takes `&[Named]`, emits `std::slice::from_raw_parts(...)` to convert the transmuted Vec into a proper slice. Also handle From-converted Vec<Named> with `is_ref=true`. (`src/backends/dart/gen_rust_crate/mod.rs`)
-- fix(dart): add `collect::<Vec<_>>()` turbofish in opaque method body field-conversion closures. Bare `collect()` in optional Vec<Named> element-conversions triggered E0282 type inference failures. All call sites now use explicit turbofish. (`src/backends/dart/gen_rust_crate/mod.rs`)
+
+- fix(dart): add `collect::<Vec<_>>()` turbofish in opaque method body field-conversion closures. Bare `collect()` in optional Vec<Named> element-conversions triggered E0282 type inference failures. All call sites now use explicit turbofish. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
+
 - fix(dart): use `display().to_string()` instead of `to_string()` for scalar `Path` return casts. PathBuf does not implement Display; the fix mirrors the existing Vec<Path> handling. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
+
 - fix(napi, wasm): wrap per-verb registration shortcuts (`get`, `post`, ...) inside an `impl App` block in the generated `service.rs`. The previous emission produced top-level `pub fn get(&mut self, ...)` free functions which is invalid Rust outside an impl context. (`src/backends/napi/gen_bindings/service_api.rs`, `src/backends/wasm/gen_bindings/service_api.rs`)
+
 - fix(e2e/python): add snapshot test asserting OPTIONS preflight handler is emitted for CORS-enabled fixtures in `app_harness.py`. The template fix from commit 39d43c375 was still present; the snapshot test guards against future regressions. (`src/e2e/codegen/python/config.rs`)
+
 - fix(e2e/go): emit `net/http` and `strings` imports in `main_test.go` only for the mock-server path (`has_http_fixtures=false`). When `has_http_fixtures=true` the harness path uses `net.DialTimeout`/`io.Copy` instead; the previous unconditional emission caused `imported and not used` compile errors. (`src/e2e/codegen/go.rs`)
+
 - fix(e2e/ruby): add snapshot test asserting `Errno::EADDRINUSE` retry block and `HARNESS_PORT=` output are present in generated `app_harness.rb`. The template fix from commit 9bd6fba0e was still present; the snapshot test guards against future regressions. (`src/e2e/codegen/ruby.rs`)
 
 ## [0.22.6] - 2026-06-03
@@ -64,9 +75,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e): preserve lock files during `alef test-apps generate --clean`. The `--clean` flag unconditionally deleted entire language directories, including `go.sum` and other dependency lock files generators should not own. Cleanup now saves and restores all known lock files (go.sum, go.mod, package-lock.json, pnpm-lock.yaml, yarn.lock, Gemfile.lock, composer.lock, uv.lock, pubspec.lock). (`src/main.rs`)
 - fix(swift): substitute `__ALEF_SWIFT_VERSION__` in root `Package.swift` during `alef sync-versions`. The version sync pipeline had no handler for the root `Package.swift` seed file, which uses a binary URL placeholder instead of a `from:` bound. Added explicit sync logic and drift verification. (`src/cli/pipeline/version.rs`)
 - fix(ruby): drop comma-joined upper bound from `RB_SYS` gem constraint and from the scaffolded Cargo dep. Bundler's gemspec DSL rejects comma-joined requirements ("Illformed requirement"), and the Cargo dep no longer pins an upper bound either. The 0.9.128 mingw sysroot issue is enforced at the cross-compile layer (downstream `gem install rb_sys -v '< 0.9.128'` in publish workflows), not in published constraints. (`src/core/template_versions.rs`, `src/scaffold/languages/ruby.rs`)
-
-## [Unreleased]
-
 
 ## [0.22.5] - 2026-06-03
 

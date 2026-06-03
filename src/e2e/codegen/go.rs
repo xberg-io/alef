@@ -5044,16 +5044,17 @@ mod tests {
 
     #[test]
     fn main_test_go_http_fixtures_omits_net_http_and_strings_imports() {
-        // When has_http_fixtures=true, the harness-pattern path uses net.DialTimeout + io.Copy.
+        // When needs_mock_server_bootstrap=false (HTTP-fixtures harness path), the bootstrap uses
+        // net.DialTimeout + io.Copy for readiness polling.
         // "net/http" and "strings" are NOT referenced, so they must not be imported.
-        let out = render_main_test_go("testing_data", true);
+        let out = render_main_test_go("testing_data", false);
         assert!(
             !out.contains("\t\"net/http\""),
-            "main_test.go (http-fixtures path) must NOT import net/http; got:\n{out}"
+            "main_test.go (http-fixtures harness path) must NOT import net/http; got:\n{out}"
         );
         assert!(
             !out.contains("\t\"strings\""),
-            "main_test.go (http-fixtures path) must NOT import strings; got:\n{out}"
+            "main_test.go (http-fixtures harness path) must NOT import strings; got:\n{out}"
         );
         // But it must still import "net" and "io" for the harness path
         assert!(out.contains("\t\"net\""), "must import net; got:\n{out}");
@@ -5062,25 +5063,25 @@ mod tests {
 
     #[test]
     fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
-        // When has_http_fixtures=false, the mock-server readiness-poll path uses
-        // http.Get (net/http) and strings.HasPrefix/TrimPrefix — both must be imported.
-        let out = render_main_test_go("testing_data", false);
+        // When needs_mock_server_bootstrap=true (mock-server path for function-call fixtures),
+        // http.Get (net/http) and strings.HasPrefix/TrimPrefix are used — both must be imported.
+        let out = render_main_test_go("testing_data", true);
         assert!(
             out.contains("\t\"net/http\""),
-            "main_test.go (non-http path) must import net/http; got:\n{out}"
+            "main_test.go (mock-server bootstrap path) must import net/http; got:\n{out}"
         );
         assert!(
             out.contains("\t\"strings\""),
-            "main_test.go (non-http path) must import strings; got:\n{out}"
+            "main_test.go (mock-server bootstrap path) must import strings; got:\n{out}"
         );
-        // And must NOT import "net" or "io" (those are http-fixtures-only)
+        // And must NOT import "net" or "io" (those are http-fixtures harness path only)
         assert!(
             !out.contains("\t\"net\""),
-            "main_test.go (non-http path) must NOT import net; got:\n{out}"
+            "main_test.go (mock-server bootstrap path) must NOT import net; got:\n{out}"
         );
         assert!(
             !out.contains("\t\"io\""),
-            "main_test.go (non-http path) must NOT import io; got:\n{out}"
+            "main_test.go (mock-server bootstrap path) must NOT import io; got:\n{out}"
         );
     }
 }

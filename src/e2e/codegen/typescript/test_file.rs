@@ -85,6 +85,30 @@ pub fn render_test_file(
 
     let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
+    // `_alefE2eDecompressAndParseJson` is also referenced by `http_test.jinja` when an HTTP
+    // fixture declares a non-string JSON body, a partial body, or validation errors.
+    // Emit the helper for HTTP-only files that would trigger these branches so the
+    // generated test file compiles without "cannot find function" errors.
+    let http_fixtures_need_decompress_helper = fixtures.iter().any(|f| {
+        let Some(http) = &f.http else { return false };
+        let has_json_body = http
+            .expected_response
+            .body
+            .as_ref()
+            .is_some_and(|b| !b.is_null() && !b.is_string());
+        let has_partial_body = http
+            .expected_response
+            .body_partial
+            .as_ref()
+            .is_some_and(|b| b.is_object());
+        let has_validation_errors = http
+            .expected_response
+            .validation_errors
+            .as_ref()
+            .is_some_and(|v| !v.is_empty());
+        has_json_body || has_partial_body || has_validation_errors
+    });
+
     // Extract nested_types and enum_fields from the call override if available.
     let override_config = e2e_config.call.overrides.get(lang);
     let nested_types = override_config.map(|o| o.nested_types.clone()).unwrap_or_default();
@@ -404,8 +428,10 @@ pub fn render_test_file(
         }
     }
 
-    // Build helper functions string
-    let helper_functions = if has_non_http_fixtures {
+    // Build helper functions string.
+    // Emit for non-HTTP fixtures (tree assertions) AND for HTTP-only files that reference
+    // `_alefE2eDecompressAndParseJson` (JSON body / partial body / validation error assertions).
+    let helper_functions = if has_non_http_fixtures || http_fixtures_need_decompress_helper {
         crate::e2e::template_env::render("typescript/helpers.jinja", minijinja::context! {})
     } else {
         String::new()
@@ -2220,5 +2246,84 @@ type_prefix = "Js"
             .map(|g| format!("{}.test.ts", sanitize_filename(&g.category)))
             .collect();
         assert_eq!(names, vec!["basic_tests.test.ts", "edge_cases.test.ts"]);
+    }
+
+    /// An HTTP-only test file whose fixture has a JSON body assertion must still emit
+    /// `_alefE2eDecompressAndParseJson` in the helper_functions block.  The previous
+    /// implementation only emitted the helper when `has_non_http_fixtures` was true,
+    /// causing "cannot find function" compile errors for HTTP-only categories with
+    /// JSON response bodies, partial bodies, or validation-error assertions.
+    #[test]
+    fn http_only_test_file_with_json_body_emits_decompress_helper() {
+        use crate::e2e::config::E2eConfig;
+        use crate::e2e::fixture::{Fixture, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
+
+        let fixture = Fixture {
+            id: "get_user_returns_json".to_string(),
+            category: Some("users".to_string()),
+            description: "GET /user returns JSON object".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: String::new(),
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/user".to_string(),
+                    method: "GET".to_string(),
+                    body_schema: None,
+                    parameters: Default::default(),
+                    middleware: None,
+                },
+                request: HttpRequest {
+                    method: "GET".to_string(),
+                    path: "/user".to_string(),
+                    headers: Default::default(),
+                    query_params: Default::default(),
+                    cookies: Default::default(),
+                    body: None,
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 200,
+                    body: Some(serde_json::json!({"id": 1, "name": "Alice"})),
+                    body_partial: None,
+                    headers: Default::default(),
+                    validation_errors: None,
+                },
+            }),
+        };
+
+        let fixtures = vec![&fixture];
+        let e2e_config = E2eConfig::default();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+
+        let output = render_test_file(
+            "node",
+            "users",
+            &fixtures,
+            "",
+            "my-lib",
+            "processText",
+            &[],
+            None,
+            None,
+            &e2e_config,
+            &[],
+            &[],
+            "",
+            &config,
+        );
+
+        assert!(
+            output.contains("_alefE2eDecompressAndParseJson"),
+            "HTTP-only test file with JSON body must emit _alefE2eDecompressAndParseJson helper;\n\
+             actual output:\n{output}"
+        );
     }
 }
