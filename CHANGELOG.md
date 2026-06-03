@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(napi): restore `..Default::default()` in `ConversionOptions` literal in `gen_options_field_bridge_function`. The Phase 1D refactor accidentally replaced the spread expression with a stray `\n` escape, producing invalid Rust (`\n })`) in the generated `crates/*-node/src/lib.rs` `convert` function whenever a `visitor` kwarg coexists with an options struct. Surfaced as `error[E0560]: struct ConversionOptions has no field named n` on every napi binding regen against alef 0.21.7. (`src/backends/napi/trait_bridge.rs`)
 - fix(e2e/ruby): discover dynamic port via TCPServer probe in app_harness.rb and read HARNESS_PORT= from stdout in spec_helper to avoid port collision across sequential test runs (#132)
+
+### Added
+
+- feat(e2e/homebrew): expose `[[crates.e2e.registry.packages.homebrew.cli_tests]]` array so consumers can declare arbitrary CLI test steps (name/command/expect_contains/skip) in `alef.toml`. The generator now drives `run_tests.sh` from this list and only emits FFI sections when `ffi_formula` is set, removing the previous hardcoded `sample-markdown` shape. (`src/core/config/e2e.rs`, `src/e2e/codegen/homebrew.rs`)
 
 ## [0.21.7] - 2026-06-03
 

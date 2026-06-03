@@ -489,8 +489,9 @@ fn render_mix_exs(
         ));
     }
 
-    // Add Req + Jason for HTTP testing.
+    // Add Req + Jason + Finch for HTTP testing.
     if has_http_tests {
+        deps.push(format!("      {{:finch, \"{finch}\"}}", finch = tv::hex::FINCH));
         deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
         deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));
     }

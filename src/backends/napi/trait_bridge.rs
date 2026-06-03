@@ -905,7 +905,8 @@ pub fn gen_options_field_bridge_function(
          }}).or_else(|| {{\n    \
          if {visitor_kwarg}_handle.is_some() {{\n    \
          Some({core_import}::ConversionOptions {{\n    \
-         {field_name}: {visitor_kwarg}_handle.clone(),\n    \\n    \
+         {field_name}: {visitor_kwarg}_handle.clone(),\n    \
+         ..Default::default()\n    \
          }})\n    \
          }} else {{\n    \
          None\n    \

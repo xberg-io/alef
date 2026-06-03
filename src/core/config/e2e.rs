@@ -511,6 +511,12 @@ impl E2eConfig {
                     tap: r.tap.clone().or_else(|| b.tap.clone()),
                     cli_formula: r.cli_formula.clone().or_else(|| b.cli_formula.clone()),
                     ffi_formula: r.ffi_formula.clone().or_else(|| b.ffi_formula.clone()),
+                    // Registry cli_tests win; fall back to base when registry has none.
+                    cli_tests: if r.cli_tests.is_empty() {
+                        b.cli_tests.clone()
+                    } else {
+                        r.cli_tests.clone()
+                    },
                 }),
                 (None, Some(r)) => Some(r.clone()),
                 (Some(b), None) => Some(b.clone()),
@@ -1447,6 +1453,47 @@ fn default_true() -> bool {
     true
 }
 
+/// A single CLI test entry for the Homebrew test_app generator.
+///
+/// Each entry describes one test step in `run_tests.sh`.  The `command`
+/// field is a verbatim shell fragment; the following variables are already
+/// exported by `run_tests.sh` when the fragment is evaluated:
+///
+/// - `$CLI_FORMULA` — the CLI binary name (from `cli_formula`)
+/// - `$VERSION` — the package version
+/// - `$TAP` — the Homebrew tap (e.g. `"myorg/tap"`)
+/// - `$SCRIPT_DIR` — absolute directory of `run_tests.sh`
+///
+/// If `expect_contains` is set the test passes only when the command's
+/// combined stdout+stderr contains the given substring; otherwise a zero
+/// exit code is sufficient.
+///
+/// Example `alef.toml`:
+///
+/// ```toml
+/// [[crates.e2e.registry.packages.homebrew.cli_tests]]
+/// name = "version"
+/// command = "$CLI_FORMULA --version"
+/// expect_contains = "$VERSION"
+///
+/// [[crates.e2e.registry.packages.homebrew.cli_tests]]
+/// name = "convert-h1"
+/// command = "echo '<h1>Hi</h1>' | $CLI_FORMULA"
+/// expect_contains = "# Hi"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HomebrewCliTest {
+    /// Short identifier used in `PASS:` / `FAIL:` reporting.
+    pub name: String,
+    /// Shell fragment executed verbatim; variables `$CLI_FORMULA`, `$VERSION`,
+    /// `$TAP`, and `$SCRIPT_DIR` are in scope.
+    pub command: String,
+    /// Substring that must appear in the combined stdout+stderr output.
+    /// When `None` a zero exit code is sufficient.
+    #[serde(default)]
+    pub expect_contains: Option<String>,
+}
+
 /// Per-language package reference configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PackageRef {
@@ -1481,9 +1528,21 @@ pub struct PackageRef {
     pub cli_formula: Option<String>,
     /// Homebrew FFI shared-library formula name (e.g., `"libsample-markdown"`).
     ///
+    /// When not set, FFI-related sections (Brewfile entry, compile/run block,
+    /// `ffi_smoke.c`) are omitted from the generated test_app.
+    ///
     /// Used by the `homebrew` test_app generator.
     #[serde(default)]
     pub ffi_formula: Option<String>,
+    /// CLI test steps for the Homebrew test_app generator.
+    ///
+    /// When empty (the default) a single default `--version` check is emitted
+    /// that asserts `$VERSION` appears in the output.  Provide explicit entries
+    /// to replace the default entirely.
+    ///
+    /// Used by the `homebrew` test_app generator.
+    #[serde(default)]
+    pub cli_tests: Vec<HomebrewCliTest>,
 }
 
 #[cfg(test)]
@@ -1874,6 +1933,101 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(cfg.effective_fields_c_types(&call), &per_call);
+    }
+
+    // --- HomebrewCliTest / PackageRef.cli_tests ---
+
+    #[test]
+    fn package_ref_cli_tests_default_is_empty() {
+        let pkg = PackageRef::default();
+        assert!(pkg.cli_tests.is_empty());
+    }
+
+    #[test]
+    fn package_ref_cli_tests_deserializes_from_toml() {
+        let toml_src = r#"
+[call]
+function = "f"
+
+[[registry.packages.homebrew.cli_tests]]
+name = "version"
+command = "$CLI_FORMULA --version"
+expect_contains = "$VERSION"
+
+[[registry.packages.homebrew.cli_tests]]
+name = "help"
+command = "$CLI_FORMULA --help"
+"#;
+        let cfg: E2eConfig = toml::from_str(toml_src).expect("must deserialize");
+        let tests = &cfg.registry.packages["homebrew"].cli_tests;
+        assert_eq!(tests.len(), 2);
+        assert_eq!(tests[0].name, "version");
+        assert_eq!(tests[0].command, "$CLI_FORMULA --version");
+        assert_eq!(tests[0].expect_contains.as_deref(), Some("$VERSION"));
+        assert_eq!(tests[1].name, "help");
+        assert_eq!(tests[1].command, "$CLI_FORMULA --help");
+        assert!(tests[1].expect_contains.is_none());
+    }
+
+    #[test]
+    fn resolve_package_cli_tests_registry_wins_over_base() {
+        let toml_src = r#"
+[call]
+function = "f"
+
+[packages.homebrew]
+cli_formula = "mytool"
+
+[[packages.homebrew.cli_tests]]
+name = "base-check"
+command = "$CLI_FORMULA base"
+
+[[registry.packages.homebrew.cli_tests]]
+name = "registry-check"
+command = "$CLI_FORMULA registry"
+expect_contains = "ok"
+"#;
+        let mut cfg: E2eConfig = toml::from_str(toml_src).expect("must deserialize");
+        cfg.dep_mode = DependencyMode::Registry;
+        let resolved = cfg.resolve_package("homebrew").expect("must resolve");
+        assert_eq!(resolved.cli_tests.len(), 1);
+        assert_eq!(resolved.cli_tests[0].name, "registry-check");
+    }
+
+    #[test]
+    fn resolve_package_cli_tests_falls_back_to_base_when_registry_empty() {
+        let toml_src = r#"
+[call]
+function = "f"
+
+[[packages.homebrew.cli_tests]]
+name = "base-check"
+command = "$CLI_FORMULA base"
+
+[registry.packages.homebrew]
+cli_formula = "mytool"
+"#;
+        let mut cfg: E2eConfig = toml::from_str(toml_src).expect("must deserialize");
+        cfg.dep_mode = DependencyMode::Registry;
+        let resolved = cfg.resolve_package("homebrew").expect("must resolve");
+        assert_eq!(resolved.cli_tests.len(), 1);
+        assert_eq!(resolved.cli_tests[0].name, "base-check");
+    }
+
+    #[test]
+    fn package_ref_ffi_formula_is_optional_with_no_default() {
+        // ffi_formula must NOT default to anything when absent.
+        let toml_src = r#"
+[call]
+function = "f"
+
+[registry.packages.homebrew]
+cli_formula = "mytool"
+tap = "myorg/tap"
+"#;
+        let cfg: E2eConfig = toml::from_str(toml_src).expect("must deserialize");
+        let pkg = &cfg.registry.packages["homebrew"];
+        assert!(pkg.ffi_formula.is_none(), "ffi_formula must be None when not configured");
     }
 
     #[test]
