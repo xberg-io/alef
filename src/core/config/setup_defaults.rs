@@ -182,7 +182,9 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
         Language::Kotlin | Language::KotlinAndroid => SetupConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
-            install: Some(StringOrVec::Single("gradle build --refresh-dependencies".to_string())),
+            install: Some(StringOrVec::Single(
+                "gradle --no-daemon dependencies --refresh-dependencies".to_string(),
+            )),
             timeout_seconds: 1800,
             workdir: default_setup_workdir(lang),
         },
