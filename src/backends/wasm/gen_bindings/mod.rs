@@ -84,6 +84,70 @@ fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) -> bool {
     true
 }
 
+/// Extract every `feature = "X"` referenced by a cfg expression.
+///
+/// Recursively descends through `any(...)`, `all(...)`, and `not(...)` so that
+/// the wasm Cargo.toml emitter can declare a passthrough Cargo feature for
+/// every feature the generated source references. Without this, items emitted
+/// behind `#[cfg(feature = "X")]` produce
+/// `error: unexpected cfg condition value: X` when the binding crate's
+/// `Cargo.toml` only declares an unrelated feature list (e.g. `wasm-target`).
+///
+/// Unknown cfg patterns (`target_arch`, `target_os`, ...) yield no features
+/// — those are recognised by Cargo directly and don't need passthroughs.
+fn collect_cfg_feature_names(cfg_str: &str, out: &mut std::collections::BTreeSet<String>) {
+    let normalized = cfg_str.trim().replace(" (", "(");
+    let cfg_str = normalized.as_str();
+
+    if let Some(feature) = cfg_str.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
+        out.insert(feature.to_string());
+        return;
+    }
+    if let Some(inner) = cfg_str
+        .strip_prefix("any(")
+        .and_then(|s| s.strip_suffix(')'))
+        .or_else(|| cfg_str.strip_prefix("all(").and_then(|s| s.strip_suffix(')')))
+    {
+        for cond in parse_cfg_list(inner) {
+            collect_cfg_feature_names(&cond, out);
+        }
+        return;
+    }
+    if let Some(inner) = cfg_str.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
+        collect_cfg_feature_names(inner.trim(), out);
+    }
+}
+
+/// Walk the full [`ApiSurface`] and return the set of feature names referenced
+/// by any cfg attribute on a type, field, enum, or top-level function.
+///
+/// The set is sorted (via `BTreeSet`) so the resulting Cargo.toml is stable
+/// across regenerations.
+fn collect_cfg_features(api: &ApiSurface) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for typ in &api.types {
+        if let Some(cfg) = &typ.cfg {
+            collect_cfg_feature_names(cfg, &mut out);
+        }
+        for field in &typ.fields {
+            if let Some(cfg) = &field.cfg {
+                collect_cfg_feature_names(cfg, &mut out);
+            }
+        }
+    }
+    for enum_def in &api.enums {
+        if let Some(cfg) = &enum_def.cfg {
+            collect_cfg_feature_names(cfg, &mut out);
+        }
+    }
+    for func in &api.functions {
+        if let Some(cfg) = &func.cfg {
+            collect_cfg_feature_names(cfg, &mut out);
+        }
+    }
+    out
+}
+
 fn parse_cfg_list(s: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut depth = 0usize;
@@ -878,6 +942,26 @@ fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
         format!("\n{}", extra_dep_lines.join("\n"))
     };
 
+    // Collect every feature name referenced by a cfg attribute on a generated
+    // item, minus those already in the explicit `features` clause (which are
+    // forwarded to the core crate, not toggleable on the binding crate). Each
+    // remaining name becomes a passthrough Cargo feature on the binding crate
+    // so `cargo check` does not error with `unexpected cfg condition value`.
+    let explicit_features: std::collections::BTreeSet<String> = features.iter().cloned().collect();
+    let passthrough_features: Vec<String> = collect_cfg_features(api)
+        .into_iter()
+        .filter(|name| !explicit_features.contains(name))
+        .collect();
+    let features_table = if passthrough_features.is_empty() {
+        String::new()
+    } else {
+        let lines: Vec<String> = passthrough_features
+            .iter()
+            .map(|name| format!(r#"{name} = ["{core_dep_key}/{name}"]"#))
+            .collect();
+        format!("[features]\n{}\n\n", lines.join("\n"))
+    };
+
     let header = hash::header(CommentStyle::Hash);
 
     // Layout follows cargo-sort canonical order: [package] -> [package.metadata.*]
@@ -954,7 +1038,7 @@ wasm-opt = false
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
+{features_table}[dependencies]
 {deps_block}
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -970,6 +1054,7 @@ getrandom_02 = {{ package = "getrandom", version = "0.2", features = ["js"] }}
         repository = repository,
         keywords_toml = keywords_toml,
         deps_block = deps_block,
+        features_table = features_table,
     )
 }
 #[cfg(test)]
@@ -1064,6 +1149,137 @@ serde = { version = "1", features = ["derive", "rc"] }
             "extra_dependencies override should win:\n{cargo_toml}"
         );
         // The manifest must parse as valid TOML (duplicate keys would fail here).
+        toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
+    }
+
+    #[test]
+    fn collect_cfg_feature_names_extracts_every_feature_reference() {
+        use std::collections::BTreeSet;
+        let mut out = BTreeSet::new();
+        super::collect_cfg_feature_names(r#"feature = "pdf""#, &mut out);
+        super::collect_cfg_feature_names(r#"any(feature = "html", feature = "xml")"#, &mut out);
+        super::collect_cfg_feature_names(
+            r#"all(feature = "layout-types", not(feature = "wasm-target"))"#,
+            &mut out,
+        );
+        // Unknown / non-feature cfg expressions yield nothing.
+        super::collect_cfg_feature_names(r#"target_arch = "wasm32""#, &mut out);
+        let want: BTreeSet<String> = ["html", "layout-types", "pdf", "wasm-target", "xml"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(out, want);
+    }
+
+    #[test]
+    fn cargo_toml_emits_passthrough_features_for_type_cfg_attrs() {
+        // Without passthrough features in the binding Cargo.toml, cargo errors
+        // with `unexpected cfg condition value: pdf` (etc.) for every cfg
+        // attribute the wasm backend emits on generated items.
+        use crate::core::ir::TypeDef;
+
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "PdfThing".to_string(),
+                rust_path: "test_lib::PdfThing".to_string(),
+                cfg: Some(r#"feature = "pdf""#.to_string()),
+                ..Default::default()
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+        let config = make_config();
+        let cargo_toml = super::gen_cargo_toml(&api, &config);
+
+        assert!(
+            cargo_toml.contains(r#"pdf = ["test-lib/pdf"]"#),
+            "expected `pdf = [\"test-lib/pdf\"]` in:\n{cargo_toml}"
+        );
+        assert_eq!(
+            cargo_toml.matches("\n[features]\n").count(),
+            1,
+            "exactly one [features] block expected:\n{cargo_toml}"
+        );
+        toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
+    }
+
+    #[test]
+    fn cargo_toml_omits_features_block_when_no_cfg_attrs() {
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+        let config = make_config();
+        let cargo_toml = super::gen_cargo_toml(&api, &config);
+        assert!(
+            !cargo_toml.contains("[features]"),
+            "expected no [features] block:\n{cargo_toml}"
+        );
+        toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
+    }
+
+    #[test]
+    fn cargo_toml_skips_passthrough_for_explicit_features() {
+        // Features already listed in `[crates.wasm.features]` are forwarded to
+        // the core crate via the dep features clause; they must NOT also
+        // appear as passthrough features (which would be redundant and
+        // confusing in the manifest).
+        use crate::core::ir::TypeDef;
+
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["wasm"]
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+[crates.wasm]
+features = ["wasm-target"]
+"#,
+        )
+        .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "GatedType".to_string(),
+                rust_path: "test_lib::GatedType".to_string(),
+                cfg: Some(r#"any(feature = "wasm-target", feature = "extra")"#.to_string()),
+                ..Default::default()
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+        let cargo_toml = super::gen_cargo_toml(&api, &config);
+        assert!(
+            cargo_toml.contains(r#"extra = ["test-lib/extra"]"#),
+            "expected `extra` passthrough:\n{cargo_toml}"
+        );
+        assert!(
+            !cargo_toml.contains(r#"wasm-target = ["test-lib/wasm-target"]"#),
+            "wasm-target must not be re-emitted as passthrough:\n{cargo_toml}"
+        );
         toml::from_str::<toml::Value>(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
     }
 
