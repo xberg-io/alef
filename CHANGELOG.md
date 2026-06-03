@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.21] - 2026-06-04
+
 ### Fixed
 
 - fix(sync-versions): re-apply the root `Package.swift`
