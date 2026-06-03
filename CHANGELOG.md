@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/python): register OPTIONS preflight handler for CORS-enabled routes. When a fixture declares CORS middleware, the Python harness now emits a separate OPTIONS handler that validates the preflight request (origin, requested method, requested headers) and returns 204 (allowed) or 403 (rejected), matching the TypeScript e2e harness behavior from commit 5ffb09cc2. This fixes the 4 CORS preflight test regressions (cors_preflight_method_not_allowed, cors_preflight_header_not_allowed, cors_max_age, cors_custom_allowed_headers_x_custom) that returned 405 Method Not Allowed instead of the expected 204/403. Mirrors Wave 1D's TS logic in the Python harness template (`src/e2e/templates/python/app_harness.py.jinja`).
+
+## [Unreleased]
+
+### Fixed
+
 - fix(wasm): turbofish in generic `::from()` return expressions. When a WASM function or method returns a generic type (`Vec<T>`, `Option<T>`) via a non-opaque Named IR type, the generated `Type<T>::from(result)` was invalid Rust syntax. Fixed by inserting `::` before the first `<`, producing `Type::<T>::from(result)`. Affects `gen_function_with_emitted_dtos` (`src/backends/wasm/gen_bindings/functions.rs`) and `gen_method` (`src/backends/wasm/gen_bindings/methods.rs`).
 - fix(dart): propagate `is_mut` for Named, opaque-handle, and Vec<Named> parameters in FRB bridge generation. When a core function takes `&mut T`, the bridge emitted immutable borrows. Now `build_named_in_from`, `build_named_in_transmute`, the opaque-handle path, and the Vec<Named>-is_ref transmute path all handle `is_mut=true`, producing `&mut` borrows or `&mut *transmute(...)` casts as appropriate (`src/backends/dart/gen_rust_crate/bridge_fn.rs`).
 - fix(dart): Vec<Named> `is_ref` parameter used raw `*const T` pointer instead of `&[T]` slice. The generated transmute produced `*const CoreT` but the core function expected `&[CoreT]`. Fixed to use `std::slice::from_raw_parts` so the pointer is wrapped in a proper slice (`src/backends/dart/gen_rust_crate/bridge_fn.rs`).
