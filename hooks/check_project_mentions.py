@@ -117,9 +117,7 @@ INFRASTRUCTURE_PATTERNS = tuple(
 DOMAIN_TYPE_PATTERNS = tuple(
     (name, re.compile(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])")) for name in DOWNSTREAM_DOMAIN_TYPES
 )
-SPLIT_DOMAIN_TYPE_PATTERNS = tuple(
-    (name, build_split_domain_type_pattern(name)) for name in DOWNSTREAM_DOMAIN_TYPES
-)
+SPLIT_DOMAIN_TYPE_PATTERNS = tuple((name, build_split_domain_type_pattern(name)) for name in DOWNSTREAM_DOMAIN_TYPES)
 EMBEDDED_DOMAIN_TYPE_PATTERNS = tuple(
     (name, build_embedded_domain_type_pattern(name)) for name in DOWNSTREAM_DOMAIN_TYPES
 )
@@ -215,6 +213,49 @@ def is_split_domain_type_literal(line: str) -> bool:
     return any(pattern.search(line) for _, pattern in SPLIT_DOMAIN_TYPE_PATTERNS)
 
 
+def update_rust_cfg_test_region(
+    path: Path,
+    line: str,
+    pending: bool,
+    depth: int | None,
+) -> tuple[bool, int | None, bool, bool]:
+    started = False
+    if path.suffix == ".rs" and line.strip() == "#[cfg(test)]":
+        pending = True
+    elif pending and path.suffix == ".rs" and "{" in line:
+        depth = line.count("{") - line.count("}")
+        pending = False
+        started = True
+    return pending, depth, depth is not None, started
+
+
+def advance_rust_cfg_test_region(line: str, depth: int | None, started: bool) -> int | None:
+    if depth is None or started:
+        return depth
+    depth += line.count("{") - line.count("}")
+    return None if depth <= 0 else depth
+
+
+def project_violations_for_line(path: Path, line_number: int, line: str) -> list[str]:
+    masked_line = normalize_for_project_mentions(mask_allowed_infrastructure(line))
+    return [
+        f"{path}:{line_number}: forbidden project mention `{name}`"
+        for name, pattern in PATTERNS.items()
+        if pattern.search(masked_line)
+    ]
+
+
+def domain_type_violations_for_line(path: Path, line_number: int, line: str) -> list[str]:
+    violations: list[str] = []
+    for patterns in (DOMAIN_TYPE_PATTERNS, SPLIT_DOMAIN_TYPE_PATTERNS, EMBEDDED_DOMAIN_TYPE_PATTERNS):
+        violations.extend(
+            f"{path}:{line_number}: forbidden downstream domain type `{name}`"
+            for name, pattern in patterns
+            if pattern.search(line)
+        )
+    return violations
+
+
 def violations_for_file(path: Path) -> list[str]:
     if not is_enforced_path(path):
         return []
@@ -227,34 +268,20 @@ def violations_for_file(path: Path) -> list[str]:
     pending_rust_cfg_test = False
     rust_cfg_test_depth: int | None = None
     for line_number, line in enumerate(content.splitlines(), start=1):
-        started_rust_cfg_test_region = False
-        if path.suffix == ".rs" and line.strip() == "#[cfg(test)]":
-            pending_rust_cfg_test = True
-        elif pending_rust_cfg_test and path.suffix == ".rs" and "{" in line:
-            rust_cfg_test_depth = line.count("{") - line.count("}")
-            pending_rust_cfg_test = False
-            started_rust_cfg_test_region = True
-        in_rust_cfg_test_region = rust_cfg_test_depth is not None
-        masked_line = normalize_for_project_mentions(mask_allowed_infrastructure(line))
-        for name, pattern in PATTERNS.items():
-            if pattern.search(masked_line):
-                violations.append(f"{path}:{line_number}: forbidden project mention `{name}`")
-        if is_production_generator_path(path) and not in_rust_cfg_test_region and (
-            is_domain_type_special_case(line) or is_split_domain_type_literal(line)
+        pending_rust_cfg_test, rust_cfg_test_depth, in_rust_cfg_test_region, started = update_rust_cfg_test_region(
+            path,
+            line,
+            pending_rust_cfg_test,
+            rust_cfg_test_depth,
+        )
+        violations.extend(project_violations_for_line(path, line_number, line))
+        if (
+            is_production_generator_path(path)
+            and not in_rust_cfg_test_region
+            and (is_domain_type_special_case(line) or is_split_domain_type_literal(line))
         ):
-            for name, pattern in DOMAIN_TYPE_PATTERNS:
-                if pattern.search(line):
-                    violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
-            for name, pattern in SPLIT_DOMAIN_TYPE_PATTERNS:
-                if pattern.search(line):
-                    violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
-            for name, pattern in EMBEDDED_DOMAIN_TYPE_PATTERNS:
-                if pattern.search(line):
-                    violations.append(f"{path}:{line_number}: forbidden downstream domain type `{name}`")
-        if rust_cfg_test_depth is not None and not started_rust_cfg_test_region:
-            rust_cfg_test_depth += line.count("{") - line.count("}")
-            if rust_cfg_test_depth <= 0:
-                rust_cfg_test_depth = None
+            violations.extend(domain_type_violations_for_line(path, line_number, line))
+        rust_cfg_test_depth = advance_rust_cfg_test_region(line, rust_cfg_test_depth, started)
     return violations
 
 

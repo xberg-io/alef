@@ -1165,17 +1165,18 @@ impl Backend for PhpBackend {
             // We need visible_params twice (for signature reordering and for native call args in IR order),
             // so we clone the references.
             let visible_params_clone = visible_params.clone();
-            let mut params_with_optionality_and_idx: Vec<(usize, &crate::core::ir::ParamDef, bool)> = visible_params_clone
-                .into_iter()
-                .enumerate()
-                .map(|(idx, p)| {
-                    // Make param optional if:
-                    // 1. It's explicitly optional OR
-                    // 2. IR says its named type has a no-arg constructor
-                    let should_be_optional = p.optional || is_optional_default_constructible_param(p);
-                    (idx, p, should_be_optional)
-                })
-                .collect();
+            let mut params_with_optionality_and_idx: Vec<(usize, &crate::core::ir::ParamDef, bool)> =
+                visible_params_clone
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, p)| {
+                        // Make param optional if:
+                        // 1. It's explicitly optional OR
+                        // 2. IR says its named type has a no-arg constructor
+                        let should_be_optional = p.optional || is_optional_default_constructible_param(p);
+                        (idx, p, should_be_optional)
+                    })
+                    .collect();
 
             // Sort: required params first (false), then optional params (true).
             // This ensures PHP 8.1+ doesn't complain about required params after optional ones.
