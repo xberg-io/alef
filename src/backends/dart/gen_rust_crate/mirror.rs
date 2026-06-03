@@ -89,7 +89,8 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
 
 pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     use crate::backends::dart::template_env;
-    let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
+    // Count only non-binding_excluded fields for the unit/data decision.
+    let all_unit = en.variants.iter().all(|v| v.fields.iter().all(|f| f.binding_excluded));
     emit_rust_doc(&en.doc, "", out);
     out.push_str(&template_env::render(
         "rust_mirror_enum_attribute.jinja",
@@ -97,13 +98,13 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
             name => en.name.as_str(),
         },
     ));
+    out.push_str(&template_env::render(
+        "rust_mirror_enum_open.jinja",
+        minijinja::context! {
+            name => en.name.as_str(),
+        },
+    ));
     if all_unit {
-        out.push_str(&template_env::render(
-            "rust_mirror_enum_open.jinja",
-            minijinja::context! {
-                name => en.name.as_str(),
-            },
-        ));
         for variant in &en.variants {
             emit_rust_doc(&variant.doc, "    ", out);
             out.push_str(&template_env::render(
@@ -113,16 +114,12 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                 },
             ));
         }
-        out.push_str("}\n");
     } else {
-        out.push_str(&template_env::render(
-            "rust_mirror_enum_open.jinja",
-            minijinja::context! {
-                name => en.name.as_str(),
-            },
-        ));
         for variant in &en.variants {
-            if variant.fields.is_empty() {
+            // Binding surface fields only — exclude fields marked binding_excluded.
+            let visible_fields: Vec<&_> = variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+            if visible_fields.is_empty() {
+                // All fields are binding_excluded (or variant was already unit): emit as unit.
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_unit_variant.jinja",
@@ -138,7 +135,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                         variant_name => variant.name.as_str(),
                     },
                 ));
-                for (idx, f) in variant.fields.iter().enumerate() {
+                for (idx, f) in visible_fields.iter().enumerate() {
                     // Tuple-variant fields land in the IR as "_0", "_1", ... but
                     // flutter_rust_bridge strips a leading underscore from Dart
                     // field names — leaving an invalid bare digit. Rename any
@@ -164,8 +161,8 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                 ));
             }
         }
-        out.push_str("}\n");
     }
+    out.push_str("}\n");
 }
 
 /// Return the conversion expression to reconstruct a real-type field value from a
@@ -244,7 +241,7 @@ fn field_from_expr(field: &FieldDef, field_expr: &str) -> String {
 /// Sanitized fields represent types that were erased to `String` during
 /// extraction (e.g. `serde_json::Error`). Such originals cannot be recovered
 /// from the mirror, so the entire variant must be skipped in the From impl.
-fn variant_is_reconstructible(fields: &[FieldDef]) -> bool {
+fn variant_is_reconstructible(fields: &[&FieldDef]) -> bool {
     fields.iter().all(|f| !f.sanitized)
 }
 
@@ -257,10 +254,13 @@ fn variant_is_reconstructible(fields: &[FieldDef]) -> bool {
 /// `#[allow(unreachable_patterns)]` is emitted unconditionally to suppress the
 /// compiler warning when all variants are in fact reconstructible.
 fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
-    let any_skipped = error
-        .variants
-        .iter()
-        .any(|v| !v.is_unit && !v.fields.is_empty() && !variant_is_reconstructible(&v.fields));
+    // A variant is "skipped" (needs wildcard arm) only when it has non-binding_excluded fields
+    // that are sanitized (type erased). All-binding_excluded variants and binding_excluded+sanitized
+    // mixes are handled by the arms above.
+    let any_skipped = error.variants.iter().any(|v| {
+        let visible_fields: Vec<&FieldDef> = v.fields.iter().filter(|f| !f.binding_excluded).collect();
+        !v.is_unit && !visible_fields.is_empty() && !variant_is_reconstructible(&visible_fields)
+    });
 
     out.push_str(&format!(
         "\n#[allow(unreachable_patterns)]\nimpl From<&{name}> for {core_path} {{\n    fn from(m: &{name}) -> Self {{\n        match m {{\n",
@@ -268,28 +268,56 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
     ));
     for variant in &error.variants {
         let vname = &variant.name;
-        if variant.is_unit || variant.fields.is_empty() {
+        if variant.is_unit {
             out.push_str(&format!(
                 "            {name}::{vname} => Self::{vname},\n",
                 name = error.name
             ));
-        } else if !variant_is_reconstructible(&variant.fields) {
-            // Sanitized fields cannot be reconstructed — skip this arm and rely
-            // on the wildcard below for exhaustiveness.
-            continue;
-        } else {
-            // Detect tuple variants: all fields have positional names ("_0", "_1", …)
-            // as set by the extractor for `syn::Fields::Unnamed`. Named struct variants
-            // have real field names that don't start with `_`.
-            let is_tuple_variant = variant
+        } else if !variant.is_unit && variant.is_tuple && variant.fields.iter().all(|f| f.binding_excluded) {
+            // Tuple variant with all fields binding_excluded: mirror has a dummy `field0: String`
+            // (emitted by emit_mirror_error), so FRB generates struct-syntax patterns.
+            // Reconstruct the core variant with Default::default() for the stripped field.
+            out.push_str(&format!(
+                "            {name}::{vname} {{ field0: _ }} => Self::{vname}(Default::default()),\n",
+                name = error.name
+            ));
+        } else if !variant.is_unit && variant.fields.is_empty() {
+            // Non-unit variant with no fields at all in IR (edge case): treat as unit.
+            out.push_str(&format!(
+                "            {name}::{vname} => Self::{vname},\n",
+                name = error.name
+            ));
+        } else if variant.fields.iter().all(|f| f.binding_excluded) {
+            // Non-tuple variant with all fields binding_excluded: struct variant, init with defaults.
+            let args: Vec<String> = variant
                 .fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            out.push_str(&format!(
+                "            {name}::{vname} => Self::{vname} {{ {} }},\n",
+                args.join(", "),
+                name = error.name
+            ));
+        } else {
+            // Mixed or fully-visible fields. Use only non-binding_excluded fields for the
+            // mirror-side pattern; binding_excluded fields are initialized with Default::default().
+            let visible_fields: Vec<&FieldDef> =
+                variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+
+            if !variant_is_reconstructible(&visible_fields) {
+                // Sanitized visible fields cannot be reconstructed — skip this arm.
+                continue;
+            }
+
+            // Detect tuple variants: all VISIBLE fields have positional names ("_0", "_1", …).
+            let is_tuple_variant = visible_fields
                 .iter()
                 .all(|f| f.name.is_empty() || f.name.starts_with('_'));
 
             // Collect display field names (matching emit_mirror_error's rename logic):
             // positional "_N" names become "fieldN" because FRB strips leading underscores.
-            let field_names: Vec<String> = variant
-                .fields
+            let field_names: Vec<String> = visible_fields
                 .iter()
                 .enumerate()
                 .map(|(idx, f)| {
@@ -316,8 +344,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
             // Constructor: tuple variants need positional syntax `Self::Variant(f0, f1)`;
             // struct variants need named syntax `Self::Variant { name: expr }`.
             if is_tuple_variant {
-                let args: Vec<String> = variant
-                    .fields
+                let mut args: Vec<String> = visible_fields
                     .iter()
                     .enumerate()
                     .map(|(i, f)| {
@@ -325,13 +352,22 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                         field_from_expr(f, &format!("f_{fname}"))
                     })
                     .collect();
+                // Append Default::default() for any binding_excluded positional fields.
+                let excluded_count = variant.fields.iter().filter(|f| f.binding_excluded).count();
+                for _ in 0..excluded_count {
+                    args.push("Default::default()".to_string());
+                }
                 out.push_str(&format!("                Self::{vname}({})\n", args.join(", "),));
             } else {
                 let mut real_fields: Vec<String> = Vec::new();
-                for (i, f) in variant.fields.iter().enumerate() {
+                for (i, f) in visible_fields.iter().enumerate() {
                     let fname = &field_names[i];
                     let expr = field_from_expr(f, &format!("f_{fname}"));
                     real_fields.push(format!("                    {fname}: {expr}"));
+                }
+                // Append Default::default() for binding_excluded named fields.
+                for f in variant.fields.iter().filter(|f| f.binding_excluded) {
+                    real_fields.push(format!("                    {}: Default::default()", f.name));
                 }
                 out.push_str(&format!(
                     "                Self::{vname} {{\n{},\n                }}\n",
@@ -389,32 +425,67 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
                     variant_name => variant.name.as_str(),
                 },
             ));
-        } else {
+        } else if !variant.is_unit && variant.is_tuple && variant.fields.iter().all(|f| f.binding_excluded) {
+            // Tuple error variant with all fields binding_excluded (retained in IR).
+            // Emit a dummy `String` field so FRB generates tuple-style patterns
+            // (`crate::Err::Variant(_)`) against the core type rather than unit-style
+            // patterns (`crate::Err::Variant`), which would cause E0533.
             out.push_str(&template_env::render(
                 "rust_mirror_enum_data_variant_open.jinja",
                 minijinja::context! {
                     variant_name => variant.name.as_str(),
                 },
             ));
-            for (idx, f) in variant.fields.iter().enumerate() {
-                let fname = if f.name.is_empty() || f.name.starts_with('_') {
-                    format!("field{idx}")
-                } else {
-                    f.name.clone()
-                };
-                let rust_ty = frb_rust_type_inner(&f.ty);
-                out.push_str(&template_env::render(
-                    "rust_mirror_enum_data_variant_field.jinja",
-                    minijinja::context! {
-                        field_name => fname,
-                        rust_ty => rust_ty,
-                    },
-                ));
-            }
+            out.push_str(&template_env::render(
+                "rust_mirror_enum_data_variant_field.jinja",
+                minijinja::context! {
+                    field_name => "field0",
+                    rust_ty => "String",
+                },
+            ));
             out.push_str(&template_env::render(
                 "rust_mirror_enum_data_close.jinja",
                 minijinja::context! {},
             ));
+        } else {
+            // Emit only non-binding_excluded fields in the mirror.
+            let visible_fields: Vec<&FieldDef> =
+                variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+            if visible_fields.is_empty() {
+                // All fields are binding_excluded but not tuple — emit as unit.
+                out.push_str(&template_env::render(
+                    "rust_mirror_enum_unit_variant.jinja",
+                    minijinja::context! {
+                        variant_name => variant.name.as_str(),
+                    },
+                ));
+            } else {
+                out.push_str(&template_env::render(
+                    "rust_mirror_enum_data_variant_open.jinja",
+                    minijinja::context! {
+                        variant_name => variant.name.as_str(),
+                    },
+                ));
+                for (idx, f) in visible_fields.iter().enumerate() {
+                    let fname = if f.name.is_empty() || f.name.starts_with('_') {
+                        format!("field{idx}")
+                    } else {
+                        f.name.clone()
+                    };
+                    let rust_ty = frb_rust_type_inner(&f.ty);
+                    out.push_str(&template_env::render(
+                        "rust_mirror_enum_data_variant_field.jinja",
+                        minijinja::context! {
+                            field_name => fname,
+                            rust_ty => rust_ty,
+                        },
+                    ));
+                }
+                out.push_str(&template_env::render(
+                    "rust_mirror_enum_data_close.jinja",
+                    minijinja::context! {},
+                ));
+            }
         }
     }
     out.push_str("}\n");

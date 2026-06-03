@@ -418,6 +418,7 @@ mod tests {
                     has_source: false,
                     has_from: false,
                     is_unit: false,
+                    is_tuple: false,
                     doc: String::new(),
                 }],
                 doc: String::new(),

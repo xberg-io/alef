@@ -243,7 +243,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
             let message_template = extract_error_message_template(&v.attrs);
             let variant_doc = extract_doc_comments(&v.attrs);
 
-            let (fields, has_source, has_from, is_unit) = match &v.fields {
+            let (fields, has_source, has_from, is_unit, is_tuple) = match &v.fields {
                 syn::Fields::Named(named) => {
                     let mut source = false;
                     let mut from = false;
@@ -261,7 +261,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                             extract_field(f, Some(crate_name))
                         })
                         .collect();
-                    (fields, source, from, false)
+                    (fields, source, from, false, false)
                 }
                 syn::Fields::Unnamed(unnamed) => {
                     let mut source = false;
@@ -304,9 +304,9 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                             }
                         })
                         .collect();
-                    (fields, source, from, false)
+                    (fields, source, from, false, true)
                 }
-                syn::Fields::Unit => (vec![], false, false, true),
+                syn::Fields::Unit => (vec![], false, false, true, false),
             };
 
             ErrorVariant {
@@ -316,6 +316,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                 has_source,
                 has_from,
                 is_unit,
+                is_tuple,
                 doc: variant_doc,
             }
         })

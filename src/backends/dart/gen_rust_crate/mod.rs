@@ -1134,58 +1134,96 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
 
     for variant in &en.variants {
         let vname = &variant.name;
-        if variant.fields.is_empty() {
-            // Unit variant: straightforward.
-            out.push_str(&crate::backends::dart::template_env::render(
-                "rust_enum_unit_to_core_arm.jinja",
-                minijinja::context! {
-                    name => name.as_str(),
-                    vname => vname.as_str(),
-                    core_ty => core_ty.as_str(),
-                },
-            ));
-        } else if variant.is_tuple {
-            // Mirror uses struct syntax (FRB converts tuple variants to named struct variants).
-            // Core uses tuple syntax.
-            let mirror_bindings: Vec<String> = (0..variant.fields.len()).map(|i| format!("field{i}")).collect();
-            let core_args: Vec<String> = variant
-                .fields
-                .iter()
-                .enumerate()
-                .map(|(i, field)| enum_variant_field_conv_to_core(&format!("field{i}"), field))
-                .collect();
-            out.push_str(&crate::backends::dart::template_env::render(
-                "rust_enum_tuple_to_core_arm.jinja",
-                minijinja::context! {
-                    name => name.as_str(),
-                    vname => vname.as_str(),
-                    core_ty => core_ty.as_str(),
-                    mirror_bindings => mirror_bindings.join(", "),
-                    core_args => core_args.join(", "),
-                },
-            ));
+        if variant.originally_had_data_fields {
+            // All fields are binding_excluded (retained in IR). The mirror variant is a
+            // unit variant, but the core type still has struct/tuple fields. Reconstruct
+            // the core variant initializing every stripped field with Default::default().
+            // Retained binding_excluded fields provide the field names.
+            let stripped_fields: Vec<&crate::core::ir::FieldDef> =
+                variant.fields.iter().filter(|f| f.binding_excluded).collect();
+            if variant.is_tuple {
+                // Core: Variant(field0_default, field1_default, ...)
+                let args: Vec<String> = stripped_fields.iter().map(|_| "Default::default()".to_string()).collect();
+                out.push_str(&format!(
+                    "            {name}::{vname} => {core_ty}::{vname}({}),\n",
+                    args.join(", ")
+                ));
+            } else {
+                // Core: Variant { field0: Default::default(), field1: Default::default(), ... }
+                let args: Vec<String> = stripped_fields
+                    .iter()
+                    .map(|f| format!("{}: Default::default()", f.name))
+                    .collect();
+                out.push_str(&format!(
+                    "            {name}::{vname} => {core_ty}::{vname} {{ {} }},\n",
+                    args.join(", ")
+                ));
+            }
         } else {
-            // Struct variant: named fields on both sides.
-            let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
-            let core_args: Vec<String> = variant
-                .fields
-                .iter()
-                .map(|field| {
-                    let fname = &field.name;
-                    let conv = enum_variant_field_conv_to_core(fname, field);
-                    format!("{fname}: {conv}")
-                })
-                .collect();
-            out.push_str(&crate::backends::dart::template_env::render(
-                "rust_enum_struct_to_core_arm.jinja",
-                minijinja::context! {
-                    name => name.as_str(),
-                    vname => vname.as_str(),
-                    core_ty => core_ty.as_str(),
-                    field_names => field_names.join(", "),
-                    core_args => core_args.join(", "),
-                },
-            ));
+            // Visible (non-binding_excluded) fields for the mirror side.
+            let visible_fields: Vec<&crate::core::ir::FieldDef> =
+                variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+            if visible_fields.is_empty() {
+                // True unit variant (no fields at all, not a stripped variant).
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_enum_unit_to_core_arm.jinja",
+                    minijinja::context! {
+                        name => name.as_str(),
+                        vname => vname.as_str(),
+                        core_ty => core_ty.as_str(),
+                    },
+                ));
+            } else if variant.is_tuple {
+                // Mirror uses struct syntax (FRB converts tuple variants to named struct variants).
+                // Core uses tuple syntax.
+                let mirror_bindings: Vec<String> =
+                    (0..visible_fields.len()).map(|i| format!("field{i}")).collect();
+                let core_args: Vec<String> = visible_fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| enum_variant_field_conv_to_core(&format!("field{i}"), field))
+                    .collect();
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_enum_tuple_to_core_arm.jinja",
+                    minijinja::context! {
+                        name => name.as_str(),
+                        vname => vname.as_str(),
+                        core_ty => core_ty.as_str(),
+                        mirror_bindings => mirror_bindings.join(", "),
+                        core_args => core_args.join(", "),
+                    },
+                ));
+            } else {
+                // Struct variant: named visible fields on mirror side + all fields on core side.
+                // Binding_excluded fields are reconstructed with Default::default().
+                let mirror_field_names: Vec<&str> = visible_fields.iter().map(|f| f.name.as_str()).collect();
+                let mut core_args: Vec<String> = visible_fields
+                    .iter()
+                    .map(|field| {
+                        let fname = &field.name;
+                        let conv = enum_variant_field_conv_to_core(fname, field);
+                        format!("{fname}: {conv}")
+                    })
+                    .collect();
+                // Append Default::default() for any binding_excluded fields on the core side.
+                let excluded_args: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .filter(|f| f.binding_excluded)
+                    .map(|f| format!("{}: Default::default()", f.name))
+                    .collect();
+                core_args.extend(excluded_args);
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_enum_struct_to_core_arm.jinja",
+                    minijinja::context! {
+                        name => name.as_str(),
+                        vname => vname.as_str(),
+                        core_ty => core_ty.as_str(),
+                        field_names => mirror_field_names.join(", "),
+                        core_args => core_args.join(", "),
+                    },
+                ));
+            }
         }
     }
 
@@ -1642,7 +1680,29 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
 
     for variant in &en.variants {
         let vname = &variant.name;
-        if variant.fields.is_empty() {
+        // Visible (non-binding_excluded) fields only — binding_excluded fields are retained
+        // in the IR for to-core conversion but must not appear in the mirror.
+        let visible_fields: Vec<&crate::core::ir::FieldDef> =
+            variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+        if variant.originally_had_data_fields {
+            // All fields are binding_excluded. The core type has struct/tuple fields, but
+            // the mirror shows a unit variant. Emit a wildcard pattern so the match arm
+            // covers the core variant without E0533.
+            let template = if variant.is_tuple {
+                "rust_enum_tuple_stripped_from_core_arm.jinja"
+            } else {
+                "rust_enum_struct_stripped_from_core_arm.jinja"
+            };
+            out.push_str(&crate::backends::dart::template_env::render(
+                template,
+                minijinja::context! {
+                    core_ty => core_ty.as_str(),
+                    vname => vname.as_str(),
+                    name => name.as_str(),
+                },
+            ));
+        } else if visible_fields.is_empty() {
+            // True unit variant (no fields at all).
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_enum_unit_from_core_arm.jinja",
                 minijinja::context! {
@@ -1656,9 +1716,8 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
             // Mirror side: ALWAYS struct syntax `Variant { field0: expr, field1: expr, ... }`
             // because flutter_rust_bridge converts tuple variants to named struct variants
             // in mirror enums (with fieldN naming).
-            let field_patterns: Vec<String> = (0..variant.fields.len()).map(|i| format!("f{i}")).collect();
-            let mirror_fields: Vec<String> = variant
-                .fields
+            let field_patterns: Vec<String> = (0..visible_fields.len()).map(|i| format!("f{i}")).collect();
+            let mirror_fields: Vec<String> = visible_fields
                 .iter()
                 .enumerate()
                 .map(|(i, field)| {
@@ -1677,10 +1736,9 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
                 },
             ));
         } else {
-            // Struct variant: named fields on both sides.
-            let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
-            let field_convs: Vec<String> = variant
-                .fields
+            // Struct variant: named fields on both sides (visible fields only).
+            let field_names: Vec<&str> = visible_fields.iter().map(|f| f.name.as_str()).collect();
+            let field_convs: Vec<String> = visible_fields
                 .iter()
                 .map(|field| {
                     let fname = &field.name;

@@ -89,9 +89,10 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
-                is_tuple: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
             })
             .collect(),
         doc: String::new(),

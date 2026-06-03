@@ -27,7 +27,17 @@ pub(crate) fn emit_bridge_fn(
         .iter()
         .map(|p| {
             let rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
-            format!("{}: {rust_ty}", p.name)
+            // Opaque handle params with is_mut=true require `mut` binding so the body
+            // can borrow `&mut name.inner`. This arises when the core function takes
+            // `&mut OpaqueType` — the bridge receives an owned handle and must mutably
+            // borrow its inner field.
+            let is_opaque_handle = if let TypeRef::Named(type_name) = &p.ty {
+                opaque_type_names.contains(type_name.as_str())
+            } else {
+                false
+            };
+            let mut_prefix = if p.is_mut && is_opaque_handle { "mut " } else { "" };
+            format!("{mut_prefix}{}: {rust_ty}", p.name)
         })
         .collect();
 

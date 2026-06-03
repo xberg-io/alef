@@ -890,6 +890,8 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         is_tuple,
         binding_excluded,
         binding_exclusion_reason,
+        // Set by strip_binding_excluded pipeline step if all fields are binding_excluded.
+        originally_had_data_fields: false,
     }
 }
 
