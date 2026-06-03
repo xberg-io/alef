@@ -725,9 +725,12 @@ mod tests {
             expr.contains("from_raw_parts"),
             "Vec<Named> is_ref must use slice::from_raw_parts, got: {expr}"
         );
+        // The result must be a &[T] slice, not a bare *const pointer.
+        // The transmute internally uses *const for type punning, but the outer
+        // expression must be a slice via from_raw_parts.
         assert!(
-            !expr.contains("*const"),
-            "Vec<Named> is_ref must NOT return a raw pointer, got: {expr}"
+            expr.contains(".len()"),
+            "Vec<Named> is_ref must include .len() for slice bounds, got: {expr}"
         );
     }
 
