@@ -1412,6 +1412,13 @@ fn flat_enum_core_to_binding_field_expr(f: &crate::core::ir::FieldDef, bound_var
                 wrap_some(bound_var.to_string())
             }
         }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            if f.optional {
+                format!("{bound_var}.map(|v| v.into_iter().map(Into::into).collect())")
+            } else {
+                wrap_some(format!("{bound_var}.into_iter().map(Into::into).collect()"))
+            }
+        }
         _ => {
             if f.optional {
                 format!("{bound_var}.map(Into::into)")
@@ -1470,6 +1477,13 @@ fn flat_enum_binding_to_core_field_expr(f: &crate::core::ir::FieldDef, flat_name
                 format!("val.{flat_name}")
             } else {
                 format!("val.{flat_name}.unwrap_or_default()")
+            }
+        }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            if f.optional {
+                format!("val.{flat_name}.map(|v| v.into_iter().map(Into::into).collect())")
+            } else {
+                format!("val.{flat_name}.map(|v| v.into_iter().map(Into::into).collect()).unwrap_or_default()")
             }
         }
         _ => {
