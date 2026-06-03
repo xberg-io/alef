@@ -6,8 +6,8 @@ use crate::extract::type_resolver;
 
 use super::helpers::{
     build_rust_path, extract_cfg_condition, extract_doc_comments, extract_enum_variant, extract_error_message_template,
-    extract_field, extract_field_type_rust_path, extract_serde_rename_all, has_cfg_attribute, has_derive,
-    has_field_attr, is_pub, syn_type_is_boxed, unwrap_optional,
+    extract_field, extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_rename_all,
+    has_cfg_attribute, has_derive, has_field_attr, is_pub, syn_type_is_boxed, unwrap_optional,
 };
 
 /// Return true when the enum has `#[serde(untagged)]`.
@@ -270,6 +270,8 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                             }
                             let ty = type_resolver::resolve_type(&f.ty);
                             let optional = type_resolver::is_option_type(&f.ty).is_some();
+                            let binding_exclusion_reason = extract_field_binding_exclusion_reason(&f.attrs, &f.ty);
+                            let binding_excluded = binding_exclusion_reason.is_some();
                             FieldDef {
                                 name: format!("_{i}"),
                                 ty,
@@ -286,8 +288,8 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 newtype_wrapper: None,
                                 serde_rename: None,
                                 serde_flatten: false,
-                                binding_excluded: false,
-                                binding_exclusion_reason: None,
+                                binding_excluded,
+                                binding_exclusion_reason,
                                 original_type: None,
                             }
                         })
