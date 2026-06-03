@@ -354,6 +354,15 @@ fn dart_call_arg_with_mirror_transmute(
                         {name}.len()) }}"
                 );
             }
+            if p.is_mut {
+                // &mut [MirrorT] → &mut [CoreT] via transmute (same layout, same size).
+                // Must produce a &mut [CoreT] slice, not a raw *mut pointer.
+                return format!(
+                    "unsafe {{ std::slice::from_raw_parts_mut(\
+                        std::mem::transmute::<*mut {type_name}, *mut {core_ty}>({name}.as_mut_ptr()), \
+                        {name}.len()) }}"
+                );
+            }
             return format!(
                 "{name}.into_iter().map(|x| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(x) }}).collect::<Vec<_>>()"
             );
@@ -532,7 +541,8 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
             let target = frb_rust_type_inner(ty);
             format!(" as {target}")
         }
-        TypeRef::String | TypeRef::Path | TypeRef::Char => ".to_string()".to_string(),
+        TypeRef::Path => ".display().to_string()".to_string(),
+        TypeRef::String | TypeRef::Char => ".to_string()".to_string(),
         TypeRef::Optional(inner)
             if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Char) && returns_ref =>
         {
@@ -765,6 +775,22 @@ mod tests {
         assert!(
             !cast.contains(".to_string()"),
             "Vec<Path> must NOT use .to_string(): {cast}"
+        );
+    }
+
+    #[test]
+    fn scalar_path_result_cast_uses_display_not_to_string() {
+        // Regression: scalar Path return cast must use .display().to_string()
+        // not .to_string() because PathBuf does not implement Display.
+        let ty = TypeRef::Path;
+        let cast = build_primitive_result_cast(&ty, false);
+        assert!(
+            cast.contains("display()"),
+            "Path cast must use .display(): {cast}"
+        );
+        assert!(
+            cast.contains("to_string()"),
+            "Path cast must use to_string(): {cast}"
         );
     }
 }
