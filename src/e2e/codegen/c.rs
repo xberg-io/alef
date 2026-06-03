@@ -6,6 +6,7 @@
 //! GitHub releases.
 
 use crate::core::backend::GeneratedFile;
+use crate::core::config::AdapterPattern;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::e2e::config::{CallConfig, E2eConfig};
@@ -347,6 +348,7 @@ struct ResolvedCallInfo {
     /// declarations, a status-code check, and `<prefix>_free_bytes` rather
     /// than treating the result as an opaque response handle.
     result_is_bytes: bool,
+    streaming: Option<bool>,
     /// Per-language `extra_args` from call overrides — verbatim trailing
     /// arguments appended after the configured `args`. The C codegen passes
     /// `NULL` for absent optional pointers via this mechanism.
@@ -396,6 +398,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         c_engine_factory,
         result_is_option,
         result_is_bytes,
+        streaming: call.streaming,
         extra_args,
     }
 }
@@ -1198,6 +1201,7 @@ fn render_test_file(
             call_info.c_engine_factory.as_deref(),
             call_info.result_is_option,
             call_info.result_is_bytes,
+            call_info.streaming,
             &call_info.extra_args,
             config,
             type_defs,
@@ -1229,6 +1233,7 @@ fn render_test_function(
     c_engine_factory: Option<&str>,
     result_is_option: bool,
     result_is_bytes: bool,
+    streaming: Option<bool>,
     extra_args: &[String],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
@@ -1304,19 +1309,27 @@ fn render_test_function(
         return;
     }
 
-    // Streaming pattern: chat_stream uses an FFI iterator handle instead of a
-    // single response. Emit start/next/free loop and aggregate per-chunk data
+    // Streaming adapters use an FFI iterator handle instead of a single
+    // response. Emit start/next/free loop and aggregate per-chunk data
     // into local vars (chunks_count, stream_content, stream_complete) so fixture
     // assertions on pseudo-fields resolve to those locals rather than to
     // non-existent accessor functions on a single chunk handle.
-    if client_factory.is_some() && function_name == "chat_stream" {
-        render_chat_stream_test_function(
+    if client_factory.is_some() && crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, streaming) {
+        let Some(streaming) = resolve_c_streaming_adapter(config, function_name) else {
+            render_c_diagnostic_skip(
+                out,
+                "streaming fixture requires matching [[crates.adapters]] metadata for C e2e codegen",
+            );
+            return;
+        };
+        render_streaming_test_function(
             out,
             fixture,
             prefix,
             result_var,
             args,
-            options_type_name,
+            client_factory.unwrap_or(""),
+            &streaming,
             expects_error,
             api_key_var,
         );
@@ -1332,6 +1345,13 @@ fn render_test_function(
     // `<prefix>_<response>_audio` / `_content` accessors.
     if let Some(factory) = client_factory {
         if result_is_bytes {
+            let Some(client_owner_type) = resolve_c_client_owner_type(config, type_defs, function_name) else {
+                render_c_diagnostic_skip(
+                    out,
+                    "client_factory is configured but C e2e could not resolve the client owner type",
+                );
+                return;
+            };
             render_bytes_test_function(
                 out,
                 fixture,
@@ -1342,6 +1362,7 @@ fn render_test_function(
                 options_type_name,
                 result_type_name,
                 factory,
+                &client_owner_type,
                 expects_error,
             );
             return;
@@ -1353,6 +1374,13 @@ fn render_test_function(
     // factory function, calls {prefix}_default_client_{function_name}(client, req),
     // then frees result, request handles, and client.
     if let Some(factory) = client_factory {
+        let Some(client_owner_type) = resolve_c_client_owner_type(config, type_defs, function_name) else {
+            render_c_diagnostic_skip(
+                out,
+                "client_factory is configured but C e2e could not resolve the client owner type",
+            );
+            return;
+        };
         let mut request_handle_vars: Vec<(String, String)> = Vec::new(); // (arg_name, var_name)
         // Inline argument expressions appended after request handles in the
         // method call (e.g. literal C strings for `string` args, `NULL` for
@@ -1447,7 +1475,7 @@ fn render_test_function(
             let _ = writeln!(out, "    const char* _base_url_arg = use_mock ? base_url_buf : NULL;");
             let _ = writeln!(
                 out,
-                "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
+                "    {prefix_upper}{client_owner_type}* client = {prefix}_{factory}(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
             );
         } else if has_mock {
             let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
@@ -1459,12 +1487,12 @@ fn render_test_function(
             );
             let _ = writeln!(
                 out,
-                "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
+                "    {prefix_upper}{client_owner_type}* client = {prefix}_{factory}(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
             );
         } else {
             let _ = writeln!(
                 out,
-                "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
+                "    {prefix_upper}{client_owner_type}* client = {prefix}_{factory}(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
             );
         }
         let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
@@ -2378,6 +2406,7 @@ fn render_bytes_test_function(
     options_type_name: &str,
     result_type_name: &str,
     factory: &str,
+    client_owner_type: &str,
     expects_error: bool,
 ) {
     let prefix_upper = prefix.to_uppercase();
@@ -2466,12 +2495,12 @@ fn render_bytes_test_function(
         // request deadline) and breaks every HTTP fixture.
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
+            "    {prefix_upper}{client_owner_type}* client = {prefix}_{factory}(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     } else {
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
+            "    {prefix_upper}{client_owner_type}* client = {prefix}_{factory}(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
@@ -2553,38 +2582,107 @@ fn render_bytes_test_function(
     let _ = writeln!(out, "}}");
 }
 
-/// Emit a chat-stream test function that drives the FFI iterator handle.
+struct CStreamingAdapterMetadata {
+    owner_type: String,
+    item_type: String,
+    request_type: String,
+    adapter_name: String,
+}
+
+fn resolve_c_streaming_adapter(config: &ResolvedCrateConfig, function_name: &str) -> Option<CStreamingAdapterMetadata> {
+    config
+        .adapters
+        .iter()
+        .find(|adapter| matches!(adapter.pattern, AdapterPattern::Streaming) && adapter.name == function_name)
+        .and_then(|adapter| {
+            Some(CStreamingAdapterMetadata {
+                owner_type: adapter.owner_type.clone()?,
+                item_type: adapter.item_type.clone()?,
+                request_type: adapter
+                    .request_type
+                    .as_deref()
+                    .and_then(|path| path.rsplit("::").next())
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)?,
+                adapter_name: adapter.name.clone(),
+            })
+        })
+}
+
+fn resolve_c_client_owner_type(
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    function_name: &str,
+) -> Option<String> {
+    config
+        .adapters
+        .iter()
+        .find(|adapter| {
+            matches!(adapter.pattern, AdapterPattern::Streaming | AdapterPattern::AsyncMethod)
+                && adapter.name == function_name
+        })
+        .and_then(|adapter| adapter.owner_type.clone())
+        .or_else(|| {
+            type_defs.iter().find_map(|type_def| {
+                type_def
+                    .methods
+                    .iter()
+                    .any(|method| method.name == function_name)
+                    .then(|| type_def.name.clone())
+            })
+        })
+        .or_else(|| {
+            let opaque_types: Vec<&crate::core::ir::TypeDef> =
+                type_defs.iter().filter(|type_def| type_def.is_opaque).collect();
+            (opaque_types.len() == 1).then(|| opaque_types[0].name.clone())
+        })
+}
+
+fn render_c_diagnostic_skip(out: &mut String, reason: &str) {
+    let escaped = escape_c(reason);
+    let _ = writeln!(out, "    fprintf(stderr, \"skipped: {escaped}\\n\");");
+    let _ = writeln!(out, "}}");
+}
+
+/// Emit a streaming-adapter test function that drives the FFI iterator handle.
 ///
-/// Calls `{prefix}_default_client_chat_stream_start` to obtain an opaque handle,
-/// loops over `{prefix}_default_client_chat_stream_next` until it returns null,
+/// Calls the adapter-derived `{prefix}_{owner}_{method}_start` function to
+/// obtain an opaque handle, loops over the corresponding `_next` function until
+/// it returns null,
 /// and aggregates per-chunk data into local variables (`chunks_count`,
 /// `stream_content`, `stream_complete`, `last_choices_json`, ...). Fixture
 /// assertions on streaming pseudo-fields (`chunks`, `stream_content`,
 /// `stream_complete`, `no_chunks_after_done`, `finish_reason`, `tool_calls`,
 /// `tool_calls[0].function.name`, `usage.total_tokens`) are translated to
-/// assertions on these locals.
+/// assertions on these locals. Chat-specific field extraction remains best
+/// effort and unsupported fields are skipped by `emit_chat_stream_assertion`.
 #[allow(clippy::too_many_arguments)]
-fn render_chat_stream_test_function(
+fn render_streaming_test_function(
     out: &mut String,
     fixture: &Fixture,
     prefix: &str,
     result_var: &str,
     args: &[crate::e2e::config::ArgMapping],
-    options_type_name: &str,
+    client_factory: &str,
+    streaming: &CStreamingAdapterMetadata,
     expects_error: bool,
     api_key_var: Option<&str>,
 ) {
     let prefix_upper = prefix.to_uppercase();
+    let owner_snake = streaming.owner_type.to_snake_case();
+    let request_type_pascal = &streaming.request_type;
+    let request_type_snake = request_type_pascal.to_snake_case();
+    let item_type_pascal = &streaming.item_type;
+    let item_type_snake = item_type_pascal.to_snake_case();
+    let adapter_name = &streaming.adapter_name;
+    let stream_start = format!("{prefix}_{owner_snake}_{adapter_name}_start");
+    let stream_next = format!("{prefix}_{owner_snake}_{adapter_name}_next");
+    let stream_free = format!("{prefix}_{owner_snake}_{adapter_name}_free");
+    let owner_type = &streaming.owner_type;
 
     let mut request_var: Option<String> = None;
     for arg in args {
         if arg.arg_type == "json_object" {
-            let request_type_pascal = if !options_type_name.is_empty() {
-                options_type_name.to_string()
-            } else {
-                "ChatCompletionRequest".to_string()
-            };
-            let request_type_snake = request_type_pascal.to_snake_case();
             let var_name = format!("{request_type_snake}_handle");
 
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -2616,7 +2714,7 @@ fn render_chat_stream_test_function(
     let req_snake = request_var
         .as_ref()
         .and_then(|v| v.strip_suffix("_handle"))
-        .unwrap_or("chat_completion_request")
+        .unwrap_or(request_type_snake.as_str())
         .to_string();
 
     let fixture_id = &fixture.id;
@@ -2630,7 +2728,7 @@ fn render_chat_stream_test_function(
         let _ = writeln!(out, "    const char* _base_url_arg = use_mock ? base_url_buf : NULL;");
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
+            "    {prefix_upper}{owner_type}* client = {prefix}_{client_factory}(api_key, _base_url_arg, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     } else if has_mock {
         let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
@@ -2646,24 +2744,26 @@ fn render_chat_stream_test_function(
         // request deadline) and breaks every HTTP fixture.
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
+            "    {prefix_upper}{owner_type}* client = {prefix}_{client_factory}(\"test-key\", base_url, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     } else {
         let _ = writeln!(
             out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
+            "    {prefix_upper}{owner_type}* client = {prefix}_{client_factory}(\"test-key\", NULL, (uint64_t)-1, (uint32_t)-1, NULL);"
         );
     }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
-    // The streaming opaque handle is a Rust type named `{Prefix}DefaultClientChatStreamStreamHandle`;
+    // The streaming opaque handle is a Rust type named `{Prefix}{Owner}{Method}StreamHandle`;
     // cbindgen additionally prepends the configured uppercase type-name `prefix` (e.g. `SAMPLELLM`),
-    // exactly as it does for ordinary opaque handle types like `{prefix_upper}DefaultClient`.
+    // exactly as it does for ordinary opaque handle types like `{prefix_upper}{owner_type}`.
     let pascal_prefix = prefix.to_pascal_case();
+    let pascal_owner = streaming.owner_type.to_pascal_case();
+    let pascal_name = streaming.adapter_name.to_pascal_case();
     let _ = writeln!(
         out,
-        "    {prefix_upper}{pascal_prefix}DefaultClientChatStreamStreamHandle* stream_handle = \
-         {prefix}_default_client_chat_stream_start(client, {req_handle});"
+        "    {prefix_upper}{pascal_prefix}{pascal_owner}{pascal_name}StreamHandle* stream_handle = \
+         {stream_start}(client, {req_handle});"
     );
 
     if expects_error {
@@ -2674,7 +2774,7 @@ fn render_chat_stream_test_function(
         if request_var.is_some() {
             let _ = writeln!(out, "    {prefix}_{req_snake}_free({req_handle});");
         }
-        let _ = writeln!(out, "    {prefix}_default_client_free(client);");
+        let _ = writeln!(out, "    {prefix}_{owner_snake}_free(client);");
         let _ = writeln!(out, "}}");
         return;
     }
@@ -2691,15 +2791,12 @@ fn render_chat_stream_test_function(
     let _ = writeln!(out, "    size_t stream_content_len = 0;");
     let _ = writeln!(out, "    int stream_complete = 0;");
     let _ = writeln!(out, "    int no_chunks_after_done = 1;");
-    let _ = writeln!(out, "    char* last_choices_json = NULL;");
-    let _ = writeln!(out, "    uint64_t total_tokens = 0;");
     let _ = writeln!(out);
 
     let _ = writeln!(out, "    while (1) {{");
     let _ = writeln!(
         out,
-        "        {prefix_upper}ChatCompletionChunk* {result_var} = \
-         {prefix}_default_client_chat_stream_next(stream_handle);"
+        "        {prefix_upper}{item_type_pascal}* {result_var} = {stream_next}(stream_handle);"
     );
     let _ = writeln!(out, "        if ({result_var} == NULL) {{");
     let _ = writeln!(
@@ -2709,157 +2806,9 @@ fn render_chat_stream_test_function(
     let _ = writeln!(out, "            break;");
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "        chunks_count++;");
-    let _ = writeln!(
-        out,
-        "        char* choices_json = {prefix}_chat_completion_chunk_choices({result_var});"
-    );
-    let _ = writeln!(out, "        if (choices_json != NULL) {{");
-    let _ = writeln!(
-        out,
-        "            const char* d = strstr(choices_json, \"\\\"content\\\":\");"
-    );
-    let _ = writeln!(out, "            if (d != NULL) {{");
-    let _ = writeln!(out, "                d += 10;");
-    let _ = writeln!(out, "                while (*d == ' ' || *d == '\\t') d++;");
-    let _ = writeln!(out, "                if (*d == '\"') {{");
-    let _ = writeln!(out, "                    d++;");
-    let _ = writeln!(out, "                    const char* e = d;");
-    let _ = writeln!(out, "                    while (*e && *e != '\"') {{");
-    let _ = writeln!(
-        out,
-        "                        if (*e == '\\\\' && *(e+1)) e += 2; else e++;"
-    );
-    let _ = writeln!(out, "                    }}");
-    let _ = writeln!(out, "                    size_t add = (size_t)(e - d);");
-    let _ = writeln!(out, "                    if (add > 0) {{");
-    let _ = writeln!(
-        out,
-        "                        char* nc = (char*)realloc(stream_content, stream_content_len + add + 1);"
-    );
-    let _ = writeln!(out, "                        if (nc != NULL) {{");
-    let _ = writeln!(out, "                            stream_content = nc;");
-    let _ = writeln!(
-        out,
-        "                            memcpy(stream_content + stream_content_len, d, add);"
-    );
-    let _ = writeln!(out, "                            stream_content_len += add;");
-    let _ = writeln!(
-        out,
-        "                            stream_content[stream_content_len] = '\\0';"
-    );
-    let _ = writeln!(out, "                        }}");
-    let _ = writeln!(out, "                    }}");
-    let _ = writeln!(out, "                }}");
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(
-        out,
-        "            if (last_choices_json != NULL) {prefix}_free_string(last_choices_json);"
-    );
-    let _ = writeln!(out, "            last_choices_json = choices_json;");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(
-        out,
-        "        {prefix_upper}Usage* usage_handle = {prefix}_chat_completion_chunk_usage({result_var});"
-    );
-    let _ = writeln!(out, "        if (usage_handle != NULL) {{");
-    let _ = writeln!(
-        out,
-        "            total_tokens = (uint64_t){prefix}_usage_total_tokens(usage_handle);"
-    );
-    let _ = writeln!(out, "            {prefix}_usage_free(usage_handle);");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "        {prefix}_chat_completion_chunk_free({result_var});");
+    let _ = writeln!(out, "        {prefix}_{item_type_snake}_free({result_var});");
     let _ = writeln!(out, "    }}");
-    let _ = writeln!(out, "    {prefix}_default_client_chat_stream_free(stream_handle);");
-    let _ = writeln!(out);
-
-    let _ = writeln!(out, "    char* finish_reason = NULL;");
-    let _ = writeln!(out, "    char* tool_calls_json = NULL;");
-    let _ = writeln!(out, "    char* tool_calls_0_function_name = NULL;");
-    let _ = writeln!(out, "    if (last_choices_json != NULL) {{");
-    let _ = writeln!(
-        out,
-        "        finish_reason = alef_json_get_string(last_choices_json, \"finish_reason\");"
-    );
-    let _ = writeln!(
-        out,
-        "        const char* tc = strstr(last_choices_json, \"\\\"tool_calls\\\":\");"
-    );
-    let _ = writeln!(out, "        if (tc != NULL) {{");
-    let _ = writeln!(out, "            tc += 13;");
-    let _ = writeln!(out, "            while (*tc == ' ' || *tc == '\\t') tc++;");
-    let _ = writeln!(out, "            if (*tc == '[') {{");
-    let _ = writeln!(out, "                int depth = 0;");
-    let _ = writeln!(out, "                const char* end = tc;");
-    let _ = writeln!(out, "                int in_str = 0;");
-    let _ = writeln!(out, "                for (; *end; end++) {{");
-    let _ = writeln!(
-        out,
-        "                    if (*end == '\\\\' && in_str) {{ if (*(end+1)) end++; continue; }}"
-    );
-    let _ = writeln!(
-        out,
-        "                    if (*end == '\"') {{ in_str = !in_str; continue; }}"
-    );
-    let _ = writeln!(out, "                    if (in_str) continue;");
-    let _ = writeln!(out, "                    if (*end == '[' || *end == '{{') depth++;");
-    let _ = writeln!(
-        out,
-        "                    else if (*end == ']' || *end == '}}') {{ depth--; if (depth == 0) {{ end++; break; }} }}"
-    );
-    let _ = writeln!(out, "                }}");
-    let _ = writeln!(out, "                size_t tlen = (size_t)(end - tc);");
-    let _ = writeln!(out, "                tool_calls_json = (char*)malloc(tlen + 1);");
-    let _ = writeln!(out, "                if (tool_calls_json != NULL) {{");
-    let _ = writeln!(out, "                    memcpy(tool_calls_json, tc, tlen);");
-    let _ = writeln!(out, "                    tool_calls_json[tlen] = '\\0';");
-    let _ = writeln!(
-        out,
-        "                    const char* fn = strstr(tool_calls_json, \"\\\"function\\\"\");"
-    );
-    let _ = writeln!(out, "                    if (fn != NULL) {{");
-    let _ = writeln!(
-        out,
-        "                        const char* np = strstr(fn, \"\\\"name\\\":\");"
-    );
-    let _ = writeln!(out, "                        if (np != NULL) {{");
-    let _ = writeln!(out, "                            np += 7;");
-    let _ = writeln!(
-        out,
-        "                            while (*np == ' ' || *np == '\\t') np++;"
-    );
-    let _ = writeln!(out, "                            if (*np == '\"') {{");
-    let _ = writeln!(out, "                                np++;");
-    let _ = writeln!(out, "                                const char* ne = np;");
-    let _ = writeln!(
-        out,
-        "                                while (*ne && *ne != '\"') {{ if (*ne == '\\\\' && *(ne+1)) ne += 2; else ne++; }}"
-    );
-    let _ = writeln!(out, "                                size_t nlen = (size_t)(ne - np);");
-    let _ = writeln!(
-        out,
-        "                                tool_calls_0_function_name = (char*)malloc(nlen + 1);"
-    );
-    let _ = writeln!(
-        out,
-        "                                if (tool_calls_0_function_name != NULL) {{"
-    );
-    let _ = writeln!(
-        out,
-        "                                    memcpy(tool_calls_0_function_name, np, nlen);"
-    );
-    let _ = writeln!(
-        out,
-        "                                    tool_calls_0_function_name[nlen] = '\\0';"
-    );
-    let _ = writeln!(out, "                                }}");
-    let _ = writeln!(out, "                            }}");
-    let _ = writeln!(out, "                        }}");
-    let _ = writeln!(out, "                    }}");
-    let _ = writeln!(out, "                }}");
-    let _ = writeln!(out, "            }}");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "    {stream_free}(stream_handle);");
     let _ = writeln!(out);
 
     for assertion in &fixture.assertions {
@@ -2867,58 +2816,37 @@ fn render_chat_stream_test_function(
     }
 
     let _ = writeln!(out, "    free(stream_content);");
-    let _ = writeln!(
-        out,
-        "    if (last_choices_json != NULL) {prefix}_free_string(last_choices_json);"
-    );
-    let _ = writeln!(out, "    if (finish_reason != NULL) free(finish_reason);");
-    let _ = writeln!(out, "    if (tool_calls_json != NULL) free(tool_calls_json);");
-    let _ = writeln!(
-        out,
-        "    if (tool_calls_0_function_name != NULL) free(tool_calls_0_function_name);"
-    );
     if request_var.is_some() {
         let _ = writeln!(out, "    {prefix}_{req_snake}_free({req_handle});");
     }
-    let _ = writeln!(out, "    {prefix}_default_client_free(client);");
+    let _ = writeln!(out, "    {prefix}_{owner_snake}_free(client);");
     let _ = writeln!(
         out,
-        "    /* suppress unused */ (void)total_tokens; (void)no_chunks_after_done; \
+        "    /* suppress unused */ (void)no_chunks_after_done; \
          (void)stream_complete; (void)chunks_count; (void)stream_content_len;"
     );
     let _ = writeln!(out, "}}");
 }
 
-/// Emit a single fixture assertion for a chat-stream test, mapping fixture
+/// Emit a single fixture assertion for a streaming test, mapping fixture
 /// pseudo-field references (`chunks`, `stream_content`, `stream_complete`, ...)
-/// to the local aggregator variables built by [`render_chat_stream_test_function`].
+/// to the local aggregator variables built by [`render_streaming_test_function`].
 fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
     let field = assertion.field.as_deref().unwrap_or("");
 
     enum Kind {
         IntCount,
         Bool,
-        Str,
-        IntTokens,
         Unsupported,
     }
 
     let (expr, kind) = match field {
         "chunks" => ("chunks_count", Kind::IntCount),
-        "stream_content" => ("stream_content", Kind::Str),
         "stream_complete" => ("stream_complete", Kind::Bool),
         "no_chunks_after_done" => ("no_chunks_after_done", Kind::Bool),
-        "finish_reason" => ("finish_reason", Kind::Str),
-        // tool_calls / tool_calls[0].function.name require accumulating across
-        // delta chunks (the OpenAI SSE wire format spreads the array contents
-        // over many chunks). The current C inline SSE parser only inspects the
-        // *last* chunk's `choices`, which carries `finish_reason=tool_calls`
-        // but no payload — so these assertions can't reliably evaluate. Skip
-        // them, mirroring Python's `# skipped: field 'tool_calls' not available
-        // on result type` outcome (Python's stream iterator doesn't expose them
-        // either). Adding a delta-merge accumulator is its own follow-up.
-        "tool_calls" | "tool_calls[0].function.name" => ("", Kind::Unsupported),
-        "usage.total_tokens" => ("total_tokens", Kind::IntTokens),
+        "stream_content" | "finish_reason" | "tool_calls" | "tool_calls[0].function.name" | "usage.total_tokens" => {
+            ("", Kind::Unsupported)
+        }
         _ => ("", Kind::Unsupported),
     };
 
@@ -2941,42 +2869,18 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
                 let _ = writeln!(out, "    assert({expr} >= {n} && \"expected at least {n} chunks\");");
             }
         }
-        ("equals", Kind::Str) => {
-            if let Some(val) = &assertion.value {
-                let c_val = json_to_c(val);
-                let _ = writeln!(
-                    out,
-                    "    assert({expr} != NULL && str_trim_eq({expr}, {c_val}) == 0 && \"streaming equals assertion failed\");"
-                );
-            }
-        }
-        ("contains", Kind::Str) => {
-            if let Some(val) = &assertion.value {
-                let c_val = json_to_c(val);
-                let _ = writeln!(
-                    out,
-                    "    assert({expr} != NULL && strstr({expr}, {c_val}) != NULL && \"streaming contains assertion failed\");"
-                );
-            }
-        }
-        ("not_empty", Kind::Str) => {
-            let _ = writeln!(
-                out,
-                "    assert({expr} != NULL && strlen({expr}) > 0 && \"expected non-empty {field}\");"
-            );
-        }
         ("is_true", Kind::Bool) => {
             let _ = writeln!(out, "    assert({expr} && \"expected {field} to be true\");");
         }
         ("is_false", Kind::Bool) => {
             let _ = writeln!(out, "    assert(!{expr} && \"expected {field} to be false\");");
         }
-        ("greater_than_or_equal", Kind::IntCount) | ("greater_than_or_equal", Kind::IntTokens) => {
+        ("greater_than_or_equal", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
                 let _ = writeln!(out, "    assert({expr} >= {n} && \"expected {expr} >= {n}\");");
             }
         }
-        ("equals", Kind::IntCount) | ("equals", Kind::IntTokens) => {
+        ("equals", Kind::IntCount) => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
                 let _ = writeln!(out, "    assert({expr} == {n} && \"equals assertion failed\");");
             }

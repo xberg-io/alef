@@ -487,15 +487,15 @@ fn return_transmute_expr(
                     // v is &[T]; iter() yields &T — must clone before converting via From.
                     if opaque_type_names.contains(mirror_name.as_str()) {
                         format!(
-                            "|v| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect::<Vec<_>>()"
+                            "|v: &[_]| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect::<Vec<_>>()"
                         )
                     } else {
-                        format!("|v| v.iter().map(|x| {mirror_name}::from(x.clone())).collect::<Vec<_>>()")
+                        format!("|v: &[_]| v.iter().map(|x| {mirror_name}::from(x.clone())).collect::<Vec<_>>()")
                     }
                 } else if opaque_type_names.contains(mirror_name.as_str()) {
-                    format!("|v| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect::<Vec<_>>()")
+                    format!("|v: Vec<_>| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect::<Vec<_>>()")
                 } else {
-                    format!("|v| v.into_iter().map({mirror_name}::from).collect::<Vec<_>>()")
+                    format!("|v: Vec<_>| v.into_iter().map({mirror_name}::from).collect::<Vec<_>>()")
                 }
             } else {
                 String::new()

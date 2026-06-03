@@ -32,6 +32,20 @@ fn is_java_builtin_type(ty: &str) -> bool {
     )
 }
 
+fn resolve_handle_config_type(
+    arg: &crate::e2e::config::ArgMapping,
+    options_type: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    if arg.arg_type != "handle" {
+        return None;
+    }
+    options_type.map(str::to_string).or_else(|| {
+        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+        type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
+    })
+}
+
 /// Java e2e code generator.
 pub struct JavaCodegen;
 
@@ -764,8 +778,11 @@ fn render_test_file(
     // Check if any fixture (with its resolved call) will emit MAPPER usage.
     let lang_for_om = "java";
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
-        args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-            let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
+        let call_cfg =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_om, f, call_cfg, type_defs);
+        recipe.args.iter().filter(|a| a.arg_type == "handle").any(|a| {
+            let v = super::resolve_field(&f.input, &a.field);
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
         })
     });
@@ -804,6 +821,16 @@ fn render_test_file(
                         break;
                     }
                 }
+            }
+        }
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_om, f, call_cfg, type_defs);
+        for arg in recipe.args.iter().filter(|arg| arg.arg_type == "handle") {
+            let value = super::resolve_field(&f.input, &arg.field);
+            if value.is_null() || value.is_object() && value.as_object().is_some_and(|o| o.is_empty()) {
+                continue;
+            }
+            if let Some(handle_type) = resolve_handle_config_type(arg, recipe.options_type, type_defs) {
+                all_options_types.insert(handle_type);
             }
         }
         // Detect complex json_object array element types used in this fixture.
@@ -889,11 +916,6 @@ fn render_test_file(
         for type_name in &nested_types_used {
             imports.push(format!("import {binding_pkg_for_imports}.{type_name};"));
         }
-    }
-
-    // Import CrawlConfig when handle args need JSON deserialization.
-    if needs_object_mapper_for_handle && !binding_pkg_for_imports.is_empty() {
-        imports.push(format!("import {binding_pkg_for_imports}.CrawlConfig;"));
     }
 
     // Import visitor types when any fixture uses visitor callbacks.
@@ -1864,15 +1886,19 @@ fn build_args_and_setup(
             } else {
                 let json_str = serde_json::to_string(config_value).unwrap_or_default();
                 let name = &arg.name;
-                setup_lines.push(format!(
-                    "var {name}Config = MAPPER.readValue(\"{}\", CrawlConfig.class);",
-                    escape_java(&json_str),
-                ));
-                setup_lines.push(format!(
-                    "var {} = {class_name}.{constructor_name}({name}Config);",
-                    arg.name,
-                    name = name,
-                ));
+                if let Some(config_type) = resolve_handle_config_type(arg, options_type, type_defs) {
+                    setup_lines.push(format!(
+                        "var {name}Config = MAPPER.readValue(\"{}\", {config_type}.class);",
+                        escape_java(&json_str),
+                    ));
+                    setup_lines.push(format!(
+                        "var {} = {class_name}.{constructor_name}({name}Config);",
+                        arg.name,
+                        name = name,
+                    ));
+                } else {
+                    setup_lines.push(format!("var {} = {class_name}.{constructor_name}(null);", arg.name,));
+                }
             }
             // For streaming owner_type adapters the handle is the instance-method
             // receiver, not a positional argument — emit its construction but omit
@@ -3599,7 +3625,8 @@ mod test_backend_tests {
 
 #[cfg(test)]
 mod tests {
-    use crate::e2e::config::{CallConfig, E2eConfig, SelectWhen};
+    use super::*;
+    use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig, SelectWhen};
     use crate::e2e::fixture::Fixture;
     use std::collections::HashMap;
 
@@ -3673,5 +3700,41 @@ mod tests {
             &fixture_no_batch.input,
         );
         assert_eq!(resolved_default.function, "scrape");
+    }
+
+    #[test]
+    fn handle_config_deserialization_uses_resolved_options_type() {
+        let args = vec![ArgMapping {
+            name: "session".to_string(),
+            field: "input.config".to_string(),
+            arg_type: "handle".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            trait_name: None,
+        }];
+        let fixture = make_fixture_with_input("session_fixture", serde_json::json!({ "config": { "limit": 3 } }));
+        let mut teardown = String::new();
+        let (setup, args_str) = build_args_and_setup(
+            &fixture.input,
+            &args,
+            JavaArgsContext {
+                class_name: "Sample",
+                options_type: Some("SessionConfig"),
+                fixture: &fixture,
+                adapter_request_type: None,
+                owner_handle_is_receiver: false,
+                config: &ResolvedCrateConfig::default(),
+                type_defs: &[],
+                teardown_block: &mut teardown,
+            },
+        );
+
+        let rendered = setup.join("\n");
+        assert_eq!(args_str, "session");
+        assert!(rendered.contains("MAPPER.readValue(\"{\\\"limit\\\":3}\", SessionConfig.class)"));
+        assert!(rendered.contains("Sample.createSession(sessionConfig)"));
+        assert!(!rendered.contains("CrawlConfig"));
     }
 }

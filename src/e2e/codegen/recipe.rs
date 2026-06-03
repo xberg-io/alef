@@ -257,6 +257,19 @@ mod tests {
         }
     }
 
+    fn handle_arg() -> ArgMapping {
+        ArgMapping {
+            name: "engine".to_string(),
+            field: "input.config".to_string(),
+            arg_type: "handle".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            trait_name: None,
+        }
+    }
+
     #[test]
     fn call_level_options_type_and_type_default_materialize_absent_config() {
         let call = CallConfig {
@@ -297,6 +310,36 @@ mod tests {
         let recipe = E2eCallRecipe::resolve("rust", &fixture, &call, &[]);
         assert_eq!(recipe.options_type, Some("RustSettings"));
         assert_eq!(recipe.extra_args, &["None".to_string()]);
+    }
+
+    #[test]
+    fn handle_config_type_uses_explicit_call_metadata() {
+        let call = CallConfig {
+            options_type: Some("SampleEngineConfig".to_string()),
+            args: vec![handle_arg()],
+            ..CallConfig::default()
+        };
+
+        let fixture = fixture();
+        let recipe = E2eCallRecipe::resolve("go", &fixture, &call, &[]);
+
+        assert_eq!(recipe.handle_config_type(&call.args[0]), Some("SampleEngineConfig"));
+    }
+
+    #[test]
+    fn handle_config_type_prefers_arg_element_type_override() {
+        let mut arg = handle_arg();
+        arg.element_type = Some("ExplicitHandleConfig".to_string());
+        let call = CallConfig {
+            options_type: Some("FallbackConfig".to_string()),
+            args: vec![arg],
+            ..CallConfig::default()
+        };
+
+        let fixture = fixture();
+        let recipe = E2eCallRecipe::resolve("java", &fixture, &call, &[]);
+
+        assert_eq!(recipe.handle_config_type(&call.args[0]), Some("ExplicitHandleConfig"));
     }
 
     #[test]

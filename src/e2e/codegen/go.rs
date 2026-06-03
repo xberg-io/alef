@@ -17,6 +17,20 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 use super::client;
 
+fn resolve_handle_config_type(
+    arg: &crate::e2e::config::ArgMapping,
+    options_type: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    if arg.arg_type != "handle" {
+        return None;
+    }
+    options_type.map(str::to_string).or_else(|| {
+        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+        type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
+    })
+}
+
 /// Go e2e code generator.
 pub struct GoCodegen;
 
@@ -465,7 +479,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t{{");
         let _ = writeln!(out, "\t\turl := os.Getenv(\"MOCK_SERVER_URL\")");
         let _ = writeln!(out, "\t\tready := false");
-        let _ = writeln!(out, "\t\tfor i := 0; i < 100; i++ {{");
+        let _ = writeln!(out, "\t\tfor i := 0; i < 400; i++ {{");
         let _ = writeln!(out, "\t\t\tresp, err := http.Get(url)");
         let _ = writeln!(out, "\t\t\tif err == nil {{");
         let _ = writeln!(out, "\t\t\t\t_ = resp.Body.Close()");
@@ -475,7 +489,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\t\ttime.Sleep(50 * time.Millisecond)");
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t\tif !ready {{");
-        let _ = writeln!(out, "\t\t\tpanic(\"mock-server did not become ready within 5s\")");
+        let _ = writeln!(out, "\t\t\tpanic(\"mock-server did not become ready within 20s\")");
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out);
@@ -796,13 +810,14 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileCo
 
         let call =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        let call_args = &call.args;
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve("go", f, call, type_defs);
+        let call_args = recipe.args;
         // handle args with non-null config value
         let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
             call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-                let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
+                let v = super::resolve_field(&f.input, &a.field);
                 !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
+                    && resolve_handle_config_type(a, recipe.options_type, type_defs).is_some()
             })
         };
         // json_object args with options_type or array values (will use JSON unmarshal)
@@ -2199,12 +2214,18 @@ fn build_args_and_setup(
                 let json_str = serde_json::to_string(config_value).unwrap_or_default();
                 let go_literal = go_string_literal(&json_str);
                 let name = &arg.name;
-                setup_lines.push(format!(
-                    "var {name}Config {import_alias}.CrawlConfig\n\tif err := json.Unmarshal([]byte({go_literal}), &{name}Config); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
-                ));
-                setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
-                ));
+                if let Some(config_type) = resolve_handle_config_type(arg, options_type, type_defs) {
+                    setup_lines.push(format!(
+                        "var {name}Config {import_alias}.{config_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{name}Config); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                    ));
+                    setup_lines.push(format!(
+                        "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
+                    ));
+                } else {
+                    setup_lines.push(format!(
+                        "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
+                    ));
+                }
             }
             parts.push(arg.name.clone());
             continue;
@@ -4652,7 +4673,7 @@ mod trait_bridge_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::e2e::config::{CallConfig, E2eConfig};
+    use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig};
     use crate::e2e::fixture::{Assertion, Fixture};
 
     fn make_fixture(id: &str) -> Fixture {
@@ -4725,6 +4746,57 @@ mod tests {
             !out.contains("sample_crate.clean_extracted_text("),
             "must not emit raw snake_case method name, got:\n{out}"
         );
+    }
+
+    #[test]
+    fn handle_config_deserialization_uses_resolved_options_type() {
+        let args = vec![ArgMapping {
+            name: "session".to_string(),
+            field: "input.config".to_string(),
+            arg_type: "handle".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            trait_name: None,
+        }];
+        let fixture = Fixture {
+            id: "session_fixture".to_string(),
+            category: None,
+            description: "test fixture".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({ "config": { "limit": 3 } }),
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: String::new(),
+            http: None,
+        };
+        let data_enum_names = std::collections::HashSet::new();
+        let (package_decls, setup, args_str) = build_args_and_setup(
+            &fixture.input,
+            &args,
+            "pkg",
+            Some("SessionConfig"),
+            &fixture,
+            false,
+            false,
+            &data_enum_names,
+            &crate::core::config::ResolvedCrateConfig::default(),
+            &[],
+            &[],
+        );
+
+        let rendered = setup.join("\n");
+        assert!(package_decls.is_empty());
+        assert_eq!(args_str, "session");
+        assert!(rendered.contains("var sessionConfig pkg.SessionConfig"));
+        assert!(rendered.contains("pkg.CreateSession(&sessionConfig)"));
+        assert!(!rendered.contains("CrawlConfig"));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::e2e::escape::sanitize_filename;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Fixture, FixtureGroup};
 
-use super::args::{emit_rust_visitor_method, render_rust_arg, resolve_visitor_trait};
+use super::args::{emit_rust_visitor_method, render_rust_arg, resolve_handle_config_type, resolve_visitor_trait};
 use super::assertions::render_assertion;
 use super::http::render_http_test_function;
 use super::mock_server::render_mock_server_setup;
@@ -174,18 +174,63 @@ pub fn render_test_file(
         let _ = writeln!(body_buf);
     }
 
-    // Import handle constructor functions and the config type they use.
-    let has_handle_args = e2e_config.call.args.iter().any(|a| a.arg_type == "handle");
-    if has_handle_args && body_references_symbol(&body_buf, "CrawlConfig") {
-        let _ = writeln!(out, "use {module}::CrawlConfig;");
-    }
-    for arg in &e2e_config.call.args {
-        if arg.arg_type == "handle" {
-            use heck::ToSnakeCase;
-            let constructor_name = format!("create_{}", arg.name.to_snake_case());
-            if body_references_symbol(&body_buf, &constructor_name) {
-                let _ = writeln!(out, "use {module}::{constructor_name};");
+    // Import handle constructor functions and any resolved config types they use.
+    let has_handle_args = fixtures.iter().any(|fixture| {
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+        recipe.args.iter().any(|a| a.arg_type == "handle")
+    });
+    if has_handle_args {
+        let mut handle_config_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for fixture in fixtures {
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+            for arg in recipe.args.iter().filter(|arg| arg.arg_type == "handle") {
+                let value = crate::e2e::codegen::resolve_field(&fixture.input, &arg.field);
+                if value.is_null() || value.is_object() && value.as_object().is_some_and(|o| o.is_empty()) {
+                    continue;
+                }
+                if let Some(config_type) = resolve_handle_config_type(arg, recipe.options_type, type_defs) {
+                    handle_config_types.insert(config_type);
+                }
             }
+        }
+        for config_type in handle_config_types {
+            if body_references_symbol(&body_buf, &config_type) {
+                let _ = writeln!(out, "use {module}::{config_type};");
+            }
+        }
+    }
+    let mut constructor_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for fixture in fixtures {
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+        for arg in recipe.args.iter().filter(|a| a.arg_type == "handle") {
+            use heck::ToSnakeCase;
+            constructor_names.insert(format!("create_{}", arg.name.to_snake_case()));
+        }
+    }
+    for constructor_name in constructor_names {
+        if body_references_symbol(&body_buf, &constructor_name) {
+            let _ = writeln!(out, "use {module}::{constructor_name};");
         }
     }
 
@@ -529,6 +574,7 @@ pub fn render_test_function(
             arg.element_type.as_deref(),
             &e2e_config.test_documents_dir,
             has_error_assertion,
+            resolve_handle_config_type(arg, call_recipe.options_type, type_defs).as_deref(),
         );
         // Add explicit type annotation to json_object bindings so Rust can resolve
         // `Default::default()` and `serde_json::from_value(…)` without a trailing
@@ -1142,5 +1188,80 @@ mod tests {
             !out.contains("let _ = embed_texts"),
             "call must not bind to `_` when an assertion references the result; got:\n{out}"
         );
+    }
+
+    #[test]
+    fn handle_config_import_uses_resolved_options_type() {
+        use crate::e2e::config::{ArgMapping, CallConfig, CallOverride};
+        use crate::e2e::fixture::Fixture;
+        use std::collections::HashMap;
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "rust".to_string(),
+            CallOverride {
+                options_type: Some("SessionConfig".to_string()),
+                ..Default::default()
+            },
+        );
+        let call = CallConfig {
+            function: "run_session".to_string(),
+            module: "my_crate".to_string(),
+            result_var: "result".to_string(),
+            returns_result: false,
+            args: vec![ArgMapping {
+                name: "session".to_string(),
+                field: "input.config".to_string(),
+                arg_type: "handle".to_string(),
+                optional: false,
+                owned: false,
+                element_type: None,
+                go_type: None,
+                trait_name: None,
+            }],
+            overrides,
+            ..Default::default()
+        };
+        let e2e_config = crate::e2e::config::E2eConfig {
+            call,
+            ..Default::default()
+        };
+        let fixture = Fixture {
+            id: "session_fixture".to_string(),
+            description: "session fixture".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({ "config": { "limit": 3 } }),
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: String::new(),
+            http: None,
+            category: Some("sessions".to_string()),
+        };
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            "[workspace]\nlanguages = [\"rust\"]\n[[crates]]\nname = \"my_crate\"\nsources = [\"src/lib.rs\"]\n",
+        )
+        .unwrap();
+        let test_config = cfg.resolve().unwrap().remove(0);
+        let out = render_test_file(
+            "sessions",
+            &[&fixture],
+            &e2e_config,
+            &test_config,
+            &[],
+            "my_crate",
+            false,
+        );
+
+        assert!(
+            out.contains("use my_crate::SessionConfig;"),
+            "expected SessionConfig import, got:\n{out}"
+        );
+        assert!(out.contains("let session_config: SessionConfig = serde_json::from_str"));
+        assert!(!out.contains("CrawlConfig"));
     }
 }

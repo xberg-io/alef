@@ -4,6 +4,7 @@
 //! driven entirely by `E2eConfig` and `CallConfig`.
 
 use crate::core::backend::GeneratedFile;
+use crate::core::config::AdapterPattern;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions::toolchain;
@@ -1214,6 +1215,37 @@ fn render_test_file(
     out
 }
 
+#[derive(Debug, Clone)]
+struct ZigStreamingAdapterMetadata {
+    owner_type: String,
+    item_type: String,
+    request_type: String,
+    adapter_name: String,
+}
+
+fn resolve_zig_streaming_adapter(
+    config: &ResolvedCrateConfig,
+    function_name: &str,
+) -> Option<ZigStreamingAdapterMetadata> {
+    config
+        .adapters
+        .iter()
+        .find(|adapter| matches!(adapter.pattern, AdapterPattern::Streaming) && adapter.name == function_name)
+        .and_then(|adapter| {
+            Some(ZigStreamingAdapterMetadata {
+                owner_type: adapter.owner_type.clone()?,
+                item_type: adapter.item_type.clone()?,
+                request_type: adapter
+                    .request_type
+                    .as_deref()
+                    .and_then(|path| path.rsplit("::").next())
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)?,
+                adapter_name: adapter.name.clone(),
+            })
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_test_fn(
     out: &mut String,
@@ -1370,6 +1402,11 @@ fn render_test_fn(
             .is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
     });
     let is_stream_fn = function_name.contains("stream");
+    let streaming_adapter = if has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some() {
+        resolve_zig_streaming_adapter(config, &function_name)
+    } else {
+        None
+    };
     let uses_streaming_virtual_path =
         result_is_json_struct && has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some();
     // Whether the streaming-virtual path also parses JSON (for non-streaming assertions).
@@ -1570,13 +1607,25 @@ fn render_test_fn(
         } else if result_is_json_struct {
             // When streaming-virtual field assertions are present (pre-computed above),
             // emit raw FFI code to collect all chunks instead of calling
-            // `chat_stream` (which only returns the last chunk's JSON).
+            // the high-level streaming wrapper (which only returns the last chunk's JSON).
             if uses_streaming_virtual_path {
-                let request_from_json = format!("{ffi_prefix}_chat_completion_request_from_json");
-                let request_free = format!("{ffi_prefix}_chat_completion_request_free");
-                let stream_start = format!("{ffi_prefix}_default_client_chat_stream_start");
-                let stream_free = format!("{ffi_prefix}_default_client_chat_stream_free");
-                let client_c_type = format!("{}DefaultClient", ffi_prefix.to_shouty_snake_case());
+                let Some(streaming_adapter) = streaming_adapter.as_ref() else {
+                    let _ = writeln!(
+                        out,
+                        "    // skipped: streaming fixture requires matching [[crates.adapters]] metadata for zig e2e codegen"
+                    );
+                    let _ = writeln!(out, "    return error.SkipZigTest;");
+                    let _ = writeln!(out, "}}");
+                    let _ = writeln!(out);
+                    return;
+                };
+                let owner_snake = streaming_adapter.owner_type.to_snake_case();
+                let request_snake = streaming_adapter.request_type.to_snake_case();
+                let request_from_json = format!("{ffi_prefix}_{request_snake}_from_json");
+                let request_free = format!("{ffi_prefix}_{request_snake}_free");
+                let stream_start = format!("{ffi_prefix}_{owner_snake}_{}_start", streaming_adapter.adapter_name);
+                let stream_free = format!("{ffi_prefix}_{owner_snake}_{}_free", streaming_adapter.adapter_name);
+                let client_c_type = format!("{}{}", ffi_prefix.to_shouty_snake_case(), streaming_adapter.owner_type);
 
                 // Streaming-virtual path: inline FFI collect.
                 // Build a sentinel-terminated request string.
@@ -1597,8 +1646,15 @@ fn render_test_fn(
                 let _ = writeln!(out, "    if (_stream_handle == null) return error.StreamStartFailed;");
                 let _ = writeln!(out, "    defer {module_name}.c.{stream_free}(_stream_handle);");
                 // Emit the collect snippet (already has 4-space indentation baked in).
-                let snip =
-                    StreamingFieldResolver::collect_snippet_zig("_stream_handle", "chunks", module_name, ffi_prefix);
+                let snip = StreamingFieldResolver::collect_snippet_zig(
+                    "_stream_handle",
+                    "chunks",
+                    module_name,
+                    ffi_prefix,
+                    &streaming_adapter.owner_type,
+                    &streaming_adapter.adapter_name,
+                    &streaming_adapter.item_type,
+                );
                 out.push_str("    ");
                 out.push_str(&snip);
                 out.push('\n');

@@ -195,8 +195,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     // *core* type (e.g. Dart FRB `From<CoreType>`) still need to know excluded variants
     // exist so they can emit `unreachable!()` arms. Those are stored in `excluded_variants`.
     let all_variants: Vec<_> = item.variants.iter().map(extract_enum_variant).collect();
-    let (excluded_variants, variants): (Vec<_>, Vec<_>) =
-        all_variants.into_iter().partition(|v| v.binding_excluded);
+    let (excluded_variants, variants): (Vec<_>, Vec<_>) = all_variants.into_iter().partition(|v| v.binding_excluded);
 
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let serde_tag = extract_serde_tag(&item.attrs);

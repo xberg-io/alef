@@ -2,6 +2,21 @@
 
 use crate::e2e::escape::rust_raw_string;
 
+pub(crate) fn resolve_handle_config_type(
+    arg: &crate::e2e::config::ArgMapping,
+    options_type: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    if arg.arg_type != "handle" {
+        return None;
+    }
+    options_type.map(str::to_string).or_else(|| {
+        use heck::ToUpperCamelCase;
+        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+        type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
+    })
+}
+
 /// Render a single argument binding and expression for a Rust e2e test call.
 ///
 /// Returns `(binding_lines, call_expression)`.
@@ -27,6 +42,7 @@ pub fn render_rust_arg(
     element_type: Option<&str>,
     test_documents_dir: &str,
     is_error_context: bool,
+    handle_config_type: Option<&str>,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         // Prefer the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env var when set (host-root
@@ -83,8 +99,9 @@ pub fn render_rust_arg(
             } else {
                 let json_literal = serde_json::to_string(value).unwrap_or_default();
                 let escaped = json_literal.replace('\\', "\\\\").replace('"', "\\\"");
+                let type_annotation = handle_config_type.map_or(String::new(), |ty| format!(": {ty}"));
                 lines.push(format!(
-                    "let {name}_config: CrawlConfig = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
+                    "let {name}_config{type_annotation} = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
                 ));
                 lines.push(format!("let {name}_result = {constructor_name}(Some({name}_config));"));
             }
@@ -100,8 +117,9 @@ pub fn render_rust_arg(
             // Serialize the config JSON and deserialize at runtime.
             let json_literal = serde_json::to_string(value).unwrap_or_default();
             let escaped = json_literal.replace('\\', "\\\\").replace('"', "\\\"");
+            let type_annotation = handle_config_type.map_or(String::new(), |ty| format!(": {ty}"));
             lines.push(format!(
-                "let {name}_config: CrawlConfig = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
+                "let {name}_config{type_annotation} = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
             ));
             lines.push(format!(
                 "let {name} = {constructor_name}(Some({name}_config)).expect(\"handle creation should succeed\");"
@@ -473,5 +491,29 @@ mod tests {
         assert_eq!(resolve_visitor_trait(Some(&override_without_trait)), None);
 
         assert_eq!(resolve_visitor_trait(None), None);
+    }
+
+    #[test]
+    fn handle_arg_deserializes_with_generic_config_type() {
+        let (lines, expr) = render_rust_arg(
+            "session",
+            &serde_json::json!({"limit": 3}),
+            "handle",
+            false,
+            "sample",
+            "fixture",
+            None,
+            false,
+            None,
+            "test_documents",
+            false,
+            Some("SessionConfig"),
+        );
+
+        assert_eq!(expr, "&session");
+        let rendered = lines.join("\n");
+        assert!(rendered.contains("let session_config: SessionConfig = serde_json::from_str"));
+        assert!(rendered.contains("create_session(Some(session_config))"));
+        assert!(!rendered.contains("CrawlConfig"));
     }
 }

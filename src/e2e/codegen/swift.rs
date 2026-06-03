@@ -14,6 +14,7 @@
 
 use crate::codegen::keywords::swift_ident;
 use crate::core::backend::GeneratedFile;
+use crate::core::config::AdapterPattern;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions::toolchain;
@@ -1049,23 +1050,12 @@ fn render_test_method(
     // Streaming detection (call-level `streaming` opt-out is honored).
     let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
 
-    // Infer the stream chunk item type from the function name or default to ChatCompletionChunk.
-    // Streaming adapters define item_type (e.g., "CrawlEvent" in sample-crawler).
-    // When the function name contains "stream", infer the concrete item type based on context.
-    let chunk_item_type = if is_streaming && !expects_error {
-        // For sample-crawler crawl_stream and batch_crawl_stream, the chunk type is CrawlEvent
-        if call_config.function.contains("stream") {
-            match call_config.function.to_lowercase().as_str() {
-                s if s.contains("crawl_stream") || s.contains("crawlstream") => Some("CrawlEvent"),
-                // Default to ChatCompletionChunk for LLM-like streaming (sample-llm pattern)
-                _ => Some("ChatCompletionChunk"),
-            }
-        } else {
-            Some("ChatCompletionChunk")
-        }
+    let streaming_adapter = if is_streaming && !expects_error {
+        resolve_streaming_adapter(config, call_config, &function_name, client_factory)
     } else {
         None
     };
+    let chunk_item_type = streaming_adapter.and_then(|adapter| adapter.item_type.as_deref());
 
     let collect_snippet_opt = if is_streaming && !expects_error {
         crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet_typed(
@@ -1080,7 +1070,7 @@ fn render_test_method(
     // When swift has streaming-virtual-field assertions but no collect snippet
     // is available (the swift-bridge surface does not yet expose a typed
     // `chatStream` async sequence we can drain into a typed
-    // `[ChatCompletionChunk]`), emit a skip stub rather than reference an
+    // a concrete stream item array), emit a skip stub rather than reference an
     // undefined `chunks` local in the assertion expressions. This keeps the
     // swift test target compiling while the binding catches up.
     if is_streaming && !expects_error && collect_snippet_opt.is_none() {
@@ -1099,16 +1089,14 @@ fn render_test_method(
         return;
     }
     let collect_snippet = collect_snippet_opt.unwrap_or_default();
-    // The shared streaming snippet may reference unqualified types like `ChatCompletionChunk`
-    // or `CrawlEvent`. Swift consumers import both `<Module>` (the alef-emitted first-class
-    // types) AND `RustBridge` (swift-bridge generated types). Without module qualification
+    // The shared streaming snippet may reference unqualified adapter item types.
+    // Swift consumers import both `<Module>` (the alef-emitted first-class types)
+    // AND `RustBridge` (swift-bridge generated types). Without module qualification
     // for ambiguous types, Swift fails with "'Type' is ambiguous for type lookup".
     // Qualify all bracketed type names to the first-class module type.
     let collect_snippet = if collect_snippet.is_empty() {
         collect_snippet
     } else {
-        // Replace `[<ItemType>]` with module-qualified `[<Module>.<ItemType>]`
-        // This handles both ChatCompletionChunk (sample-llm) and CrawlEvent (sample-crawler).
         let re = Regex::new(r"\[([A-Za-z][A-Za-z0-9]*)\]").expect("valid regex");
         let module_qualifier = module_name;
         re.replace_all(&collect_snippet, |caps: &regex::Captures| {
@@ -1233,7 +1221,7 @@ fn render_test_method(
     //   try await client.<method>(args)
     // Otherwise fall back to free-function call (SampleCrate / non-client-factory libraries).
     let has_mock = fixture.mock_response.is_some();
-    let (call_setup, call_expr) = if let Some(_factory) = client_factory {
+    let (call_setup, call_expr) = if let Some(factory) = client_factory {
         let env_key = format!("MOCK_SERVER_{}", fixture.id.to_ascii_uppercase().replace('-', "_"));
         let mock_url = if fixture.has_host_root_route() {
             format!(
@@ -1244,17 +1232,18 @@ fn render_test_method(
             format!("AlefE2EMockServer.baseURL + \"/fixtures/{}\"", fixture.id)
         };
         let client_constructor = if has_mock {
-            format!("let _client = try DefaultClient(apiKey: \"test-key\", baseUrl: {mock_url})")
+            swift_client_factory_call(factory, "\"test-key\"", &mock_url)
         } else {
             // Live API: check for api_key_var; if not present use mock URL anyway.
             if let Some(env_var) = fixture.env.as_ref().and_then(|e| e.api_key_var.as_deref()) {
                 format!(
                     "let _apiKey = ProcessInfo.processInfo.environment[\"{env_var}\"]\n        \
                      let _baseUrl: String? = _apiKey != nil ? nil : {mock_url}\n        \
-                     let _client = try DefaultClient(apiKey: _apiKey ?? \"test-key\", baseUrl: _baseUrl)"
+                     {}",
+                    swift_client_factory_call(factory, "_apiKey ?? \"test-key\"", "_baseUrl")
                 )
             } else {
-                format!("let _client = try DefaultClient(apiKey: \"test-key\", baseUrl: {mock_url})")
+                swift_client_factory_call(factory, "\"test-key\"", &mock_url)
             }
         };
         let expr = if is_async {
@@ -1340,7 +1329,7 @@ fn render_test_method(
     let _ = writeln!(out, "        let {result_var} = {call_expr}");
 
     // Emit the collect snippet for streaming fixtures (drains the async sequence into
-    // a local `chunks: [ChatCompletionChunk]` array used by streaming-virtual assertions).
+    // a local `chunks` array used by streaming-virtual assertions).
     if !collect_snippet.is_empty() {
         for line in collect_snippet.lines() {
             let _ = writeln!(out, "        {line}");
@@ -1374,7 +1363,7 @@ fn render_test_method(
         // `[ToolCall]`). Both `<Module>` (first-class Codable struct) and
         // `RustBridge` (swift-bridge opaque class) export the same identifier,
         // so unqualified usage fails Swift compilation with "X is ambiguous for
-        // type lookup". Mirrors the `[ChatCompletionChunk]` replacement in
+        // type lookup". Mirrors the stream item type qualification in
         // `render_test_method`.
         for unqualified in ["StreamToolCall", "ToolCall"] {
             assertion_out =
@@ -1764,7 +1753,7 @@ fn build_args_and_setup(
         }
     }
 
-    // Method calls on the DefaultClient handle (e.g. `_client.chat(req)`) use
+    // Method calls on the configured client handle (e.g. `_client.chat(req)`) use
     // anonymous Swift argument labels (`func chat(_ req:)`), so omit `name:` prefixes.
     // Free-function calls (e.g. `process(source:, config:)`) keep labelled args.
     // Registration functions (e.g. `registerOcrBackend(_:)`) also use positional args.
@@ -3114,6 +3103,38 @@ fn swift_call_result_type(call_config: &crate::core::config::e2e::CallConfig) ->
         }
     }
     None
+}
+
+fn swift_client_factory_call(factory: &str, api_key: &str, base_url: &str) -> String {
+    format!("let _client = try {factory}(apiKey: {api_key}, baseUrl: {base_url})")
+}
+
+fn resolve_streaming_adapter<'a>(
+    config: &'a ResolvedCrateConfig,
+    call_config: &crate::core::config::e2e::CallConfig,
+    function_name: &str,
+    client_factory: Option<&str>,
+) -> Option<&'a crate::core::config::AdapterConfig> {
+    let owner_type = client_factory.filter(|value| value.chars().next().is_some_and(char::is_uppercase));
+    config
+        .adapters
+        .iter()
+        .find(|adapter| {
+            matches!(adapter.pattern, AdapterPattern::Streaming)
+                && adapter.name.to_lower_camel_case() == function_name
+                && owner_type.is_none_or(|owner| adapter.owner_type.as_deref() == Some(owner))
+        })
+        .or_else(|| {
+            call_config.overrides.values().find_map(|override_config| {
+                override_config.result_type.as_deref().and_then(|result_type| {
+                    config.adapters.iter().find(|adapter| {
+                        matches!(adapter.pattern, AdapterPattern::Streaming)
+                            && adapter.name.to_lower_camel_case() == function_name
+                            && adapter.item_type.as_deref() == Some(result_type)
+                    })
+                })
+            })
+        })
 }
 
 /// Returns true when the field type would be emitted as a Swift primitive value

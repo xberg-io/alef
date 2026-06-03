@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.15] - 2026-06-03
+
+### Fixed
+
+- fix(dart/frb): annotate slice/Vec `.collect()` closures with explicit parameter types (`|v: &[_]|` / `|v: Vec<_>|`) so the Rust closure signature is inferable when the FFI bridge call site provides no surrounding context. Fixes E0282 type-inference errors in the generated `packages/dart/rust/src/lib.rs` when the source crate returns `Vec<T>` from inherent functions that the FRB wrapper transmutes through. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
+- fix(dart/frb): only synthesize `&v.iter().map(|s| s.as_str()).collect::<Vec<_>>()` when the core parameter is `&[&str]`; previously every `&[String]` parameter was rewritten the same way, producing `&[&str]` borrows that mismatched the core signature. The new `p.vec_inner_is_ref` guard preserves direct `&param_name` borrows for `&[String]` parameters. (`src/backends/dart/gen_rust_crate/mod.rs`)
+- fix(sync-versions): substitute the version component of zig package `hash` entries in `alef.toml` when the workspace version is bumped. Zig hashes have the format `<name>-<version>-<base64sha>`; on version bump the version part is replaced inline while the base64 sha is preserved (refreshed later by `zig fetch --save` during the publish workflow). Includes regression tests covering rc-prerelease substitution, release substitution, no-op, and malformed-hash paths. (`src/cli/pipeline/version.rs`)
+- fix(kotlin_android): emit `jvmToolchain(21)` in generated `build.gradle.kts` so the Kotlin compiler resolves a JDK 21 toolchain consistently across CI runners. (`src/backends/kotlin_android/gen_build_gradle.rs`)
+- fix(e2e/elixir): include Finch/Req/Jason hex deps in generated `mix.exs` whenever the suite uses the server-pattern HTTP harness, not only when individual fixtures declare `http`. Both `test_helper.exs` patterns call `Finch.start_link`, so the deps must always be present. (`src/e2e/codegen/elixir.rs`)
+- fix(e2e/streaming): generalize streaming-assertion codegen to derive the stream-item type from `[[crates.adapters]]` metadata instead of hard-coding `ChatCompletionChunk`, and skip C streaming codegen with a diagnostic when no matching adapter is configured. (`src/e2e/codegen/streaming_assertions.rs`, `src/e2e/codegen/{c,csharp,go,java,kotlin,swift,zig,rust}.rs`, `src/e2e/codegen/recipe.rs`)
+
 ## [0.22.14] - 2026-06-03
 
 ### Fixed

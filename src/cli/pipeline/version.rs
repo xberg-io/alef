@@ -1482,6 +1482,61 @@ pub(crate) fn render_registry_version(lang: &str, workspace_version: &str, exist
     }
 }
 
+/// Update a zig package hash by substituting the version component.
+/// Zig hashes have the format: `<pkg-name>-<version>-<base64sha>`.
+/// When the version changes, we substitute just the version part, leaving the
+/// base64 sha unchanged (marked as stale until the zig publish step refreshes it
+/// via `zig fetch --save`).
+///
+/// Returns `Some(new_hash)` if the version component changed, `None` otherwise.
+fn update_zig_package_hash(existing_hash: &str, old_version: &str, new_version: &str) -> Option<String> {
+    // Zig hash format: `<name>-<version>-<base64sha>`, e.g.
+    // `liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9`
+    // We need to find the version component and replace it.
+    // The version is sandwiched between the second-to-last and last dash (before the base64).
+    //
+    // Strategy: split by `-`, find the old version in the parts, and replace it.
+    let parts: Vec<&str> = existing_hash.split('-').collect();
+    if parts.len() < 3 {
+        return None; // Malformed hash
+    }
+
+    // The base64 part (last segment) is always non-semver and doesn't contain dashes.
+    // Find the position of the old version within the split parts.
+    // For a hash like `liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9`,
+    // after split: ["liter_llm", "1.4.0", "rc.50", "Jfgk_..."]
+    // We need to identify which parts compose the version.
+
+    // A semver version may contain dots and dashes (e.g., "1.4.0-rc.50").
+    // When split by "-", it becomes ["1.4.0", "rc", "50"].
+    // The base64 part at the end is a single token with underscores and alphanumerics.
+
+    // Heuristic: the base64 part is the last segment and contains underscores or
+    // starts with an uppercase letter (typical base64url). All preceding parts
+    // (after the pkg name) form the version.
+    let base64_part = parts[parts.len() - 1];
+    let is_base64 = base64_part.contains('_') || base64_part.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+
+    if !is_base64 {
+        return None; // Couldn't identify base64 part
+    }
+
+    // Join the parts that make up the version by searching for old_version.
+    // We'll try to find old_version as a substring of the joined middle parts.
+    let middle_parts = &parts[1..parts.len() - 1]; // Everything except name and base64
+    let joined_middle = middle_parts.join("-");
+
+    if joined_middle.contains(old_version) {
+        let new_middle = joined_middle.replace(old_version, new_version);
+        let new_hash = format!("{}-{}-{}", parts[0], new_middle, base64_part);
+        if new_hash != existing_hash {
+            return Some(new_hash);
+        }
+    }
+
+    None
+}
+
 /// Rewrite `version` fields under `[crates.<name>.e2e.registry.packages.<lang>]`
 /// in `alef.toml` to track the current workspace version.
 ///
@@ -1517,7 +1572,7 @@ pub(crate) fn sync_registry_package_versions(
         };
 
         // Helper closure: given a mutable reference to a single crate table,
-        // walk its `.e2e.registry.packages.*` and update `version` fields.
+        // walk its `.e2e.registry.packages.*` and update `version` and `hash` fields.
         fn patch_crate_table(crate_table: &mut dyn toml_edit::TableLike, workspace_version: &str) -> bool {
             let e2e = match crate_table.get_mut("e2e").and_then(|i| i.as_table_like_mut()) {
                 Some(t) => t,
@@ -1538,14 +1593,31 @@ pub(crate) fn sync_registry_package_versions(
                     Some(t) => t,
                     None => continue,
                 };
-                let existing = match pkg.get("version").and_then(|i| i.as_str()) {
+                let existing_version = match pkg.get("version").and_then(|i| i.as_str()) {
                     Some(v) => v.to_string(),
                     None => continue, // no version field — skip (don't insert)
                 };
-                if let Some(new_ver) = render_registry_version(lang, workspace_version, &existing) {
+                if let Some(new_ver) = render_registry_version(lang, workspace_version, &existing_version) {
                     if let Some(ver_item) = pkg.get_mut("version") {
-                        *ver_item = toml_edit::value(new_ver);
+                        *ver_item = toml_edit::value(new_ver.clone());
                         any = true;
+                    }
+
+                    // For zig, also update the hash field when the version changes.
+                    // Hash format: `<pkg-name>-<version>-<base64sha>`.
+                    // We inline-substitute the version part, leaving the base64 sha unchanged.
+                    // Note: The sha will be stale until the zig publish workflow
+                    // re-runs `zig fetch --save URL` post-release.
+                    if lang == "zig" {
+                        if let Some(hash_item) = pkg.get_mut("hash") {
+                            if let Some(existing_hash) = hash_item.as_str() {
+                                if let Some(new_hash) =
+                                    update_zig_package_hash(existing_hash, &existing_version, &new_ver)
+                                {
+                                    *hash_item = toml_edit::value(new_hash);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3795,6 +3867,55 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
             badge.contains("<span class=\"version-badge\">v0.15.6-rc.3</span>"),
             "docs version badge must be bumped:\n{badge}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // render_registry_version unit tests
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // update_zig_package_hash unit tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn update_zig_package_hash_rc_prerelease() {
+        // Zig hash format: `<name>-<version>-<base64sha>`
+        // When syncing from rc.50 to rc.53, only the version part should change.
+        let existing = "liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9";
+        let result = update_zig_package_hash(existing, "1.4.0-rc.50", "1.4.0-rc.53");
+        assert_eq!(
+            result,
+            Some("liter_llm-1.4.0-rc.53-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9".to_string()),
+            "rc prerelease version must be substituted in hash"
+        );
+    }
+
+    #[test]
+    fn update_zig_package_hash_release_version() {
+        // Zig hash from rc.53 to stable 1.4.0
+        let existing = "liter_llm-1.4.0-rc.53-AbCd_XyZ123456789";
+        let result = update_zig_package_hash(existing, "1.4.0-rc.53", "1.4.0");
+        assert_eq!(
+            result,
+            Some("liter_llm-1.4.0-AbCd_XyZ123456789".to_string()),
+            "release version must substitute prerelease"
+        );
+    }
+
+    #[test]
+    fn update_zig_package_hash_same_version_is_none() {
+        // No change → return None
+        let existing = "mylib-0.1.0-rc.1-SomeBase64Hash";
+        let result = update_zig_package_hash(existing, "0.1.0-rc.1", "0.1.0-rc.1");
+        assert_eq!(result, None, "same version must return None");
+    }
+
+    #[test]
+    fn update_zig_package_hash_malformed_hash_is_none() {
+        // Malformed hash (too few dashes) → return None gracefully
+        let existing = "notenoughparts";
+        let result = update_zig_package_hash(existing, "0.1.0", "0.2.0");
+        assert_eq!(result, None, "malformed hash must return None");
     }
 
     // -----------------------------------------------------------------------
