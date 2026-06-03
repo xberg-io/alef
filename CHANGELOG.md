@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- fix(extract): read binding-exclusion attrs on tuple-variant fields of thiserror enums. `extract_error_enum` hardcoded `binding_excluded: false` for `syn::Fields::Unnamed` variant fields, so `#[cfg_attr(alef, alef(skip))]` / `#[doc(hidden)]` on those fields had no effect — the validator still rejected variants like `Io(#[from] std::io::Error)` with `lossy_sanitized_surface`. Now mirrors the named-variant path: calls `extract_field_binding_exclusion_reason(&f.attrs, &f.ty)` and propagates the result. (`src/backends/../extract/extractor/types.rs`)
+
 ## [0.22.4] - 2026-06-03
 
 ### Fixed
