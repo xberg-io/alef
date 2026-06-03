@@ -55,8 +55,13 @@ fn supports_serde_default_fn(field: &FieldDef) -> bool {
             Some(DefaultValue::BoolLiteral(_)),
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
         ) | (
+            // String literals or enum-variant defaults on a String field can be synthesized as
+            // String::from(literal). Named fields are skipped: the binding wraps the core enum
+            // as a PHP-friendly struct, so a String-returning default fn would not type-check
+            // against the wrapped Named field. Without the attr, serde falls back to the type's
+            // own Default impl, which the core supplies.
             Some(DefaultValue::StringLiteral(_) | DefaultValue::EnumVariant(_)),
-            TypeRef::String | TypeRef::Named(_)
+            TypeRef::String
         ) | (
             Some(DefaultValue::IntLiteral(_)),
             TypeRef::Primitive(

@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(php): skip emission of `#[serde(default = "...")]` and the associated default fn for `TypeRef::Named(_)` fields. The PHP codegen wraps the core enum as a PHP-friendly struct (e.g. `CacheBackend` becomes a struct, not the original enum), so a String-returning default fn — what the previous code emitted for `EnumVariant + Named` — does not type-check against the wrapped Named field (`expected CacheBackend, found String`). Now we only emit String-returning defaults for actual `TypeRef::String` fields and skip Named entirely; serde falls back to the type's own `Default` impl, which the core supplies. Affects `supports_serde_default_fn` (`src/backends/php/gen_bindings/types.rs`) and `typed_default_fn` (`src/backends/php/gen_bindings/mod.rs`).
+
 ## [0.22.5] - 2026-06-03
 
 ### Fixed
