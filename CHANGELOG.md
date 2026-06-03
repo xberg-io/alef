@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+- fix(wasm): emit passthrough Cargo features for every `feature = "X"` referenced by a cfg attribute on a generated item, so binding crates compile without `unexpected cfg condition value` errors when items are gated by features not listed in `[crates.wasm].features`
+- fix(go): emit pointer signature for opaque types in service registration call sites
+- fix(dart): correct frb_codegen install hint to `cargo install` (not `flutter pub global activate`) in generated `build.rs` error path
+- refactor: centralize naming policy across backends in a single helper module
 - fix(swift): replace invalid opaque-enum static access with delegate pattern using routeBuilderNew factory and from_json round-trip for registration variants
 - fix(codegen): remove consumer-specific naming and metadata leakage from Dart/Swift trait bridges, scaffold output, and e2e generators
 - fix(validation): add reusable sanitized public API diagnostics without blocking backend-specific fallback handling
