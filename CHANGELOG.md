@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.19] - 2026-06-03
+
 ### Fixed
 
+- fix(scaffold/elixir): bump default `.formatter.exs` `line_length` from 120 to 140 so the long `base_url` line in generated `RustlerPrecompiled` use clauses (which can run ~127 chars for repos with longer GitHub org/repo paths) does not trigger `mix format --check-formatted` failures on every prek run. The wider limit covers tslp's URL without re-introducing the wrap/unwrap thrash that previously oscillated the rustler template between single-line and pre-wrapped forms. (`src/scaffold/languages/elixir.rs`)
 - fix(wasm): sort `getrandom_02` before `getrandom_03` in the generated wasm `Cargo.toml` `[target.*.dependencies]` block so cargo-sort's alphabetical pass is a no-op. Previously the template emitted `getrandom_03` first, causing `cargo-sort` to reorder the lines on every `prek run` while `alef generate` re-emitted the original order — the two hooks oscillated forever and prek never converged. (`src/backends/wasm/gen_bindings/mod.rs`)
 - note(scaffold): the `# Issues & docs: …` header line that older alef versions injected into generated Cargo.toml files via `header_for_config` has been absent from all Cargo.toml emitters since the switch to `hash::header`. The placeholder URL `https://github.com/sample_crate-dev/alef` that appeared in e2e/rust and test_apps/rust Cargo.toml files when no `[scaffold] repository` was configured was similarly a legacy emission. Regression tests have been added to both the wasm Cargo.toml emitter and the e2e rust Cargo.toml renderer to prevent reintroduction. (`src/backends/wasm/gen_bindings/mod.rs`, `src/e2e/codegen/rust/cargo_toml.rs`)
 
