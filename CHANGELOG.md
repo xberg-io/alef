@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(setup/kotlin_android): replace `gradle --no-daemon dependencies --refresh-dependencies` with `gradle --no-daemon tasks --all` in Kotlin/KotlinAndroid setup. The narrower command initializes the Gradle wrapper and plugin classpath (~1-3 min on cold CI) without resolving the full project dependency graph, which was timing out at 1800s. `tasks --all` is a quick introspection command that doesn't need full transitive resolution. Preserves the `require_tool("gradle")` precondition for proper error messaging. (`src/core/config/setup_defaults.rs`)
+
 - fix(e2e/elixir): emit `Finch.start_link(name: AlefE2EFinch)` before `ExUnit.start()` in both the `uses_harness` (server-pattern) and `has_http_tests` (mock-server) branches of `render_test_helper`. The inline string template was missing the named Finch pool start that the jinja template `test_helper_server.exs.jinja` correctly included, causing `:pool_not_available` on all `Req` calls that reference `finch: AlefE2EFinch`. Added snapshot tests for both branches. (`src/e2e/codegen/elixir.rs`)
 
 - fix(dart): emit `&mut self` receiver and `.inner` borrow for opaque-handle parameters with `is_mut=true` in opaque method bodies. When a core method takes `&mut self` or a param takes `&mut T`, the Dart FRB bridge now correctly propagates mutability. Opaque handle params use `&mut param.inner`; Named transmute params use `&mut` borrow in the transmute expression; From-converted params use `&mut Type::from(param)`. (`src/backends/dart/gen_rust_crate/mod.rs`)
