@@ -79,7 +79,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
@@ -230,7 +230,7 @@ fn test_type_mapping() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -373,7 +373,7 @@ fn test_generated_header() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -607,7 +607,7 @@ fn test_methods_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -695,7 +695,7 @@ fn test_async_methods() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -808,7 +808,7 @@ fn test_opaque_type() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -939,7 +939,7 @@ fn test_exclude_types() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "HiddenType".to_string(),
                 rust_path: "test_lib::HiddenType".to_string(),
@@ -962,7 +962,7 @@ fn test_exclude_types() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![],
         enums: vec![],
@@ -1026,7 +1026,7 @@ fn test_exclude_fields_removes_wasm_struct_field() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1081,7 +1081,7 @@ fn make_trait_def_wasm(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 fn make_method_wasm(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
@@ -1534,7 +1534,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1708,7 +1708,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1804,7 +1804,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "ConversionOptionsUpdate".to_string(),
                 rust_path: "test_lib::ConversionOptionsUpdate".to_string(),
@@ -1831,7 +1831,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![],
         enums: vec![],
@@ -1968,7 +1968,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     // ParentStruct: has Map<String, ChildStruct> and Option<Map<String, ChildStruct>> fields.
     let parent = TypeDef {
@@ -2010,7 +2010,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     // A function that accepts ParentStruct as a parameter forces the codegen to emit a
     // binding→core From impl for ParentStruct (only input types receive From<WasmX> for X).
@@ -2300,7 +2300,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![EnumDef {
             name: "ToolKind".to_string(),
@@ -2415,7 +2415,7 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2496,7 +2496,7 @@ fn make_type_def(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 /// Optional enum fields must generate `Option<String>` getters (not `Option<WasmEnum>`)
@@ -3049,7 +3049,7 @@ fn test_constructor_params_camel_case() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3116,7 +3116,7 @@ fn test_wasm_js_name_on_non_opaque_struct() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3193,7 +3193,7 @@ fn test_wasm_js_name_on_opaque_struct() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3333,7 +3333,7 @@ fn test_constructor_camel_case_param_sync_with_snake_case_field_init() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3396,7 +3396,7 @@ fn test_constructor_camel_case_required_multi_word_field() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3458,7 +3458,7 @@ fn test_from_impl_uses_snake_case_field_names() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3704,7 +3704,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     // The clear_fn is a zero-parameter function in the public API surface.
     let clear_fn = FunctionDef {

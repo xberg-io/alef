@@ -82,7 +82,7 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -202,7 +202,7 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -306,7 +306,7 @@ fn test_struct_module_with_named_type_field() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -385,7 +385,7 @@ fn test_struct_module_with_vec_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let config = make_config("test_app");
     let api = ApiSurface {

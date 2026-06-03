@@ -81,7 +81,7 @@ fn make_basic_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "process".into(),
             rust_path: "demo::process".into(),

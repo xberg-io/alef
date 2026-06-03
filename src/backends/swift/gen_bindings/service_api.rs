@@ -162,10 +162,7 @@ fn collect_wrapper_constructor_externs(service: &ServiceDef) -> Vec<minijinja::V
         for variant in &reg.variants {
             let Some(wc) = &variant.wrapper_call else { continue };
             // Deduplicate by function name (wrapper_type_snake_new).
-            let fn_snake = format!(
-                "{}_new",
-                wc.wrapper_type_name.to_snake_case()
-            );
+            let fn_snake = format!("{}_new", wc.wrapper_type_name.to_snake_case());
             if !seen.insert(fn_snake.clone()) {
                 continue;
             }
@@ -658,13 +655,15 @@ fn gen_registration_variant(
         // Build the argument expression for the wrapper constructor factory call.
         // Fixed args: use `try <TypeFromJson>("\"Variant\"")` factory syntax.
         // Free args: use the param name directly.
-        let factory_fn_camel = format!("{}_new", wrapper_call.wrapper_type_name.to_snake_case())
-            .to_lower_camel_case();
+        let factory_fn_camel = format!("{}_new", wrapper_call.wrapper_type_name.to_snake_case()).to_lower_camel_case();
         let factory_args: Vec<String> = wrapper_call
             .args
             .iter()
             .map(|arg| match arg {
-                WrapperConstructorArg::Fixed { param_name: _, value_expr } => {
+                WrapperConstructorArg::Fixed {
+                    param_name: _,
+                    value_expr,
+                } => {
                     // value_expr is e.g. "source_crate::Method::Get"
                     // Extract type name and variant name for the from_json factory call.
                     if let Some(last_colon) = value_expr.rfind("::") {
@@ -674,7 +673,11 @@ fn gen_registration_variant(
                             // type_name "Method" → factory "methodFromJson"
                             let factory_name = format!(
                                 "{}FromJson",
-                                type_name.chars().next().map(|c| c.to_lowercase().to_string()).unwrap_or_default()
+                                type_name
+                                    .chars()
+                                    .next()
+                                    .map(|c| c.to_lowercase().to_string())
+                                    .unwrap_or_default()
                                     + &type_name[1..]
                             );
                             format!("try {factory_name}(\"\\\"{variant_str}\\\"\")")
@@ -709,11 +712,7 @@ fn gen_registration_variant(
         ));
     } else {
         // No wrapper call — fall through to the direct C-callback invocation pattern.
-        let wrapper_call_args: Vec<String> = variant
-            .signature_params
-            .iter()
-            .map(|p| p.name.clone())
-            .collect();
+        let wrapper_call_args: Vec<String> = variant.signature_params.iter().map(|p| p.name.clone()).collect();
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_registration_variant.swift.jinja",

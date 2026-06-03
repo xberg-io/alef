@@ -32,7 +32,7 @@ fn make_trait_def(name: &str) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 fn make_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {

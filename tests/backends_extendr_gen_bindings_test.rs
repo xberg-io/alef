@@ -81,7 +81,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "extract".to_string(),
             rust_path: "test_lib::extract".to_string(),
@@ -242,7 +242,7 @@ fn test_type_mapping() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -384,7 +384,7 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "run".to_string(),
             rust_path: "test_lib::run".to_string(),
@@ -468,7 +468,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "parse".to_string(),
             rust_path: "test_lib::parse".to_string(),
@@ -563,7 +563,7 @@ fn test_generated_header() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "simple_fn".to_string(),
             rust_path: "test::simple_fn".to_string(),
@@ -678,7 +678,7 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -757,7 +757,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let options_type = TypeDef {
         name: "Options".to_string(),
@@ -781,7 +781,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
@@ -871,7 +871,7 @@ mod trait_bridge {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}
+        }
     }
 
     fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {

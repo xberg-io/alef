@@ -72,7 +72,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
@@ -816,7 +816,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
@@ -1117,7 +1117,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "my-lib".into(),
@@ -1355,7 +1355,7 @@ type = "ChatCompletionRequest"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1504,7 +1504,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1608,7 +1608,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 /// `Option<Named(T)>` return types on opaque-type methods must NOT be wrapped with

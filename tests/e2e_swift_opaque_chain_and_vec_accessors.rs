@@ -106,7 +106,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 /// Build IR mirroring sample_language_pack's opaque `ProcessResult` whose `metrics` field

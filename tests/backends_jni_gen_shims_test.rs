@@ -120,7 +120,7 @@ fn make_demo_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let config_type = TypeDef {
         name: "DemoConfig".to_string(),
@@ -150,7 +150,7 @@ fn make_demo_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     ApiSurface {
         crate_name: "demo".into(),
@@ -709,7 +709,7 @@ fn real_ir_shape_optional_ref_result_async() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     // create_client(api_key: Option<String>, base_url: Option<String>, timeout_secs: Option<u64>,
     //               max_retries: Option<u32>, model_hint: Option<String>) -> DemoClient
@@ -944,7 +944,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1020,7 +1020,7 @@ fn method_ref_receiver_emits_const_cast() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1108,7 +1108,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1198,7 +1198,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1293,7 +1293,7 @@ fn method_pathbuf_param_receives_raw_string() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1391,7 +1391,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let api = ApiSurface {
         crate_name: "demo".into(),

@@ -57,7 +57,7 @@ fn test_visitor_file_emits_prefixed_struct() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
 
     let output = gen_visitor_file(
         "mypkg",

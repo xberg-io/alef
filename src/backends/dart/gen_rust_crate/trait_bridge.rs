@@ -206,7 +206,14 @@ pub(crate) fn emit_trait_bridge(
         },
     ));
     for method in &own_methods {
-        emit_trait_bridge_method(out, method, source_crate_name, type_paths, &api.excluded_type_paths, lifetime_type_names);
+        emit_trait_bridge_method(
+            out,
+            method,
+            source_crate_name,
+            type_paths,
+            &api.excluded_type_paths,
+            lifetime_type_names,
+        );
         out.push('\n');
     }
     out.push_str("}\n");
@@ -1200,7 +1207,14 @@ mod tests {
         )]);
         let excluded_type_paths = type_paths.clone();
 
-        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths, &std::collections::HashSet::new());
+        emit_trait_bridge_method(
+            &mut out,
+            &method,
+            "demo",
+            &type_paths,
+            &excluded_type_paths,
+            &std::collections::HashSet::new(),
+        );
 
         assert!(
             out.contains("serde_json::from_str(&__ret_bridge.json)?;"),
@@ -1245,7 +1259,14 @@ mod tests {
         )]);
         let excluded_type_paths = type_paths.clone();
 
-        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths, &std::collections::HashSet::new());
+        emit_trait_bridge_method(
+            &mut out,
+            &method,
+            "demo",
+            &type_paths,
+            &excluded_type_paths,
+            &std::collections::HashSet::new(),
+        );
 
         assert!(
             out.contains("serde_json::to_string(&document)?"),

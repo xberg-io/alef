@@ -54,7 +54,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-}
+    }
 }
 
 fn make_enum(name: &str, variants: Vec<EnumVariant>, serde_tag: Option<String>) -> EnumDef {

@@ -139,7 +139,7 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -214,7 +214,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -462,7 +462,7 @@ fn named_param_from_json_is_checked_before_primary_call() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -578,7 +578,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "extract".to_string(),
             rust_path: "test_lib::extract".to_string(),
@@ -763,7 +763,7 @@ package = "dev.example"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
     let visible_type = TypeDef {
         name: "VisibleHandle".to_string(),
         rust_path: "test_lib::VisibleHandle".to_string(),
@@ -803,7 +803,7 @@ package = "dev.example"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
-};
+    };
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -1148,7 +1148,7 @@ fn test_optional_field_defaults_in_builder() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1310,7 +1310,7 @@ fn test_no_standalone_builder_java_file_emitted() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1601,7 +1601,7 @@ type = "ChatCompletionRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "ChatCompletionRequest".to_string(),
                 rust_path: "test_lib::ChatCompletionRequest".to_string(),
@@ -1624,7 +1624,7 @@ type = "ChatCompletionRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "ChatCompletionChunk".to_string(),
                 rust_path: "test_lib::ChatCompletionChunk".to_string(),
@@ -1647,7 +1647,7 @@ type = "ChatCompletionRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![],
         enums: vec![],
@@ -1912,7 +1912,7 @@ fn test_dto_emits_as_record_with_fields_only() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1976,7 +1976,7 @@ fn test_opaque_handle_type_remains_class() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2197,7 +2197,7 @@ type = "EventRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "EventRequest".to_string(),
                 rust_path: "stream_lib::EventRequest".to_string(),
@@ -2220,7 +2220,7 @@ type = "EventRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "Event".to_string(),
                 rust_path: "stream_lib::Event".to_string(),
@@ -2243,7 +2243,7 @@ type = "EventRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![],
         enums: vec![],
@@ -2471,7 +2471,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2552,7 +2552,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "Client".to_string(),
                 rust_path: "test_lib::Client".to_string(),
@@ -2592,7 +2592,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![
             FunctionDef {
@@ -2807,7 +2807,7 @@ type = "EventRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "EventRequest".to_string(),
                 rust_path: "stream_lib::EventRequest".to_string(),
@@ -2830,7 +2830,7 @@ type = "EventRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "Event".to_string(),
                 rust_path: "stream_lib::Event".to_string(),
@@ -2853,7 +2853,7 @@ type = "EventRequest"
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![],
         enums: vec![],
@@ -3002,7 +3002,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
             TypeDef {
                 name: "DemoHandle".to_string(),
                 rust_path: "test_lib::DemoHandle".to_string(),
@@ -3042,7 +3042,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
-},
+            },
         ],
         functions: vec![],
         enums: vec![],
@@ -3158,7 +3158,7 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3242,7 +3242,7 @@ fn json_util_centralizes_from_json_deserialization() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3324,7 +3324,7 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3531,7 +3531,7 @@ fn test_facade_no_java_lang_imports() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],

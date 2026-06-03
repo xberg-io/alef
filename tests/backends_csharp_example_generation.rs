@@ -92,7 +92,7 @@ fn test_generated_code_example() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
-}],
+        }],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
             rust_path: "sample_crate::extract_file_sync".to_string(),
