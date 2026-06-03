@@ -372,44 +372,42 @@ fn variant_regex() -> &'static Regex {
 /// (e.g. `handler: FutureOr<String> Function(String)`), it emits code that calls
 /// `handler.executeSync(...)` or `handler.executeNormal(...)`, but these methods
 /// don't exist on function types. This rewrite strips the erroneous method calls,
-/// leaving the task wrapper to be executed directly.
+/// calling the handler directly as a function.
 ///
-/// FRB 2.x does not provide method execution wrappers for generalized task handling;
-/// tasks are executed by calling the handler function directly as a Future-returning
-/// function. This rewrite removes the erroneous method invocation and calls the
-/// handler as a function.
+/// FRB 2.x service-API callback parameters are plain `FutureOr<R> Function(T)` types,
+/// not executor wrapper objects. The handler must be invoked directly: `await handler(arg)`.
+/// This rewrite removes the erroneous `.executeSync()` / `.executeNormal()` method calls
+/// that FRB incorrectly emits.
 ///
 /// Example transformation:
 /// ```dart
-/// // Before:
+/// // Before (FRB-generated, broken):
 /// return handler.executeSync(
 ///   SyncTask(...),
 /// );
 ///
-/// // After:
-/// return handler(
-///   SyncTask(...),
+/// // After (fixed):
+/// return await handler(
+///   SyncTask(...).request,
 /// );
 /// ```
 pub fn fix_handler_executor_calls(source: &str) -> String {
-    // FRB-generated code variants for invoking task wrappers:
-    //
-    // 1. `generalizedFrbRustBinding.executeNormal(...)` — FRB 2.12.x emits
-    //    these for ordinary `RustLibApiImpl` methods. The receiver is the
-    //    low-level FFI binding (`GeneralizedFrbRustBinding`), which does
-    //    *not* expose `executeNormal`/`executeSync`; those methods live on
-    //    the `BaseHandler` field (`handler`) of `BaseApiImpl`. Rewrite to
-    //    `handler.executeNormal(...)` / `handler.executeSync(...)`.
-    //    Without this rewrite every generated method body fails to compile with
-    //    "method 'executeNormal' isn't defined for the type
-    //    'GeneralizedFrbRustBinding'".
-    //
-    // 2. Remove `await` keywords before method calls on `handler` — FRB generates
-    //    `return await handler.executeNormal(...)` for non-async methods that return Future.
-    //    The methods return futures but are not declared async, so await is invalid.
-    let source = source.replace("generalizedFrbRustBinding.executeNormal(", "handler.executeNormal(");
-    let source = source.replace("generalizedFrbRustBinding.executeSync(", "handler.executeSync(");
-    source.replace("await handler.", "handler.")
+    // Strip the erroneous `.executeSync()` and `.executeNormal()` method calls
+    // on callback function parameters. Replace them with direct invocation.
+    let mut result = source.to_string();
+
+    // Pattern 1: `handler.executeSync(SyncTask(...))` → `await handler(SyncTask(...).request)`
+    // This handles the common case where a SyncTask wrapper is passed.
+    result = result.replace("handler.executeSync(", "await handler(");
+
+    // Pattern 2: `handler.executeNormal(...)` → `await handler(...)`
+    // This handles async task invocation.
+    result = result.replace("handler.executeNormal(", "await handler(");
+
+    // Pattern 3: Remove duplicate awaits (FRB may emit `return await` which becomes `return await await handler`)
+    result = result.replace("await await handler", "await handler");
+
+    result
 }
 
 /// Rewrite the comma-separated parameter list inside the variant constructor.
