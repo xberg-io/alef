@@ -611,13 +611,35 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         }
     }
 
-    // Emit one napi method per service registration variant
+    // Emit per-verb registration shortcuts wrapped in an impl block per service.
+    // These methods use `&mut self` and therefore must live inside an `impl` block —
+    // emitting them as top-level free functions produces invalid Rust.
+    let prefix = config.node_type_prefix();
     for service in &api.services {
+        let has_variants = service.registrations.iter().any(|r| !r.variants.is_empty());
+        if !has_variants {
+            continue;
+        }
+        let app_type_name = format!("{prefix}{}", service.name);
+        let mut variant_methods = String::new();
         for reg in &service.registrations {
             for variant in &reg.variants {
-                gen_variant_napi_method(&mut out, service, reg, variant, api, &core_import);
+                gen_variant_napi_method(&mut variant_methods, service, reg, variant, api, &core_import);
             }
         }
+        // Indent all method bodies by 4 spaces to sit inside the impl block
+        let indented: String = variant_methods
+            .lines()
+            .map(|line| if line.is_empty() { String::new() } else { format!("    {line}") })
+            .collect::<Vec<_>>()
+            .join("\n");
+        out.push_str(&format!("use crate::{app_type_name};\n\n"));
+        out.push_str(&format!("impl {app_type_name} {{\n"));
+        out.push_str(&indented);
+        if !indented.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("}\n");
     }
 
     out
@@ -1628,10 +1650,22 @@ mod tests {
         };
         let output = gen_service_rs(&surface, &config);
 
-        // Assert the variant method is emitted with #[napi]
+        // Assert the variant methods are wrapped in an impl block (default prefix "Js")
         assert!(
-            output.contains("#[napi]\npub fn get("),
-            "expected `#[napi] pub fn get(` in output:\n{output}"
+            output.contains("impl JsTestService {"),
+            "expected `impl JsTestService {{` wrapping in output:\n{output}"
+        );
+
+        // Assert the use statement is emitted before the impl block
+        assert!(
+            output.contains("use crate::JsTestService;"),
+            "expected `use crate::JsTestService;` in output:\n{output}"
+        );
+
+        // Assert the variant method is emitted with #[napi] (indented inside impl block)
+        assert!(
+            output.contains("#[napi]\n    pub fn get("),
+            "expected `#[napi]\\n    pub fn get(` inside impl block in output:\n{output}"
         );
 
         // Assert the wrapper builder is constructed
