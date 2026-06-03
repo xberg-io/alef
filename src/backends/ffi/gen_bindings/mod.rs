@@ -68,6 +68,35 @@ fn options_field_bridge_for_function<'a>(
         })
 }
 
+fn find_options_field_bridge_function<'a>(
+    api: &'a ApiSurface,
+    bridge_cfg: &TraitBridgeConfig,
+) -> Option<&'a FunctionDef> {
+    api.functions.iter().find(|func| {
+        let Some(options_type) = bridge_cfg.options_type.as_deref() else {
+            return false;
+        };
+        func.params
+            .iter()
+            .any(|param| named_type_ref(&param.ty) == Some(options_type))
+    })
+}
+
+fn function_param_bridge_for_visitor_callbacks<'a>(
+    api: &'a ApiSurface,
+    trait_bridges: &'a [TraitBridgeConfig],
+) -> Option<(&'a TraitBridgeConfig, &'a FunctionDef)> {
+    trait_bridges
+        .iter()
+        .filter(|bridge| bridge.bind_via != BridgeBinding::OptionsField)
+        .find_map(|bridge| {
+            api.functions
+                .iter()
+                .find(|func| has_trait_bridge_param(func, std::slice::from_ref(bridge)))
+                .map(|func| (bridge, func))
+        })
+}
+
 impl Backend for FfiBackend {
     fn name(&self) -> &str {
         "ffi"
@@ -799,12 +828,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                         .map(|trait_def| (trait_def, b))
                 });
             if let Some((vtd, bridge_cfg)) = visitor_trait_def {
+                let visitor_function = find_options_field_bridge_function(api, bridge_cfg);
                 builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
                     prefix,
                     &core_import,
                     true,
                     vtd,
                     Some(bridge_cfg),
+                    visitor_function,
                 ));
             } else {
                 eprintln!(
@@ -816,18 +847,31 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
         // the visitor bindings with {prefix}_options_set_visitor_handle.
         // Use the first is_trait type in the IR to drive callback spec generation.
-        let visitor_trait_def = api.types.iter().find(|t| t.is_trait);
+        let configured_bridge = function_param_bridge_for_visitor_callbacks(api, &config.trait_bridges);
+        let visitor_trait_def = configured_bridge
+            .and_then(|(bridge, _)| {
+                api.types
+                    .iter()
+                    .find(|t| t.is_trait && t.name == bridge.trait_name)
+                    .or_else(|| api.types.iter().find(|t| t.is_trait))
+            })
+            .or_else(|| api.types.iter().find(|t| t.is_trait));
         if let Some(vtd) = visitor_trait_def {
+            let bridge_cfg = configured_bridge.map(|(bridge, _)| bridge);
+            let visitor_function = configured_bridge.map(|(_, func)| func);
             builder.add_item(&crate::backends::ffi::gen_visitor::gen_convert_no_visitor(
                 prefix,
                 &core_import,
+                bridge_cfg,
+                visitor_function,
             ));
             builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
                 prefix,
                 &core_import,
                 false,
                 vtd,
-                None,
+                bridge_cfg,
+                visitor_function,
             ));
         } else {
             eprintln!(
@@ -2754,6 +2798,104 @@ options_field = "renderer"
         assert!(
             !lib.content.contains("ConversionOptions") && !lib.content.contains("ConversionResult"),
             "must not leak conversion-shaped type names in generic wrapper"
+        );
+    }
+
+    #[test]
+    fn test_legacy_visitor_callbacks_use_configured_function_signature() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "doc"
+visitor_callbacks = true
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "RenderHandle"
+param_name = "renderer"
+"#,
+        );
+        let mut api = visitor_api();
+        api.types.push(TypeDef {
+            name: "RenderSettings".to_string(),
+            rust_path: "my_lib::RenderSettings".to_string(),
+            fields: vec![],
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "RenderedDocument".to_string(),
+            rust_path: "my_lib::RenderedDocument".to_string(),
+            fields: vec![],
+            is_clone: true,
+            is_return_type: true,
+            ..TypeDef::default()
+        });
+        api.functions.push(FunctionDef {
+            name: "render_document".to_string(),
+            rust_path: "my_lib::render_document".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::String,
+                    is_ref: false,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "settings".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("RenderSettings".to_string()))),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "renderer".to_string(),
+                    ty: TypeRef::Named("RenderHandle".to_string()),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::Named("RenderedDocument".to_string()),
+            is_async: false,
+            error_type: Some("RenderError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: true,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(lib.content.contains("fn doc_render_document("));
+        assert!(lib.content.contains("fn doc_render_document_with_visitor("));
+        assert!(lib.content.contains("settings: *const my_lib::RenderSettings"));
+        assert!(lib.content.contains(") -> *mut my_lib::RenderedDocument"));
+        assert!(
+            lib.content
+                .contains("match my_lib::render_document(source_rs, settings_rs, None)")
+        );
+        assert!(
+            lib.content
+                .contains("match my_lib::render_document(source_rs, settings_rs, visitor_handle)")
+        );
+        assert!(!lib.content.contains("my_lib::convert("));
+        assert!(
+            !lib.content.contains("ConversionOptions") && !lib.content.contains("ConversionResult"),
+            "legacy visitor callback path must not assume conversion-shaped names"
         );
     }
 

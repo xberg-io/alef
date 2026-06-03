@@ -1373,7 +1373,8 @@ fn render_test_method(
     let effective_result_var = &call_config.result_var;
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
-    let args: &[crate::e2e::config::ArgMapping] = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let args: &[crate::e2e::config::ArgMapping] = recipe.args;
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -1384,21 +1385,14 @@ fn render_test_method(
     // generated Java POJO class name matches the Rust type name across bindings, so
     // mirroring the C/csharp/go option lets us auto-emit `Type.fromJson(json)` without
     // requiring an explicit Java override per call).
-    let effective_options_type: Option<String> = call_overrides
-        .and_then(|o| o.options_type.clone())
-        .or_else(|| options_type.map(|s| s.to_string()))
+    let effective_options_type: Option<String> = recipe
+        .options_type
+        .map(str::to_string)
+        .or_else(|| options_type.map(str::to_string))
         .or_else(|| {
-            // Borrow from any other backend's options_type. Prefer non-language-prefixed
-            // names (csharp/c/go/php/python) over wasm or ruby which use prefixed types
-            // like `WasmCreateBatchRequest` or `SampleLlm::CreateBatchRequest`.
-            for cand in ["csharp", "c", "go", "php", "python"] {
-                if let Some(o) = call_config.overrides.get(cand) {
-                    if let Some(t) = &o.options_type {
-                        return Some(t.clone());
-                    }
-                }
-            }
-            None
+            recipe
+                .compatible_options_type(&["csharp", "c", "go", "php", "python"])
+                .map(str::to_string)
         });
     let effective_options_type = effective_options_type.as_deref();
     // When options_type is resolvable but no explicit options_via is given for Java,
@@ -1550,7 +1544,7 @@ fn render_test_method(
     // expressions appended after the configured args (e.g. `null` for an
     // optional trailing parameter the fixture cannot supply). Mirrors the
     // TypeScript and C# implementations.
-    let extra_args_slice: &[String] = call_overrides.map_or(&[], |o| o.extra_args.as_slice());
+    let extra_args_slice: &[String] = recipe.extra_args;
 
     // Build visitor if present and add to setup
     let mut visitor_var = String::new();
@@ -1893,15 +1887,6 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
-                    // Collect excluded type names before filtering methods.
-                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
-                        .iter()
-                        .filter(|t| t.binding_excluded)
-                        .map(|t| t.name.as_str())
-                        .collect();
-                    excluded_named.insert("InternalDocument");
-                    excluded_named.insert("SyncExtractor");
-
                     // Filter to only methods that appear in the Java trait-bridge interface.
                     // Async methods (extract_bytes, extract_file) are handled by the FFI bridge internally.
                     let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
@@ -1944,17 +1929,8 @@ fn build_args_and_setup(
                         }
                     }
 
-                    // Collect binding-excluded type names from IR and hardcoded overrides.
-                    // These types are never emitted as Java classes; the trait-bridge interface
-                    // serializes them to JSON strings, so stubs must use String and default to "".
-                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
-                        .iter()
-                        .filter(|t| t.binding_excluded)
-                        .map(|t| t.name.as_str())
-                        .collect();
-                    // Hardcoded overrides for internal types that are never emitted as Java classes.
-                    excluded_named.insert("InternalDocument");
-                    excluded_named.insert("SyncExtractor");
+                    let excluded_named =
+                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
 
                     // Do NOT filter out methods that return excluded types. As of the trait method extraction
                     // fix, trait methods with excluded type signatures are now kept in the interface with type

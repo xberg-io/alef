@@ -961,7 +961,8 @@ fn render_test_method(
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
     let is_async = effective_is_async;
-    let args = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve("csharp", fixture, call_config, type_defs);
+    let args = recipe.args;
 
     // Per-call overrides: result shape, void returns, extra trailing args.
     // Pull `result_is_simple` from the per-call config first (call-level value
@@ -990,16 +991,14 @@ fn render_test_method(
             || fn_name == "initialize"
             || fn_name == "shutdown"
     };
-    let extra_args_slice: &[String] = cs_overrides.map_or(&[], |o| o.extra_args.as_slice());
+    let extra_args_slice: &[String] = recipe.extra_args;
     // options_type: prefer per-call override, fall back to top-level csharp override.
     let top_level_options_type = e2e_config
         .call
         .overrides
         .get("csharp")
         .and_then(|o| o.options_type.as_deref());
-    let effective_options_type = cs_overrides
-        .and_then(|o| o.options_type.as_deref())
-        .or(top_level_options_type);
+    let effective_options_type = recipe.options_type.or(top_level_options_type);
 
     // options_via: how to construct the options object. Supported values:
     //   "kwargs" (default) — emit a C# object initializer (`new T { ... }`).
@@ -1083,9 +1082,20 @@ fn render_test_method(
 
     // When a visitor is present, embed it in the options object instead of passing as a separate arg.
     // args_str should contain the function arguments with null for missing options (e.g., "html, null").
-    // We need to replace that null with a ConversionOptions instance that has Visitor set.
+    // We need to replace that null with an options instance that has Visitor set.
     let final_args = if has_visitor && !visitor_arg.is_empty() {
-        let opts_type = effective_options_type.unwrap_or("ConversionOptions");
+        let Some(opts_type) =
+            effective_options_type.or_else(|| crate::e2e::codegen::recipe::trait_bridge_options_type(config))
+        else {
+            let return_type = if is_async { "async Task" } else { "void" };
+            let _ = writeln!(out, "    [Fact]");
+            let _ = writeln!(out, "    public {return_type} Test{method_name}()");
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(out, "        // {description}");
+            let _ = writeln!(out, "        return;");
+            let _ = writeln!(out, "    }}");
+            return;
+        };
         if args_str.contains("JsonSerializer.Deserialize") {
             // Deserialize form: extract the deserialized object and set Visitor on it
             setup_lines.push(format!("var options = {args_str};"));
@@ -1344,16 +1354,15 @@ fn render_chat_stream_test_method(
         name
     };
     let function_name = effective_function_name.as_str();
-    let args = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve("csharp", fixture, call_config, type_defs);
+    let args = recipe.args;
 
     let top_level_options_type = e2e_config
         .call
         .overrides
         .get("csharp")
         .and_then(|o| o.options_type.as_deref());
-    let effective_options_type = cs_overrides
-        .and_then(|o| o.options_type.as_deref())
-        .or(top_level_options_type);
+    let effective_options_type = recipe.options_type.or(top_level_options_type);
     let top_level_options_via = e2e_config
         .call
         .overrides
@@ -1860,7 +1869,10 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = emit_test_backend_with_class_name(trait_bridge, &methods, fixture, class_name);
+                    let excluded_named =
+                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
+                    let emission =
+                        emit_test_backend_with_class_name(trait_bridge, &methods, fixture, class_name, &excluded_named);
                     // setup_block is a private nested class declaration — must be at class
                     // scope in C#, not inside the method body.
                     class_decls.push(emission.setup_block);
@@ -3650,69 +3662,34 @@ fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
     }
 }
 
-/// Like `csharp_type_for_stub`, but replaces non-visible types (like InternalDocument,
-/// SyncExtractor) with `string` so test stubs don't reference internal types.
-fn csharp_type_for_stub_visible(ty: &crate::core::ir::TypeRef) -> String {
+fn csharp_type_for_stub_visible(
+    ty: &crate::core::ir::TypeRef,
+    excluded_types: &std::collections::HashSet<&str>,
+) -> String {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Named(name) => {
-            if is_visible_csharp_type(name) {
-                name.clone()
-            } else {
-                // Non-visible types become string
+            if excluded_types.contains(name.as_str()) {
                 "string".to_string()
+            } else {
+                name.clone()
             }
         }
         TypeRef::Optional(inner) => {
-            let inner_str = csharp_type_for_stub_visible(inner);
+            let inner_str = csharp_type_for_stub_visible(inner, excluded_types);
             format!("{}?", inner_str)
         }
         TypeRef::Vec(inner) => {
-            let inner_str = csharp_type_for_stub_visible(inner);
+            let inner_str = csharp_type_for_stub_visible(inner, excluded_types);
             format!("List<{}>", inner_str)
         }
         TypeRef::Map(k, v) => {
-            let key_str = csharp_type_for_stub_visible(k);
-            let val_str = csharp_type_for_stub_visible(v);
+            let key_str = csharp_type_for_stub_visible(k, excluded_types);
+            let val_str = csharp_type_for_stub_visible(v, excluded_types);
             format!("Dictionary<{}, {}>", key_str, val_str)
         }
         _ => csharp_type_for_stub(ty),
     }
-}
-
-/// Check if a type name is known to be exported from the C# binding.
-/// Types like InternalDocument and SyncExtractor are internal and should not
-/// appear in test stubs or public interfaces.
-fn is_visible_csharp_type(type_name: &str) -> bool {
-    // Whitelist of types that are actually exported by the C# binding.
-    matches!(
-        type_name,
-        "ExtractionResult"
-            | "ExtractionConfig"
-            | "ExtractionFormat"
-            | "OcrBackend"
-            | "DocumentExtractor"
-            | "PostProcessor"
-            | "Renderer"
-            | "Validator"
-            | "EmbeddingBackend"
-            | "EmbeddingRequest"
-            | "EmbeddingResponse"
-            | "Table"
-            | "Block"
-            | "Element"
-            | "Metadata"
-            | "FormatMetadata"
-            | "LayoutDetection"
-            | "TableDetectionResult"
-            | "TableCell"
-            | "ChunkingConfig"
-            | "Chunk"
-            | "ChunkMetadata"
-            | "PluginException"
-            | "SampleCrateError"
-            | "OcrConfig"
-    )
 }
 
 /// Emit the correct default value for a C# test stub return type.
@@ -3722,21 +3699,22 @@ fn emit_csharp_stub_default(
     original_type: &crate::core::ir::TypeRef,
     visible_type: &str,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    excluded_types: &std::collections::HashSet<&str>,
 ) -> String {
     use crate::core::ir::TypeRef;
 
     // Check if this type or its inner types are non-visible
-    fn contains_non_visible(ty: &TypeRef) -> bool {
+    fn contains_non_visible(ty: &TypeRef, excluded_types: &std::collections::HashSet<&str>) -> bool {
         match ty {
-            TypeRef::Named(name) => !is_visible_csharp_type(name),
-            TypeRef::Optional(inner) => contains_non_visible(inner),
-            TypeRef::Vec(inner) => contains_non_visible(inner),
-            TypeRef::Map(k, v) => contains_non_visible(k) || contains_non_visible(v),
+            TypeRef::Named(name) => excluded_types.contains(name.as_str()),
+            TypeRef::Optional(inner) => contains_non_visible(inner, excluded_types),
+            TypeRef::Vec(inner) => contains_non_visible(inner, excluded_types),
+            TypeRef::Map(k, v) => contains_non_visible(k, excluded_types) || contains_non_visible(v, excluded_types),
             _ => false,
         }
     }
 
-    if contains_non_visible(original_type) {
+    if contains_non_visible(original_type, excluded_types) {
         // Type contains non-visible parts, map to string default
         if visible_type.contains("?") {
             "null".to_string()
@@ -3761,16 +3739,17 @@ fn emit_csharp_stub_method(
     method_cs: &str,
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    excluded_types: &std::collections::HashSet<&str>,
 ) {
     use crate::core::ir::TypeRef;
 
     // C# trait bridge interfaces expose synchronous methods even though Rust traits are async.
     // The bridge implementation blocks on the async Rust call. So stubs must always be sync
     // (never emit `async Task<T>`). Always use the actual return type.
-    let ret_ty = csharp_type_for_stub_visible(&method.return_type);
+    let ret_ty = csharp_type_for_stub_visible(&method.return_type, excluded_types);
     // Use the visible type to determine the default value, not the original type
     // (e.g., InternalDocument → string → "")
-    let default_val = emit_csharp_stub_default(&method.return_type, &ret_ty, defaults);
+    let default_val = emit_csharp_stub_default(&method.return_type, &ret_ty, defaults, excluded_types);
 
     // Build parameter list using visible types (internal types like InternalDocument
     // are mapped to string to avoid stub referencing non-public types).
@@ -3780,7 +3759,7 @@ fn emit_csharp_stub_method(
         .map(|p| {
             format!(
                 "{} {}",
-                csharp_type_for_stub_visible(&p.ty),
+                csharp_type_for_stub_visible(&p.ty, excluded_types),
                 p.name.to_lower_camel_case()
             )
         })
@@ -3824,7 +3803,13 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    emit_test_backend_with_class_name(trait_bridge, methods, fixture, "GeneratedBinding")
+    emit_test_backend_with_class_name(
+        trait_bridge,
+        methods,
+        fixture,
+        "GeneratedBinding",
+        &std::collections::HashSet::new(),
+    )
 }
 
 fn emit_test_backend_with_class_name(
@@ -3832,6 +3817,7 @@ fn emit_test_backend_with_class_name(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
     class_name: &str,
+    excluded_types: &std::collections::HashSet<&str>,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
 
@@ -3880,7 +3866,7 @@ fn emit_test_backend_with_class_name(
             .filter(|m| m.trait_source.as_deref() == Some(super_trait))
         {
             let method_cs = method.name.to_upper_camel_case();
-            emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
+            emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults, excluded_types);
             emitted_methods.insert(method.name.clone());
         }
     }
@@ -3893,7 +3879,7 @@ fn emit_test_backend_with_class_name(
             continue;
         }
         let method_cs = method.name.to_upper_camel_case();
-        emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
+        emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults, excluded_types);
     }
 
     let _ = writeln!(setup, "    }}");
@@ -4062,7 +4048,13 @@ mod tests {
         };
 
         let methods = vec![&method];
-        let emission = super::emit_test_backend_with_class_name(&bridge, &methods, &fixture, "FixtureFacade");
+        let emission = super::emit_test_backend_with_class_name(
+            &bridge,
+            &methods,
+            &fixture,
+            "FixtureFacade",
+            &std::collections::HashSet::new(),
+        );
 
         // The generated code must reference the synthetic interface name.
         assert!(

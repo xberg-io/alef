@@ -1106,6 +1106,7 @@ mod alef_json_str_opt {
                 crate::codegen::generators::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::backends::pyo3::trait_bridge::gen_bridge_function(
+                    api,
                     f,
                     param_idx,
                     bridge_cfg,
@@ -1118,6 +1119,7 @@ mod alef_json_str_opt {
                 ));
             } else if let Some(ref bm) = bridge_field {
                 builder.add_item(&crate::backends::pyo3::trait_bridge::gen_bridge_field_function(
+                    api,
                     f,
                     bm,
                     bm.bridge,
@@ -1341,12 +1343,12 @@ mod alef_json_str_opt {
                 // Replace the closing pattern of the visitor.map block with a chained .or_else()
                 // that pulls from options.visitor when the kwarg is None.
                 // Pattern: visitor.map(...) ending with:
-                //   std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {core_import}::visitor::{type_alias}
+                //   std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {resolved_handle_path}
                 // });
                 //
                 // We need to insert .or_else(|| { ... }) before the });
-                let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
-                let handle_path = format!("{core_import}::visitor::{type_alias}");
+                let handle_path =
+                    crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, &core_import);
                 let closing_pattern =
                     format!("        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    }});");
                 if let Some(pos) = content.find(&closing_pattern) {

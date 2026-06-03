@@ -530,6 +530,7 @@ fn build_json_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &crate::core::confi
 /// calling the core function.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -541,7 +542,7 @@ pub fn gen_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Elixir{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
@@ -874,6 +875,7 @@ pub fn gen_bridge_function(
 /// `Native.convert_with_visitor(html, clean_opts, visitor)` when a visitor map
 /// is present, or falls back to `Native.convert(html, opts_json)` otherwise.
 pub fn gen_bridge_field_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_match: &crate::codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
     bridge_cfg: &TraitBridgeConfig,
@@ -886,7 +888,7 @@ pub fn gen_bridge_field_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Elixir{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let func_name = &func.name;
     let field_name = &bridge_match.field_name;
     let options_param = &bridge_match.param_name;

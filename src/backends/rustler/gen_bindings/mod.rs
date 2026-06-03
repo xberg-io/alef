@@ -316,6 +316,7 @@ impl Backend for RustlerBackend {
             }
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::backends::rustler::trait_bridge::gen_bridge_function(
+                    api,
                     func,
                     param_idx,
                     bridge_cfg,
@@ -326,6 +327,7 @@ impl Backend for RustlerBackend {
                 ));
             } else if let Some(ref bm) = bridge_field {
                 builder.add_item(&crate::backends::rustler::trait_bridge::gen_bridge_field_function(
+                    api,
                     func,
                     bm,
                     bm.bridge,

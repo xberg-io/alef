@@ -346,26 +346,8 @@ fn render_test_case(
     // fixture field names (`data`, `paths`) that the R extendr binding
     // exposes under different identifiers (`content`, `items`).
     let arg_name_map = r_override.map(|o| &o.arg_name_map);
-    // Resolve `options_type` for typed config args. When set (e.g. via the
-    // C#/Java override that pins the `config` arg of `embed_texts` to
-    // `EmbeddingConfig`), we use it instead of the heuristic in
-    // `r_default_for_config_arg` so the extendr binding receives the right
-    // ExternalPtr type rather than a default `ExtractionConfig`.
-    let options_type = r_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
-        // Fall back to any other language's override that pins the type —
-        // R doesn't define its own override list yet for most embed calls,
-        // and the underlying Rust signature is the same regardless of
-        // binding, so reusing csharp/java/go/php options_type is safe.
-        //
-        // Skip `Js`-prefixed types from the Node/wasm bindings: those are
-        // NAPI/wasm-bindgen specific wrapper types, while extendr exposes the
-        // bare Rust type names (e.g. `ExtractionConfig`, not `JsExtractionConfig`).
-        call_config
-            .overrides
-            .values()
-            .filter_map(|o| o.options_type.as_deref())
-            .find(|name| !name.starts_with("Js"))
-    });
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve("r", fixture, call_config, type_defs);
+    let options_type = recipe.compatible_options_type(&["csharp", "java", "go", "php", "python"]);
     // Build visitor setup and args if present
     let mut setup_lines = Vec::new();
     let mut teardown_block = String::new();
@@ -727,24 +709,14 @@ fn render_bytes_value(raw: &str) -> String {
 /// Falls back to `NULL` for unknown names so optional/default config slots stay
 /// absent instead of passing a plain R list to an ExternalPtr-backed DTO.
 ///
-/// When `options_type` is provided (via a per-call language override pinning
-/// the typed config, e.g. `EmbeddingConfig` for `embed_texts`), it takes
-/// precedence over the arg-name heuristic so the extendr binding receives the
-/// correct ExternalPtr type.
+/// When `options_type` is provided, emit the corresponding typed default.
+/// Otherwise leave the optional slot unset instead of guessing a downstream type.
 fn r_default_for_config_arg(arg_name: &str, options_type: Option<&str>) -> String {
     if let Some(type_name) = options_type {
         return format!("{type_name}$default()");
     }
-    match arg_name {
-        "config" => "ExtractionConfig$default()".to_string(),
-        "options" => "NULL".to_string(),
-        "html_output" => "HtmlOutputConfig$default()".to_string(),
-        "chunking" => "ChunkingConfig$default()".to_string(),
-        "ocr" => "OcrConfig$default()".to_string(),
-        "image" | "images" => "ImageExtractionConfig$default()".to_string(),
-        "language_detection" => "LanguageDetectionConfig$default()".to_string(),
-        _ => "NULL".to_string(),
-    }
+    let _ = arg_name;
+    "NULL".to_string()
 }
 
 struct RAssertionContext<'a> {

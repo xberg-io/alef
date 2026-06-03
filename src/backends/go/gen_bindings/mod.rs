@@ -697,6 +697,7 @@ fn gen_go_file(
                 &passthrough_enum_names,
                 &data_enum_names,
                 &struct_names,
+                &config.trait_bridges,
             ));
             body.push_str("\n\n");
             // Generate functional options pattern only if type is in the functional_options allowlist.
@@ -716,6 +717,7 @@ fn gen_go_file(
                     &unit_enum_names,
                     &passthrough_enum_names,
                     &data_enum_names,
+                    &config.trait_bridges,
                 ));
                 body.push_str("\n\n");
             }

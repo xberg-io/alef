@@ -639,11 +639,12 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
 /// ```rust,ignore
 /// let visitor = visitor.map(|v| {
 ///     let bridge = PyHtmlVisitorBridge::new(v);
-///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as core_crate::visitor::VisitorHandle
+///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as core_crate::callbacks::VisitorHandle
 /// });
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -658,10 +659,7 @@ pub fn gen_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
-
-    // Determine the VisitorHandle type alias path in the core crate.
-    // Convention: the visitor module is always `{core_import}::visitor::VisitorHandle`.
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
     // Build the param name for the bridge param
     let param_name = &func.params[bridge_param_idx].name;
@@ -979,6 +977,7 @@ pub fn gen_bridge_function(
 /// for generic/path-qualified types.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_field_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_match: &crate::codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
     bridge_cfg: &TraitBridgeConfig,
@@ -992,7 +991,7 @@ pub fn gen_bridge_field_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
     // Name of the visitor kwarg that will be appended to the Rust function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");

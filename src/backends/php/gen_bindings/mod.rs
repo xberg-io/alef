@@ -400,6 +400,7 @@ impl Backend for PhpBackend {
                 };
                 builder.add_item(&generators::gen_opaque_struct(typ, &opaque_cfg));
                 builder.add_item(&types::gen_opaque_struct_methods_with_exclude(
+                    api,
                     typ,
                     &mapper,
                     &opaque_types,
@@ -495,7 +496,8 @@ impl Backend for PhpBackend {
                 }
                 let bridge_param = crate::backends::php::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
-                    let bridge_handle_path = bridge_handle_path(api, bridge_cfg, &core_import);
+                    let bridge_handle_path =
+                        crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, &core_import);
                     method_items.push(crate::backends::php::trait_bridge::gen_bridge_function(
                         func,
                         param_idx,
@@ -905,7 +907,8 @@ impl Backend for PhpBackend {
                 };
                 let builder_type = format!("{}Builder", options_type);
                 let bridge_struct = format!("Php{}Bridge", bridge.trait_name);
-                let bridge_handle_path = bridge_handle_path(api, bridge, &core_import);
+                let bridge_handle_path =
+                    crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, &core_import);
 
                 // Match the verbatim pre-rustfmt output from codegen.
                 // gen_instance_method produces 4-space-indented lines (signature + body),
@@ -1852,16 +1855,6 @@ impl Backend for PhpBackend {
             post_build: vec![],
         })
     }
-}
-
-fn bridge_handle_path(api: &ApiSurface, bridge: &crate::core::config::TraitBridgeConfig, core_import: &str) -> String {
-    let alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
-    api.types
-        .iter()
-        .find(|t| t.name == alias && !t.rust_path.is_empty())
-        .map(|t| t.rust_path.replace('-', "_"))
-        .or_else(|| api.excluded_type_paths.get(alias).map(|path| path.replace('-', "_")))
-        .unwrap_or_else(|| format!("{core_import}::visitor::{alias}"))
 }
 
 /// Map an IR [`TypeRef`] to a PHPDoc type string with generic parameters (e.g., `array<string>`).

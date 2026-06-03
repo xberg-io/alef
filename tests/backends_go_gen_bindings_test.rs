@@ -1371,11 +1371,10 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
                 name: "RenderOptions".to_string(),
                 rust_path: "my_lib::RenderOptions".to_string(),
                 original_rust_path: String::new(),
-                fields: vec![make_field(
-                    "renderer",
-                    TypeRef::Named("RendererHandle".to_string()),
-                    true,
-                )],
+                fields: vec![
+                    make_field("renderer", TypeRef::Named("RendererHandle".to_string()), true),
+                    make_field("visitor", TypeRef::Named("AuditVisitor".to_string()), true),
+                ],
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
@@ -1462,6 +1461,8 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
         .as_str();
 
     assert!(binding.contains("func Render(document string, settings *RenderOptions) (*RenderOutput, error)"));
+    assert!(binding.contains("Renderer Visitor `json:\"-\"`"));
+    assert!(binding.contains("Visitor *json.RawMessage `json:\"visitor,omitempty\"`"));
     assert!(binding.contains("if settings != nil && settings.Renderer != nil"));
     assert!(binding.contains("return renderWithVisitorHelper(document, settings, settings.Renderer)"));
     assert!(binding.contains("var cOptions *C.KRZRenderOptions"));

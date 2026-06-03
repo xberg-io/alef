@@ -369,7 +369,8 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         .unwrap_or_else(|| call.function.to_pascal_case());
     let options_type_name = overrides
         .and_then(|o| o.options_type.as_deref())
-        .unwrap_or("ConversionOptions")
+        .or(call.options_type.as_deref())
+        .unwrap_or_default()
         .to_string();
     let client_factory = overrides.and_then(|o| o.client_factory.as_ref()).cloned();
     let raw_c_result_type = overrides.and_then(|o| o.raw_c_result_type.clone());
@@ -1364,7 +1365,7 @@ fn render_test_function(
                 // type isn't always a clean strip-Response/append-Request transform
                 // (e.g. transcribe -> Create**Transcription**Request, not TranscriptionRequest).
                 // Fall back to deriving from result_type for backward-compat cases.
-                let request_type_pascal = if !options_type_name.is_empty() && options_type_name != "ConversionOptions" {
+                let request_type_pascal = if !options_type_name.is_empty() {
                     options_type_name.to_string()
                 } else if let Some(stripped) = result_type_name.strip_suffix("Response") {
                     format!("{}Request", stripped)
@@ -2386,7 +2387,7 @@ fn render_bytes_test_function(
     for arg in args {
         match arg.arg_type.as_str() {
             "json_object" => {
-                let request_type_pascal = if !options_type_name.is_empty() && options_type_name != "ConversionOptions" {
+                let request_type_pascal = if !options_type_name.is_empty() {
                     options_type_name.to_string()
                 } else if let Some(stripped) = result_type_name.strip_suffix("Response") {
                     format!("{}Request", stripped)
@@ -2578,7 +2579,7 @@ fn render_chat_stream_test_function(
     let mut request_var: Option<String> = None;
     for arg in args {
         if arg.arg_type == "json_object" {
-            let request_type_pascal = if !options_type_name.is_empty() && options_type_name != "ConversionOptions" {
+            let request_type_pascal = if !options_type_name.is_empty() {
                 options_type_name.to_string()
             } else {
                 "ChatCompletionRequest".to_string()

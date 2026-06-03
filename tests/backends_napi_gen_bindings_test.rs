@@ -3209,3 +3209,140 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
         "stray `>` after collect type ascription must not appear; content:\n{content}"
     );
 }
+
+#[test]
+fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
+    let backend = NapiBackend;
+    let mut config = make_config();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Renderer".to_string(),
+        type_alias: Some("RendererHandle".to_string()),
+        ..Default::default()
+    }];
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Renderer".to_string(),
+                rust_path: "test_lib::callbacks::Renderer".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "render".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: true,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: true,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+            TypeDef {
+                name: "RendererHandle".to_string(),
+                rust_path: "test_lib::callbacks::RendererHandle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "render_page".to_string(),
+            rust_path: "test_lib::render_page".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "renderer".to_string(),
+                ty: TypeRef::Named("RendererHandle".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("should generate bindings");
+    let content = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs should be generated")
+        .content
+        .as_str();
+
+    assert!(
+        content.contains("as test_lib::callbacks::RendererHandle"),
+        "bridge cast must use RendererHandle rust_path; content:\n{content}"
+    );
+    assert!(
+        !content.contains("test_lib::visitor::RendererHandle"),
+        "bridge cast must not assume visitor module; content:\n{content}"
+    );
+}

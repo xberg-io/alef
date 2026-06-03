@@ -6,7 +6,7 @@
 //! handle the structural boilerplate.
 
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
-use crate::core::ir::{FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashMap;
 
@@ -491,6 +491,21 @@ pub fn host_function_path(spec: &TraitBridgeSpec, fn_name: &str) -> String {
     format!("{}::plugins::{}", spec.core_import, fn_name)
 }
 
+/// Resolve the fully-qualified Rust path for a trait bridge handle alias.
+///
+/// The alias type's IR [`TypeDef::rust_path`] is authoritative. When the alias was
+/// intentionally excluded from binding output, use the extracted excluded-type path.
+/// If extraction did not record either path, fall back to `{core_import}::{type_alias}`.
+pub fn bridge_handle_path(api: &ApiSurface, bridge: &TraitBridgeConfig, core_import: &str) -> String {
+    let alias = bridge.type_alias.as_deref().unwrap_or(&bridge.trait_name);
+    api.types
+        .iter()
+        .find(|typ| typ.name == alias && !typ.rust_path.is_empty())
+        .map(|typ| typ.rust_path.replace('-', "_"))
+        .or_else(|| api.excluded_type_paths.get(alias).map(|path| path.replace('-', "_")))
+        .unwrap_or_else(|| format!("{core_import}::{alias}"))
+}
+
 /// Result of trait bridge generation: imports (to be added via `builder.add_import`)
 /// and the code body (to be added via `builder.add_item`).
 pub struct BridgeOutput {
@@ -939,7 +954,7 @@ pub fn to_camel_case(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::core::config::TraitBridgeConfig;
-    use crate::core::ir::{MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+    use crate::core::ir::{ApiSurface, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
 
     // ---------------------------------------------------------------------------
     // Test helpers
@@ -1932,6 +1947,53 @@ mod tests {
             .find("impl mylib::OcrBackend for PyOcrBackendBridge")
             .unwrap();
         assert!(struct_pos < impl_pos, "struct should appear before trait impl");
+    }
+
+    #[test]
+    fn bridge_handle_path_uses_alias_typedef_rust_path() {
+        let mut api = ApiSurface::default();
+        api.types.push(make_type_def(
+            "RendererHandle",
+            "mylib::callbacks::RendererHandle",
+            vec![],
+        ));
+        let bridge = make_bridge(
+            Some("RendererHandle"),
+            Some("renderer"),
+            BridgeBinding::FunctionParam,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            bridge_handle_path(&api, &bridge, "mylib"),
+            "mylib::callbacks::RendererHandle"
+        );
+    }
+
+    #[test]
+    fn bridge_handle_path_uses_excluded_alias_path() {
+        let mut api = ApiSurface::default();
+        api.excluded_type_paths.insert(
+            "RendererHandle".to_string(),
+            "mylib::callbacks::RendererHandle".to_string(),
+        );
+        let bridge = make_bridge(
+            Some("RendererHandle"),
+            Some("renderer"),
+            BridgeBinding::FunctionParam,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            bridge_handle_path(&api, &bridge, "mylib"),
+            "mylib::callbacks::RendererHandle"
+        );
     }
 
     // ---------------------------------------------------------------------------

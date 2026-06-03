@@ -678,6 +678,7 @@ impl MagnusBridgeGenerator {
 /// bridge). The bridge is constructed before calling the core function.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -689,7 +690,7 @@ pub fn gen_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
@@ -883,6 +884,7 @@ pub fn gen_bridge_function(
 /// Since VisitorHandle is excluded from the binding, we create options internally and wire
 /// the visitor directly into it.
 pub fn gen_options_field_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     options_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -893,7 +895,7 @@ pub fn gen_options_field_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
     // Find non-options parameters (typically just the first parameter like 'html')
     let non_option_params: Vec<_> = func

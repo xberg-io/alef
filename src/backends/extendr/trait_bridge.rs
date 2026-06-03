@@ -9,7 +9,7 @@ use crate::codegen::generators::trait_bridge::{
     gen_bridge_all, visitor_param_type,
 };
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{MethodDef, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
 /// Extendr-specific trait bridge generator.
@@ -593,6 +593,7 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
 /// (a trait bridge). The bridge is constructed before calling the core function.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -603,7 +604,7 @@ pub fn gen_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));

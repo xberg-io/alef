@@ -1236,7 +1236,8 @@ fn render_test_method(
         function_name = function_name.to_lower_camel_case();
     }
     let result_var = &call_config.result_var;
-    let args = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let args = recipe.args;
 
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
@@ -1245,16 +1246,13 @@ fn render_test_method(
     // Resolve options_type for this call. Precedence: per-language call override,
     // then the call-level `options_type` (the binding-agnostic config parameter type,
     // e.g. `EmbeddingConfig`), then the global per-language call override (fallback default).
-    let call_options_type = call_overrides
-        .and_then(|o| o.options_type.as_deref())
-        .or(call_config.options_type.as_deref())
-        .or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get(lang)
-                .and_then(|o| o.options_type.as_deref())
-        });
+    let call_options_type = recipe.options_type.or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.options_type.as_deref())
+    });
 
     let call_adapter = adapters.iter().find(|a| a.name == call_config.function.as_str());
     let adapter_request_type: Option<String> = call_adapter
@@ -1317,7 +1315,27 @@ fn render_test_method(
     if let Some(visitor_spec) = &fixture.visitor {
         build_php_visitor(&mut setup_lines, visitor_spec);
         if !options_already_created {
-            let options_type = call_options_type.unwrap_or("ConversionOptions");
+            let Some(options_type) =
+                call_options_type.or_else(|| crate::e2e::codegen::recipe::trait_bridge_options_type(config))
+            else {
+                let rendered = crate::e2e::template_env::render(
+                    "php/test_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        description => description,
+                        client_factory => String::new(),
+                        setup_lines => Vec::<String>::new(),
+                        expects_error => false,
+                        skip_test => true,
+                        has_usable_assertions => false,
+                        call_expr => String::new(),
+                        result_var => result_var,
+                        assertions_body => String::new(),
+                    },
+                );
+                out.push_str(&rendered);
+                return;
+            };
             if options_via == "from_json" {
                 // When options_via is "from_json", create options from JSON first,
                 // then attach the visitor using with_visitor() since PHP closures can't be JSON-encoded.
@@ -1814,21 +1832,11 @@ fn build_args_and_setup(
 
         match val {
             None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
-                // Special case: ExtractionConfig and similar config objects with no fixture value
-                // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
-                // to satisfy required parameters. This check happens BEFORE the optional check
-                // so that config args are always provided, even if marked optional in alef.toml.
-                // PHP facades always type config as a required positional parameter.
-                // Use options_type if available; otherwise infer from arg name.
-                let type_name = if let Some(opt_type) = options_type {
-                    opt_type.to_string()
-                } else if arg.name == "config" {
-                    "ExtractionConfig".to_string()
+                if let Some(type_name) = options_type {
+                    parts.push(format!("\\{namespace}\\{type_name}::from_json('{{}}')"));
                 } else {
-                    format!("{}Config", arg.name.to_upper_camel_case())
-                };
-                // Fully qualify the type name to the binding namespace to avoid ambiguity with test namespace
-                parts.push(format!("\\{namespace}\\{type_name}::from_json('{{}}')"));
+                    parts.push("null".to_string());
+                }
                 continue;
             }
             None | Some(serde_json::Value::Null) if arg.optional => {

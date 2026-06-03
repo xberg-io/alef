@@ -655,7 +655,13 @@ fn helper_params(func: &FunctionDef) -> String {
         .iter()
         .map(|param| {
             let go_name = crate::codegen::naming::go_param_name(&param.name);
-            let go_type = crate::backends::go::type_map::go_type(&param.ty);
+            let go_type: String = if param.optional {
+                crate::backends::go::type_map::go_optional_type(&param.ty).into_owned()
+            } else if let TypeRef::Named(_) = &param.ty {
+                format!("*{}", crate::backends::go::type_map::go_type(&param.ty))
+            } else {
+                crate::backends::go::type_map::go_type(&param.ty).into_owned()
+            };
             format!("{go_name} {go_type}")
         })
         .collect::<Vec<_>>();

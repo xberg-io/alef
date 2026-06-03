@@ -1166,35 +1166,26 @@ fn render_test_method(
     let function_name = effective_function_name.as_str();
     let class_name_for_call = effective_class_name.as_str();
     let result_var = effective_result_var.as_str();
-    let args: &[crate::e2e::config::ArgMapping] = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let args: &[crate::e2e::config::ArgMapping] = recipe.args;
     // Resolve per-fixture options_type: prefer the kotlin call override, fall back
     // to class-level, then to any other language's options_type for the same call.
     // The Kotlin module re-exports Java facade types unchanged, so a type name declared
     // by csharp/c/go/php/python applies equally to Kotlin without an explicit override.
     // For kotlin_android, also try kotlin_android and java overrides.
-    let effective_options_type: Option<String> = call_overrides
-        .and_then(|o| o.options_type.clone())
-        .or_else(|| options_type.map(|s| s.to_string()))
+    let compatible_options_languages: &[&str] = if kotlin_android_style {
+        &["kotlin_android", "java", "csharp", "c", "go", "php", "python"]
+    } else {
+        &["csharp", "c", "go", "php", "python"]
+    };
+    let effective_options_type: Option<String> = recipe
+        .options_type
+        .map(str::to_string)
+        .or_else(|| options_type.map(str::to_string))
         .or_else(|| {
-            // For kotlin_android, check kotlin_android and java first.
-            if kotlin_android_style {
-                for cand in ["kotlin_android", "java", "csharp", "c", "go", "php", "python"] {
-                    if let Some(o) = call_config.overrides.get(cand) {
-                        if let Some(t) = &o.options_type {
-                            return Some(t.clone());
-                        }
-                    }
-                }
-            } else {
-                for cand in ["csharp", "c", "go", "php", "python"] {
-                    if let Some(o) = call_config.overrides.get(cand) {
-                        if let Some(t) = &o.options_type {
-                            return Some(t.clone());
-                        }
-                    }
-                }
-            }
-            None
+            recipe
+                .compatible_options_type(compatible_options_languages)
+                .map(str::to_string)
         });
     let options_type = effective_options_type.as_deref();
 
@@ -1650,41 +1641,13 @@ fn build_args_and_setup(
                             format!("{}.builder().build()", opts_type)
                         }
                     } else {
-                        // Infer type from arg name: "config" → "ExtractionConfig", "options" → "Options"
-                        // Try to find the actual config class by looking in type_defs first,
-                        // then fall back to arg.name + "Config" pattern or just UpperCamelCase
-                        let (inferred_type, needs_required_param) = match arg.name.as_str() {
-                            "config" => {
-                                // Special case: "config" → "ExtractionConfig"
-                                if type_defs.iter().any(|t| t.name == "ExtractionConfig") {
-                                    ("ExtractionConfig".to_string(), false)
-                                } else {
-                                    (format!("{}Config", arg.name.to_upper_camel_case()), false)
-                                }
-                            }
-                            _ => {
-                                // For other names like "embed_config" → look for "EmbedConfig",
-                                // then fall back to arg.name.to_upper_camel_case() + "Config"
-                                let candidate = format!("{}Config", arg.name.to_upper_camel_case());
-                                if type_defs.iter().any(|t| t.name == candidate) {
-                                    // Check if this is EmbeddingConfig which requires a model parameter
-                                    let needs_param = candidate == "EmbeddingConfig";
-                                    (candidate, needs_param)
-                                } else {
-                                    // Final fallback: just use to_upper_camel_case
-                                    (arg.name.to_upper_camel_case(), false)
-                                }
-                            }
-                        };
-                        // EmbeddingConfig requires a model parameter; provide a sensible default
-                        if needs_required_param && inferred_type == "EmbeddingConfig" {
-                            format!(
-                                "{}(model = EmbeddingModelType.Preset(name = \"balanced\"))",
-                                inferred_type
-                            )
+                        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+                        let inferred_type = if type_defs.iter().any(|t| t.name == candidate) {
+                            candidate
                         } else {
-                            format!("{}()", inferred_type)
-                        }
+                            arg.name.to_upper_camel_case()
+                        };
+                        format!("{}()", inferred_type)
                     };
                     parts.push(default_constructor);
                 } else {

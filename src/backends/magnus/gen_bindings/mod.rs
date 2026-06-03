@@ -364,6 +364,7 @@ impl Backend for MagnusBackend {
                     crate::backends::magnus::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::backends::magnus::trait_bridge::gen_bridge_function(
+                        api,
                         func,
                         param_idx,
                         bridge_cfg,
@@ -377,6 +378,7 @@ impl Backend for MagnusBackend {
                 {
                     builder.add_item(
                         &crate::backends::magnus::trait_bridge::gen_options_field_bridge_function(
+                            api,
                             func,
                             options_param_idx,
                             bridge_cfg,

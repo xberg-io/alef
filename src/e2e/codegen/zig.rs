@@ -1251,7 +1251,8 @@ fn render_test_fn(
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
-    let args = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let args = recipe.args;
     // Client factory: when set, the test instantiates a client object via
     // `module.factory_fn(...)` and calls methods on the instance rather than
     // calling top-level package functions directly.
@@ -1341,7 +1342,7 @@ fn render_test_fn(
     // the same mechanism used by go/python/swift codegen — zig's method
     // signatures require every optional positional argument to be supplied
     // explicitly, so the e2e config carries a per-language extras list.
-    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let extra_args = recipe.extra_args;
     let args_str = if extra_args.is_empty() {
         args_str
     } else if args_str.is_empty() {
@@ -2360,16 +2361,8 @@ fn build_args_and_setup(
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
-                    // Build excluded types set for Zig trait bridges.
-                    // InternalDocument and SyncExtractor are always excluded in Zig trait bridges,
-                    // even though they may not be marked as binding_excluded in the IR.
-                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
-                        .iter()
-                        .filter(|t| t.binding_excluded)
-                        .map(|t| t.name.as_str())
-                        .collect();
-                    excluded_named.insert("InternalDocument");
-                    excluded_named.insert("SyncExtractor");
+                    let excluded_named =
+                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
                     let emission = emit_test_backend_with_excluded(trait_bridge, &methods, fixture, &excluded_named);
                     // emit_test_backend uses "lib." as a placeholder; substitute the real module.
                     let setup_block = emission.setup_block.replace("lib.", &format!("{_module_name}."));

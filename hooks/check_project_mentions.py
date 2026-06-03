@@ -102,6 +102,7 @@ DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
     "match ",
     "matches!",
     "ends_with(",
+    "unwrap_or(",
 )
 
 
@@ -119,7 +120,11 @@ def is_production_generator_path(path: Path) -> bool:
     if "src" not in parts:
         return False
     src_index = parts.index("src")
-    return len(parts) > src_index + 1 and parts[src_index + 1] in {"backends", "codegen"}
+    if len(parts) <= src_index + 1:
+        return False
+    if parts[src_index + 1] in {"backends", "codegen"}:
+        return True
+    return len(parts) > src_index + 2 and parts[src_index + 1] == "e2e" and parts[src_index + 2] == "codegen"
 
 
 def read_text(path: Path) -> str | None:

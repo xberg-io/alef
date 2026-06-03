@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.9] - 2026-06-03
+
+### Fixed
+
+- fix(go): emit `*ConversionOptions` (pointer) for optional Named parameters in visitor-bridge helper function signature, matching the pattern used in regular function wrappers. The `convertWithVisitorHelper` previously took `options ConversionOptions` (value type) but was called with a pointer, causing compile error "cannot use options as ConversionOptions value". The helper body also used `if options != nil` which only works for pointer types. (`src/backends/go/gen_visitor.rs`)
+
 ## [0.22.8] - 2026-06-03
 
 ### Fixed

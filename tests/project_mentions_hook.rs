@@ -217,6 +217,41 @@ fn reports_conversion_options_visitor_special_paths_in_codegen() {
 }
 
 #[test]
+fn reports_string_literal_fallbacks_in_e2e_codegen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let codegen_dir = dir.path().join("src").join("e2e").join("codegen");
+    fs::create_dir_all(&codegen_dir).expect("create e2e codegen dir");
+    let file = codegen_dir.join("php.rs");
+    fs::write(&file, "let options = configured.unwrap_or(\"ConversionOptions\");\n").expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(!output.status.success(), "hook should reject string-literal fallback");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `ConversionOptions`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn accepts_downstream_domain_type_names_in_comments() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let codegen_dir = dir.path().join("src").join("e2e").join("codegen");
+    fs::create_dir_all(&codegen_dir).expect("create e2e codegen dir");
+    let file = codegen_dir.join("go.rs");
+    fs::write(&file, "// regression mentions InternalDocument in prose only\n").expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn accepts_downstream_domain_type_names_outside_production_generator_files() {
     let dir = tempfile::tempdir().expect("tempdir");
     let cli_dir = dir.path().join("src").join("cli");

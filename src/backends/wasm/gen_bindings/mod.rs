@@ -606,6 +606,7 @@ impl Backend for WasmBackend {
                     });
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::backends::wasm::trait_bridge::gen_bridge_function(
+                        api,
                         func,
                         param_idx,
                         bridge_cfg,
@@ -616,6 +617,7 @@ impl Backend for WasmBackend {
                     ));
                 } else if let Some((param_idx, bridge_cfg)) = options_field_bridge {
                     builder.add_item(&crate::backends::wasm::trait_bridge::gen_options_field_bridge_function(
+                        api,
                         func,
                         param_idx,
                         bridge_cfg,

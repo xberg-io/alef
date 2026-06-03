@@ -559,6 +559,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // embedded in options object, not a separate parameter).
             if let Some((param_idx, bridge_cfg)) = options_field_bridge {
                 builder.add_item(&crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
+                    api,
                     func,
                     param_idx,
                     bridge_cfg,
@@ -569,6 +570,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 ));
             } else if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::backends::napi::trait_bridge::gen_bridge_function(
+                    api,
                     func,
                     param_idx,
                     bridge_cfg,
@@ -579,6 +581,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &core_import,
                 ));
                 builder.add_item(&crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
+                    api,
                     func,
                     param_idx,
                     bridge_cfg,
@@ -956,8 +959,8 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
 
                             // Build the replacement that wraps val.visitor into JsHtmlVisitorBridge
                             // and then into the core Arc<Mutex<...>> type.
-                            let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
-                            let handle_path = format!("{core_import}::visitor::{type_alias}");
+                            let handle_path =
+                                crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, &core_import);
                             let replacement = format!(
                                 "__result.visitor = val.{field_name}.and_then(|obj| {{\n            \
                                     JsHtmlVisitorBridge::new(obj).ok().map(|bridge| {{\n                \

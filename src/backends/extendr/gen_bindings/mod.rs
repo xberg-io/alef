@@ -663,6 +663,7 @@ impl Backend for ExtendrBackend {
 
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::backends::extendr::trait_bridge::gen_bridge_function(
+                    api,
                     func,
                     param_idx,
                     bridge_cfg,
@@ -672,7 +673,7 @@ impl Backend for ExtendrBackend {
                 ));
             } else if let Some(bm) = bridge_field {
                 // Function has a bridge field binding (e.g., visitor on options)
-                builder.add_item(&gen_extendr_bridge_field_function(func, &bm, &core_import));
+                builder.add_item(&gen_extendr_bridge_field_function(api, func, &bm, &core_import));
             } else {
                 // Detect functions whose return type or parameter types are incompatible
                 // with extendr's automatic Robj conversions. These need JSON bridging.
@@ -1605,6 +1606,7 @@ impl {name} {{
 /// from it, creates the bridge, injects it into the decoded options struct, and calls the
 /// core function. This is similar to PyO3's gen_bridge_field_function but tailored to R.
 fn gen_extendr_bridge_field_function(
+    api: &ApiSurface,
     func: &FunctionDef,
     bridge_match: &crate::codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
     core_import: &str,
@@ -1612,6 +1614,8 @@ fn gen_extendr_bridge_field_function(
     let func_name = &func.name;
     let options_param = &bridge_match.param_name;
     let field_name = &bridge_match.field_name;
+    let handle_path =
+        crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_match.bridge, core_import);
 
     // Build the param list for the Rust function signature.
     // Non-options params are emitted with the closest extendr-convertible Rust type
@@ -1648,10 +1652,10 @@ fn gen_extendr_bridge_field_function(
 
     // Create the bridge handle from the R object
     body.push_str(&format!(
-        "    let {field_name}_handle: Option<{core_import}::visitor::VisitorHandle> = {field_name}_robj\n"
+        "    let {field_name}_handle: Option<{handle_path}> = {field_name}_robj\n"
     ));
     body.push_str(&format!(
-        "        .map(|v| Arc::new(Mutex::new(RHtmlVisitorBridge::new(v))) as {core_import}::visitor::VisitorHandle);\n"
+        "        .map(|v| Arc::new(Mutex::new(RHtmlVisitorBridge::new(v))) as {handle_path});\n"
     ));
 
     // Decode options into the R-local options type, convert to the core type via the

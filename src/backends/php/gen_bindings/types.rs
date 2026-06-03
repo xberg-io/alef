@@ -97,6 +97,7 @@ fn is_php_copy_type(ty: &TypeRef) -> bool {
 /// Generate ext-php-rs methods for an opaque struct, excluding streaming methods.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_opaque_struct_methods_with_exclude(
+    api: &crate::core::ir::ApiSurface,
     typ: &TypeDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
@@ -212,15 +213,17 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 // The inner field wraps VisitorHandle (which is Arc<Mutex<dyn HtmlVisitor + Send>>)
                 // VisitorHandle is a type alias: Arc<Mutex<dyn HtmlVisitor + Send>>
                 // We need to create Arc<VisitorHandle>, so wrap Arc<Mutex<>> in Arc
+                let handle_path =
+                    crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, core_import);
                 let method_code = format!(
                     "    #[php(name = \"from_php_object\")]\n    \
                      pub fn from_php_object(obj: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<Self> {{\n    \
                      use ext_php_rs::prelude::*;\n    \
                      let bridge = {}::new(obj);\n    \
-                     let visitor_handle: {}::visitor::VisitorHandle = std::sync::Arc::new(std::sync::Mutex::new(bridge));\n    \
+                     let visitor_handle: {handle_path} = std::sync::Arc::new(std::sync::Mutex::new(bridge));\n    \
                      Ok(Self {{ inner: std::sync::Arc::new(visitor_handle) }})\n    \
                      }}\n",
-                    bridge_struct_name, core_import
+                    bridge_struct_name
                 );
                 impl_builder.add_method(&method_code);
             }

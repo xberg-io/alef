@@ -14,6 +14,10 @@
 /// order matches the trait definition order (and therefore the Go binding's
 /// expected layout).
 use heck::ToPascalCase;
+use heck::ToSnakeCase;
+
+use crate::core::config::TraitBridgeConfig;
+use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
 
 /// The integer codes that map to `VisitResult` variants crossing the FFI boundary.
 ///
@@ -327,13 +331,16 @@ pub fn gen_visitor_bindings(
     core_import: &str,
     embed_visitor_in_options: bool,
     trait_def: &crate::core::ir::TypeDef,
-    bridge_cfg: Option<&crate::core::config::TraitBridgeConfig>,
+    bridge_cfg: Option<&TraitBridgeConfig>,
+    function: Option<&FunctionDef>,
 ) -> String {
     let pascal_prefix = prefix.to_pascal_case();
     let specs = callback_specs_from_trait(trait_def);
     let trait_path = trait_def.rust_path.replace('-', "_");
-    let options_type = bridge_cfg
-        .and_then(|cfg| cfg.options_type.as_deref())
+    let options_type = function
+        .and_then(|func| visitor_options_param(func, bridge_cfg))
+        .and_then(|param| named_type_ref(&param.ty))
+        .or_else(|| bridge_cfg.and_then(|cfg| cfg.options_type.as_deref()))
         .unwrap_or("ConversionOptions");
     let options_field = bridge_cfg
         .and_then(|cfg| cfg.resolved_options_field())
@@ -344,19 +351,26 @@ pub fn gen_visitor_bindings(
     let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import);
     let visitor_ref_methods = gen_visitor_ref_methods(&specs, core_import);
 
-    // Build the convert expression for {prefix}_convert_with_visitor.
-    let convert_call = if embed_visitor_in_options {
-        format!(
-            "    let mut options_with_visitor: Option<{options_path}> = options_rs;\n\
-             if visitor_handle.is_some() {{\n\
-             let opts = options_with_visitor.get_or_insert_with({options_path}::default);\n\
-             opts.{options_field} = visitor_handle;\n\
-             }}\n\
-             match {core_import}::convert(&html_str, options_with_visitor) {{"
-        )
-    } else {
-        format!("    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{")
-    };
+    let visitor_function = function
+        .map(|func| {
+            visitor_function_spec(
+                prefix,
+                func,
+                core_import,
+                bridge_cfg,
+                embed_visitor_in_options,
+                &options_field,
+            )
+        })
+        .unwrap_or_else(|| {
+            LegacyVisitorFunctionSpec::conversion(
+                prefix,
+                core_import,
+                &options_path,
+                embed_visitor_in_options,
+                &options_field,
+            )
+        });
 
     format!(
         r#"// ---------------------------------------------------------------------------
@@ -656,45 +670,24 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         r#"
 /// Run conversion using a callback-based visitor.
 ///
-/// Returns a heap-allocated `ConversionResult` on success, or null on failure.
+/// Returns a heap-allocated result on success, or null on failure.
 /// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
-/// The returned pointer must be freed with `{prefix}_conversion_result_free`.
+/// The returned pointer must be freed with the matching result free function.
 ///
 /// # Safety
 ///
 /// `html` must be a valid, non-null, null-terminated UTF-8 string.
 /// `options` must be a valid pointer or null.
 /// `visitor` must have been created with `{prefix}_visitor_create`, or be null.
-/// Returned pointer must be freed with `{prefix}_conversion_result_free`.
+/// Returned pointer must be freed with the matching result free function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_convert_with_visitor(
-    html: *const std::ffi::c_char,
-    options: *const {options_path},
+pub unsafe extern "C" fn {with_visitor_fn_name}(
+    {params}
     visitor: *mut {pascal_prefix}Visitor,
-) -> *mut {core_import}::ConversionResult {{
+) -> *mut {return_type} {{
     clear_last_error();
 
-    if html.is_null() {{
-        set_last_error(1, "Null pointer passed for html");
-        return std::ptr::null_mut();
-    }}
-
-    // SAFETY: null check above guarantees html is a valid pointer.
-    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
-        Ok(s) => s,
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in html parameter");
-            return std::ptr::null_mut();
-        }}
-    }};
-
-    let options_rs: Option<{options_path}> = if options.is_null() {{
-        None
-    }} else {{
-        // SAFETY: options is a valid pointer guaranteed by the caller.
-        Some(unsafe {{ &*options }}.clone())
-    }};
-
+{param_conversions}
     struct VisitorRef(*mut {pascal_prefix}Visitor);
     impl std::fmt::Debug for VisitorRef {{
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
@@ -714,7 +707,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))))
     }};
 
-{convert_call}
+{call}
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {{
             set_last_error(2, &e.to_string());
@@ -724,12 +717,14 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
 }}
 "#,
         prefix = prefix,
+        with_visitor_fn_name = visitor_function.fn_name,
         pascal_prefix = pascal_prefix,
-        core_import = core_import,
         trait_path = trait_path,
-        options_path = options_path,
         visitor_ref_methods = visitor_ref_methods,
-        convert_call = convert_call,
+        params = visitor_function.ffi_params,
+        param_conversions = visitor_function.param_conversions,
+        return_type = visitor_function.return_type,
+        call = visitor_function.call,
     )
 }
 
@@ -742,56 +737,41 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
 /// produce a proper implementation that passes `None` for the visitor.
 ///
 /// The generated function takes `html` and `options` (no visitor param) and returns a
-/// heap-allocated `*mut ConversionResult` that the caller must free with
-/// `{prefix}_conversion_result_free`.
-pub fn gen_convert_no_visitor(prefix: &str, core_import: &str) -> String {
-    let fn_name = format!("{prefix}_convert");
+/// heap-allocated result that the caller must free with the matching result free function.
+pub fn gen_convert_no_visitor(
+    prefix: &str,
+    core_import: &str,
+    bridge_cfg: Option<&TraitBridgeConfig>,
+    function: Option<&FunctionDef>,
+) -> String {
+    let visitor_function = function
+        .map(|func| no_visitor_function_spec(prefix, func, core_import, bridge_cfg))
+        .unwrap_or_else(|| LegacyNoVisitorFunctionSpec::conversion(prefix, core_import));
     format!(
         r#"/// Run conversion.
 ///
-/// Returns a heap-allocated [`ConversionResult`] on success, or null on failure.
+/// Returns a heap-allocated result on success, or null on failure.
 /// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
-/// The returned pointer must be freed with `{prefix}_conversion_result_free`.
+/// The returned pointer must be freed with the matching result free function.
 ///
 /// # Arguments
 ///
 /// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
-/// - `options`: optional conversion options; pass null for defaults.
+/// - `options`: optional function options; pass null for defaults.
 ///
 /// # Safety
 ///
 /// `html` must be a valid, non-null, null-terminated UTF-8 string.
 /// `options` must be a valid pointer or null.
-/// Returned pointer must be freed with `{prefix}_conversion_result_free`.
+/// Returned pointer must be freed with the matching result free function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {fn_name}(
-    html: *const std::ffi::c_char,
-    options: *const {core_import}::options::ConversionOptions,
-) -> *mut {core_import}::ConversionResult {{
+    {params}
+) -> *mut {return_type} {{
     clear_last_error();
 
-    if html.is_null() {{
-        set_last_error(1, "Null pointer passed for html");
-        return std::ptr::null_mut();
-    }}
-
-    // SAFETY: null check above guarantees html is a valid pointer; string is valid UTF-8 from caller.
-    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
-        Ok(s) => s,
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in html parameter");
-            return std::ptr::null_mut();
-        }}
-    }};
-
-    let options_rs: Option<{core_import}::options::ConversionOptions> = if options.is_null() {{
-        None
-    }} else {{
-        // SAFETY: options is a valid pointer guaranteed by the caller.
-        Some(unsafe {{ &*options }}.clone())
-    }};
-
-    match {core_import}::convert(html_str, options_rs, None) {{
+{param_conversions}
+{call}
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {{
             set_last_error(2, &e.to_string());
@@ -800,7 +780,314 @@ pub unsafe extern "C" fn {fn_name}(
     }}
 }}"#,
         prefix = prefix,
-        fn_name = fn_name,
-        core_import = core_import,
+        fn_name = visitor_function.fn_name,
+        params = visitor_function.ffi_params,
+        return_type = visitor_function.return_type,
+        param_conversions = visitor_function.param_conversions,
+        call = visitor_function.call,
     )
+}
+
+struct LegacyVisitorFunctionSpec {
+    fn_name: String,
+    ffi_params: String,
+    param_conversions: String,
+    return_type: String,
+    call: String,
+}
+
+impl LegacyVisitorFunctionSpec {
+    fn conversion(
+        prefix: &str,
+        core_import: &str,
+        options_path: &str,
+        embed_visitor_in_options: bool,
+        options_field: &str,
+    ) -> Self {
+        let call = if embed_visitor_in_options {
+            format!(
+                "    let mut options_with_visitor: Option<{options_path}> = options_rs;\n\
+                 if visitor_handle.is_some() {{\n\
+                     let opts = options_with_visitor.get_or_insert_with({options_path}::default);\n\
+                     opts.{options_field} = visitor_handle;\n\
+                 }}\n\
+                 match {core_import}::convert(&html_str, options_with_visitor) {{"
+            )
+        } else {
+            format!("    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{")
+        };
+        Self {
+            fn_name: format!("{prefix}_convert_with_visitor"),
+            ffi_params: format!("html: *const std::ffi::c_char,\n    options: *const {options_path},"),
+            param_conversions: legacy_html_options_conversions(options_path),
+            return_type: format!("{core_import}::ConversionResult"),
+            call,
+        }
+    }
+}
+
+struct LegacyNoVisitorFunctionSpec {
+    fn_name: String,
+    ffi_params: String,
+    param_conversions: String,
+    return_type: String,
+    call: String,
+}
+
+impl LegacyNoVisitorFunctionSpec {
+    fn conversion(prefix: &str, core_import: &str) -> Self {
+        let options_path = format!("{core_import}::options::ConversionOptions");
+        Self {
+            fn_name: format!("{prefix}_convert"),
+            ffi_params: format!("html: *const std::ffi::c_char,\n    options: *const {options_path},"),
+            param_conversions: legacy_html_options_conversions(&options_path),
+            return_type: format!("{core_import}::ConversionResult"),
+            call: format!("    match {core_import}::convert(html_str, options_rs, None) {{"),
+        }
+    }
+}
+
+fn legacy_html_options_conversions(options_path: &str) -> String {
+    format!(
+        r#"    if html.is_null() {{
+        set_last_error(1, "Null pointer passed for html");
+        return std::ptr::null_mut();
+    }}
+
+    // SAFETY: null check above guarantees html is a valid pointer.
+    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
+        Ok(s) => s,
+        Err(_) => {{
+            set_last_error(1, "Invalid UTF-8 in html parameter");
+            return std::ptr::null_mut();
+        }}
+    }};
+
+    let options_rs: Option<{options_path}> = if options.is_null() {{
+        None
+    }} else {{
+        // SAFETY: options is a valid pointer guaranteed by the caller.
+        Some(unsafe {{ &*options }}.clone())
+    }};
+"#
+    )
+}
+
+fn visitor_function_spec(
+    prefix: &str,
+    func: &FunctionDef,
+    core_import: &str,
+    bridge_cfg: Option<&TraitBridgeConfig>,
+    embed_visitor_in_options: bool,
+    options_field: &str,
+) -> LegacyVisitorFunctionSpec {
+    let mut param_conversions = String::new();
+    let mut call_args = Vec::new();
+    let mut ffi_params = Vec::new();
+    let options_param_name = visitor_options_param(func, bridge_cfg).map(|param| param.name.as_str());
+
+    for param in &func.params {
+        if is_bridge_param(param, bridge_cfg) {
+            call_args.push("visitor_handle".to_string());
+            continue;
+        }
+        ffi_params.push(ffi_param_decl(param, core_import));
+        param_conversions.push_str(&param_conversion(param, core_import));
+        call_args.push(rust_call_arg(param));
+    }
+
+    let call = if embed_visitor_in_options {
+        if let Some(options_param_name) = options_param_name {
+            let options_local = format!("{options_param_name}_rs");
+            let Some(options_path) = visitor_options_param(func, bridge_cfg)
+                .and_then(|param| named_type_ref(&param.ty))
+                .map(|name| rust_named_path(core_import, name))
+            else {
+                return LegacyVisitorFunctionSpec::conversion(
+                    prefix,
+                    core_import,
+                    "ConversionOptions",
+                    true,
+                    options_field,
+                );
+            };
+            for arg in &mut call_args {
+                if arg == &options_local {
+                    *arg = "options_with_visitor".to_string();
+                }
+            }
+            format!(
+                "    let mut options_with_visitor: Option<{options_path}> = {options_local};\n\
+                 if visitor_handle.is_some() {{\n\
+                     let opts = options_with_visitor.get_or_insert_with({options_path}::default);\n\
+                     opts.{options_field} = visitor_handle;\n\
+                 }}\n\
+                 match {core_import}::{function_name}({call_args}) {{",
+                function_name = func.name,
+                call_args = call_args.join(", "),
+            )
+        } else {
+            format!(
+                "    match {core_import}::{function_name}({call_args}) {{",
+                function_name = func.name,
+                call_args = call_args.join(", "),
+            )
+        }
+    } else {
+        format!(
+            "    match {core_import}::{function_name}({call_args}) {{",
+            function_name = func.name,
+            call_args = call_args.join(", "),
+        )
+    };
+
+    LegacyVisitorFunctionSpec {
+        fn_name: format!("{}_{}_with_visitor", prefix, func.name.to_snake_case()),
+        ffi_params: if ffi_params.is_empty() {
+            String::new()
+        } else {
+            format!("{},\n   ", ffi_params.join(",\n    "))
+        },
+        param_conversions,
+        return_type: return_type_path(&func.return_type, core_import),
+        call,
+    }
+}
+
+fn no_visitor_function_spec(
+    prefix: &str,
+    func: &FunctionDef,
+    core_import: &str,
+    bridge_cfg: Option<&TraitBridgeConfig>,
+) -> LegacyNoVisitorFunctionSpec {
+    let mut param_conversions = String::new();
+    let mut call_args = Vec::new();
+    let mut ffi_params = Vec::new();
+
+    for param in &func.params {
+        if is_bridge_param(param, bridge_cfg) {
+            call_args.push("None".to_string());
+            continue;
+        }
+        ffi_params.push(ffi_param_decl(param, core_import));
+        param_conversions.push_str(&param_conversion(param, core_import));
+        call_args.push(rust_call_arg(param));
+    }
+
+    LegacyNoVisitorFunctionSpec {
+        fn_name: format!("{}_{}", prefix, func.name.to_snake_case()),
+        ffi_params: ffi_params.join(",\n    "),
+        param_conversions,
+        return_type: return_type_path(&func.return_type, core_import),
+        call: format!(
+            "    match {core_import}::{function_name}({call_args}) {{",
+            function_name = func.name,
+            call_args = call_args.join(", "),
+        ),
+    }
+}
+
+fn named_type_ref(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name),
+        TypeRef::Optional(inner) => named_type_ref(inner),
+        _ => None,
+    }
+}
+
+fn rust_named_path(core_import: &str, name: &str) -> String {
+    format!("{core_import}::{name}")
+}
+
+fn return_type_path(ty: &TypeRef, core_import: &str) -> String {
+    named_type_ref(ty)
+        .map(|name| rust_named_path(core_import, name))
+        .unwrap_or_else(|| "()".to_string())
+}
+
+fn is_bridge_param(param: &ParamDef, bridge_cfg: Option<&TraitBridgeConfig>) -> bool {
+    let Some(bridge_cfg) = bridge_cfg else {
+        return false;
+    };
+    bridge_cfg.param_name.as_deref() == Some(param.name.as_str())
+        || bridge_cfg.type_alias.as_deref() == named_type_ref(&param.ty)
+}
+
+fn visitor_options_param<'a>(func: &'a FunctionDef, bridge_cfg: Option<&TraitBridgeConfig>) -> Option<&'a ParamDef> {
+    if let Some(options_type) = bridge_cfg.and_then(|cfg| cfg.options_type.as_deref()) {
+        return func
+            .params
+            .iter()
+            .find(|param| named_type_ref(&param.ty) == Some(options_type));
+    }
+    func.params
+        .iter()
+        .find(|param| !is_bridge_param(param, bridge_cfg) && named_type_ref(&param.ty).is_some())
+}
+
+fn ffi_param_decl(param: &ParamDef, core_import: &str) -> String {
+    match &param.ty {
+        TypeRef::String | TypeRef::Path => format!("{}: *const std::ffi::c_char", param.name),
+        TypeRef::Named(name) => {
+            format!("{}: *const {}", param.name, rust_named_path(core_import, name))
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => {
+                format!("{}: *const {}", param.name, rust_named_path(core_import, name))
+            }
+            _ => format!("{}: *const std::ffi::c_void", param.name),
+        },
+        _ => format!("{}: *const std::ffi::c_void", param.name),
+    }
+}
+
+fn param_conversion(param: &ParamDef, core_import: &str) -> String {
+    match &param.ty {
+        TypeRef::String | TypeRef::Path => format!(
+            r#"    if {name}.is_null() {{
+        set_last_error(1, "Null pointer passed for {name}");
+        return std::ptr::null_mut();
+    }}
+    // SAFETY: null check above guarantees {name} is a valid pointer.
+    let {name}_rs = match unsafe {{ std::ffi::CStr::from_ptr({name}) }}.to_str() {{
+        Ok(s) => s,
+        Err(_) => {{
+            set_last_error(1, "Invalid UTF-8 in {name} parameter");
+            return std::ptr::null_mut();
+        }}
+    }};
+"#,
+            name = param.name,
+        ),
+        TypeRef::Named(name) => named_param_conversion(&param.name, core_import, name),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => named_param_conversion(&param.name, core_import, name),
+            _ => String::new(),
+        },
+        _ => String::new(),
+    }
+}
+
+fn named_param_conversion(param_name: &str, core_import: &str, type_name: &str) -> String {
+    let path = rust_named_path(core_import, type_name);
+    format!(
+        r#"    let {name}_rs: Option<{path}> = if {name}.is_null() {{
+        None
+    }} else {{
+        // SAFETY: {name} is a valid pointer guaranteed by the caller.
+        Some(unsafe {{ &*{name} }}.clone())
+    }};
+"#,
+        name = param_name,
+        path = path,
+    )
+}
+
+fn rust_call_arg(param: &ParamDef) -> String {
+    match &param.ty {
+        TypeRef::String | TypeRef::Path if param.is_ref => format!("&{}_rs", param.name),
+        TypeRef::String | TypeRef::Path => format!("{}_rs", param.name),
+        TypeRef::Named(_) | TypeRef::Optional(_) => format!("{}_rs", param.name),
+        _ => param.name.clone(),
+    }
 }

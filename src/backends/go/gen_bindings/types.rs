@@ -1,6 +1,7 @@
 use crate::backends::go::type_map::{go_optional_type, go_type};
 use crate::codegen::naming::{apply_serde_rename_all, go_type_name, to_go_name};
 use crate::codegen::shared::binding_fields;
+use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use minijinja::context;
@@ -1119,6 +1120,7 @@ pub(super) fn gen_struct_type(
     passthrough_enum_names: &std::collections::HashSet<&str>,
     data_enum_names: &std::collections::HashSet<&str>,
     struct_names: &std::collections::HashSet<&str>,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -1138,8 +1140,7 @@ pub(super) fn gen_struct_type(
 
         // Special handling for Visitor field: use Visitor interface, not a handle type,
         // and mark as json:"-" since it's not serializable
-        let is_visitor_field =
-            field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+        let is_visitor_field = is_options_field_bridge_field(typ, field, trait_bridges);
 
         if is_visitor_field {
             let doc_lines: Vec<&str> = if !field.doc.is_empty() {
@@ -1272,8 +1273,7 @@ pub(super) fn gen_struct_type(
             if is_tuple_field(field) {
                 continue;
             }
-            let is_visitor_field =
-                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            let is_visitor_field = is_options_field_bridge_field(typ, field, trait_bridges);
             if is_visitor_field {
                 continue;
             }
@@ -1318,8 +1318,7 @@ pub(super) fn gen_struct_type(
             if is_tuple_field(field) {
                 continue;
             }
-            let is_visitor_field =
-                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            let is_visitor_field = is_options_field_bridge_field(typ, field, trait_bridges);
             if is_visitor_field {
                 continue;
             }
@@ -1370,7 +1369,7 @@ pub(super) fn gen_struct_type(
     }
     let data_enum_fields: Vec<DataEnumField> = binding_fields(&typ.fields)
         .filter(|f| !is_tuple_field(f))
-        .filter(|f| f.name != "visitor" || !matches!(&f.ty, TypeRef::Named(n) if n.contains("Visitor")))
+        .filter(|f| !is_options_field_bridge_field(typ, f, trait_bridges))
         .filter_map(|f| {
             // Determine the inner Named type name, and whether the field is optional
             // and/or a slice. Slices of data enums (e.g. `Vec<RerankDocument>` where
@@ -1411,8 +1410,7 @@ pub(super) fn gen_struct_type(
             if is_tuple_field(field) {
                 continue;
             }
-            let is_visitor_field =
-                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            let is_visitor_field = is_options_field_bridge_field(typ, field, trait_bridges);
             if is_visitor_field {
                 continue;
             }
@@ -1467,8 +1465,7 @@ pub(super) fn gen_struct_type(
             if is_tuple_field(field) {
                 continue;
             }
-            let is_visitor_field =
-                field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            let is_visitor_field = is_options_field_bridge_field(typ, field, trait_bridges);
             if is_visitor_field {
                 continue;
             }
@@ -1534,6 +1531,26 @@ pub(super) fn gen_struct_type(
     }
 
     out
+}
+
+fn is_options_field_bridge_field(typ: &TypeDef, field: &FieldDef, trait_bridges: &[TraitBridgeConfig]) -> bool {
+    let Some(field_type) = named_type_ref(&field.ty) else {
+        return false;
+    };
+    trait_bridges.iter().any(|bridge| {
+        bridge.bind_via == BridgeBinding::OptionsField
+            && bridge.options_type.as_deref() == Some(typ.name.as_str())
+            && bridge.resolved_options_field() == Some(field.name.as_str())
+            && bridge.type_alias.as_deref() == Some(field_type)
+    })
+}
+
+fn named_type_ref(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name),
+        TypeRef::Optional(inner) => named_type_ref(inner),
+        _ => None,
+    }
 }
 
 /// Return the CGo type name for a primitive type (e.g. `PrimitiveType::U64` → `"C.uint64_t"`).
@@ -1770,6 +1787,7 @@ pub(super) fn gen_config_options(
     enum_names: &std::collections::HashSet<&str>,
     passthrough_enum_names: &std::collections::HashSet<&str>,
     data_enum_names: &std::collections::HashSet<&str>,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -1796,8 +1814,7 @@ pub(super) fn gen_config_options(
         // accept Visitor too — passing a VisitorHandle and assigning &v yielded a
         // *VisitorHandle, which doesn't satisfy the Visitor interface and broke the
         // Go build whenever the visitor pattern was active.
-        let is_visitor_field =
-            field.name == "visitor" && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+        let is_visitor_field = is_options_field_bridge_field(typ, field, trait_bridges);
 
         // For the function parameter, always accept the direct type (not wrapped in optional)
         let param_type = if is_visitor_field {
@@ -2011,6 +2028,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &[],
         );
         assert!(out.contains("type MyConfig struct"));
         assert!(out.contains("json:\"timeout\""));
@@ -2112,6 +2130,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &[],
         );
         assert!(!out.contains("*v.Data"), "expected no `*v.Data` dereference in:\n{out}");
         assert!(
@@ -2155,6 +2174,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &data_enum_names,
+            &[],
         );
         // BUG fixed: previously emitted `Sizing: ChunkSizing{}` which is a Go compile
         // error (`invalid composite literal type ChunkSizing` — ChunkSizing is an
@@ -2205,6 +2225,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &[],
         );
         // The struct type should be emitted
         assert!(out.contains("type ContentConfig struct"), "expected struct definition");
@@ -2260,6 +2281,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &[],
         );
         // Should emit the WithTimeout and WithVerifySSL helpers
         assert!(

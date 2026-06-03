@@ -583,6 +583,7 @@ fn build_napi_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> Vec<St
 /// before calling the core function.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     bridge_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -595,8 +596,7 @@ pub fn gen_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
-    let handle_alias = bridge_cfg.type_alias.as_deref().unwrap_or(&bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::{handle_alias}");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
@@ -833,6 +833,7 @@ pub fn gen_bridge_function(
 /// and manually injected back into the converted core options.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_options_field_bridge_function(
+    api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
     options_param_idx: usize,
     bridge_cfg: &TraitBridgeConfig,
@@ -844,7 +845,7 @@ pub fn gen_options_field_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
 

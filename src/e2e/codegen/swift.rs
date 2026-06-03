@@ -1013,7 +1013,8 @@ fn render_test_method(
         .and_then(|o| o.client_factory.as_deref())
         .or(global_client_factory);
     let result_var = &call_config.result_var;
-    let args = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let args = recipe.args;
     // Per-call flags: base call flag OR per-language override OR global flag.
     // Also treat the call as simple when *any* language override marks it as bytes.
     // Calls like `speech()` have `result_is_bytes = true` on C/C#/Java overrides but
@@ -1161,7 +1162,7 @@ fn render_test_method(
     // Resolve extra_args from per-call swift overrides (e.g. `nil` for optional
     // query-param arguments on list_files/list_batches that have no fixture-level
     // input field).
-    let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let extra_args = recipe.extra_args;
 
     // Merge per-call enum_fields keys into the effective enum set so that
     // fields like "status" (BatchStatus, BatchObject) are treated as enum-typed
@@ -1182,10 +1183,8 @@ fn render_test_method(
         }
     };
 
-    let options_via_str: Option<&str> = call_overrides.and_then(|o| o.options_via.as_deref());
-    let options_type_str: Option<&str> = call_overrides
-        .and_then(|o| o.options_type.as_deref())
-        .or(call_config.options_type.as_deref());
+    let options_via_str: Option<&str> = Some(recipe.options_via).filter(|value| *value != "kwargs");
+    let options_type_str: Option<&str> = recipe.options_type;
     // Derive the Swift handle-config parsing function from the C override's
     // `c_engine_factory` field. E.g. `"CrawlConfig"` → snake → `"crawl_config_from_json"`
     // → camelCase → `"crawlConfigFromJson"`.

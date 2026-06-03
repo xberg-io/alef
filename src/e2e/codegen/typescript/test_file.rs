@@ -297,8 +297,6 @@ pub fn render_test_file(
                             if !imports.contains(&type_import) {
                                 imports.push(type_import);
                             }
-                        } else if arg.name == "config" && !imports.iter().any(|i| i == "type ExtractionConfig") {
-                            imports.push("type ExtractionConfig".to_string());
                         }
                     }
                 }
@@ -781,10 +779,11 @@ fn render_test_case(
         &std::collections::HashSet::new(),
     );
     let field_resolver = &call_field_resolver;
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
     let call_is_async = call_config.r#async;
-    let args = fixture.resolved_args(call_config);
+    let args = recipe.args;
     let result_is_simple =
         call_config.result_is_simple || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
 
@@ -792,7 +791,7 @@ fn render_test_case(
     // nested_types, enum_fields). Per-call overrides win over the file-level
     // default; missing fields fall back to the file-level default. WASM/wasm-bindgen
     // is the primary consumer of `bigint_fields` (u64/i64 setters reject Number).
-    let per_call_override = call_config.overrides.get(lang);
+    let per_call_override = recipe.override_config;
     let effective_options_type: Option<String> = per_call_override
         .and_then(|o| o.options_type.clone())
         .or_else(|| options_type.map(|s| s.to_string()))
@@ -818,7 +817,7 @@ fn render_test_case(
     // Per-language `extra_args` from call overrides — verbatim trailing
     // expressions appended after the configured args (e.g. `undefined` for an
     // optional trailing parameter the fixture cannot supply).
-    let extra_args: Vec<String> = per_call_override.map(|o| o.extra_args.clone()).unwrap_or_default();
+    let extra_args = recipe.extra_args;
     let global_bigint_fields: Vec<String> = e2e_config
         .call
         .overrides

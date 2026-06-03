@@ -1017,7 +1017,17 @@ pub(crate) fn gen_opaque_handle_class(
     // Static factory methods: receiver is None (no &self). These are constructors /
     // preset factories (e.g. `Parser::default()`, `LanguageRegistry::default()`,
     // `DownloadManager::new(version)`) that return a new instance of the type.
-    let static_factory_methods: Vec<&MethodDef> = typ.methods.iter().filter(|m| m.receiver.is_none()).collect();
+    // The FFI backend never exports `_default` / `_to_json` / `_from_json` for opaque
+    // types — those C functions only exist for non-opaque, serde-derivable, non-Update
+    // value types. `gen_native_lib` already skips emitting the matching MethodHandle
+    // constants; skip the static-factory wrappers here too so we don't reference
+    // missing `NativeLib.<PREFIX>_<TYPE>_DEFAULT` constants from `defaultInstance()`.
+    let static_factory_methods: Vec<&MethodDef> = typ
+        .methods
+        .iter()
+        .filter(|m| m.receiver.is_none())
+        .filter(|m| !matches!(m.name.as_str(), "default" | "to_json" | "from_json"))
+        .collect();
     let has_instance_methods = !instance_methods.is_empty();
     let has_static_factories = !static_factory_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;

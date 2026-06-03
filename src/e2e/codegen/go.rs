@@ -1159,7 +1159,8 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
         .unwrap_or(&call_config.function);
     let function_name = to_go_name(base_function_name);
     let result_var = &call_config.result_var;
-    let args = fixture.resolved_args(call_config);
+    let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let args = recipe.args;
 
     // Whether the function returns (value, error) or just (error) or just (value).
     // Check Go override first, fall back to call-level returns_result.
@@ -1192,7 +1193,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
     let result_is_array = overrides.is_some_and(|o| o.result_is_array) || call_config.result_is_array;
 
     // Per-call Go options_type, falling back to the default call's Go override.
-    let call_options_type = overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
+    let call_options_type = recipe.options_type.or_else(|| {
         e2e_config
             .call
             .overrides
@@ -1256,15 +1257,24 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
     if fixture.visitor.is_some() {
         let struct_name = visitor_struct_name(&fixture.id);
         setup_lines.push(format!("visitor := &{struct_name}{{}}"));
-        // Create a fresh opts variable with the visitor attached.
-        let opts_type = call_options_type.unwrap_or("ConversionOptions");
+        let Some(opts_type) =
+            call_options_type.or_else(|| crate::e2e::codegen::recipe::trait_bridge_options_type(config))
+        else {
+            let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
+            let _ = writeln!(
+                out,
+                "\tt.Skip(\"go: visitor fixture requires trait bridge options_type\")"
+            );
+            let _ = writeln!(out, "}}");
+            return;
+        };
         let opts_var = "opts".to_string();
         setup_lines.push(format!("opts := &{import_alias}.{opts_type}{{}}"));
         setup_lines.push("opts.Visitor = visitor".to_string());
         visitor_opts_var = Some(opts_var);
     }
 
-    let go_extra_args = overrides.map(|o| o.extra_args.as_slice()).unwrap_or(&[]).to_vec();
+    let go_extra_args = recipe.extra_args.to_vec();
     let final_args = {
         let mut parts: Vec<String> = Vec::new();
         if !args_str.is_empty() {
@@ -2139,20 +2149,8 @@ fn build_args_and_setup(
                         }
                     }
 
-                    // Collect binding-excluded type names (e.g. InternalDocument) from IR.
-                    // These types are never emitted as Go structs; the trait-bridge interface
-                    // serialises them to JSON, so stubs must use json.RawMessage.
-                    // Additionally, manually add Go-specific hardcoded excluded types like InternalDocument.
-                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
-                        .iter()
-                        .filter(|t| t.binding_excluded)
-                        .map(|t| t.name.as_str())
-                        .collect();
-                    // InternalDocument and SyncExtractor are special cases: they're always excluded in Go trait bridges,
-                    // even though they may not be marked as binding_excluded in the IR.
-                    // SyncExtractor is marked alef(skip) in source but appears in DocumentExtractor.as_sync_extractor() return type.
-                    excluded_named.insert("InternalDocument");
-                    excluded_named.insert("SyncExtractor");
+                    let excluded_named =
+                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
                     // Collect enum names for proper Go zero-value generation.
                     // Enums map to string types in Go, so their zero-value is "" not nil.
                     let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
