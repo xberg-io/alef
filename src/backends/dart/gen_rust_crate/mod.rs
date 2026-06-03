@@ -1007,11 +1007,11 @@ fn vec_inner_from_expr(
                     // Vec<Vec<primitive>>: inner cast needed.
                     return if optional {
                         format!(
-                            "v.{name}.map(|vec| vec.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect()).collect())"
+                            "v.{name}.map(|vec| vec.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect::<Vec<_>>()).collect::<Vec<_>>())"
                         )
                     } else {
                         format!(
-                            "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect()).collect()"
+                            "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect::<Vec<_>>()).collect::<Vec<_>>()"
                         )
                     };
                 }
@@ -1026,9 +1026,9 @@ fn vec_inner_from_expr(
     };
 
     if optional {
-        format!("v.{name}.map(|vec| vec.into_iter().map({item_conv}).collect())")
+        format!("v.{name}.map(|vec| vec.into_iter().map({item_conv}).collect::<Vec<_>>())")
     } else {
-        format!("v.{name}.into_iter().map({item_conv}).collect()")
+        format!("v.{name}.into_iter().map({item_conv}).collect::<Vec<_>>()")
     }
 }
 
@@ -2398,6 +2398,9 @@ fn emit_opaque_method_body(
                         if p.optional {
                             return format!("{param_name}.map(|h| h.inner)");
                         }
+                        if p.is_mut {
+                            return format!("&mut {param_name}.inner");
+                        }
                         if p.is_ref {
                             return format!("&{param_name}.inner");
                         }
@@ -2408,6 +2411,9 @@ fn emit_opaque_method_body(
                         // Layout differs — use the generated From<MirrorT> for CoreT impl.
                         if p.optional {
                             format!("{param_name}.map({core_ty}::from)")
+                        } else if p.is_mut {
+                            // Cannot take &mut of a temporary — convert to owned then borrow mutably.
+                            format!("&mut {core_ty}::from({param_name})")
                         } else if p.is_ref {
                             // Cannot take a reference to a temporary — convert to owned then borrow.
                             format!("&{core_ty}::from({param_name})")
@@ -2418,6 +2424,8 @@ fn emit_opaque_method_body(
                         // Named mirror type with identical layout: transmute to the source-crate type.
                         if p.optional {
                             format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})")
+                        } else if p.is_mut {
+                            format!("unsafe {{ ::std::mem::transmute::<&mut {mirror_name}, &mut {core_ty}>(&mut {param_name}) }}")
                         } else if p.is_ref {
                             format!("unsafe {{ ::std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{param_name}) }}")
                         } else {
@@ -2431,13 +2439,31 @@ fn emit_opaque_method_body(
                         if types_needing_from_conversion.contains(mirror_name.as_str()) {
                             // Elements have differing layouts — convert each via From.
                             if p.optional {
-                                format!("{param_name}.map(|v| v.into_iter().map({core_ty}::from).collect())")
+                                format!("{param_name}.map(|v| v.into_iter().map({core_ty}::from).collect::<Vec<_>>())")
+                            } else if p.is_ref {
+                                format!("&{param_name}.iter().map(|x| {core_ty}::from(x.clone())).collect::<Vec<_>>()")
                             } else {
-                                format!("{param_name}.into_iter().map({core_ty}::from).collect()")
+                                format!("{param_name}.into_iter().map({core_ty}::from).collect::<Vec<_>>()")
                             }
                         } else {
                             if p.optional {
                                 format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>(v) }})")
+                            } else if p.is_mut {
+                                // &mut [MirrorT] → &mut [CoreT] via transmute (same layout, same size).
+                                // Must produce a &mut [CoreT] slice, not a raw *mut pointer.
+                                format!(
+                                    "unsafe {{ ::std::slice::from_raw_parts_mut(\
+                                        ::std::mem::transmute::<*mut {mirror_name}, *mut {core_ty}>({param_name}.as_mut_ptr()), \
+                                        {param_name}.len()) }}"
+                                )
+                            } else if p.is_ref {
+                                // &[MirrorT] → &[CoreT] via transmute (same layout, same size).
+                                // Must produce a &[CoreT] slice, not a raw *const pointer.
+                                format!(
+                                    "unsafe {{ ::std::slice::from_raw_parts(\
+                                        ::std::mem::transmute::<*const {mirror_name}, *const {core_ty}>({param_name}.as_ptr()), \
+                                        {param_name}.len()) }}"
+                                )
                             } else {
                                 format!("unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>({param_name}) }}")
                             }
