@@ -2788,7 +2788,7 @@ mod tests {
 
     #[test]
     fn sanitize_bare_some_followed_by_lowercase_noun_is_dropped() {
-        // Real leak from sample-markdown PreprocessingOptionsUpdate.java:16.
+        // Regression test for Rust option wording leaking into generated JavaDoc.
         let input =
             "Only specified fields (Some values) will override existing options; None values leave the previous";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);

@@ -1,11 +1,11 @@
-// NodeContext carries context information passed to every visitor callback.
+// {{ context_type }} carries context information passed to every visitor callback.
 // It is decoded from the JSON-encoded context string passed by the C layer.
-type NodeContext struct {
+type {{ context_type }} struct {
 	// NodeType is a coarse-grained node type tag.
 	NodeType NodeType `json:"node_type"`
-	// TagName is the HTML element tag name (e.g. "div").
+	// TagName is the element tag name.
 	TagName string `json:"tag_name"`
-	// Depth is the DOM depth (0 = root).
+	// Depth is the traversal depth (0 = root).
 	Depth uint `json:"depth"`
 	// IndexInParent is the 0-based sibling index.
 	IndexInParent uint `json:"index_in_parent"`
@@ -15,35 +15,35 @@ type NodeContext struct {
 	IsInline bool `json:"is_inline"`
 }
 
-// VisitResult controls conversion flow from a visitor callback.
-type VisitResult struct {
-	// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveHTML, 3=Custom, 4=Error).
+// {{ result_type }} controls conversion flow from a visitor callback.
+type {{ result_type }} struct {
+	// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveOriginal, 3=Custom, 4=Error).
 	Code int32
 	// Custom is non-nil only for Custom (3) and Error (4) codes.
 	Custom *string
 }
 
-// VisitResultContinue returns a Continue VisitResult (proceed with default conversion).
-func VisitResultContinue() VisitResult {
-	return VisitResult{Code: 0}
+// {{ result_continue_fn }} returns a Continue {{ result_type }} (proceed with default conversion).
+func {{ result_continue_fn }}() {{ result_type }} {
+	return {{ result_type }}{Code: 0}
 }
 
-// VisitResultSkip returns a Skip VisitResult (skip this element, use default output).
-func VisitResultSkip() VisitResult {
-	return VisitResult{Code: 1}
+// {{ result_skip_fn }} returns a Skip {{ result_type }} (skip this element, use default output).
+func {{ result_skip_fn }}() {{ result_type }} {
+	return {{ result_type }}{Code: 1}
 }
 
-// VisitResultPreserveHTML returns a PreserveHTML VisitResult (keep original HTML).
-func VisitResultPreserveHTML() VisitResult {
-	return VisitResult{Code: 2}
+// {{ result_preserve_fn }} returns a PreserveOriginal {{ result_type }} (keep original content).
+func {{ result_preserve_fn }}() {{ result_type }} {
+	return {{ result_type }}{Code: 2}
 }
 
-// VisitResultCustom returns a Custom VisitResult with custom output.
-func VisitResultCustom(custom string) VisitResult {
-	return VisitResult{Code: 3, Custom: &custom}
+// {{ result_custom_fn }} returns a Custom {{ result_type }} with custom output.
+func {{ result_custom_fn }}(custom string) {{ result_type }} {
+	return {{ result_type }}{Code: 3, Custom: &custom}
 }
 
-// VisitResultError returns an Error VisitResult with an error message.
-func VisitResultError(msg string) VisitResult {
-	return VisitResult{Code: 4, Custom: &msg}
+// {{ result_error_fn }} returns an Error {{ result_type }} with an error message.
+func {{ result_error_fn }}(msg string) {{ result_type }} {
+	return {{ result_type }}{Code: 4, Custom: &msg}
 }

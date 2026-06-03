@@ -118,7 +118,7 @@ pub fn package_php(
     let ext_name = config.php_extension_name();
 
     // Cargo's compiled artifact filename comes from the crate name, not the PHP
-    // extension name — for `sample-markdown-php` cargo emits `sample_markdown_php.{so,dylib,dll}`.
+    // extension name, so a binding crate suffix may be present in the cargo artifact.
     let cargo_lib_stem = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Php)
         .map(|n| n.replace('-', "_"))
         .unwrap_or_else(|| ext_name.clone());
@@ -354,11 +354,8 @@ sources = ["src/lib.rs"]
     fn pie_filename_linux_x86_64_glibc_nts() {
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let opts = nts_options("8.5");
-        let name = pie_archive_name("sample_markdown", "3.4.0", &target, &opts).unwrap();
-        assert_eq!(
-            name,
-            "php_sample_markdown-3.4.0_php8.5-x86_64-linux-glibc-nodebug-nts.tgz"
-        );
+        let name = pie_archive_name("demo_render", "3.4.0", &target, &opts).unwrap();
+        assert_eq!(name, "php_demo_render-3.4.0_php8.5-x86_64-linux-glibc-nodebug-nts.tgz");
     }
 
     #[test]
@@ -379,10 +376,10 @@ sources = ["src/lib.rs"]
     fn pie_filename_macos_arm64_nts() {
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let opts = nts_options("8.5");
-        let name = pie_archive_name("sample_markdown", "3.4.0-rc.22", &target, &opts).unwrap();
+        let name = pie_archive_name("demo_render", "3.4.0-rc.22", &target, &opts).unwrap();
         assert_eq!(
             name,
-            "php_sample_markdown-3.4.0-rc.22_php8.5-arm64-darwin-bsdlibc-nodebug-nts.tgz"
+            "php_demo_render-3.4.0-rc.22_php8.5-arm64-darwin-bsdlibc-nodebug-nts.tgz"
         );
     }
 
@@ -396,8 +393,8 @@ sources = ["src/lib.rs"]
             libc_override: None,
             windows_compiler: Some("vs17"),
         };
-        let name = pie_archive_name("sample_markdown", "3.4.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_sample_markdown-3.4.0-8.5-nts-vs17-x86_64.zip");
+        let name = pie_archive_name("demo_render", "3.4.0", &target, &opts).unwrap();
+        assert_eq!(name, "php_demo_render-3.4.0-8.5-nts-vs17-x86_64.zip");
     }
 
     #[test]
@@ -452,10 +449,10 @@ sources = ["src/lib.rs"]
             libc_override: None,
             windows_compiler: None,
         };
-        let name = pie_archive_name("sample_llm", "1.4.0-rc.32", &target, &opts).unwrap();
+        let name = pie_archive_name("demo_client", "1.4.0-rc.32", &target, &opts).unwrap();
         assert_eq!(
             name,
-            "php_sample_llm-1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nodebug-nts.tgz"
+            "php_demo_client-1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nodebug-nts.tgz"
         );
     }
 
@@ -472,9 +469,9 @@ sources = ["src/lib.rs"]
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let release_dir = workspace.join("target/x86_64-unknown-linux-gnu/release");
         fs::create_dir_all(&release_dir).unwrap();
-        fs::write(release_dir.join("libsample_markdown.so"), b"ELF fake so content").unwrap();
+        fs::write(release_dir.join("libdemo_render.so"), b"ELF fake so content").unwrap();
 
-        let config = make_config("sample-markdown");
+        let config = make_config("demo-render");
         let opts = nts_options("8.4");
         let artifact = package_php(&config, &target, &workspace, &output_dir, "3.4.0", &opts).unwrap();
 
@@ -501,8 +498,8 @@ sources = ["src/lib.rs"]
             "expected exactly one file in archive, got: {entries:?}"
         );
         assert!(
-            entries[0].ends_with("sample_markdown.so"),
-            "expected sample_markdown.so at archive root, got: {}",
+            entries[0].ends_with("demo_render.so"),
+            "expected demo_render.so at archive root, got: {}",
             entries[0]
         );
 

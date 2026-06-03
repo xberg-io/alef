@@ -1,85 +1,73 @@
 //! Swift visitor class emission for e2e test callbacks.
 //!
-//! The swift `HtmlVisitor` trait is bridged via the `HtmlVisitorProtocol` protocol and
-//! `SwiftHtmlVisitorBox` class emitted by `alef-backend-swift`. Each visitor-bearing
-//! fixture emits a local `final class LocalVisitor_<id>: HtmlVisitorProtocol { ... }`
+//! Swift visitor traits are bridged via the generated protocol and box class emitted
+//! by `alef-backend-swift`. Each visitor-bearing fixture emits a local visitor class
 //! that overrides the methods specified in the fixture's `visitor` configuration.
 //! All other methods inherit the default implementation (returning `.continue_`).
-//!
-//! The canonical method list mirrors `dart_visitors.rs` — both are sourced from
-//! the configured visitor trait bridge.
 
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;
 
-/// All HtmlVisitor callback methods (Rust snake_case names) that
-/// `HtmlVisitorProtocol` exposes. Order is stable across regenerations.
-const ALL_VISITOR_METHODS: &[&str] = &[
-    "visit_text",
-    "visit_element_start",
-    "visit_element_end",
-    "visit_link",
-    "visit_image",
-    "visit_heading",
-    "visit_code_block",
-    "visit_code_inline",
-    "visit_list_item",
-    "visit_list_start",
-    "visit_list_end",
-    "visit_table_start",
-    "visit_table_row",
-    "visit_table_end",
-    "visit_blockquote",
-    "visit_strong",
-    "visit_emphasis",
-    "visit_strikethrough",
-    "visit_underline",
-    "visit_subscript",
-    "visit_superscript",
-    "visit_mark",
-    "visit_line_break",
-    "visit_horizontal_rule",
-    "visit_custom_element",
-    "visit_definition_list_start",
-    "visit_definition_term",
-    "visit_definition_description",
-    "visit_definition_list_end",
-    "visit_form",
-    "visit_input",
-    "visit_button",
-    "visit_audio",
-    "visit_video",
-    "visit_iframe",
-    "visit_details",
-    "visit_summary",
-    "visit_figure_start",
-    "visit_figcaption",
-    "visit_figure_end",
-];
+pub(super) struct SwiftVisitorConfig {
+    pub(super) trait_name: String,
+    pub(super) methods: Vec<String>,
+}
+
+pub(super) fn resolve_swift_visitor_config(
+    call_override: Option<&crate::e2e::config::CallOverride>,
+    type_defs: &[crate::core::ir::TypeDef],
+    visitor_spec: &VisitorSpec,
+) -> SwiftVisitorConfig {
+    let trait_name = call_override
+        .and_then(|override_config| override_config.visitor_trait.clone())
+        .or_else(|| {
+            type_defs
+                .iter()
+                .find(|type_def| {
+                    type_def.is_trait && visitor_spec.callbacks.keys().any(|name| has_method(type_def, name))
+                })
+                .map(|type_def| type_def.name.clone())
+        })
+        .unwrap_or_else(|| "Visitor".to_string());
+
+    let methods = type_defs
+        .iter()
+        .find(|type_def| type_def.name == trait_name)
+        .map(|type_def| type_def.methods.iter().map(|method| method.name.clone()).collect())
+        .unwrap_or_else(|| visitor_spec.callbacks.keys().cloned().collect());
+
+    SwiftVisitorConfig { trait_name, methods }
+}
+
+fn has_method(type_def: &crate::core::ir::TypeDef, method_name: &str) -> bool {
+    type_def.methods.iter().any(|method| method.name == method_name)
+}
 
 /// Build a visitor-handle setup block and append it to `setup_lines`.
 /// Returns the Swift expression that evaluates to a `VisitorHandle`.
 ///
 /// The emitted block:
-/// 1. Declares `final class LocalVisitor_<fixture_id_camel>: HtmlVisitorProtocol` with
+/// 1. Declares `final class LocalVisitor_<fixture_id_camel>: <TraitName>Protocol` with
 ///    overrides for every method listed in `visitor_spec.callbacks`.
-/// 2. Returns the expression `makeHtmlVisitorHandle(LocalVisitor_<id>())`.
+/// 2. Returns the generated visitor-handle factory expression.
 pub(super) fn build_swift_visitor(
     setup_lines: &mut Vec<String>,
     visitor_spec: &VisitorSpec,
     fixture_id: &str,
+    visitor_config: &SwiftVisitorConfig,
 ) -> String {
     // Build a Swift-safe class name from the fixture id.
     let class_suffix = fixture_id.replace('-', "_").to_upper_camel_case();
     let class_name = format!("LocalVisitor_{class_suffix}");
 
     let mut block = String::new();
-    let _ = writeln!(block, "final class {class_name}: HtmlVisitorProtocol {{");
+    let protocol_name = format!("{}Protocol", visitor_config.trait_name);
+    let _ = writeln!(block, "final class {class_name}: {protocol_name} {{");
 
     // Only emit method overrides for methods the fixture configures.
-    for method in ALL_VISITOR_METHODS {
-        let Some(action) = visitor_spec.callbacks.get(*method) else {
+    for method in &visitor_config.methods {
+        let Some(action) = visitor_spec.callbacks.get(method.as_str()) else {
             continue; // default (`continue_`) — no override needed
         };
 
@@ -95,11 +83,15 @@ pub(super) fn build_swift_visitor(
     let _ = writeln!(block, "}}");
     setup_lines.push(block);
 
-    format!("makeHtmlVisitorHandle({class_name}())")
+    format!(
+        "make{}Handle({class_name}())",
+        visitor_config.trait_name.to_upper_camel_case()
+    )
 }
 
-/// Swift parameter list for each HtmlVisitor method on the protocol.
-/// Types match what `emit_inbound_protocols` emits into the generated `HtmlVisitorProtocol`.
+/// Swift parameter list for visitor methods on the protocol.
+/// Known visitor-special associated types use concrete signatures; unknown methods
+/// fall back to the single context parameter shape used by defaultable callbacks.
 fn swift_visitor_params(method: &str) -> &'static str {
     match method {
         "visit_text" => "_ ctx: NodeContext, _ text: String",
@@ -144,7 +136,7 @@ fn swift_visitor_params(method: &str) -> &'static str {
 }
 
 /// Returns `true` if the named parameter on the given visitor method is
-/// declared with an Optional type in the swift `HtmlVisitorProtocol`.
+/// declared with an Optional type in the generated visitor protocol.
 ///
 /// Swift string interpolation of `Optional<T>` renders as `Optional("value")`
 /// (or `nil`), which sabotages fixture templates like `[VIDEO: {src}]` where
@@ -259,6 +251,13 @@ mod tests {
         VisitorSpec { callbacks }
     }
 
+    fn visitor_config(methods: &[&str]) -> SwiftVisitorConfig {
+        SwiftVisitorConfig {
+            trait_name: "RenderVisitor".to_string(),
+            methods: methods.iter().map(|method| method.to_string()).collect(),
+        }
+    }
+
     #[test]
     fn build_swift_visitor_returns_make_handle_expr() {
         let mut lines = Vec::new();
@@ -271,12 +270,13 @@ mod tests {
                 },
             ),
             "audio_skip",
+            &visitor_config(&["visit_audio"]),
         );
-        assert!(expr.starts_with("makeHtmlVisitorHandle("), "got: {expr}");
+        assert!(expr.starts_with("makeRenderVisitorHandle("), "got: {expr}");
         assert_eq!(lines.len(), 1);
         let block = &lines[0];
         assert!(block.contains("LocalVisitor_AudioSkip"), "got: {block}");
-        assert!(block.contains("HtmlVisitorProtocol"), "got: {block}");
+        assert!(block.contains("RenderVisitorProtocol"), "got: {block}");
         assert!(block.contains("visitAudio"), "got: {block}");
         assert!(block.contains(".custom(field0: \"[AUDIO]\")"), "got: {block}");
     }
@@ -284,7 +284,12 @@ mod tests {
     #[test]
     fn build_swift_visitor_skip_action() {
         let mut lines = Vec::new();
-        build_swift_visitor(&mut lines, &spec("visit_button", CallbackAction::Skip), "btn_skip");
+        build_swift_visitor(
+            &mut lines,
+            &spec("visit_button", CallbackAction::Skip),
+            "btn_skip",
+            &visitor_config(&["visit_button"]),
+        );
         assert!(lines[0].contains(".skip"), "got: {}", lines[0]);
     }
 
@@ -295,6 +300,7 @@ mod tests {
             &mut lines,
             &spec("visit_iframe", CallbackAction::PreserveHtml),
             "iframe_preserve",
+            &visitor_config(&["visit_iframe"]),
         );
         assert!(lines[0].contains(".preserveHtml"), "got: {}", lines[0]);
     }
@@ -306,6 +312,7 @@ mod tests {
             &mut lines,
             &spec("visit_strong", CallbackAction::Continue),
             "strong_cont",
+            &visitor_config(&["visit_strong"]),
         );
         assert!(lines[0].contains(".`continue`"), "got: {}", lines[0]);
     }
@@ -323,6 +330,7 @@ mod tests {
                 },
             ),
             "link_template",
+            &visitor_config(&["visit_link"]),
         );
         // Placeholder names should be camelCased and use Swift interpolation syntax.
         assert!(
@@ -336,7 +344,12 @@ mod tests {
     fn build_swift_visitor_no_override_for_unconfigured_methods() {
         // A spec with one method should not emit override for others.
         let mut lines = Vec::new();
-        build_swift_visitor(&mut lines, &spec("visit_text", CallbackAction::Skip), "text_only");
+        build_swift_visitor(
+            &mut lines,
+            &spec("visit_text", CallbackAction::Skip),
+            "text_only",
+            &visitor_config(&["visit_text", "visit_audio"]),
+        );
         let block = &lines[0];
         // Only visit_text is overridden.
         assert!(block.contains("visitText"), "got: {block}");

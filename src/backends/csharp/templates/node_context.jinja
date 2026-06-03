@@ -8,9 +8,9 @@ namespace {{ namespace }};
 public record NodeContext(
     /// <summary>Coarse-grained node type tag.</summary>
     NodeType NodeType,
-    /// <summary>HTML element tag name (e.g. "div").</summary>
+    /// <summary>Element tag name.</summary>
     string TagName,
-    /// <summary>DOM depth (0 = root).</summary>
+    /// <summary>Traversal depth (0 = root).</summary>
     ulong Depth,
     /// <summary>0-based sibling index.</summary>
     ulong IndexInParent,

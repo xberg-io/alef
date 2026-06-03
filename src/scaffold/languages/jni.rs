@@ -15,9 +15,8 @@ use std::path::PathBuf;
 /// otherwise `config.name`.  This matches the path chosen by
 /// `alef-backend-jni::gen_shims::jni_output_path` for `src/lib.rs`.
 ///
-/// Consumers whose `config.name` carries a language suffix (e.g.
-/// `"sample-markdown-rs"`) can set `[crates.jni] crate_dir = "sample-markdown"`
-/// to produce `crates/sample-markdown-jni/` — matching every other binding
+/// Consumers whose `config.name` carries a language suffix can set
+/// `[crates.jni] crate_dir` to produce a suffix-free JNI crate — matching every other binding
 /// crate — while the umbrella dep entry still uses `config.name` as the Cargo
 /// package key with `path = "../<core_crate_dir>"` for the on-disk location.
 ///
@@ -243,11 +242,9 @@ namespace = "dev.sample_crate.plain"
     /// umbrella dep key remains `config.name` (the Cargo package name) with
     /// `path = "../<core_crate_dir>"`.
     ///
-    /// This covers the sample-markdown case: `name = "sample-markdown-rs"`,
-    /// `sources = ["crates/sample-markdown/src/lib.rs"]`,
-    /// `[crates.jni] crate_dir = "sample-markdown"` — the JNI crate lands at
-    /// `crates/sample-markdown-jni/` (matching `*-node`, `*-py`, `*-wasm`, etc.)
-    /// rather than `crates/sample-markdown-rs-jni/`.
+    /// This covers a suffixed package name with a suffix-free core crate directory:
+    /// the JNI crate lands at the configured `crate_dir` path rather than keeping
+    /// the package suffix in its own crate name.
     #[test]
     fn scaffold_jni_crate_dir_override_controls_output_path() {
         let config = resolved_one(
@@ -256,15 +253,15 @@ namespace = "dev.sample_crate.plain"
 languages = ["kotlin_android", "jni"]
 
 [[crates]]
-name = "sample-markdown-rs"
-sources = ["crates/sample-markdown/src/lib.rs"]
+name = "demo-render-rs"
+sources = ["crates/demo-render/src/lib.rs"]
 
 [crates.jni]
-crate_dir = "sample-markdown"
+crate_dir = "demo-render"
 
 [crates.kotlin_android]
-package = "dev.sample_crate.samplemarkdown.android"
-namespace = "dev.sample_crate.samplemarkdown.android"
+package = "dev.example.demo_render.android"
+namespace = "dev.example.demo_render.android"
 "#,
         );
 
@@ -275,24 +272,24 @@ namespace = "dev.sample_crate.samplemarkdown.android"
         let cargo_toml = &files[0].content;
 
         assert_eq!(
-            path, "crates/sample-markdown-jni/Cargo.toml",
+            path, "crates/demo-render-jni/Cargo.toml",
             "JNI scaffold path must follow [crates.jni] crate_dir override; got: {path}"
         );
         assert!(
-            cargo_toml.contains("name = \"sample-markdown-jni\""),
+            cargo_toml.contains("name = \"demo-render-jni\""),
             "[package] name must follow crate_dir override; got:\n{cargo_toml}"
         );
         // Umbrella dep key is the Cargo package name (config.name), not the crate_dir.
         assert!(
-            cargo_toml.contains("sample-markdown-rs = { path = \"../sample-markdown\""),
+            cargo_toml.contains("demo-render-rs = { path = \"../demo-render\""),
             "umbrella dep key must be cargo package name, path must be core_crate_dir; got:\n{cargo_toml}"
         );
         assert!(
-            !cargo_toml.contains("sample-markdown = { path = \"../sample-markdown\""),
+            !cargo_toml.contains("demo-render = { path = \"../demo-render\""),
             "umbrella dep key must NOT be the crate_dir override; got:\n{cargo_toml}"
         );
         assert!(
-            !cargo_toml.contains("sample-markdown-rs-jni"),
+            !cargo_toml.contains("demo-render-rs-jni"),
             "crate name must NOT contain the -rs suffix; got:\n{cargo_toml}"
         );
     }

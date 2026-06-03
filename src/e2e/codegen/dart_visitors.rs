@@ -1,82 +1,68 @@
 //! Dart visitor method generation for e2e test callbacks.
 //!
-//! The dart `HtmlVisitor` trait is bridged through `flutter_rust_bridge`'s
+//! Visitor traits are bridged through `flutter_rust_bridge`'s
 //! `DartFnFuture` machinery. Every method of the trait must be supplied as a
-//! closure to `createHtmlVisitor(...)` — the FRB generator requires
+//! closure to the generated visitor factory — the FRB generator requires
 //! all callbacks to be passed positionally. Fixtures only configure a subset
 //! of callbacks; for the rest we emit default closures that return
 //! `VisitResult.continue_()`.
-//!
-//! The full list of callback methods is the union of every callback name that
-//! ever appears across the fixture corpus, plus the static set declared by the
-//! `HtmlVisitor` trait. We hardcode the canonical list here to keep the
-//! generated code self-contained — see
-//! `crates/sample-markdown/src/visitor/traits.rs` for the source of truth.
 
 use super::dart::escape_dart;
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;
 
-/// All HtmlVisitor callback methods (Rust snake_case names) that
-/// `createHtmlVisitor` requires. Order is not important — they are
-/// passed as named arguments — but we keep a stable list to keep emitted code
-/// deterministic and snapshot-friendly.
-const ALL_VISITOR_METHODS: &[&str] = &[
-    "visit_text",
-    "visit_element_start",
-    "visit_element_end",
-    "visit_link",
-    "visit_image",
-    "visit_heading",
-    "visit_code_block",
-    "visit_code_inline",
-    "visit_list_item",
-    "visit_list_start",
-    "visit_list_end",
-    "visit_table_start",
-    "visit_table_row",
-    "visit_table_end",
-    "visit_blockquote",
-    "visit_strong",
-    "visit_emphasis",
-    "visit_strikethrough",
-    "visit_underline",
-    "visit_subscript",
-    "visit_superscript",
-    "visit_mark",
-    "visit_line_break",
-    "visit_horizontal_rule",
-    "visit_custom_element",
-    "visit_definition_list_start",
-    "visit_definition_term",
-    "visit_definition_description",
-    "visit_definition_list_end",
-    "visit_form",
-    "visit_input",
-    "visit_button",
-    "visit_audio",
-    "visit_video",
-    "visit_iframe",
-    "visit_details",
-    "visit_summary",
-    "visit_figure_start",
-    "visit_figcaption",
-    "visit_figure_end",
-];
+pub(super) struct DartVisitorConfig {
+    pub(super) trait_name: String,
+    pub(super) methods: Vec<String>,
+}
+
+pub(super) fn resolve_dart_visitor_config(
+    call_override: Option<&crate::e2e::config::CallOverride>,
+    type_defs: &[crate::core::ir::TypeDef],
+    visitor_spec: &VisitorSpec,
+) -> DartVisitorConfig {
+    let trait_name = call_override
+        .and_then(|override_config| override_config.visitor_trait.clone())
+        .or_else(|| {
+            type_defs
+                .iter()
+                .find(|type_def| {
+                    type_def.is_trait && visitor_spec.callbacks.keys().any(|name| has_method(type_def, name))
+                })
+                .map(|type_def| type_def.name.clone())
+        })
+        .unwrap_or_else(|| "Visitor".to_string());
+
+    let methods = type_defs
+        .iter()
+        .find(|type_def| type_def.name == trait_name)
+        .map(|type_def| type_def.methods.iter().map(|method| method.name.clone()).collect())
+        .unwrap_or_else(|| visitor_spec.callbacks.keys().cloned().collect());
+
+    DartVisitorConfig { trait_name, methods }
+}
+
+fn has_method(type_def: &crate::core::ir::TypeDef, method_name: &str) -> bool {
+    type_def.methods.iter().any(|method| method.name == method_name)
+}
 
 /// Build a visitor-handle setup block and append it to `setup_lines`. Returns
 /// the dart variable name holding the visitor handle (always `_visitor`).
-pub(super) fn build_dart_visitor(setup_lines: &mut Vec<String>, visitor_spec: &VisitorSpec) -> String {
+pub(super) fn build_dart_visitor(
+    setup_lines: &mut Vec<String>,
+    visitor_spec: &VisitorSpec,
+    visitor_config: &DartVisitorConfig,
+) -> String {
     // Emit one named-arg per visitor method. Methods with fixture-supplied
     // callbacks return the action-specific VisitResult; all others return
     // the default `VisitResult.continue_()` so the conversion falls through
     // to the built-in markdown emitter.
-    let mut named_args: Vec<String> = Vec::with_capacity(ALL_VISITOR_METHODS.len());
-    for method in ALL_VISITOR_METHODS {
+    let mut named_args: Vec<String> = Vec::with_capacity(visitor_config.methods.len());
+    for method in &visitor_config.methods {
         let camel = method.to_lower_camel_case();
         let params = dart_visitor_params(method);
-        let body = match visitor_spec.callbacks.get(*method) {
+        let body = match visitor_spec.callbacks.get(method.as_str()) {
             Some(action) => dart_action_body(method, action),
             None => "VisitResult.continue_()".to_string(),
         };
@@ -85,10 +71,11 @@ pub(super) fn build_dart_visitor(setup_lines: &mut Vec<String>, visitor_spec: &V
         named_args.push(format!("{camel}: ({params}) async => {body}"));
     }
 
-    // Render as a multi-line `createHtmlVisitor(...)` call. The
+    // Render as a multi-line generated visitor-factory call. The
     // indentation matches the standard test-body indent (4 spaces inside the
     // test closure) so the emitted file reads cleanly.
-    let mut block = String::from("final _visitor = await createHtmlVisitor(\n");
+    let factory_name = format!("create{}", visitor_config.trait_name.to_upper_camel_case());
+    let mut block = format!("final _visitor = await {factory_name}(\n");
     for (i, arg) in named_args.iter().enumerate() {
         let sep = if i + 1 == named_args.len() { "" } else { "," };
         let _ = writeln!(block, "      {arg}{sep}");
@@ -98,7 +85,7 @@ pub(super) fn build_dart_visitor(setup_lines: &mut Vec<String>, visitor_spec: &V
     "_visitor".to_string()
 }
 
-/// Dart closure parameter list for each visitor method. Parameter names mirror
+/// Dart closure parameter list for visitor methods. Parameter names mirror
 /// the Rust trait signature, lowerCamelCased — same convention FRB uses for
 /// the generated `BoxFn...` callback typedefs.
 fn dart_visitor_params(method: &str) -> &'static str {
@@ -206,6 +193,13 @@ mod tests {
         VisitorSpec { callbacks }
     }
 
+    fn visitor_config(methods: &[&str]) -> DartVisitorConfig {
+        DartVisitorConfig {
+            trait_name: "RenderVisitor".to_string(),
+            methods: methods.iter().map(|method| method.to_string()).collect(),
+        }
+    }
+
     #[test]
     fn build_dart_visitor_emits_visitor_variable() {
         let mut lines = Vec::new();
@@ -217,11 +211,12 @@ mod tests {
                     output: "[AUDIO]".to_string(),
                 },
             ),
+            &visitor_config(&["visit_audio", "visit_text"]),
         );
         assert_eq!(name, "_visitor");
         assert_eq!(lines.len(), 1);
         let block = &lines[0];
-        assert!(block.contains("createHtmlVisitor("), "got: {block}");
+        assert!(block.contains("createRenderVisitor("), "got: {block}");
         assert!(block.contains("visitAudio:"), "got: {block}");
         assert!(block.contains("VisitResult.custom(field0: '[AUDIO]')"), "got: {block}");
         // Methods without fixture callbacks default to `continue_()`.
@@ -232,14 +227,22 @@ mod tests {
     #[test]
     fn build_dart_visitor_maps_skip_to_skip_variant() {
         let mut lines = Vec::new();
-        build_dart_visitor(&mut lines, &spec("visit_button", CallbackAction::Skip));
+        build_dart_visitor(
+            &mut lines,
+            &spec("visit_button", CallbackAction::Skip),
+            &visitor_config(&["visit_button"]),
+        );
         assert!(lines[0].contains("VisitResult.skip()"), "got: {}", lines[0]);
     }
 
     #[test]
     fn build_dart_visitor_maps_continue_to_continue_variant() {
         let mut lines = Vec::new();
-        build_dart_visitor(&mut lines, &spec("visit_strong", CallbackAction::Continue));
+        build_dart_visitor(
+            &mut lines,
+            &spec("visit_strong", CallbackAction::Continue),
+            &visitor_config(&["visit_strong"]),
+        );
         // Continue is the default, so we can't distinguish — but the method
         // body should still be `continue_()` (the action mirrors the default).
         assert!(lines[0].contains("visitStrong: (ctx, text) async => VisitResult.continue_()"));
@@ -257,6 +260,7 @@ mod tests {
                     return_form: TemplateReturnForm::Dict,
                 },
             ),
+            &visitor_config(&["visit_link"]),
         );
         assert!(
             lines[0].contains("VisitResult.custom(field0: '[LINK:${text}:${href}]')"),

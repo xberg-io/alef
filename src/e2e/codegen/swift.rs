@@ -1138,14 +1138,13 @@ fn render_test_method(
         return;
     }
 
-    // Visitor-driven fixtures: emit a class that conforms to `HtmlVisitorProtocol`
-    // and wrap it via `makeHtmlVisitorHandle(...)`. The handle is then threaded
-    // into the options via `conversionOptionsFromJsonWithVisitor(json, handle)`.
+    // Visitor-driven fixtures: emit a class that conforms to the generated
+    // visitor protocol and wrap it via the generated visitor handle factory.
     let mut visitor_setup_lines: Vec<String> = Vec::new();
-    let visitor_handle_expr: Option<String> = fixture
-        .visitor
-        .as_ref()
-        .map(|spec| super::swift_visitors::build_swift_visitor(&mut visitor_setup_lines, spec, &fixture.id));
+    let visitor_handle_expr: Option<String> = fixture.visitor.as_ref().map(|spec| {
+        let visitor_config = super::swift_visitors::resolve_swift_visitor_config(call_overrides, type_defs, spec);
+        super::swift_visitors::build_swift_visitor(&mut visitor_setup_lines, spec, &fixture.id, &visitor_config)
+    });
 
     // Resolve extra_args from per-call swift overrides (e.g. `nil` for optional
     // query-param arguments on list_files/list_batches that have no fixture-level

@@ -1275,14 +1275,14 @@ mod tests {
 
     #[test]
     fn sanitize_map_with_bare_value_is_reported_as_sanitized() {
-        let mut ty = TypeRef::Map(
-            Box::new(TypeRef::String),
-            Box::new(TypeRef::Named("Value".to_string())),
-        );
+        let mut ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Value".to_string())));
 
         let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
 
-        assert!(sanitized, "ambiguous bare Value inside Map must not be silently accepted");
+        assert!(
+            sanitized,
+            "ambiguous bare Value inside Map must not be silently accepted"
+        );
         assert!(
             matches!(&ty, TypeRef::Map(_, value) if matches!(value.as_ref(), TypeRef::Named(name) if name == "Value")),
             "ambiguous bare Value must remain visible for validation, got {ty:?}"

@@ -15,11 +15,11 @@ public abstract record VisitResult
     /// <summary>Omit this element from output entirely.</summary>
     public sealed record Skip : VisitResult;
 
-    /// <summary>Keep original HTML verbatim.</summary>
+    /// <summary>Keep original content verbatim.</summary>
     public sealed record PreserveHtml : VisitResult;
 
-    /// <summary>Replace with custom Markdown.</summary>
-    public sealed record Custom(string Markdown) : VisitResult;
+    /// <summary>Replace with custom output.</summary>
+    public sealed record Custom(string Output) : VisitResult;
 
     /// <summary>Abort conversion with an error message.</summary>
     public sealed record Error(string Message) : VisitResult;
@@ -28,7 +28,7 @@ public abstract record VisitResult
         VisitResult.Continue => "\"Continue\"",
         VisitResult.Skip => "\"Skip\"",
         VisitResult.PreserveHtml => "\"PreserveHtml\"",
-        VisitResult.Custom c => "{{ \"{{\" }}\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + "{{ \"}}\" }}",
+        VisitResult.Custom c => "{{ \"{{\" }}\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Output) + "{{ \"}}\" }}",
         VisitResult.Error e => "{{ \"{{\" }}\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + "{{ \"}}\" }}",
         _ => "\"Continue\""
     };

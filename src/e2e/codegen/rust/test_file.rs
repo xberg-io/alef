@@ -348,7 +348,7 @@ pub fn render_test_file(
         }
         for elem_type in &element_types {
             // Skip primitive / std types — they're already in scope via the Rust prelude
-            // and emitting `use sample_core::String;` (etc.) would fail with E0432.
+            // and emitting `use demo_crate::String;` (etc.) would fail with E0432.
             if matches!(
                 elem_type.as_str(),
                 "String"
@@ -405,7 +405,7 @@ pub fn render_test_function(
     // Fixtures that have neither `http` nor `mock_response` may be either:
     //  - schema/spec validation fixtures (asyncapi, grpc, graphql_schema, …) with no callable
     //    function → emit a TODO stub so the suite compiles and preserves test count.
-    //  - plain function-call fixtures (e.g. sample_core::extract_file) with a configured
+    //  - plain function-call fixtures (e.g. demo_crate::extract_file) with a configured
     //    `[e2e.call]` → fall through to the real function-call code path below.
     if fixture.http.is_none() && fixture.mock_response.is_none() {
         let call_config = e2e_config.resolve_call_for_fixture(
@@ -503,8 +503,8 @@ pub fn render_test_function(
     let options_type: Option<String> = call_recipe.options_type.map(str::to_string);
 
     // When the fixture declares a visitor that is passed via an options-field (the
-    // sample-markdown core `convert` API accepts visitor only through
-    // `ConversionOptions.visitor`), the options binding must be `mut` so we can
+    // visitor-special APIs can accept visitor only through an options field; in
+    // that case the options binding must be `mut` so we can
     // assign the visitor field before the call.
     let visitor_via_options = fixture.visitor.is_some() && rust_overrides.is_none_or(|o| o.visitor_function.is_none());
 

@@ -1,6 +1,6 @@
-func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {
+func encodeVisitResult(r {{ result_type }}, outResult **C.char) C.int32_t {
 	// Encode the result as serde-native JSON so the Rust trait bridge's
-	// serde_json::from_str::<VisitResult> deserialiser can decode it correctly.
+	// serde_json deserialiser can decode it correctly.
 	var jsonStr string
 	switch r.Code {
 	case 1:

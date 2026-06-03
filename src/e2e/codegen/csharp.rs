@@ -1105,7 +1105,15 @@ fn render_test_method(
     let mut visitor_arg = String::new();
     let has_visitor = fixture.visitor.is_some();
     if let Some(visitor_spec) = &fixture.visitor {
-        visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_class_decls, &fixture.id, visitor_spec);
+        let (visitor_trait, visitor_methods) = resolve_csharp_visitor_config(cs_overrides, type_defs, visitor_spec);
+        visitor_arg = build_csharp_visitor(
+            &mut setup_lines,
+            visitor_class_decls,
+            &fixture.id,
+            visitor_spec,
+            &visitor_trait,
+            &visitor_methods,
+        );
     }
 
     // When a visitor is present, embed it in the options object instead of passing as a separate arg.
@@ -3392,6 +3400,8 @@ fn build_csharp_visitor(
     class_decls: &mut Vec<String>,
     fixture_id: &str,
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
+    visitor_trait: &str,
+    visitor_methods: &[String],
 ) -> String {
     use heck::ToUpperCamelCase;
     let class_name = format!("{}Visitor", fixture_id.to_upper_camel_case());
@@ -3401,56 +3411,12 @@ fn build_csharp_visitor(
 
     // Build the class declaration string (indented for nesting inside the test class).
     let mut decl = String::new();
-    decl.push_str(&format!("    private sealed class {class_name} : IHtmlVisitor\n"));
+    decl.push_str(&format!("    private sealed class {class_name} : I{visitor_trait}\n"));
     decl.push_str("    {\n");
 
-    // List of all visitor methods that must be implemented by IHtmlVisitor.
-    let all_methods = [
-        "visit_element_start",
-        "visit_element_end",
-        "visit_text",
-        "visit_link",
-        "visit_image",
-        "visit_heading",
-        "visit_code_block",
-        "visit_code_inline",
-        "visit_list_item",
-        "visit_list_start",
-        "visit_list_end",
-        "visit_table_start",
-        "visit_table_row",
-        "visit_table_end",
-        "visit_blockquote",
-        "visit_strong",
-        "visit_emphasis",
-        "visit_strikethrough",
-        "visit_underline",
-        "visit_subscript",
-        "visit_superscript",
-        "visit_mark",
-        "visit_line_break",
-        "visit_horizontal_rule",
-        "visit_custom_element",
-        "visit_definition_list_start",
-        "visit_definition_term",
-        "visit_definition_description",
-        "visit_definition_list_end",
-        "visit_form",
-        "visit_input",
-        "visit_button",
-        "visit_audio",
-        "visit_video",
-        "visit_iframe",
-        "visit_details",
-        "visit_summary",
-        "visit_figure_start",
-        "visit_figcaption",
-        "visit_figure_end",
-    ];
-
     // Emit all methods: use fixture action if specified, otherwise default to Continue.
-    for method_name in &all_methods {
-        if let Some(action) = visitor_spec.callbacks.get(*method_name) {
+    for method_name in visitor_methods {
+        if let Some(action) = visitor_spec.callbacks.get(method_name.as_str()) {
             emit_csharp_visitor_method(&mut decl, method_name, action);
         } else {
             // Default: Continue for methods not in the fixture
@@ -3462,6 +3428,36 @@ fn build_csharp_visitor(
     class_decls.push(decl);
 
     var_name
+}
+
+fn resolve_csharp_visitor_config(
+    call_override: Option<&crate::e2e::config::CallOverride>,
+    type_defs: &[crate::core::ir::TypeDef],
+    visitor_spec: &crate::e2e::fixture::VisitorSpec,
+) -> (String, Vec<String>) {
+    let trait_name = call_override
+        .and_then(|override_config| override_config.visitor_trait.clone())
+        .or_else(|| {
+            type_defs
+                .iter()
+                .find(|type_def| {
+                    type_def.is_trait
+                        && visitor_spec
+                            .callbacks
+                            .keys()
+                            .any(|name| type_def.methods.iter().any(|method| method.name == *name))
+                })
+                .map(|type_def| type_def.name.clone())
+        })
+        .unwrap_or_else(|| "Visitor".to_string());
+
+    let methods = type_defs
+        .iter()
+        .find(|type_def| type_def.name == trait_name)
+        .map(|type_def| type_def.methods.iter().map(|method| method.name.clone()).collect())
+        .unwrap_or_else(|| visitor_spec.callbacks.keys().cloned().collect());
+
+    (trait_name, methods)
 }
 
 /// Emit a C# visitor method into a class declaration string.

@@ -312,8 +312,8 @@ pub fn resolve_visitor_trait(rust_override: Option<&crate::e2e::config::CallOver
 
 /// Emit a Rust visitor method for a callback action.
 ///
-/// The parameter type list mirrors the `HtmlVisitor` trait in
-/// `sample_core-dev/sample-markdown`. For non-template actions params are bound
+/// The parameter type list mirrors the configured visitor trait shape used by
+/// visitor fixtures. For non-template actions params are bound
 /// to `_name` patterns so the generated body needn't introduce unused bindings
 /// (clippy `-D warnings` would otherwise fire). For `CustomTemplate` actions
 /// the template string may reference named variables via `{name}` interpolation,
@@ -323,7 +323,7 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
     use std::fmt::Write as FmtWrite;
 
     // Each method entry: list of (name, type_str) pairs, excluding `&mut self`.
-    // Types match the `HtmlVisitor` trait exactly.
+    // Types match the visitor-special trait shape used by current e2e fixtures.
     // `_ctx` is always first; subsequent params vary by method.
     let raw_params: &[(&str, &str)] = match method_name {
         "visit_link" => &[

@@ -1,13 +1,12 @@
-/// Generate C# visitor support: IVisitor interface, NodeContext/VisitResult records,
-/// VisitorCallbacks (P/Invoke delegate struct), and ConvertWithVisitor method.
+/// Generate C# visitor support for compatibility callback bridges.
 ///
 /// # P/Invoke delegate callback strategy
 ///
 /// C# uses `[UnmanagedFunctionPointer]` delegate types to create `IntPtr` function pointers
-/// that can be passed through the `HTMHtmVisitorCallbacks` C struct.
+/// that can be passed through the generated visitor callback C struct.
 ///
-/// - `NodeContext`: a `record` with fields from `HTMHtmNodeContext`.
-/// - `VisitResult`: a discriminated union using a record class hierarchy.
+/// - `NodeContext`: a `record` used when the configured bridge methods require it.
+/// - `VisitResult`: a discriminated union emitted when the configured bridge methods return it.
 /// - `IVisitor`: an interface with default no-op implementations for all 40 callbacks.
 /// - `VisitorCallbacks`: an internal class that allocates `GCHandle`s for all delegate
 ///   instances and writes them into a marshalled struct layout matching the C struct.
@@ -16,12 +15,15 @@
 use crate::core::hash::{self, CommentStyle};
 use heck::ToSnakeCase;
 
+const COMPAT_CONTEXT_TYPE: &str = "NodeContext";
+const COMPAT_RESULT_TYPE: &str = "VisitResult";
+
 // ---------------------------------------------------------------------------
 // Callback specification table
 // ---------------------------------------------------------------------------
 
 pub struct CallbackSpec {
-    /// Field name in `HTMHtmVisitorCallbacks`.
+    /// Field name in the generated visitor callback C struct.
     pub c_field: String,
     /// C# interface method name (PascalCase).
     pub cs_method: String,
@@ -50,6 +52,7 @@ pub struct ExtraParam {
 
 /// Convert snake_case to lowerCamelCase for C# parameter names.
 /// E.g. "tag_name" → "tagName", "inputType" → "inputType" (passthrough).
+#[allow(dead_code)]
 fn snake_to_lower_camel(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut next_upper = false;
@@ -71,6 +74,7 @@ fn snake_to_lower_camel(s: &str) -> String {
 /// Derives all language-specific C# fields (method names, P/Invoke types, decode
 /// expressions) from `TypeRef` + `optional` flag. Methods with unsupported parameter
 /// types are skipped with a warning.
+#[allow(dead_code)]
 pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<CallbackSpec> {
     use crate::codegen::naming::to_csharp_name;
     use crate::core::ir::{PrimitiveType, TypeRef};
@@ -209,19 +213,20 @@ pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) ->
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Returns `(filename, content)` pairs for all visitor-related C# files.
+/// Returns `(filename, content)` pairs for required compatibility visitor files.
 ///
 /// IVisitor.cs and VisitorCallbacks.cs are superseded by IVisitor and VisitorCallbacks
-/// in TraitBridges.cs which use the HtmlVisitorBridge approach. They are intentionally
+/// in TraitBridges.cs which use the configured trait bridge approach. They are intentionally
 /// excluded here; stale committed copies are removed by delete_superseded_visitor_files.
 pub fn gen_visitor_files(namespace: &str, trait_def: &crate::core::ir::TypeDef) -> Vec<(String, String)> {
-    // callback_specs_from_trait(trait_def) drives future expansion of NodeContext.cs
-    // and VisitResult.cs when those files need IR-derived per-method data.
-    let _ = callback_specs_from_trait(trait_def);
-    vec![
-        ("NodeContext.cs".to_string(), gen_node_context(namespace)),
-        ("VisitResult.cs".to_string(), gen_visit_result(namespace)),
-    ]
+    let mut files = Vec::new();
+    if trait_requires_named_param(trait_def, COMPAT_CONTEXT_TYPE) {
+        files.push(("NodeContext.cs".to_string(), gen_node_context(namespace)));
+    }
+    if trait_returns_named_type(trait_def, COMPAT_RESULT_TYPE) {
+        files.push(("VisitResult.cs".to_string(), gen_visit_result(namespace)));
+    }
+    files
 }
 
 /// Generate the P/Invoke declarations needed in NativeMethods.cs for visitor FFI.
@@ -230,7 +235,7 @@ pub fn gen_visitor_files(namespace: &str, trait_def: &crate::core::ir::TypeDef) 
 /// - `namespace`: C# namespace (unused, kept for compatibility)
 /// - `lib_name`: Native library name (unused, kept for compatibility)
 /// - `prefix`: C FFI function name prefix (e.g., "htm")
-/// - `trait_name`: Name of the visitor trait (e.g., "HtmlVisitor") for bridge function names
+/// - `trait_name`: Name of the visitor trait for bridge function names
 /// - `options_field`: Field name in options to set visitor on (e.g., "visitor")
 pub fn gen_native_methods_visitor(
     namespace: &str,
@@ -274,7 +279,7 @@ pub fn gen_native_methods_visitor(
 
 /// DEPRECATED: gen_convert_with_visitor_method is no longer used.
 /// The visitor logic is now integrated into the main Convert() method in gen_wrapper_function,
-/// which creates the HtmlVisitorBridge and uses htm_options_set_visitor instead.
+/// which creates the configured bridge and uses the configured options setter instead.
 #[allow(dead_code)]
 pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> String {
     let _ = exception_name;
@@ -306,9 +311,9 @@ fn gen_node_context(namespace: &str) -> String {
     out.push_str("public record NodeContext(\n");
     out.push_str("    /// <summary>Coarse-grained node type tag.</summary>\n");
     out.push_str("    NodeType NodeType,\n");
-    out.push_str("    /// <summary>HTML element tag name (e.g. \"div\").</summary>\n");
+    out.push_str("    /// <summary>Element tag name.</summary>\n");
     out.push_str("    string TagName,\n");
-    out.push_str("    /// <summary>DOM depth (0 = root).</summary>\n");
+    out.push_str("    /// <summary>Traversal depth (0 = root).</summary>\n");
     out.push_str("    ulong Depth,\n");
     out.push_str("    /// <summary>0-based sibling index.</summary>\n");
     out.push_str("    ulong IndexInParent,\n");
@@ -347,11 +352,11 @@ fn gen_visit_result(namespace: &str) -> String {
     out.push_str("    /// <summary>Omit this element from output entirely.</summary>\n");
     out.push_str("    public sealed record Skip : VisitResult;\n");
     out.push('\n');
-    out.push_str("    /// <summary>Keep original HTML verbatim.</summary>\n");
+    out.push_str("    /// <summary>Keep original content verbatim.</summary>\n");
     out.push_str("    public sealed record PreserveHtml : VisitResult;\n");
     out.push('\n');
-    out.push_str("    /// <summary>Replace with custom Markdown.</summary>\n");
-    out.push_str("    public sealed record Custom(string Markdown) : VisitResult;\n");
+    out.push_str("    /// <summary>Replace with custom output.</summary>\n");
+    out.push_str("    public sealed record Custom(string Output) : VisitResult;\n");
     out.push('\n');
     out.push_str("    /// <summary>Abort conversion with an error message.</summary>\n");
     out.push_str("    public sealed record Error(string Message) : VisitResult;\n");
@@ -360,7 +365,7 @@ fn gen_visit_result(namespace: &str) -> String {
     out.push_str("        VisitResult.Continue => \"\\\"Continue\\\"\",\n");
     out.push_str("        VisitResult.Skip => \"\\\"Skip\\\"\",\n");
     out.push_str("        VisitResult.PreserveHtml => \"\\\"PreserveHtml\\\"\",\n");
-    out.push_str("        VisitResult.Custom c => \"{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Markdown) + \"}\",\n");
+    out.push_str("        VisitResult.Custom c => \"{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Output) + \"}\",\n");
     out.push_str("        VisitResult.Error e => \"{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}\",\n");
     out.push_str("        _ => \"\\\"Continue\\\"\"\n");
     out.push_str("    };\n");
@@ -368,6 +373,137 @@ fn gen_visit_result(namespace: &str) -> String {
     out
 }
 
+fn trait_requires_named_param(trait_def: &crate::core::ir::TypeDef, type_name: &str) -> bool {
+    trait_def.methods.iter().any(|method| {
+        method.trait_source.is_none()
+            && method
+                .params
+                .iter()
+                .any(|param| named_type_name(&param.ty) == Some(type_name))
+    })
+}
+
+fn trait_returns_named_type(trait_def: &crate::core::ir::TypeDef, type_name: &str) -> bool {
+    trait_def
+        .methods
+        .iter()
+        .any(|method| method.trait_source.is_none() && named_type_name(&method.return_type) == Some(type_name))
+}
+
+fn named_type_name(ty: &crate::core::ir::TypeRef) -> Option<&str> {
+    match ty {
+        crate::core::ir::TypeRef::Named(name) => Some(name.as_str()),
+        crate::core::ir::TypeRef::Optional(inner) => named_type_name(inner),
+        _ => None,
+    }
+}
+
 // gen_ivisitor and gen_visitor_callbacks were removed: IVisitor and VisitorCallbacks
-// are now handwritten in TraitBridges.cs (HtmlVisitorBridge pattern). Generating them
-// here produced dead code that conflicted with the handwritten implementations.
+// are now emitted by TraitBridges.cs. Generating them here produced dead code that
+// conflicted with those implementations.
+
+#[cfg(test)]
+mod tests {
+    use super::gen_visitor_files;
+    use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+
+    #[test]
+    fn emits_compat_files_only_when_trait_methods_require_them() {
+        let files = gen_visitor_files(
+            "Sample",
+            &trait_def(
+                "Renderer",
+                vec![method(
+                    "visit_text",
+                    vec![param("_ctx", TypeRef::Named("NodeContext".to_string()))],
+                    TypeRef::Named("VisitResult".to_string()),
+                )],
+            ),
+        );
+
+        let filenames = files.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>();
+        assert_eq!(filenames, vec!["NodeContext.cs", "VisitResult.cs"]);
+    }
+
+    #[test]
+    fn skips_fixed_compat_files_for_generic_traits() {
+        let files = gen_visitor_files(
+            "Sample",
+            &trait_def(
+                "Renderer",
+                vec![method(
+                    "render",
+                    vec![param("_input", TypeRef::String)],
+                    TypeRef::String,
+                )],
+            ),
+        );
+
+        assert!(files.is_empty());
+    }
+
+    fn trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("sample::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods,
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }
+    }
+
+    fn method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params,
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::RefMut),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            newtype_wrapper: None,
+            is_ref: false,
+            is_mut: false,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+            vec_inner_is_ref: false,
+        }
+    }
+}

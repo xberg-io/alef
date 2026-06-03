@@ -1,5 +1,5 @@
-func decodeNodeContext(ctxJSON *C.char) NodeContext {
-	var ctx NodeContext
+func decodeNodeContext(ctxJSON *C.char) {{ context_type }} {
+	var ctx {{ context_type }}
 	if ctxJSON == nil {
 		return ctx
 	}

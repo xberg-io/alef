@@ -68,6 +68,13 @@ impl TypeMapper for NapiMapper {
             // (e.g. `Language` from `tree-sitter`). Emit the bare name so callers
             // resolve it via the ambient `use` of the ecosystem package.
             Cow::Borrowed(name)
+        } else if name == "Value" {
+            // Bare `Value` references that the source crate did not fully qualify as
+            // `serde_json::Value`. napi 3.x removed `napi::JsValue` (it's now a trait,
+            // not a type), so the legacy prefixed `JsValue` no longer compiles. Map
+            // to `serde_json::Value` instead — napi's serde-json feature bridges it
+            // to/from JS objects natively.
+            Cow::Borrowed("serde_json::Value")
         } else {
             Cow::Owned(format!("{}{name}", self.prefix))
         }

@@ -53,7 +53,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     };
     // Build the cargo-machete ignored list. `tokio` is added to the
     // dependency block unconditionally to keep the manifest layout stable
-    // across sample_core-dev crates, but consumers whose PHP surface exposes
+    // across generated PHP crates, but consumers whose PHP surface exposes
     // no async functions never reference it — list it as ignored. Same for
     // `async-trait`, which is added when the umbrella declares
     // `trait_bridges` but goes unreferenced when the resulting trait shim
@@ -134,7 +134,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let meta = scaffold_meta(config);
     let ext_name = config.php_extension_name();
     let pkg_dir = config.package_dir(Language::Php);
-    // PSR-4 namespace derived from the extension name (e.g. sample_markdown_rs -> Html\To\Markdown\Rs).
+    // PSR-4 namespace derived from the extension name.
     // Double backslashes for JSON string literal output.
     let php_namespace = php_autoload_namespace(config).replace('\\', "\\\\");
 

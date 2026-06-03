@@ -1,13 +1,13 @@
 //! PHP native extension (php-ext / PIE) test_app generator.
 //!
 //! Generates a registry-mode-only test_app at `test_apps/php_ext/` that
-//! installs the sample-markdown PHP native extension via PIE and exercises
-//! the raw C extension functions.
+//! installs the configured PHP native extension via PIE and exercises
+//! the raw C extension functions when e2e call config is available.
 //!
 //! Emits three files:
 //!
 //! - `run_tests.sh` — installs the PIE extension and runs `main.php`.
-//! - `main.php` — verifies extension loading and calls `sample_markdown_convert`.
+//! - `main.php` — verifies extension loading and optionally calls the configured function.
 //! - `README.md` — describes the test_app.
 //!
 //! This generator is registry-mode only.  In local mode it emits a single
@@ -61,6 +61,7 @@ impl E2eCodegen for PhpExtCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
 
         let extension_name = config.php_extension_name();
+        let smoke_call = resolve_smoke_call(e2e_config, &extension_name);
 
         Ok(vec![
             GeneratedFile {
@@ -70,7 +71,7 @@ impl E2eCodegen for PhpExtCodegen {
             },
             GeneratedFile {
                 path: output_base.join("main.php"),
-                content: render_main_php(&extension_name),
+                content: render_main_php(&extension_name, smoke_call.as_ref()),
                 generated_header: true,
             },
             GeneratedFile {
@@ -143,10 +144,50 @@ fn render_run_tests(pkg_name: &str, version: &str, extension_name: &str) -> Stri
     out
 }
 
+struct PhpExtSmokeCall {
+    function_name: String,
+    argument: Option<String>,
+}
+
+fn resolve_smoke_call(e2e_config: &E2eConfig, extension_name: &str) -> Option<PhpExtSmokeCall> {
+    let configured_name = e2e_config
+        .call
+        .overrides
+        .get("php_ext")
+        .and_then(|override_config| override_config.function.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get("php")
+                .and_then(|override_config| override_config.function.as_deref())
+        })
+        .or_else(|| (!e2e_config.call.function.is_empty()).then_some(e2e_config.call.function.as_str()))?;
+
+    let function_name = if configured_name.starts_with(extension_name) {
+        configured_name.to_string()
+    } else {
+        format!("{extension_name}_{configured_name}")
+    };
+
+    let argument = e2e_config
+        .call
+        .args
+        .first()
+        .and_then(|arg| match arg.arg_type.as_str() {
+            "string" | "bytes" | "file_path" => Some("smoke test".to_string()),
+            _ => None,
+        });
+
+    Some(PhpExtSmokeCall {
+        function_name,
+        argument,
+    })
+}
+
 /// Render `main.php`.
-fn render_main_php(extension_name: &str) -> String {
+fn render_main_php(extension_name: &str, smoke_call: Option<&PhpExtSmokeCall>) -> String {
     let mut out = String::new();
-    let convert_function = format!("{extension_name}_convert");
     let header = hash::header(CommentStyle::DoubleSlash);
     out.push_str("<?php\n\n");
     out.push_str(&header);
@@ -161,25 +202,36 @@ fn render_main_php(extension_name: &str) -> String {
     );
     let _ = writeln!(out, "    exit(1);");
     let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "// Verify the convert function exists.");
-    let _ = writeln!(out, "if (!function_exists('{convert_function}')) {{");
-    let _ = writeln!(out, "    fwrite(STDERR, \"FAIL: {convert_function}() not found\\n\");");
-    let _ = writeln!(out, "    exit(1);");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "// Smoke-test: convert a heading.");
-    let _ = writeln!(out, "$result = {convert_function}('<h1>Hi</h1>');");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "if (!str_contains($result, 'Hi')) {{");
-    let _ = writeln!(
-        out,
-        "    fwrite(STDERR, \"FAIL: expected output to contain 'Hi', got: $result\\n\");"
-    );
-    let _ = writeln!(out, "    exit(1);");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "echo \"PASS: {convert_function}('<h1>Hi</h1>') => $result\\n\";");
+    if let Some(call) = smoke_call {
+        let function_name = &call.function_name;
+        let _ = writeln!(out);
+        let _ = writeln!(out, "// Verify the configured function exists.");
+        let _ = writeln!(out, "if (!function_exists('{function_name}')) {{");
+        let _ = writeln!(out, "    fwrite(STDERR, \"FAIL: {function_name}() not found\\n\");");
+        let _ = writeln!(out, "    exit(1);");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "// Smoke-test the configured function.");
+        if let Some(argument) = &call.argument {
+            let escaped = argument.replace('\\', "\\\\").replace('\'', "\\'");
+            let _ = writeln!(out, "$result = {function_name}('{escaped}');");
+        } else {
+            let _ = writeln!(out, "$result = {function_name}();");
+        }
+        let _ = writeln!(out);
+        let _ = writeln!(out, "if ($result === null) {{");
+        let _ = writeln!(out, "    fwrite(STDERR, \"FAIL: expected non-null result\\n\");");
+        let _ = writeln!(out, "    exit(1);");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "echo \"PASS: {function_name}() returned a non-null result\\n\";");
+    } else {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "echo \"PASS: {extension_name} extension loaded; no e2e call configured\\n\";"
+        );
+    }
     let _ = writeln!(out, "exit(0);");
     out
 }
@@ -197,7 +249,7 @@ fn render_readme(pkg_name: &str, version: &str) -> String {
          ## What it tests\n\n\
          - PIE installs the extension successfully.\n\
          - The extension loads successfully.\n\
-         - The configured convert function returns a string containing `Hi`.\n"
+         - The configured e2e call function, when present, returns a non-null value.\n"
     )
 }
 
@@ -208,4 +260,33 @@ pub fn emit_test_backend(
     _fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
     TestBackendEmission::unimplemented("php_ext")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_php_without_call_config_only_checks_extension_loaded() {
+        let content = render_main_php("demo_ext", None);
+
+        assert!(content.contains("extension_loaded('demo_ext')"));
+        assert!(content.contains("no e2e call configured"));
+        assert!(!content.contains("demo_ext_convert"));
+        assert!(!content.contains("<h1>Hi</h1>"));
+    }
+
+    #[test]
+    fn main_php_with_call_config_checks_configured_function() {
+        let smoke_call = PhpExtSmokeCall {
+            function_name: "demo_ext_render".to_string(),
+            argument: Some("smoke test".to_string()),
+        };
+
+        let content = render_main_php("demo_ext", Some(&smoke_call));
+
+        assert!(content.contains("function_exists('demo_ext_render')"));
+        assert!(content.contains("$result = demo_ext_render('smoke test');"));
+        assert!(content.contains("expected non-null result"));
+    }
 }

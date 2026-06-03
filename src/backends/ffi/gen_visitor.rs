@@ -1,7 +1,7 @@
 /// Generate visitor/callback FFI bindings.
 ///
 /// This module produces the `#[repr(C)]` callback struct, an opaque `Visitor`
-/// handle that bridges C function pointers into the Rust `HtmlVisitor` trait,
+/// handle that bridges C function pointers into the Rust visitor trait,
 /// and the three public FFI entry points:
 ///
 /// - `{prefix}_visitor_create(callbacks: *const {Prefix}VisitorCallbacks) -> *mut {Prefix}Visitor`
@@ -10,13 +10,16 @@
 ///
 /// # Coverage
 ///
-/// All `HtmlVisitor` trait methods are covered. The callback struct field
+/// All compatible visitor trait methods are covered. The callback struct field
 /// order matches the trait definition order (and therefore the Go binding's
 /// expected layout).
 use heck::{ToPascalCase, ToSnakeCase, ToUpperCamelCase};
 
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+
+const VISITOR_CONTEXT_TYPE_NAME: &str = "NodeContext";
+const VISITOR_RESULT_TYPE_NAME: &str = "VisitResult";
 
 /// The integer codes that map to `VisitResult` variants crossing the FFI boundary.
 ///
@@ -76,10 +79,28 @@ pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) ->
         if m.trait_source.is_some() {
             continue;
         }
+        if !matches!(&m.return_type, TypeRef::Named(name) if name == VISITOR_RESULT_TYPE_NAME) {
+            eprintln!(
+                "[alef] gen_visitor(ffi): skip method `{}` — visitor callbacks require `{}` return type",
+                m.name, VISITOR_RESULT_TYPE_NAME
+            );
+            continue;
+        }
+        if !m
+            .params
+            .iter()
+            .any(|p| matches!(&p.ty, TypeRef::Named(name) if name == VISITOR_CONTEXT_TYPE_NAME))
+        {
+            eprintln!(
+                "[alef] gen_visitor(ffi): skip method `{}` — visitor callbacks require `{}` parameter",
+                m.name, VISITOR_CONTEXT_TYPE_NAME
+            );
+            continue;
+        }
         let mut params = Vec::new();
         for p in &m.params {
             // Skip the context parameter — it is threaded via FFI's separate channel.
-            if matches!(&p.ty, TypeRef::Named(_)) {
+            if matches!(&p.ty, TypeRef::Named(name) if name == VISITOR_CONTEXT_TYPE_NAME) {
                 continue;
             }
             let param_name = p.name.trim_start_matches('_').to_string();
@@ -217,7 +238,7 @@ fn rust_param_list(spec: &CallbackSpec, core_import: &str) -> String {
     parts.join(", ")
 }
 
-/// Generate the body of one `impl HtmlVisitor` method.
+/// Generate the body of one visitor trait impl method.
 ///
 /// Produces local CString bindings, the `call_with_ctx` invocation, and the
 /// callback argument forwarding.
@@ -268,7 +289,7 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
     )
 }
 
-/// Generate all `impl HtmlVisitor` methods.
+/// Generate all visitor trait impl methods.
 fn gen_impl_methods(specs: &[CallbackSpec], pascal_prefix: &str, core_import: &str) -> String {
     let mut out = String::new();
     for spec in specs {
@@ -336,7 +357,16 @@ pub fn gen_visitor_bindings(
     let pascal_prefix = prefix.to_pascal_case();
     let visit_prefix = prefix.to_uppercase();
     let specs = callback_specs_from_trait(trait_def);
+    if specs.is_empty() {
+        eprintln!(
+            "[alef] gen_visitor_bindings(ffi): trait `{}` has no `{}`/`{}` visitor callback methods, skipping visitor callbacks",
+            trait_def.name, VISITOR_CONTEXT_TYPE_NAME, VISITOR_RESULT_TYPE_NAME
+        );
+        return String::new();
+    }
+    let callback_count = specs.len();
     let trait_path = trait_def.rust_path.replace('-', "_");
+    let trait_name = &trait_def.name;
     let options_type = function
         .and_then(|func| visitor_options_param(func, bridge_cfg))
         .and_then(|param| named_type_ref(&param.ty))
@@ -382,7 +412,7 @@ pub fn gen_visitor_bindings(
 
     format!(
         r#"// ---------------------------------------------------------------------------
-// Visitor / callback FFI — all 42 HtmlVisitor methods
+// Visitor / callback FFI — {callback_count} {trait_name} methods
 // ---------------------------------------------------------------------------
 
 /// Visit-result code: continue with default conversion.
@@ -429,7 +459,7 @@ pub struct {pascal_prefix}NodeContext {{
 /// # Callback return protocol
 ///
 /// Callbacks return an `i32` visit-result code.  When the code is
-/// `HTM_VISIT_CUSTOM` (3) or `HTM_VISIT_ERROR` (4), the callback must also
+/// `{visit_prefix}_VISIT_CUSTOM` (3) or `{visit_prefix}_VISIT_ERROR` (4), the callback must also
 /// write a heap-allocated, null-terminated string into `*out_custom` and set
 /// `*out_len` to its byte length (excluding the null terminator).  The Rust
 /// side will read the string and then call `free()` on the pointer.
@@ -458,7 +488,7 @@ unsafe impl Send for {pascal_prefix}VisitorCallbacks {{}}
 unsafe impl Sync for {pascal_prefix}VisitorCallbacks {{}}
 
 /// Opaque handle wrapping a `{pascal_prefix}VisitorCallbacks` and implementing
-/// the Rust `HtmlVisitor` trait.
+/// the Rust `{trait_name}` trait.
 ///
 /// Allocate with `{prefix}_visitor_create` and release with `{prefix}_visitor_free`.
 /// The handle must NOT outlive the `{pascal_prefix}VisitorCallbacks` it was created from.
@@ -470,7 +500,7 @@ pub struct {pascal_prefix}Visitor {{
     _tag_scratch: std::cell::RefCell<Vec<std::ffi::CString>>,
 }}
 
-// SAFETY: {pascal_prefix}Visitor is only accessed through the outer Arc<Mutex<dyn HtmlVisitor + Send>>
+// SAFETY: {pascal_prefix}Visitor is only accessed through the outer Arc<Mutex<dyn {trait_name} + Send>>
 // which serialises access. The `user_data` pointer is the caller's responsibility.
 unsafe impl Send for {pascal_prefix}Visitor {{}}
 // SAFETY: see Send impl above; Sync is safe because all mutation goes through Mutex.
@@ -668,6 +698,8 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         prefix = prefix,
         visit_prefix = visit_prefix,
         pascal_prefix = pascal_prefix,
+        callback_count = callback_count,
+        trait_name = trait_name,
         core_import = core_import,
         trait_path = trait_path,
         options_path = options_path,
@@ -1099,5 +1131,110 @@ fn rust_call_arg(param: &ParamDef) -> String {
         TypeRef::String | TypeRef::Path => format!("{}_rs", param.name),
         TypeRef::Named(_) | TypeRef::Optional(_) => format!("{}_rs", param.name),
         _ => param.name.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{MethodDef, ReceiverKind, TypeDef};
+
+    fn param(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            is_ref,
+            ..ParamDef::default()
+        }
+    }
+
+    fn method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params,
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: "Callback method.".to_string(),
+            receiver: Some(ReceiverKind::RefMut),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn visitor_trait(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("my_lib::visitor::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods,
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }
+    }
+
+    #[test]
+    fn visitor_bindings_use_trait_name_and_callback_count_from_ir() {
+        let trait_def = visitor_trait(
+            "MarkdownVisitor",
+            vec![method(
+                "visit_text",
+                vec![
+                    param("ctx", TypeRef::Named("NodeContext".to_string()), true),
+                    param("text", TypeRef::String, true),
+                ],
+                TypeRef::Named("VisitResult".to_string()),
+            )],
+        );
+
+        let code = gen_visitor_bindings("md", "my_lib", false, &trait_def, None, None);
+
+        assert!(code.contains("// Visitor / callback FFI — 1 MarkdownVisitor methods"));
+        assert!(code.contains("dyn MarkdownVisitor + Send"));
+        assert!(code.contains("`MD_VISIT_CUSTOM` (3) or `MD_VISIT_ERROR` (4)"));
+        assert!(!code.contains("all 42 HtmlVisitor methods"));
+        assert!(!code.contains("dyn HtmlVisitor + Send"));
+        assert!(!code.contains("`HTM_VISIT_CUSTOM`"));
+    }
+
+    #[test]
+    fn visitor_bindings_skip_traits_without_node_context_visit_result_protocol() {
+        let trait_def = visitor_trait(
+            "PlainVisitor",
+            vec![method(
+                "visit_text",
+                vec![
+                    param("context", TypeRef::Named("OtherContext".to_string()), true),
+                    param("text", TypeRef::String, true),
+                ],
+                TypeRef::String,
+            )],
+        );
+
+        let code = gen_visitor_bindings("pln", "my_lib", false, &trait_def, None, None);
+
+        assert!(code.is_empty());
     }
 }

@@ -613,8 +613,9 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     }
 
     // Emit per-verb registration shortcuts wrapped in an impl block per service.
-    // These methods use `&mut self` and therefore must live inside an `impl` block —
-    // emitting them as top-level free functions produces invalid Rust.
+    // These methods use `&self` with interior mutability (via the configured
+    // `host_app_inner_accessor`) and live inside an `impl` block — emitting them as
+    // top-level free functions produces invalid Rust.
     let prefix = config.node_type_prefix();
     for service in &api.services {
         let has_variants = service.registrations.iter().any(|r| !r.variants.is_empty());
@@ -641,7 +642,10 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             .collect::<Vec<_>>()
             .join("\n");
         out.push_str(&format!("use crate::{app_type_name};\n\n"));
-        out.push_str(&format!("impl {app_type_name} {{\n"));
+        // napi-rs requires `#[napi]` on the impl block for any method-level `#[napi]`
+        // attributes to register with the runtime — without it the `napi` macro
+        // rejects `&self` receivers with "arguments cannot be `self`".
+        out.push_str(&format!("#[napi]\nimpl {app_type_name} {{\n"));
         out.push_str(&indented);
         if !indented.ends_with('\n') {
             out.push('\n');
@@ -957,8 +961,12 @@ fn gen_variant_napi_method(
         .map(|s| s.to_owned())
         .unwrap_or_else(|| "self".to_owned());
 
-    // Build method signature from variant's signature_params
-    let mut rust_params = vec!["&mut self".to_owned()];
+    // Build method signature from variant's signature_params.
+    // napi-rs only accepts `&self` (or no receiver) on `#[napi]` methods — `&mut self`
+    // is rejected by the `napi` macro. Mutation of the underlying owner is expected to
+    // go through interior mutability via `host_app_inner_accessor` (e.g.
+    // `self.inner.lock().expect(...)` when the wrapper holds an `Arc<Mutex<_>>`).
+    let mut rust_params = vec!["&self".to_owned()];
     for p in &variant.signature_params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         rust_params.push(format!("{}: {}", p.name, rust_ty));

@@ -3,9 +3,9 @@
 type NodeContext struct {
 	// NodeType is a coarse-grained node type tag.
 	NodeType NodeType `json:"node_type"`
-	// TagName is the HTML element tag name (e.g. "div").
+	// TagName is the element tag name.
 	TagName string `json:"tag_name"`
-	// Depth is the DOM depth (0 = root).
+	// Depth is the traversal depth (0 = root).
 	Depth uint `json:"depth"`
 	// IndexInParent is the 0-based sibling index.
 	IndexInParent uint `json:"index_in_parent"`

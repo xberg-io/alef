@@ -22,11 +22,11 @@
 /// Each function pointer in the VTable has the signature:
 ///   `(user_data: void*, ctx: char* /* JSON */, ...extras..., out_result: char**) -> int32_t`
 ///
-/// `user_data` is the first argument; `ctx` is a JSON-encoded `NodeContext`; `out_result`
+/// `user_data` is the first argument; `ctx` is a JSON-encoded context value; `out_result`
 /// receives a heap-allocated C string when the visitor returns a Custom/Error result.
 ///
 /// This differs from the legacy `VisitorCallbacks` pattern (FunctionParam bind_via), where
-/// `user_data` was a FIELD on the struct and context was a typed `*NodeContext` pointer.
+/// `user_data` was a FIELD on the struct and context was a typed pointer.
 use crate::core::{
     config::TraitBridgeConfig,
     hash::{self, CommentStyle},
@@ -34,10 +34,13 @@ use crate::core::{
 };
 use serde_json;
 
+const DEFAULT_CONTEXT_TYPE: &str = "NodeContext";
+const DEFAULT_RESULT_TYPE: &str = "VisitResult";
+
 /// Derive the cbindgen-generated C type name for a Rust FFI type.
 ///
 /// cbindgen prepends the uppercased `ffi_prefix` to the Rust struct name verbatim.
-/// Example: prefix="htm", Rust name="HtmHtmlVisitorVTable" → "HTMHtmHtmlVisitorVTable".
+/// Example: prefix="abc", Rust name="AbcRendererVTable" → "ABCAbcRendererVTable".
 ///
 /// Note: the Rust struct name already includes the pascal-case prefix segment
 /// (e.g. `Htm`), so only the uppercase prefix is prepended here.
@@ -62,6 +65,10 @@ struct CallbackSpec {
     extra: Vec<ExtraParam>,
     /// If true, add an `isHeader C.int32_t` parameter (only for visit_table_row).
     has_is_header: bool,
+    /// Named context type used by the visitor method.
+    context_type: String,
+    /// Named result type returned by the visitor method.
+    result_type: String,
 }
 
 struct ExtraParam {
@@ -91,18 +98,87 @@ fn snake_to_lower_camel(s: &str) -> String {
     result
 }
 
+struct VisitorAssociatedTypes {
+    context_type: String,
+    result_type: String,
+}
+
+fn visitor_associated_types(
+    trait_def: &crate::core::ir::TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+) -> Option<VisitorAssociatedTypes> {
+    let context_type = bridge_cfg
+        .context_type
+        .as_deref()
+        .or_else(|| infer_context_type(trait_def))?;
+    let result_type = bridge_cfg
+        .result_type
+        .as_deref()
+        .or_else(|| infer_result_type(trait_def))?;
+
+    let has_matching_method = trait_def.methods.iter().any(|method| {
+        method.trait_source.is_none()
+            && named_type_name(&method.return_type) == Some(result_type)
+            && method
+                .params
+                .iter()
+                .any(|param| named_type_name(&param.ty) == Some(context_type))
+    });
+
+    has_matching_method.then(|| VisitorAssociatedTypes {
+        context_type: context_type.to_string(),
+        result_type: result_type.to_string(),
+    })
+}
+
+fn infer_context_type(trait_def: &crate::core::ir::TypeDef) -> Option<&str> {
+    trait_def
+        .methods
+        .iter()
+        .filter(|method| method.trait_source.is_none())
+        .flat_map(|method| method.params.iter())
+        .find_map(|param| {
+            let name = named_type_name(&param.ty)?;
+            (name == DEFAULT_CONTEXT_TYPE).then_some(name)
+        })
+}
+
+fn infer_result_type(trait_def: &crate::core::ir::TypeDef) -> Option<&str> {
+    trait_def
+        .methods
+        .iter()
+        .filter(|method| method.trait_source.is_none())
+        .find_map(|method| {
+            let name = named_type_name(&method.return_type)?;
+            (name == DEFAULT_RESULT_TYPE).then_some(name)
+        })
+}
+
 /// Build a `Vec<CallbackSpec>` from a trait's IR definition for the Go backend.
 ///
 /// Derives all language-specific Go fields (method names, C types, decode expressions)
 /// from `TypeRef` + `optional` flag. Methods with unsupported parameter types are
 /// skipped with a warning.
-fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<CallbackSpec> {
+fn callback_specs_from_trait(
+    trait_def: &crate::core::ir::TypeDef,
+    associated_types: &VisitorAssociatedTypes,
+) -> Vec<CallbackSpec> {
     use crate::core::ir::{PrimitiveType, TypeRef};
     use heck::ToPascalCase;
 
     let mut specs = Vec::with_capacity(trait_def.methods.len());
     'methods: for m in &trait_def.methods {
         if m.trait_source.is_some() {
+            continue;
+        }
+        if named_type_name(&m.return_type) != Some(associated_types.result_type.as_str()) {
+            continue;
+        }
+        let has_context_param = m
+            .params
+            .iter()
+            .any(|param| named_type_name(&param.ty) == Some(associated_types.context_type.as_str()));
+        if !has_context_param {
             continue;
         }
         let go_method = m.name.to_pascal_case();
@@ -118,7 +194,7 @@ fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<Callba
         let mut has_is_header = false;
 
         for p in &m.params {
-            if matches!(&p.ty, TypeRef::Named(_)) {
+            if named_type_name(&p.ty) == Some(associated_types.context_type.as_str()) {
                 continue;
             }
             // strip leading underscore; keep snake_case for c_name (C extern),
@@ -215,6 +291,8 @@ fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<Callba
             doc,
             extra,
             has_is_header,
+            context_type: associated_types.context_type.clone(),
+            result_type: associated_types.result_type.clone(),
         });
     }
     specs
@@ -226,11 +304,11 @@ fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<Callba
 ///
 /// - `pkg_name`: Go package name (e.g. `"samplemarkdown"`).
 /// - `ffi_prefix`: C function prefix (e.g. `"htm"`).
-/// - `ffi_header`: C header filename (e.g. `"sample_markdown.h"`).
+/// - `ffi_header`: C header filename.
 /// - `ffi_crate_dir`: path from go output dir to the FFI crate dir.
 /// - `to_root`: relative path from go output dir to the repo root.
 /// - `vtable_trait_name`: Rust trait name used to derive the VTable struct name
-///   (e.g. `"HtmlVisitor"` → `"HtmHtmlVisitorVTable"`).
+///   (e.g. `"Renderer"` → `"AbcRendererVTable"`).
 /// - `options_field`: configured field name on the options type that holds the bridge.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_visitor_file(
@@ -245,14 +323,28 @@ pub fn gen_visitor_file(
     bridge_cfg: &TraitBridgeConfig,
     bridge_func: &FunctionDef,
 ) -> String {
-    let specs = callback_specs_from_trait(trait_def);
+    let Some(associated_types) = visitor_associated_types(trait_def, bridge_cfg) else {
+        eprintln!(
+            "[alef] gen_visitor(go): bridge `{}` has no compatible visitor callback methods, skipping visitor.go",
+            bridge_cfg.trait_name
+        );
+        return String::new();
+    };
+    let specs = callback_specs_from_trait(trait_def, &associated_types);
+    if specs.is_empty() {
+        eprintln!(
+            "[alef] gen_visitor(go): bridge `{}` has no supported visitor callback methods, skipping visitor.go",
+            bridge_cfg.trait_name
+        );
+        return String::new();
+    }
     let mut out = String::with_capacity(32_768);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
     // Derive C type names.
-    // VTable: {PREFIX_UPPER}{PascalPrefix}{TraitName}VTable  e.g. HTMHtmHtmlVisitorVTable
-    // Bridge: {PREFIX_UPPER}{PascalPrefix}{TraitName}Bridge  e.g. HTMHtmHtmlVisitorBridge
+    // VTable: {PREFIX_UPPER}{PascalPrefix}{TraitName}VTable
+    // Bridge: {PREFIX_UPPER}{PascalPrefix}{TraitName}Bridge
     let pascal_prefix = {
         let mut chars = ffi_prefix.chars();
         match chars.next() {
@@ -276,7 +368,7 @@ pub fn gen_visitor_file(
     let conversion_options_type = format!("{prefix_upper}{options_type}");
 
     // Derive bridge_snake from bridge_rust_name for fn names.
-    // e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
+    // e.g. "AbcRendererBridge" → "abc_renderer_bridge"
     let bridge_snake = go_visitor_bridge_function_component(&bridge_rust_name);
     let fn_bridge_new = format!("{ffi_prefix}_{bridge_snake}_new");
     let fn_bridge_free = format!("{ffi_prefix}_{bridge_snake}_free");
@@ -319,7 +411,15 @@ pub fn gen_visitor_file(
     // Do NOT re-declare it here — that would cause a redeclaration compile error.
     out.push_str(&crate::backends::go::template_env::render(
         "visitor_node_context_and_result.jinja",
-        minijinja::Value::default(),
+        minijinja::context! {
+            context_type => associated_types.context_type.as_str(),
+            result_type => associated_types.result_type.as_str(),
+            result_continue_fn => result_helper_name(&associated_types.result_type, "Continue"),
+            result_skip_fn => result_helper_name(&associated_types.result_type, "Skip"),
+            result_preserve_fn => result_helper_name(&associated_types.result_type, "PreserveHTML"),
+            result_custom_fn => result_helper_name(&associated_types.result_type, "Custom"),
+            result_error_fn => result_helper_name(&associated_types.result_type, "Error"),
+        },
     ));
     out.push('\n');
 
@@ -338,6 +438,7 @@ pub fn gen_visitor_file(
                 doc => spec.doc,
                 method => spec.go_method,
                 params => param_str,
+                return_type => spec.result_type.as_str(),
             },
         ));
     }
@@ -366,6 +467,8 @@ pub fn gen_visitor_file(
                 method_name => spec.go_method,
                 params => param_str,
                 blank_ids => blank_ids,
+                return_type => spec.result_type.as_str(),
+                default_result_fn => result_helper_name(&spec.result_type, "Continue"),
             },
         ));
         out.push('\n');
@@ -387,12 +490,14 @@ pub fn gen_visitor_file(
     // decodeNodeContext: decode from JSON string (VTable ABI passes ctx as *const c_char JSON)
     out.push_str(&crate::backends::go::template_env::render(
         "decode_node_context.jinja",
-        minijinja::Value::default(),
+        minijinja::context! {
+            context_type => associated_types.context_type.as_str(),
+        },
     ));
     out.push('\n');
 
     // encodeVisitResult: write serde-native JSON into *out_result so the Rust trait bridge
-    // can deserialize it with serde_json::from_str::<VisitResult>.
+    // can deserialize it into the configured result type.
     //
     // Rust serde-derived enum serialisation:
     //   Continue     → "Continue"
@@ -405,7 +510,9 @@ pub fn gen_visitor_file(
     // inspect the code (and don't read out_result) remain compatible.
     out.push_str(&crate::backends::go::template_env::render(
         "encode_visit_result.jinja",
-        minijinja::Value::default(),
+        minijinja::context! {
+            result_type => associated_types.result_type.as_str(),
+        },
     ));
     out.push('\n');
 
@@ -501,7 +608,7 @@ fn c_signature(spec: &CallbackSpec) -> String {
 
 /// Build the Go interface method parameter string.
 fn iface_param_str(spec: &CallbackSpec) -> String {
-    let mut params = vec!["ctx NodeContext".to_string()];
+    let mut params = vec![format!("ctx {}", spec.context_type)];
     for ep in &spec.extra {
         params.push(format!("{} {}", ep.go_name, ep.go_iface_type));
     }
@@ -600,7 +707,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 /// 2. Build the VTable via the static C helper (all fn pointers set, no user_data field).
 /// 3. Create a bridge via `{fn_bridge_new}(&vtbl, unsafe.Pointer(id))`.
 /// 4. Attach the bridge to options via `{fn_options_set_visitor}(cOptions, bridge)`.
-/// 5. Call `{fn_convert}(cHTML, cOptions)` to run conversion.
+/// 5. Call `{fn_convert}` to run conversion.
 /// 6. Free bridge and options after conversion completes.
 ///
 /// NOTE: This function is no longer used. The same logic is now inlined in
@@ -639,6 +746,10 @@ fn capitalize(s: &str) -> String {
 /// Convert a generated visitor bridge type name into its Go wrapper function component.
 fn go_visitor_bridge_function_component(name: &str) -> String {
     crate::codegen::naming::pascal_to_snake(name)
+}
+
+fn result_helper_name(result_type: &str, variant: &str) -> String {
+    format!("{result_type}{variant}")
 }
 
 fn named_type_name(ty: &TypeRef) -> Option<&str> {

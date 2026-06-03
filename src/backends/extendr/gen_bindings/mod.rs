@@ -7,7 +7,7 @@ use crate::codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier, wire_variant_value};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use crate::core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use ahash::AHashSet;
@@ -165,17 +165,19 @@ impl Backend for ExtendrBackend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
-        // Opaque types that use Rc internally cannot be wrapped in Arc for the extendr binding.
-        // These types are excluded from struct generation and skipped as struct fields.
-        // (Note: VisitorHandle was previously Rc<RefCell<...>> and therefore arc-incompatible;
-        // it is now Arc<Mutex<...>> and no longer requires special treatment here, but the
-        // detection heuristic — opaque + cfg-gated — is retained for other potential cases.)
-        // We identify them as opaque types that are cfg-feature-gated — only the visitor
-        // machinery (feature = "visitor") produces such types in sample-markdown.
+        // Bridge handle aliases are synthesized through the configured trait bridge, not as
+        // ordinary extendr classes. Skip those opaque aliases and any fields/methods that expose
+        // them directly; other cfg-gated opaque types remain normal Arc-backed handles.
         let arc_incompatible_opaque: ahash::AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.is_opaque && t.cfg.is_some())
+            .filter(|t| {
+                t.is_opaque
+                    && crate::codegen::generators::trait_bridge::is_bridge_handle_type_ref(
+                        &TypeRef::Named(t.name.clone()),
+                        &config.trait_bridges,
+                    )
+            })
             .map(|t| t.name.clone())
             .collect();
         let arc_incompatible_opaque_vec: Vec<String> = arc_incompatible_opaque.iter().cloned().collect();
@@ -847,6 +849,7 @@ impl Backend for ExtendrBackend {
             &input_type_names,
             &trait_bridge_fns,
             &r_exclude_functions,
+            &config.trait_bridges,
         );
         files.push(GeneratedFile {
             path: PathBuf::from(&r_wrapper_dir).join("extendr-wrappers.R"),
@@ -856,7 +859,13 @@ impl Backend for ExtendrBackend {
 
         // NAMESPACE: regenerated each run so that newly added `#[extendr]` functions and
         // methods are exported. Scaffolding only writes a useDynLib bootstrap on init.
-        let namespace_content = gen_namespace(api, &package_name, &trait_bridge_fns, &r_exclude_functions);
+        let namespace_content = gen_namespace(
+            api,
+            &package_name,
+            &trait_bridge_fns,
+            &r_exclude_functions,
+            &config.trait_bridges,
+        );
         files.push(GeneratedFile {
             path: PathBuf::from(r_pkg_dir).join("NAMESPACE"),
             content: namespace_content,
@@ -2338,7 +2347,11 @@ pub(crate) fn collect_trait_bridge_functions(config: &ResolvedCrateConfig) -> Ve
     out
 }
 
-fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
+fn collect_bridge_handle_aliases(bridges: &[TraitBridgeConfig]) -> ahash::AHashSet<String> {
+    bridges.iter().filter_map(|bridge| bridge.type_alias.clone()).collect()
+}
+
+fn collect_excluded_class_types(api: &ApiSurface, bridges: &[TraitBridgeConfig]) -> ahash::AHashSet<String> {
     let opaque_types: ahash::AHashSet<String> = api
         .types
         .iter()
@@ -2346,10 +2359,11 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
         .map(|t| t.name.clone())
         .collect();
     let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let bridge_handle_aliases = collect_bridge_handle_aliases(bridges);
     let arc_incompatible: ahash::AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque && t.cfg.is_some())
+        .filter(|t| t.is_opaque && bridge_handle_aliases.contains(&t.name))
         .map(|t| t.name.clone())
         .collect();
 
@@ -2399,7 +2413,11 @@ fn collect_excluded_class_types(api: &ApiSurface) -> ahash::AHashSet<String> {
 /// Mirrors `method_references_arc_incompatible` and `method_references_enum` from
 /// `generate_bindings`. Used by wrapper-file generation to skip wrapper entries for
 /// methods that the Rust impl block will not contain.
-fn method_is_excluded_from_impl(method: &crate::core::ir::MethodDef, api: &ApiSurface) -> bool {
+fn method_is_excluded_from_impl(
+    method: &crate::core::ir::MethodDef,
+    api: &ApiSurface,
+    bridges: &[TraitBridgeConfig],
+) -> bool {
     let opaque_types: ahash::AHashSet<String> = api
         .types
         .iter()
@@ -2407,10 +2425,11 @@ fn method_is_excluded_from_impl(method: &crate::core::ir::MethodDef, api: &ApiSu
         .map(|t| t.name.clone())
         .collect();
     let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let bridge_handle_aliases = collect_bridge_handle_aliases(bridges);
     let arc_incompatible: ahash::AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque && t.cfg.is_some())
+        .filter(|t| t.is_opaque && bridge_handle_aliases.contains(&t.name))
         .map(|t| t.name.clone())
         .collect();
 
@@ -2776,6 +2795,7 @@ fn gen_extendr_wrappers_r(
     input_type_names: &ahash::AHashSet<String>,
     trait_bridge_fns: &[TraitBridgeFn],
     r_exclude_functions: &ahash::AHashSet<String>,
+    bridges: &[TraitBridgeConfig],
 ) -> String {
     let mut out = String::with_capacity(8 * 1024);
     out.push_str("# Generated by extendr: Do not edit by hand\n");
@@ -2880,7 +2900,7 @@ fn gen_extendr_wrappers_r(
 
     // Collect S3 method pairs once — used both for per-type forwarder emission below and
     // for the trailing generic block at the end of the file.
-    let s3_pairs = collect_s3_methods(api, trait_bridge_fns);
+    let s3_pairs = collect_s3_methods(api, trait_bridge_fns, bridges);
     let s3_pairs_by_type: ahash::AHashMap<String, Vec<String>> = {
         let mut map: ahash::AHashMap<String, Vec<String>> = ahash::AHashMap::new();
         for (method_name, type_name) in &s3_pairs {
@@ -2891,7 +2911,7 @@ fn gen_extendr_wrappers_r(
 
     // Class env blocks. One per non-trait, non-extendr-incompatible type — matching the
     // set registered in `extendr_module! { impl Type; ... }`.
-    let excluded = collect_excluded_class_types(api);
+    let excluded = collect_excluded_class_types(api, bridges);
     for typ in &api.types {
         if typ.is_trait || excluded.contains(&typ.name) {
             continue;
@@ -2909,7 +2929,7 @@ fn gen_extendr_wrappers_r(
         // Emit method bindings. Skip methods that are filtered out of the Rust impl
         // block — they have no `wrap__Type__method` symbol.
         for method in &typ.methods {
-            if method_is_excluded_from_impl(method, api) {
+            if method_is_excluded_from_impl(method, api, bridges) {
                 continue;
             }
             let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
@@ -3133,8 +3153,12 @@ fn r_wrapper_params_signature(params: &[ParamDef], api: &ApiSurface) -> String {
 ///
 /// Method names that collide with free functions or trait-bridge functions are skipped to
 /// avoid clobbering them with a generic that calls `UseMethod`.
-fn collect_s3_methods(api: &ApiSurface, trait_bridge_fns: &[TraitBridgeFn]) -> Vec<(String, String)> {
-    let excluded_types = collect_excluded_class_types(api);
+fn collect_s3_methods(
+    api: &ApiSurface,
+    trait_bridge_fns: &[TraitBridgeFn],
+    bridges: &[TraitBridgeConfig],
+) -> Vec<(String, String)> {
+    let excluded_types = collect_excluded_class_types(api, bridges);
     let mut reserved: ahash::AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
     for bridge_fn in trait_bridge_fns {
         reserved.insert(bridge_fn.name.clone());
@@ -3146,7 +3170,7 @@ fn collect_s3_methods(api: &ApiSurface, trait_bridge_fns: &[TraitBridgeFn]) -> V
             continue;
         }
         for method in &typ.methods {
-            if method.is_static || method_is_excluded_from_impl(method, api) {
+            if method.is_static || method_is_excluded_from_impl(method, api, bridges) {
                 continue;
             }
             if reserved.contains(&method.name) {
@@ -3177,6 +3201,7 @@ fn gen_namespace(
     package_name: &str,
     trait_bridge_fns: &[TraitBridgeFn],
     r_exclude_functions: &ahash::AHashSet<String>,
+    bridges: &[TraitBridgeConfig],
 ) -> String {
     let mut out = String::with_capacity(2 * 1024);
     out.push_str("# Generated by alef — do not edit.\n\n");
@@ -3225,7 +3250,7 @@ fn gen_namespace(
         ));
     }
 
-    let excluded = collect_excluded_class_types(api);
+    let excluded = collect_excluded_class_types(api, bridges);
     for typ in &api.types {
         if typ.is_trait || excluded.contains(&typ.name) {
             continue;
@@ -3286,7 +3311,7 @@ fn gen_namespace(
     // S3 generics emitted in extendr-wrappers.R are exposed through the same NAMESPACE.
     // Without `export(name)` + `S3method(name, Type)` entries R loads the wrappers but
     // refuses to dispatch — `is_valid(meta)` raises `could not find function "is_valid"`.
-    let s3_pairs = collect_s3_methods(api, trait_bridge_fns);
+    let s3_pairs = collect_s3_methods(api, trait_bridge_fns, bridges);
     for generic_name in unique_s3_generic_names(&s3_pairs) {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
@@ -4325,7 +4350,7 @@ exclude_languages = ["r"]
         let backend = ExtendrBackend;
         let config = make_config();
         let mut api = make_api_surface();
-        // Add more types and enums like sample-markdown has
+        // Add extra exported types and enums to exercise namespace completeness.
         api.types.push(TypeDef {
             name: "DocumentMetadata".to_string(),
             rust_path: "test_lib::DocumentMetadata".to_string(),
