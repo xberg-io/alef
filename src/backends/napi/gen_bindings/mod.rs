@@ -611,6 +611,12 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             builder.add_item(&functions::gen_adapter_wrapper(adapter, &core_import, &api.types));
         }
 
+        // Service-API glue lives in the generated `service.rs`; declare it so its
+        // `#[napi]` entrypoints (e.g. `app_run`) are compiled and exported.
+        if !api.services.is_empty() {
+            builder.add_item("pub mod service;");
+        }
+
         // Trait bridge wrappers — generate NAPI bridge structs that delegate to JS objects
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
