@@ -988,7 +988,7 @@ impl Backend for PhpBackend {
         let no_arg_constructor_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.has_default || t.fields.iter().all(|f| f.optional))
+            .filter(|t| t.fields.iter().all(|f| f.optional))
             .map(|t| t.name.clone())
             .collect();
 
