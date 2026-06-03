@@ -33,6 +33,7 @@ path = "src/main.rs"
 [dependencies]
 ahash = "0.8"
 anyhow = "1"
+base64 = "0.22"
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"

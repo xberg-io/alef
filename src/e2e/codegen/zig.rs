@@ -356,7 +356,8 @@ fn detect_stale_zig_hash(hash: &str, current_version: &str, crate_name: &str) ->
         tracing::warn!(
             "zig package hash mismatch: hash contains version '{}', but current version is '{}'; \
              regenerate with `alef sync-versions`",
-            embedded_version, current_version
+            embedded_version,
+            current_version
         );
         return true;
     }
