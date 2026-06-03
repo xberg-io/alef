@@ -1,10 +1,29 @@
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToSnakeCase;
 
 use super::marshal::{gen_ffi_layout_with_enums, gen_function_descriptor, is_bytes_result, is_ffi_string_return};
+
+/// Returns true if the FFI backend exports a `{type_name}_to_json` symbol for this type.
+/// This matches the predicate in `src/backends/ffi/gen_bindings/mod.rs`:
+/// - Opaque types do NOT get `_to_json` (they are handles, not serializable values)
+/// - Types without serde derives do NOT get `_to_json`
+/// - Update types (ending with "Update") do NOT get `_to_json` (deserialize-only)
+/// - Types with an existing `to_json` method do NOT get auto `_to_json` (method collision)
+fn should_emit_to_json_handle(typ: &TypeDef) -> bool {
+    !typ.is_opaque && typ.has_serde && !typ.name.ends_with("Update") && !typ.methods.iter().any(|m| m.name == "to_json")
+}
+
+/// Returns true if the FFI backend exports a `{type_name}_from_json` symbol for this type.
+/// This matches the predicate in `src/backends/ffi/gen_bindings/mod.rs`:
+/// - Opaque types do NOT get `_from_json` (they are handles, not serializable values)
+/// - Types without serde derives do NOT get `_from_json`
+/// - Types with an existing `from_json` method do NOT get auto `_from_json` (method collision)
+fn should_emit_from_json_handle(typ: &TypeDef) -> bool {
+    !typ.is_opaque && typ.has_serde && !typ.methods.iter().any(|m| m.name == "from_json")
+}
 
 /// Detection mirroring `is_bytes_result` for `MethodDef` — `Result<Vec<u8>>`-returning
 /// methods use the (out_ptr, out_len, out_cap) triple FFI ABI.
@@ -225,11 +244,23 @@ pub(crate) fn gen_native_lib(
     // same Named type we'd otherwise emit the constant twice.
     let mut emitted_to_json_handles: AHashSet<String> = AHashSet::new();
 
-    // Build the set of opaque type names so we can pick the right accessor below.
+    // Build maps for type classification to gate handle emission consistently with FFI backend.
     let opaque_type_names: AHashSet<String> = api
         .types
         .iter()
         .filter(|t| t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
+    let to_json_type_names: AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| should_emit_to_json_handle(t))
+        .map(|t| t.name.clone())
+        .collect();
+    let from_json_type_names: AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| should_emit_from_json_handle(t))
         .map(|t| t.name.clone())
         .collect();
 
@@ -254,24 +285,24 @@ pub(crate) fn gen_native_lib(
         if let Some(name) = inner_named {
             let type_snake = name.to_snake_case();
             let type_upper = type_snake.to_uppercase();
-            let _is_opaque = opaque_type_names.contains(name.as_str());
 
-            // Emit `_to_json` method handle whenever the FFI exposes one for this type.
-            // Both opaque and non-opaque types may have a `_to_json` exporter — the Java
-            // wrapper code uses it to serialize for inspection (e.g. `EmbeddingPreset`).
-            // We use `LIB.find(...).map(...).orElse(null)` so generation is robust if the
-            // function is absent in this build (compile-time presence isn't always guaranteed).
-            let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
-            let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
-            if emitted_to_json_handles.insert(to_json_handle.clone()) {
-                let handle_code = crate::backends::java::template_env::render(
-                    "method_handle_to_json.jinja",
-                    minijinja::context! {
-                        handle_name => to_json_handle,
-                        ffi_name => to_json_ffi,
-                    },
-                );
-                accessor_handles.push(handle_code);
+            // Emit `_to_json` method handle only if the FFI backend exports one for this type.
+            // Opaque types, types without serde, Update types, and types with a to_json method
+            // do NOT get _to_json in the C FFI, so we skip the Java MethodHandle to prevent
+            // NoSuchElementException at JVM clinit.
+            if to_json_type_names.contains(name.as_str()) {
+                let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
+                let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
+                if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                    let handle_code = crate::backends::java::template_env::render(
+                        "method_handle_to_json.jinja",
+                        minijinja::context! {
+                            handle_name => to_json_handle,
+                            ffi_name => to_json_ffi,
+                        },
+                    );
+                    accessor_handles.push(handle_code);
+                }
             }
 
             // _free: (struct_ptr) -> void
@@ -317,8 +348,12 @@ pub(crate) fn gen_native_lib(
                 _ => None,
             };
             if let Some(name) = inner_name {
-                // Skip opaque types and bridge type aliases — these don't have _from_json/_free in the FFI.
-                if !opaque_type_names.contains(name.as_str()) && !bridge_type_aliases.contains(name.as_str()) {
+                // Skip opaque types, bridge type aliases, and types without serde —
+                // these don't have _from_json/_free in the FFI backend.
+                if !opaque_type_names.contains(name.as_str())
+                    && !bridge_type_aliases.contains(name.as_str())
+                    && from_json_type_names.contains(name.as_str())
+                {
                     let type_snake = name.to_snake_case();
                     let type_upper = type_snake.to_uppercase();
 
@@ -550,16 +585,19 @@ pub(crate) fn gen_native_lib(
         let request_snake = request_type.to_snake_case();
         let request_upper = request_snake.to_uppercase();
 
-        let req_from_json_handle = format!("{prefix_upper}_{request_upper}_FROM_JSON");
-        let req_from_json_ffi = format!("{prefix}_{request_snake}_from_json");
-        if emitted_from_json_handles.insert(req_from_json_handle.clone()) {
-            accessor_handles.push(crate::backends::java::template_env::render(
-                "method_handle_from_json.jinja",
-                minijinja::context! {
-                    handle_name => req_from_json_handle,
-                    ffi_name => req_from_json_ffi,
-                },
-            ));
+        // Only emit if the FFI backend exports a _from_json for this type
+        if from_json_type_names.contains(request_type) {
+            let req_from_json_handle = format!("{prefix_upper}_{request_upper}_FROM_JSON");
+            let req_from_json_ffi = format!("{prefix}_{request_snake}_from_json");
+            if emitted_from_json_handles.insert(req_from_json_handle.clone()) {
+                accessor_handles.push(crate::backends::java::template_env::render(
+                    "method_handle_from_json.jinja",
+                    minijinja::context! {
+                        handle_name => req_from_json_handle,
+                        ffi_name => req_from_json_ffi,
+                    },
+                ));
+            }
         }
         let req_free_handle = format!("{prefix_upper}_{request_upper}_FREE");
         let req_free_ffi = format!("{prefix}_{request_snake}_free");
@@ -577,16 +615,20 @@ pub(crate) fn gen_native_lib(
         // into a Java record).
         let item_snake = item_type.to_snake_case();
         let item_upper = item_snake.to_uppercase();
-        let item_to_json_handle = format!("{prefix_upper}_{item_upper}_TO_JSON");
-        let item_to_json_ffi = format!("{prefix}_{item_snake}_to_json");
-        if emitted_to_json_handles.insert(item_to_json_handle.clone()) {
-            accessor_handles.push(crate::backends::java::template_env::render(
-                "method_handle_to_json.jinja",
-                minijinja::context! {
-                    handle_name => item_to_json_handle,
-                    ffi_name => item_to_json_ffi,
-                },
-            ));
+
+        // Only emit if the FFI backend exports a _to_json for this type
+        if to_json_type_names.contains(item_type) {
+            let item_to_json_handle = format!("{prefix_upper}_{item_upper}_TO_JSON");
+            let item_to_json_ffi = format!("{prefix}_{item_snake}_to_json");
+            if emitted_to_json_handles.insert(item_to_json_handle.clone()) {
+                accessor_handles.push(crate::backends::java::template_env::render(
+                    "method_handle_to_json.jinja",
+                    minijinja::context! {
+                        handle_name => item_to_json_handle,
+                        ffi_name => item_to_json_ffi,
+                    },
+                ));
+            }
         }
         let item_free_handle = format!("{prefix_upper}_{item_upper}_FREE");
         let item_free_ffi = format!("{prefix}_{item_snake}_free");
@@ -689,17 +731,22 @@ pub(crate) fn gen_native_lib(
             if let Some(name) = return_named {
                 let type_snake = name.to_snake_case();
                 let type_upper = type_snake.to_uppercase();
-                let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
-                let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
-                if emitted_to_json_handles.insert(to_json_handle.clone()) {
-                    accessor_handles.push(crate::backends::java::template_env::render(
-                        "method_handle_to_json.jinja",
-                        minijinja::context! {
-                            handle_name => to_json_handle,
-                            ffi_name => to_json_ffi,
-                        },
-                    ));
+
+                // Emit `_to_json` handle only if the FFI backend exports one for this type.
+                if to_json_type_names.contains(&name) {
+                    let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
+                    let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
+                    if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                        accessor_handles.push(crate::backends::java::template_env::render(
+                            "method_handle_to_json.jinja",
+                            minijinja::context! {
+                                handle_name => to_json_handle,
+                                ffi_name => to_json_ffi,
+                            },
+                        ));
+                    }
                 }
+                // Always emit free handle, even if _to_json wasn't emitted
                 let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
                 let free_ffi = format!("{}_{}_free", prefix, type_snake);
                 if emitted_free_handles.insert(free_handle.clone()) {
@@ -724,8 +771,9 @@ pub(crate) fn gen_native_lib(
                     _ => None,
                 };
                 if let Some(name) = param_named {
-                    // Skip bridge type aliases — these don't have _from_json/_free in the FFI.
-                    if !bridge_type_aliases.contains(name.as_str()) {
+                    // Skip bridge type aliases and types without serde —
+                    // these don't have _from_json/_free in the FFI backend.
+                    if !bridge_type_aliases.contains(name.as_str()) && from_json_type_names.contains(name.as_str()) {
                         let type_snake = name.to_snake_case();
                         let type_upper = type_snake.to_uppercase();
                         let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
