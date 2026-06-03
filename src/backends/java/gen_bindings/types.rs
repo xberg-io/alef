@@ -1395,35 +1395,40 @@ fn gen_instance_method(
             // For value types without _to_json (shouldn't happen but be defensive), stub the method.
             if opaque_type_names.contains(&return_type_name) {
                 // Wrap pointer in new instance: `return new TypeName(resultPtr);`
-                let _success_return = format!("return new {return_type_name}(resultPtr);");
-                let empty_return = if is_optional_return {
-                    "java.util.Optional.empty()".to_string()
-                } else {
-                    "null".to_string()
-                };
-                let success_return_wrapped = if is_optional_return {
-                    format!("return java.util.Optional.of(new {return_type_name}(resultPtr));")
-                } else {
-                    format!("return new {return_type_name}(resultPtr);")
-                };
-                let ret_free = format!("NativeLib.{prefix_upper}_FREE"); // dummy, not used for opaque returns
-
-                out.push_str(&crate::backends::java::template_env::render(
-                    "stream_method_named_result.jinja",
-                    minijinja::context! {
-                        ffi_handle => ffi_handle,
-                        args_joined => args_joined,
-                        named_frees => render_named_frees("            "),
-                        to_json => "",  // no _to_json for opaque types
-                        exception_class => exception_class,
-                        method_name => method_name,
-                        prefix_upper => prefix_upper,
-                        return_type_name => return_type_name,
-                        ret_free => ret_free,
-                        empty_return => empty_return,
-                        success_return => success_return_wrapped,
-                    },
+                // Emit code inline to avoid template issues with empty to_json handle
+                out.push_str("            // CPD-OFF — FFI opaque-handle return, no JSON deserialization needed.\n");
+                out.push_str(&format!(
+                    "            MemorySegment resultPtr = (MemorySegment) {}.invoke({});\n",
+                    ffi_handle, args_joined
                 ));
+                out.push_str(&render_named_frees("            "));
+                out.push_str("            if (resultPtr.equals(MemorySegment.NULL)) {\n");
+                out.push_str("                checkLastFfiError();\n");
+                if is_optional_return {
+                    out.push_str("                return java.util.Optional.empty();\n");
+                } else {
+                    out.push_str("                return null;\n");
+                }
+                out.push_str("            }\n");
+                out.push_str("            try {\n");
+                if is_optional_return {
+                    out.push_str(&format!(
+                        "                return java.util.Optional.of(new {}(resultPtr));\n",
+                        return_type_name
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "                return new {}(resultPtr);\n",
+                        return_type_name
+                    ));
+                }
+                out.push_str("            } finally {\n");
+                out.push_str(&format!(
+                    "                NativeLib.{}_FREE.invoke(resultPtr);\n",
+                    prefix_upper
+                ));
+                out.push_str("            }\n");
+                out.push_str("            // CPD-ON\n");
             } else {
                 // Value type without _to_json (defensive stub)
                 out.push_str(&crate::backends::java::template_env::render(
