@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.18] - 2026-06-03
+
 ### Fixed
 
 - fix(go): remove the hardcoded `HtmlVisitor` / `visitor` fallback from Go visitor file generation and require options-field trait bridge metadata instead. The project-mention hook now also catches `unwrap_or_else(...)` domain fallbacks while correctly ignoring `#[cfg(test)]` Rust test modules in production source files. (`src/backends/go/gen_bindings/mod.rs`, `hooks/check_project_mentions.py`)
