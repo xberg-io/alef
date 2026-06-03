@@ -562,6 +562,7 @@ fn render_makefile(
     // require host-root routes). We parse this with python3 and export
     // MOCK_SERVER_<UPPER_ID> env vars so the test binary can look them up.
     let _ = writeln!(out, "MOCK_SERVER_BIN ?= ../rust/target/release/mock-server");
+    let _ = writeln!(out, "MOCK_SERVER_MANIFEST ?= ../rust/Cargo.toml");
     let _ = writeln!(out, "FIXTURES_DIR ?= ../../fixtures");
     let _ = writeln!(out);
     let _ = writeln!(out, "test: $(TARGET)");
@@ -576,12 +577,16 @@ fn render_makefile(
     let _ = writeln!(out, "\t\tfi; \\");
     let _ = writeln!(out, "\t\t./$(TARGET); \\");
     let _ = writeln!(out, "\telse \\");
+    // Build the mock-server from the e2e/rust/ crate if the binary is missing.
     let _ = writeln!(out, "\t\tif [ ! -x \"$(MOCK_SERVER_BIN)\" ]; then \\");
     let _ = writeln!(
         out,
-        "\t\t\techo \"mock-server binary not found at $(MOCK_SERVER_BIN); run: cargo build -p mock-server --release\" >&2; \\"
+        "\t\t\techo \"Building mock-server from $(MOCK_SERVER_MANIFEST)...\"; \\"
     );
-    let _ = writeln!(out, "\t\t\texit 1; \\");
+    let _ = writeln!(
+        out,
+        "\t\t\tcargo build --release --manifest-path \"$(MOCK_SERVER_MANIFEST)\" --bin mock-server || exit 1; \\"
+    );
     let _ = writeln!(out, "\t\tfi; \\");
     let _ = writeln!(out, "\t\trm -f mock_server.stdout mock_server.stdin; \\");
     let _ = writeln!(out, "\t\tmkfifo mock_server.stdin; \\");

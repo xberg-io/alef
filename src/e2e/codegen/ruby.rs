@@ -494,17 +494,30 @@ require 'json'
 require 'open3'
 
 # Spawn the mock-server binary and set MOCK_SERVER_URL for all tests.
-# If MOCK_SERVER_URL is already set, a parent process (e.g. `alef test-apps
-# run`) started a shared mock-server and exported its URL (plus any
-# MOCK_SERVERS / MOCK_SERVER_<FIXTURE_ID> vars). Use it as-is and do NOT
-# spawn our own server.
+#
+# Two execution modes:
+# 1. External mode (`alef test-apps run` parent): MOCK_SERVER_URL is already set.
+#    Use it as-is together with any MOCK_SERVERS / MOCK_SERVER_<FIXTURE_ID> vars
+#    that the parent exported. Do NOT spawn our own server.
+# 2. Standalone mode (direct `bundle exec rspec` / `task ruby:smoke`): Build the
+#    mock-server binary if it is missing, then spawn it, capture its URL, and
+#    tear it down on exit.
 RSpec.configure do |config|
   config.before(:suite) do
     next if ENV['MOCK_SERVER_URL'] && !ENV['MOCK_SERVER_URL'].empty?
     bin = File.expand_path('../../rust/target/release/mock-server', __dir__)
     fixtures_dir = File.expand_path('../../../fixtures', __dir__)
     unless File.exist?(bin)
-      warn "mock-server binary not found at #{bin} — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release"
+      # Build the mock-server from the e2e/rust/ crate that alef generated.
+      manifest = File.expand_path('../../rust/Cargo.toml', __dir__)
+      raise "mock-server Cargo.toml not found at #{manifest}" unless File.exist?(manifest)
+      system(
+        'cargo', 'build', '--release',
+        '--manifest-path', manifest,
+        '--bin', 'mock-server',
+        exception: true
+      )
+      raise "mock-server binary still missing after build: #{bin}" unless File.exist?(bin)
     end
     stdin, stdout, _stderr, _wait = Open3.popen3(bin, fixtures_dir)
     # Read startup lines: MOCK_SERVER_URL= then optional MOCK_SERVERS=.

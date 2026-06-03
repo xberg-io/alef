@@ -744,7 +744,7 @@ fn render_test_file(
 /// Emitted inside an `async` `setUpAll`; the harness lives at
 /// `../app_harness.dart` relative to the `e2e/dart/test/` directory.
 fn render_dart_sut_spawn(out: &mut String) {
-    // Skip spawning the SUT harness when either `MOCK_SERVER_URL` (alef e2e
+    // Skip spawning any server when either `MOCK_SERVER_URL` (alef e2e
     // wrapper / `scripts/e2e/run-with-mock-server.sh`) or `SUT_URL` (external
     // CI orchestration) is already set — the parent process has already
     // arranged the HTTP target the tests should hit.
@@ -784,6 +784,61 @@ fn render_dart_sut_spawn(out: &mut String) {
     let _ = writeln!(
         out,
         "        await _ready.future.timeout(const Duration(seconds: 15), onTimeout: () {{}});"
+    );
+    // When app_harness.dart is absent this is a mock-server test (not a server-pattern
+    // test). Build the alef-generated mock-server binary if it is missing, then spawn
+    // it and capture `MOCK_SERVER_URL=` from its stdout — the same sentinel line that
+    // Ruby spec_helper and the `alef test-apps run` orchestrator read.
+    let _ = writeln!(out, "      }} else {{");
+    let _ = writeln!(
+        out,
+        "        // Standalone mock-server mode: build if missing, then spawn."
+    );
+    let _ = writeln!(
+        out,
+        "        final _mockBin = Platform.script.resolve('../../rust/target/release/mock-server').toFilePath();"
+    );
+    let _ = writeln!(
+        out,
+        "        final _mockManifest = Platform.script.resolve('../../rust/Cargo.toml').toFilePath();"
+    );
+    let _ = writeln!(out, "        if (!File(_mockBin).existsSync()) {{");
+    let _ = writeln!(
+        out,
+        "          final _build = await Process.run('cargo', ['build', '--release', '--manifest-path', _mockManifest, '--bin', 'mock-server']);"
+    );
+    let _ = writeln!(
+        out,
+        "          if (_build.exitCode != 0) throw StateError('mock-server build failed: \\${{_build.stderr}}');"
+    );
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(
+        out,
+        "        final _fixturesDir = Platform.script.resolve('../../../fixtures').toFilePath();"
+    );
+    let _ = writeln!(
+        out,
+        "        _sutProcess = await Process.start(_mockBin, [_fixturesDir], mode: ProcessStartMode.normal);"
+    );
+    let _ = writeln!(out, "        final _ready2 = Completer<void>();");
+    let _ = writeln!(out, "        _sutProcess!.stdout");
+    let _ = writeln!(out, "            .transform(utf8.decoder)");
+    let _ = writeln!(out, "            .transform(const LineSplitter())");
+    let _ = writeln!(out, "            .listen((_line) {{");
+    let _ = writeln!(out, "          final _trimmed = _line.trim();");
+    let _ = writeln!(out, "          if (_trimmed.startsWith('MOCK_SERVER_URL=')) {{");
+    let _ = writeln!(
+        out,
+        "            _spawnedSutUrl = _trimmed.substring('MOCK_SERVER_URL='.length);"
+    );
+    let _ = writeln!(out, "            if (!_ready2.isCompleted) _ready2.complete();");
+    let _ = writeln!(out, "          }}");
+    let _ = writeln!(out, "        }}, onDone: () {{");
+    let _ = writeln!(out, "          if (!_ready2.isCompleted) _ready2.complete();");
+    let _ = writeln!(out, "        }});");
+    let _ = writeln!(
+        out,
+        "        await _ready2.future.timeout(const Duration(seconds: 60), onTimeout: () {{}});"
     );
     let _ = writeln!(out, "      }}");
     let _ = writeln!(out, "    }}");
