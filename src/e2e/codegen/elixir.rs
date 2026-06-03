@@ -126,6 +126,9 @@ impl E2eCodegen for ElixirCodegen {
         // compilation and the parent build fails with `RustlerPrecompiled
         // is not loaded`.
         let pkg_atom = config.elixir_app_name();
+        // Check if there are HTTP fixtures that need server-pattern harness.
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+        let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
             content: render_mix_exs(
@@ -134,6 +137,7 @@ impl E2eCodegen for ElixirCodegen {
                 e2e_config.dep_mode,
                 has_http_tests,
                 has_nif_tests,
+                uses_harness,
             ),
             generated_header: false,
         });
@@ -144,10 +148,6 @@ impl E2eCodegen for ElixirCodegen {
             content: "defmodule E2eElixir do\n  @moduledoc false\nend\n".to_string(),
             generated_header: false,
         });
-
-        // Check if there are HTTP fixtures that need server-pattern harness.
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
-        let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
 
         // Generate app_harness.exs if using server-pattern HTTP fixtures.
         if uses_harness {
@@ -467,6 +467,7 @@ fn render_mix_exs(
     dep_mode: crate::e2e::config::DependencyMode,
     has_http_tests: bool,
     has_nif_tests: bool,
+    uses_harness: bool,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "defmodule E2eElixir.MixProject do");
@@ -515,8 +516,10 @@ fn render_mix_exs(
         ));
     }
 
-    // Add Req + Jason + Finch for HTTP testing.
-    if has_http_tests {
+    // Add Req + Jason + Finch for HTTP testing or server-pattern harness.
+    // Both test_helper patterns (HTTP tests and harness) call Finch.start_link,
+    // so the deps must be present whenever either is true.
+    if has_http_tests || uses_harness {
         deps.push(format!("      {{:finch, \"{finch}\"}}", finch = tv::hex::FINCH));
         deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
         deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));

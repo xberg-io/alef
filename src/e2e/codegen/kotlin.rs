@@ -20,6 +20,20 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 use super::client;
 
+fn resolve_handle_config_type(
+    arg: &crate::e2e::config::ArgMapping,
+    options_type: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    if arg.arg_type != "handle" {
+        return None;
+    }
+    options_type.map(str::to_string).or_else(|| {
+        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+        type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
+    })
+}
+
 /// Kotlin e2e code generator.
 pub struct KotlinE2eCodegen;
 
@@ -647,8 +661,16 @@ fn render_test_file_inner(
     let needs_object_mapper_for_options = !per_fixture_options_types.is_empty();
     // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
-        args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-            let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let lang_for_recipe = if kotlin_android_style {
+            "kotlin_android"
+        } else {
+            "kotlin"
+        };
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_recipe, f, cc, type_defs);
+        recipe.args.iter().filter(|a| a.arg_type == "handle").any(|a| {
+            let v = super::resolve_field(&f.input, &a.field);
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
         })
     });
@@ -728,9 +750,28 @@ fn render_test_file_inner(
             let _ = writeln!(out, "import {binding_pkg_for_imports}.{opts_type}");
         }
     }
-    // Import CrawlConfig when handle args need JSON deserialization.
-    if needs_object_mapper_for_handle {
-        let _ = writeln!(out, "import {binding_pkg_for_imports}.CrawlConfig");
+    let mut handle_config_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for f in fixtures.iter() {
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let lang_for_recipe = if kotlin_android_style {
+            "kotlin_android"
+        } else {
+            "kotlin"
+        };
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_recipe, f, cc, type_defs);
+        for arg in recipe.args.iter().filter(|arg| arg.arg_type == "handle") {
+            let value = super::resolve_field(&f.input, &arg.field);
+            if value.is_null() || value.is_object() && value.as_object().is_some_and(|o| o.is_empty()) {
+                continue;
+            }
+            if let Some(config_type) = resolve_handle_config_type(arg, recipe.options_type, type_defs) {
+                handle_config_types.insert(config_type);
+            }
+        }
+    }
+    for config_type in handle_config_types {
+        let _ = writeln!(out, "import {binding_pkg_for_imports}.{config_type}");
     }
     let _ = writeln!(out);
 
@@ -1554,15 +1595,19 @@ fn build_args_and_setup(
             } else {
                 let json_str = serde_json::to_string(config_value).unwrap_or_default();
                 let name = &arg.name;
-                setup_lines.push(format!(
-                    "val {name}Config = MAPPER.readValue(\"{}\", CrawlConfig::class.java)",
-                    escape_kotlin(&json_str),
-                ));
-                setup_lines.push(format!(
-                    "val {} = {class_name}.{constructor_name}({name}Config)",
-                    arg.name,
-                    name = name,
-                ));
+                if let Some(config_type) = resolve_handle_config_type(arg, options_type, type_defs) {
+                    setup_lines.push(format!(
+                        "val {name}Config = MAPPER.readValue(\"{}\", {config_type}::class.java)",
+                        escape_kotlin(&json_str),
+                    ));
+                    setup_lines.push(format!(
+                        "val {} = {class_name}.{constructor_name}({name}Config)",
+                        arg.name,
+                        name = name,
+                    ));
+                } else {
+                    setup_lines.push(format!("val {} = {class_name}.{constructor_name}(null)", arg.name,));
+                }
             }
             parts.push(arg.name.clone());
             continue;
@@ -2394,6 +2439,7 @@ fn render_sut_server_setup_kt(kotlin_pkg_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::e2e::config::ArgMapping;
     use std::collections::{BTreeMap, HashMap};
 
     fn make_resolver_for_finish_reason() -> FieldResolver {
@@ -2447,6 +2493,56 @@ mod tests {
             !out.contains(".finishReason().orEmpty().getValue()"),
             "must not emit .orEmpty().getValue() on a nullable enum: {out}"
         );
+    }
+
+    #[test]
+    fn handle_config_deserialization_uses_resolved_options_type() {
+        let args = vec![ArgMapping {
+            name: "session".to_string(),
+            field: "input.config".to_string(),
+            arg_type: "handle".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            trait_name: None,
+        }];
+        let fixture = Fixture {
+            id: "session_fixture".to_string(),
+            category: None,
+            description: "test fixture".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({ "config": { "limit": 3 } }),
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: String::new(),
+            http: None,
+        };
+
+        let (setup, args_str) = build_args_and_setup(
+            &fixture.input,
+            &args,
+            KotlinArgsContext {
+                fixture: &fixture,
+                class_name: "Sample",
+                options_type: Some("SessionConfig"),
+                fixture_id: &fixture.id,
+                kotlin_android_style: false,
+                config: &ResolvedCrateConfig::default(),
+                type_defs: &[],
+            },
+        );
+
+        let rendered = setup.join("\n");
+        assert_eq!(args_str, "session");
+        assert!(rendered.contains("MAPPER.readValue(\"{\\\"limit\\\":3}\", SessionConfig::class.java)"));
+        assert!(rendered.contains("Sample.createSession(sessionConfig)"));
+        assert!(!rendered.contains("CrawlConfig"));
     }
 
     /// Non-optional enum field should call `.getValue()` directly without

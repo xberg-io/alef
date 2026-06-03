@@ -302,8 +302,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
         } else {
             // Mixed or fully-visible fields. Use only non-binding_excluded fields for the
             // mirror-side pattern; binding_excluded fields are initialized with Default::default().
-            let visible_fields: Vec<&FieldDef> =
-                variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+            let visible_fields: Vec<&FieldDef> = variant.fields.iter().filter(|f| !f.binding_excluded).collect();
 
             if !variant_is_reconstructible(&visible_fields) {
                 // Sanitized visible fields cannot be reconstructed — skip this arm.
@@ -449,8 +448,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
             ));
         } else {
             // Emit only non-binding_excluded fields in the mirror.
-            let visible_fields: Vec<&FieldDef> =
-                variant.fields.iter().filter(|f| !f.binding_excluded).collect();
+            let visible_fields: Vec<&FieldDef> = variant.fields.iter().filter(|f| !f.binding_excluded).collect();
             if visible_fields.is_empty() {
                 // All fields are binding_excluded but not tuple — emit as unit.
                 out.push_str(&template_env::render(

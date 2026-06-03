@@ -669,7 +669,6 @@ pub struct EnumDef {
     pub excluded_variants: Vec<EnumVariant>,
 }
 
-
 /// An enum variant.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnumVariant {

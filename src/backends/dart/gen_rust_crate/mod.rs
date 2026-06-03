@@ -1143,7 +1143,10 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
                 variant.fields.iter().filter(|f| f.binding_excluded).collect();
             if variant.is_tuple {
                 // Core: Variant(field0_default, field1_default, ...)
-                let args: Vec<String> = stripped_fields.iter().map(|_| "Default::default()".to_string()).collect();
+                let args: Vec<String> = stripped_fields
+                    .iter()
+                    .map(|_| "Default::default()".to_string())
+                    .collect();
                 out.push_str(&format!(
                     "            {name}::{vname} => {core_ty}::{vname}({}),\n",
                     args.join(", ")
@@ -1176,8 +1179,7 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
             } else if variant.is_tuple {
                 // Mirror uses struct syntax (FRB converts tuple variants to named struct variants).
                 // Core uses tuple syntax.
-                let mirror_bindings: Vec<String> =
-                    (0..visible_fields.len()).map(|i| format!("field{i}")).collect();
+                let mirror_bindings: Vec<String> = (0..visible_fields.len()).map(|i| format!("field{i}")).collect();
                 let core_args: Vec<String> = visible_fields
                     .iter()
                     .enumerate()
@@ -2361,7 +2363,8 @@ fn emit_static_opaque_method_body(
                                 format!("unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>({param_name}) }}")
                             }
                         }
-                    } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref {
+                    } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref && p.vec_inner_is_ref {
+                        // Core takes `&[&str]`; FRB delivers `Vec<String>`.
                         format!("&{param_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
                     } else if p.is_ref {
                         format!("&{param_name}")
@@ -2546,13 +2549,13 @@ fn emit_opaque_method_body(
                                 format!("unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>({param_name}) }}")
                             }
                         }
-                    } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref {
+                    } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref && p.vec_inner_is_ref {
                         // Core takes `&[&str]`; FRB delivers `Vec<String>`.
                         // Borrow the temporary Vec<&str> into &[&str] — the temporary lives
                         // long enough for the enclosing statement.
                         format!("&{param_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
                     } else if p.is_ref {
-                        // Core takes a slice reference (e.g. `&[u8]`, `&[u32]`).
+                        // Core takes a slice reference (e.g. `&[u8]`, `&[u32]`, `&[String]`).
                         // Borrowing Vec<T> produces &Vec<T> which coerces to &[T].
                         format!("&{param_name}")
                     } else {

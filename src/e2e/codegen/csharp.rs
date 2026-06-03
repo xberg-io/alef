@@ -21,6 +21,33 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 use super::client;
 
+fn resolve_handle_config_type(
+    arg: &crate::e2e::config::ArgMapping,
+    options_type: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    if arg.arg_type != "handle" {
+        return None;
+    }
+    arg.element_type.as_deref().map(str::to_string).or_else(|| {
+        options_type.map(str::to_string).or_else(|| {
+            let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+            type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
+        })
+    })
+}
+
+fn resolve_csharp_streaming_item_type(
+    adapters: &[crate::core::config::extras::AdapterConfig],
+    function_name: &str,
+) -> Option<String> {
+    adapters
+        .iter()
+        .find(|adapter| adapter.name == function_name)
+        .and_then(|adapter| adapter.item_type.as_deref())
+        .map(str::to_string)
+}
+
 /// C# e2e code generator.
 pub struct CSharpCodegen;
 
@@ -918,16 +945,16 @@ fn render_test_method(
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);
 
-    // Streaming branch: chat_stream returns IAsyncEnumerable<ChatCompletionChunk>,
-    // not Task<T>. Emit `await foreach` over the stream, building local
+    // Streaming branch: streaming adapters return IAsyncEnumerable<T>, not
+    // Task<T>. Emit `await foreach` over the stream, building local
     // aggregator vars (`chunks`, `streamContent`, `streamComplete`, ...) and
     // asserting on those locals — never on response pseudo-fields.
     let raw_function_name = cs_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    if raw_function_name == "chat_stream" {
-        render_chat_stream_test_method(
+    if crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming) {
+        render_streaming_test_method(
             out,
             fixture,
             class_name,
@@ -941,6 +968,7 @@ fn render_test_method(
             adapters,
             config,
             type_defs,
+            resolve_csharp_streaming_item_type(adapters, &raw_function_name).as_deref(),
         );
         return;
     }
@@ -1313,15 +1341,15 @@ fn render_test_method(
     }
 }
 
-/// Render a `chat_stream` test method. The C# binding emits
-/// `IAsyncEnumerable<ChatCompletionChunk> ChatStream(req)` (not `Task<T>`), so
-/// the test body uses `await foreach` to drive the stream and aggregates
+/// Render a streaming-adapter test method. The C# binding emits
+/// `IAsyncEnumerable<T>` (not `Task<T>`), so the test body uses `await foreach`
+/// to drive the stream and aggregates
 /// per-chunk data into local vars (`chunks`, `streamContent`, `streamComplete`,
 /// optional `lastFinishReason`/`toolCallsJson`/`toolCalls0FunctionName`/`totalTokens`).
 /// Assertions then run against those locals — never against pseudo-fields on a
 /// response object.
 #[allow(clippy::too_many_arguments)]
-fn render_chat_stream_test_method(
+fn render_streaming_test_method(
     out: &mut String,
     fixture: &Fixture,
     class_name: &str,
@@ -1335,10 +1363,23 @@ fn render_chat_stream_test_method(
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    item_type: Option<&str>,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let Some(item_type) = item_type else {
+        let _ = writeln!(out, "    [Fact]");
+        let _ = writeln!(out, "    public void Test_{method_name}()");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(
+            out,
+            "        // skipped: streaming fixture requires adapter item_type for C# e2e codegen"
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    };
 
     // Streaming methods return IAsyncEnumerable<T> and carry the conventional
     // `Async` suffix to match the binding's generated DefaultClient surface
@@ -1499,7 +1540,7 @@ fn render_chat_stream_test_method(
         return;
     }
 
-    body.push_str("        var chunks = new List<ChatCompletionChunk>();\n");
+    let _ = writeln!(body, "        var chunks = new List<{item_type}>();");
     body.push_str("        var streamContent = new System.Text.StringBuilder();\n");
     body.push_str("        var streamComplete = false;\n");
     if needs_finish_reason {
@@ -1830,15 +1871,19 @@ fn build_args_and_setup(
                 let sorted = sort_discriminator_first(config_value.clone());
                 let json_str = serde_json::to_string(&sorted).unwrap_or_default();
                 let name = &arg.name;
-                setup_lines.push(format!(
-                    "var {name}Config = JsonSerializer.Deserialize<CrawlConfig>(\"{}\", ConfigOptions)!;",
-                    escape_csharp(&json_str),
-                ));
-                setup_lines.push(format!(
-                    "var {} = {class_name}.{constructor_name}({name}Config);",
-                    arg.name,
-                    name = name,
-                ));
+                if let Some(config_type) = resolve_handle_config_type(arg, options_type, type_defs) {
+                    setup_lines.push(format!(
+                        "var {name}Config = JsonSerializer.Deserialize<{config_type}>(\"{}\", ConfigOptions)!;",
+                        escape_csharp(&json_str),
+                    ));
+                    setup_lines.push(format!(
+                        "var {} = {class_name}.{constructor_name}({name}Config);",
+                        arg.name,
+                        name = name,
+                    ));
+                } else {
+                    setup_lines.push(format!("var {} = {class_name}.{constructor_name}(null);", arg.name,));
+                }
             }
             parts.push(arg.name.clone());
             continue;
@@ -3906,7 +3951,7 @@ fn emit_test_backend_with_class_name(
 
 #[cfg(test)]
 mod tests {
-    use crate::e2e::config::{CallConfig, E2eConfig, SelectWhen};
+    use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig, SelectWhen};
     use crate::e2e::fixture::Fixture;
     use std::collections::HashMap;
 
@@ -3980,6 +4025,44 @@ mod tests {
             &fixture_no_batch.input,
         );
         assert_eq!(resolved_default.function, "Scrape");
+    }
+
+    #[test]
+    fn handle_config_deserialization_uses_resolved_options_type() {
+        let fixture = make_fixture_with_input("session_fixture", serde_json::json!({ "config": { "limit": 3 } }));
+        let args = vec![ArgMapping {
+            name: "session".to_string(),
+            field: "input.config".to_string(),
+            arg_type: "handle".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            trait_name: None,
+        }];
+        let mut class_decls = Vec::new();
+        let mut teardown_lines = Vec::new();
+        let (setup, args_str) = super::build_args_and_setup(
+            &fixture.input,
+            &args,
+            "SessionLib",
+            Some("SessionConfig"),
+            Some("from_json"),
+            &HashMap::new(),
+            &HashMap::new(),
+            &fixture,
+            None,
+            &crate::core::config::ResolvedCrateConfig::default(),
+            &[],
+            &mut class_decls,
+            &mut teardown_lines,
+        );
+
+        let rendered = setup.join("\n");
+        assert_eq!(args_str, "session");
+        assert!(rendered.contains("JsonSerializer.Deserialize<SessionConfig>"));
+        assert!(rendered.contains("SessionLib.CreateSession(sessionConfig)"));
+        assert!(!rendered.contains("CrawlConfig"));
     }
 
     /// Verify `emit_test_backend` is generic: output must not contain any

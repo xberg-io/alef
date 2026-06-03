@@ -540,7 +540,10 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
             .iter()
             .flat_map(|variant| {
                 variant.fields.iter().filter(|f| f.binding_excluded).map(|f| {
-                    let reason = f.binding_exclusion_reason.as_deref().unwrap_or("source binding exclusion");
+                    let reason = f
+                        .binding_exclusion_reason
+                        .as_deref()
+                        .unwrap_or("source binding exclusion");
                     format!("{}::{}.{} ({reason})", enum_def.name, variant.name, f.name)
                 })
             })

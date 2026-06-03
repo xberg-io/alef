@@ -230,7 +230,7 @@ impl StreamingFieldResolver {
                     )
                 }
                 "go" => {
-                    // Go: chunks is []pkg.ChatCompletionChunk
+                    // Go: chunks is []pkg.<adapter item type>.
                     format!(
                         "func() string {{ var s string; for _, c := range {chunks_var} {{ if len(c.Choices) > 0 && c.Choices[0].Delta.Content != nil {{ s += *c.Choices[0].Delta.Content }} }}; return s }}()"
                     )
@@ -244,7 +244,7 @@ impl StreamingFieldResolver {
                     format!("implode('', array_map(fn($c) => $c->choices[0]->delta->content ?? '', ${chunks_var}))")
                 }
                 "kotlin" => {
-                    // Kotlin: chunks is List<ChatCompletionChunk> (Java records via typealias).
+                    // Kotlin: chunks is List<adapter item type> (Java records via typealias).
                     // choices() / delta() / content() are Java record accessor methods.
                     format!(
                         "{chunks_var}.joinToString(\"\") {{ it.choices()?.firstOrNull()?.delta()?.content() ?: \"\" }}"
@@ -270,7 +270,7 @@ impl StreamingFieldResolver {
                     // the collect snippet. `.items` gives a `[]u8` slice of the content.
                     format!("{chunks_var}_content.items")
                 }
-                // Swift: chunks is [<Module>.ChatCompletionChunk] (first-class
+                // Swift: chunks is [<Module>.<adapter item type>] (first-class
                 // Codable struct emitted by alef-backend-swift). choices is
                 // `[StreamChoice]` (property), delta is `StreamDelta` (property),
                 // content is `String?` (property). No `.toString()` wrapping —
@@ -335,7 +335,7 @@ impl StreamingFieldResolver {
                 "zig" => {
                     format!("{chunks_var}.items.len > 0")
                 }
-                // Swift: chunks is [<Module>.ChatCompletionChunk] first-class
+                // Swift: chunks is [<Module>.<adapter item type>] first-class
                 // struct. `choices` is `[StreamChoice]` (property), `finishReason`
                 // is `FinishReason?` (property, camelCase).
                 "swift" => {
@@ -457,7 +457,7 @@ impl StreamingFieldResolver {
                 "zig" => {
                     format!("{chunks_var}.items")
                 }
-                // Swift: chunks is [<Module>.ChatCompletionChunk] first-class
+                // Swift: chunks is [<Module>.<adapter item type>] first-class
                 // Codable struct. choices is `[StreamChoice]`, delta is
                 // `StreamDelta`, toolCalls is `[StreamToolCall]?`.
                 "swift" => {
@@ -477,7 +477,7 @@ impl StreamingFieldResolver {
 
             "finish_reason" => Some(match lang {
                 "rust" => {
-                    // ChatCompletionChunk's finish_reason is Option<FinishReason> (enum, not
+                    // The stream item finish_reason is Option<FinishReason> (enum, not
                     // String). Display impl writes the JSON wire form (e.g. "tool_calls").
                     format!(
                         "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_ref()).map(|v| v.to_string()).unwrap_or_default()"
@@ -588,7 +588,7 @@ impl StreamingFieldResolver {
                 "elixir" => {
                     format!("(if length({chunks_var}) > 0, do: List.last({chunks_var}).usage, else: nil)")
                 }
-                // Swift: first-class `ChatCompletionChunk.usage: Usage?`
+                // Swift: first-class stream item usage property.
                 // (Codable struct property — no method call).
                 "swift" => {
                     format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.usage)")
@@ -621,7 +621,7 @@ impl StreamingFieldResolver {
                         return Some(render_swift_tool_calls_deep(&root_expr, tail));
                     }
                     // Zig stores stream chunks as JSON strings (`[]const u8`) in
-                    // `chunks: ArrayList([]u8)`, not typed `ChatCompletionChunk`
+                    // `chunks: ArrayList([]u8)`, not typed stream item
                     // records. A deep `tool_calls[N].function.name` access would
                     // require parsing each chunk's JSON inline — rather than
                     // emit code that won't compile, signal "unsupported" so the
@@ -649,24 +649,28 @@ impl StreamingFieldResolver {
 
     /// Collect stream into a list, with optional item_type for languages that need the concrete type.
     ///
-    /// When item_type is None, defaults to ChatCompletionChunk for backward compatibility with
-    /// sample-llm. For other projects like sample-crawler, item_type should be provided (e.g., "CrawlEvent").
+    /// When `item_type` is `None`, returns `None` for languages that require an
+    /// explicit stream item type. Callers should derive the item type from
+    /// streaming adapter metadata or an explicit call override; otherwise they
+    /// should emit a diagnostic skip instead of guessing.
     pub fn collect_snippet_typed(
         lang: &str,
         stream_var: &str,
         chunks_var: &str,
         item_type: Option<&str>,
     ) -> Option<String> {
-        let item_type = item_type.unwrap_or("ChatCompletionChunk");
+        let item_type = item_type.filter(|value| !value.is_empty());
         match lang {
             "rust" => Some(format!(
                 "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Vec<_>>({stream_var}).await\n        .into_iter()\n        .map(|r| r.expect(\"stream item failed\"))\n        .collect();"
             )),
             "go" => Some(format!(
-                "var {chunks_var} []pkg.{item_type}\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
+                "var {chunks_var} []pkg.{}\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}",
+                item_type?
             )),
             "java" => Some(format!(
-                "var {chunks_var} = new java.util.ArrayList<{item_type}>();\n        var _it = {stream_var}.iterator();\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
+                "var {chunks_var} = new java.util.ArrayList<{}>();\n        var _it = {stream_var}.iterator();\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}",
+                item_type?
             )),
             // PHP binding's chat_stream returns Vec<String> (each element is a
             // JSON-serialized chunk) because ext-php-rs can't expose Rust
@@ -708,12 +712,12 @@ impl StreamingFieldResolver {
                 "{chunks_var} = []\n    async for chunk in {stream_var}:\n        {chunks_var}.append(chunk)"
             )),
             "kotlin" => {
-                // Kotlin: chatStream returns Iterator<ChatCompletionChunk> (from Java bridge).
+                // Kotlin: streaming adapters return Iterator<item type> (from Java bridge).
                 // Drain into a Kotlin List using asSequence().toList().
                 Some(format!("val {chunks_var} = {stream_var}.asSequence().toList()"))
             }
             "kotlin_android" => {
-                // kotlin-android: chatStream returns Flow<ChatCompletionChunk> (kotlinx.coroutines).
+                // kotlin-android: streaming adapters return Flow<item type> (kotlinx.coroutines).
                 // Collect inside a runBlocking coroutine scope using Flow.toList().
                 Some(format!("val {chunks_var} = {stream_var}.toList()"))
             }
@@ -735,22 +739,34 @@ impl StreamingFieldResolver {
                 // so consumers drain it with `for try await chunk in stream { ... }`. The
                 // chunk type is decoded from the bridge-boundary JSON inside the wrapper —
                 // here we just collect the typed Swift values.
-                // When item_type is provided (e.g., "CrawlEvent" from sample-crawler adapters),
-                // use it; otherwise default to "ChatCompletionChunk" for backward compatibility.
+                // The item type must come from adapter metadata or an explicit override.
+                let item_type = item_type?;
                 Some(format!(
                     "var {chunks_var}: [{item_type}] = []\n        for try await _chunk in {stream_var} {{ {chunks_var}.append(_chunk) }}"
                 ))
             }
-            "zig" => Some(Self::collect_snippet_zig(stream_var, chunks_var, "module", "ffi")),
+            "zig" => None,
             _ => None,
         }
     }
 
     /// Render Zig's streaming collect snippet using the configured module and FFI prefix.
-    pub fn collect_snippet_zig(stream_var: &str, chunks_var: &str, module_name: &str, ffi_prefix: &str) -> String {
-        let stream_next = format!("{ffi_prefix}_default_client_chat_stream_next");
-        let chunk_to_json = format!("{ffi_prefix}_chat_completion_chunk_to_json");
-        let chunk_free = format!("{ffi_prefix}_chat_completion_chunk_free");
+    pub fn collect_snippet_zig(
+        stream_var: &str,
+        chunks_var: &str,
+        module_name: &str,
+        ffi_prefix: &str,
+        owner_type: &str,
+        adapter_name: &str,
+        item_type: &str,
+    ) -> String {
+        use heck::ToSnakeCase;
+
+        let owner_snake = owner_type.to_snake_case();
+        let item_snake = item_type.to_snake_case();
+        let stream_next = format!("{ffi_prefix}_{owner_snake}_{adapter_name}_next");
+        let chunk_to_json = format!("{ffi_prefix}_{item_snake}_to_json");
+        let chunk_free = format!("{ffi_prefix}_{item_snake}_free");
         let free_string = format!("{ffi_prefix}_free_string");
 
         // Zig 0.16: ArrayList is unmanaged — no stored allocator.
@@ -1245,9 +1261,25 @@ mod tests {
 
     #[test]
     fn collect_snippet_zig_drains_via_ffi() {
-        let snip = StreamingFieldResolver::collect_snippet("zig", "_stream_handle", "chunks").unwrap();
+        assert!(
+            StreamingFieldResolver::collect_snippet("zig", "_stream_handle", "chunks").is_none(),
+            "generic zig collect must require adapter metadata"
+        );
+        let snip = StreamingFieldResolver::collect_snippet_zig(
+            "_stream_handle",
+            "chunks",
+            "sample",
+            "sample",
+            "StreamClient",
+            "events",
+            "StreamEvent",
+        );
         assert!(snip.contains("std.ArrayList([]u8)"), "zig collect: {snip}");
-        assert!(snip.contains("chat_stream_next(_stream_handle)"), "zig collect: {snip}");
+        assert!(
+            snip.contains("stream_client_events_next(_stream_handle)"),
+            "zig collect: {snip}"
+        );
+        assert!(snip.contains("stream_event_to_json(_nc)"), "zig collect: {snip}");
         assert!(snip.contains("chunks_content"), "zig collect: {snip}");
         assert!(
             snip.contains("chunks.append(std.heap.c_allocator"),
@@ -1336,25 +1368,37 @@ mod tests {
         let snip = StreamingFieldResolver::collect_snippet("rust", "result", "chunks").unwrap();
         assert!(snip.contains("tokio_stream::StreamExt::collect"), "rust: {snip}");
         assert!(snip.contains("let chunks"), "rust: {snip}");
-        // Items are Result<ChatCompletionChunk, _> — unwrap so chunks is Vec<ChatCompletionChunk>
+        // Items are Result<stream item, _> — unwrap so chunks is Vec<stream item>.
         assert!(snip.contains(".expect("), "rust must unwrap Result items: {snip}");
     }
 
     #[test]
     fn collect_snippet_go_drains_channel() {
-        let snip = StreamingFieldResolver::collect_snippet("go", "stream", "chunks").unwrap();
+        assert!(
+            StreamingFieldResolver::collect_snippet("go", "stream", "chunks").is_none(),
+            "typed Go collect must require an item type"
+        );
+        let snip =
+            StreamingFieldResolver::collect_snippet_typed("go", "stream", "chunks", Some("StreamEvent")).unwrap();
         assert!(snip.contains("for chunk := range stream"), "go: {snip}");
+        assert!(snip.contains("[]pkg.StreamEvent"), "go: {snip}");
     }
 
     #[test]
     fn collect_snippet_java_uses_iterator() {
-        let snip = StreamingFieldResolver::collect_snippet("java", "result", "chunks").unwrap();
+        assert!(
+            StreamingFieldResolver::collect_snippet("java", "result", "chunks").is_none(),
+            "typed Java collect must require an item type"
+        );
+        let snip =
+            StreamingFieldResolver::collect_snippet_typed("java", "result", "chunks", Some("StreamEvent")).unwrap();
         // Must call .iterator() on the Stream<T> before using hasNext()/next() —
         // Stream does not implement those methods directly.
         assert!(
             snip.contains(".iterator()"),
             "java snippet must call .iterator() on stream: {snip}"
         );
+        assert!(snip.contains("ArrayList<StreamEvent>"), "java: {snip}");
         assert!(snip.contains("hasNext()"), "java: {snip}");
         assert!(snip.contains(".next()"), "java: {snip}");
     }
