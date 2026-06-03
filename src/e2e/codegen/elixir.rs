@@ -136,6 +136,7 @@ impl E2eCodegen for ElixirCodegen {
                 &pkg_dep_ref,
                 e2e_config.dep_mode,
                 has_http_tests,
+                has_mock_server_tests,
                 has_nif_tests,
                 uses_harness,
             ),
@@ -466,6 +467,7 @@ fn render_mix_exs(
     pkg_path: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     has_http_tests: bool,
+    has_mock_server_tests: bool,
     has_nif_tests: bool,
     uses_harness: bool,
 ) -> String {
@@ -516,10 +518,18 @@ fn render_mix_exs(
         ));
     }
 
-    // Add Req + Jason + Finch for HTTP testing or server-pattern harness.
-    // Both test_helper patterns (HTTP tests and harness) call Finch.start_link,
-    // so the deps must be present whenever either is true.
-    if has_http_tests || uses_harness {
+    // Add Req + Jason + Finch for HTTP testing, mock-server testing, or
+    // server-pattern harness. The test_helper.exs is emitted whenever any of
+    // `has_http_tests`, `has_mock_server_tests`, or `uses_harness` is true
+    // (see render_test_helper invocation) and always calls
+    // Finch.start_link(name: AlefE2EFinch), so all three flags must trigger
+    // dep inclusion. Without `has_mock_server_tests` here, projects that use
+    // mock-server fixtures via `mock_response` / `client_factory` but no raw
+    // http fixtures (and no harness) generate a test_helper.exs that calls
+    // Finch without the corresponding mix dep, producing
+    // `(UndefinedFunctionError) function Finch.start_link/1 is undefined`
+    // at `mix test`.
+    if has_http_tests || has_mock_server_tests || uses_harness {
         deps.push(format!("      {{:finch, \"{finch}\"}}", finch = tv::hex::FINCH));
         deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
         deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));
@@ -3301,6 +3311,62 @@ mod test_backend_tests {
                 .contains(&format!("{{:ok, {}}}", emission.arg_expr)),
             "setup_block must start GenServer and assign its PID to the arg_expr variable, got:\n{}",
             emission.setup_block
+        );
+    }
+}
+
+#[cfg(test)]
+mod mix_exs_tests {
+    use super::render_mix_exs;
+    use crate::e2e::config::DependencyMode;
+
+    /// When a project has mock-server fixtures (e.g. via `mock_response` or
+    /// `client_factory`) but no raw HTTP fixtures and no server-pattern
+    /// harness, render_test_helper still emits `Finch.start_link(...)`. The
+    /// corresponding mix.exs MUST declare the Finch + Req + Jason deps,
+    /// otherwise `mix test` fails with
+    /// `(UndefinedFunctionError) function Finch.start_link/1 is undefined`.
+    #[test]
+    fn mix_exs_includes_finch_when_mock_server_tests_are_present() {
+        let output = render_mix_exs(
+            "liter_llm",
+            "1.4.0-rc.55",
+            DependencyMode::Registry,
+            false, // has_http_tests
+            true,  // has_mock_server_tests
+            true,  // has_nif_tests
+            false, // uses_harness
+        );
+        assert!(
+            output.contains(":finch,"),
+            "mock-server-only project must declare :finch dep, got:\n{output}"
+        );
+        assert!(
+            output.contains(":req,"),
+            "mock-server-only project must declare :req dep, got:\n{output}"
+        );
+        assert!(
+            output.contains(":jason,"),
+            "mock-server-only project must declare :jason dep, got:\n{output}"
+        );
+    }
+
+    /// Pure-NIF project (no HTTP, no mock-server, no harness) must NOT pull
+    /// in Finch/Req/Jason — keeps the dep graph minimal for offline tests.
+    #[test]
+    fn mix_exs_omits_finch_when_no_http_or_mock_server_tests() {
+        let output = render_mix_exs(
+            "liter_llm",
+            "../../packages/elixir",
+            DependencyMode::Local,
+            false, // has_http_tests
+            false, // has_mock_server_tests
+            true,  // has_nif_tests
+            false, // uses_harness
+        );
+        assert!(
+            !output.contains(":finch,"),
+            "pure-NIF project must not declare :finch dep, got:\n{output}"
         );
     }
 }

@@ -847,7 +847,8 @@ pub fn gen_bridge_function(
             struct_name => struct_name,
             handle_path => handle_path,
             core_fn_path => core_fn_path,
-            with_call_args_str => with_call_args_str
+            with_call_args_str => with_call_args_str,
+            return_type => return_type.clone(),
         };
         out.push_str(&crate::backends::rustler::template_env::render(
             "nif_with_visitor_async_body.rs.jinja",
@@ -1058,7 +1059,8 @@ pub fn gen_bridge_field_function(
         clone_stmts => clone_stmts,
         deser_stmts => deser_stmts,
         core_fn_path => core_fn_path,
-        vis_call_args_str => vis_call_args_str
+        vis_call_args_str => vis_call_args_str,
+        return_type => return_type.clone(),
     };
     out.push_str(&crate::backends::rustler::template_env::render(
         "nif_with_visitor_field_async_body.rs.jinja",

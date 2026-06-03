@@ -1808,10 +1808,9 @@ nif_targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
     assert!(
         mix_exs.content.contains("rustler_crates: [\n")
             && mix_exs.content.contains("my_lib_nif: [")
-            && mix_exs
-                .content
-                .contains("targets: ~w(aarch64-apple-darwin x86_64-unknown-linux-gnu)"),
-        "mix.exs must wire configured nif_targets into rustler_crates; content:\n{}",
+            && mix_exs.content.contains("\"aarch64-apple-darwin\",")
+            && mix_exs.content.contains("\"x86_64-unknown-linux-gnu\""),
+        "mix.exs must wire configured nif_targets into rustler_crates as a multi-line list; content:\n{}",
         mix_exs.content
     );
 }

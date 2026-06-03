@@ -210,11 +210,36 @@ struct Demo {{
         module = module,
     );
 
-    // Root-level Package.swift — source-based by default. Binary distribution
-    // requires explicit release/checksum configuration and is patched by the
-    // publish flow, not guessed at scaffold time.
+    // Root-level Package.swift — published-distribution manifest.
+    //
+    // This file is what external consumers see when they reference the repo via
+    // `.package(url: "<repo>", from: "X.Y.Z")`. SwiftPM REJECTS packages that
+    // contain `.unsafeFlags` from `.package(url:)` resolution, so the root
+    // manifest MUST use `.binaryTarget` referencing a pre-built artifactbundle
+    // hosted on GitHub Releases. The source-based layout (with `.unsafeFlags`
+    // and an absolute `cargo build` dependency) stays under
+    // `packages/swift/Package.swift` for in-tree dev workflows.
+    //
+    // The URL placeholder `v__ALEF_SWIFT_VERSION__` is substituted by
+    // `alef sync-versions` (so `task set-version X.Y.Z` keeps the URL in sync
+    // with the workspace version). The checksum placeholder
+    // `__ALEF_SWIFT_CHECKSUM__` is substituted by the publish flow
+    // (`src/publish/package/swift.rs::patch_root_package_manifest`) when the
+    // artifactbundle is produced and `ALEF_SWIFT_CHECKSUM` is exported. Both
+    // placeholders are required — leaving the manifest source-based here
+    // means every `alef all --clean` regen overwrites a previously published
+    // binaryTarget manifest with an unsafe-flags variant, breaking remote
+    // SwiftPM consumers (`error: the target 'RustBridge' in product
+    // '{module}' contains unsafe build flags`).
     let root_package_swift = format!(
         r#"// swift-tools-version: 6.0
+// Root-level Package.swift — alef-generated for published distributions.
+//
+// This manifest uses `.binaryTarget` for pre-built XCFramework/artifact bundles.
+// External consumers depend on this via `.package(url: "...", from: "...")`.
+//
+// For in-tree development, see `packages/swift/Package.swift` and
+// `packages/swift/README.md` for the source-based workflow.
 import PackageDescription
 
 let package = Package(
@@ -227,25 +252,13 @@ let package = Package(
     .library(name: "{module}", targets: ["{module}"])
   ],
   targets: [
-    .target(
-      name: "RustBridgeC",
-      path: "packages/swift/Sources/RustBridgeC",
-      publicHeadersPath: "."
-    ),
-    .target(
+    // RustBridge: pre-built binary target containing the compiled Rust library
+    // for macOS (arm64, x86_64), iOS (device, simulator), and Linux (arm64, x86_64).
+    // The binary includes C headers for swift-bridge interop.
+    .binaryTarget(
       name: "RustBridge",
-      dependencies: ["RustBridgeC"],
-      path: "packages/swift/Sources/RustBridge",
-      linkerSettings: [
-        .unsafeFlags([
-          "-Ltarget/release",
-          "-Ltarget/debug",
-        ]),
-        .linkedLibrary("{binding_underscore}"),
-        .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
-        .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
-        .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
-      ]
+      url: "{repository}/releases/download/v__ALEF_SWIFT_VERSION__/{module}-rs.artifactbundle.zip",
+      checksum: "__ALEF_SWIFT_CHECKSUM__"
     ),
     .target(
       name: "{module}",
@@ -258,7 +271,7 @@ let package = Package(
         module = module,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
-        binding_underscore = binding_crate_underscore,
+        repository = meta.repository.trim_end_matches('/'),
     );
 
     Ok(vec![
@@ -427,4 +440,104 @@ fn read_swift_bridge_headers(binding_crate_name: &str) -> Option<(String, String
     let core_h = std::fs::read_to_string(out.join("SwiftBridgeCore.h")).ok()?;
     let crate_h = std::fs::read_to_string(out.join(binding_crate_name).join(format!("{binding_crate_name}.h"))).ok()?;
     Some((core_h, crate_h))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::NewAlefConfig;
+    use crate::core::ir::ApiSurface;
+
+    fn resolve_config(toml_text: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(toml_text).expect("valid config");
+        cfg.resolve().expect("resolve").remove(0)
+    }
+
+    fn find_file<'a>(files: &'a [GeneratedFile], path: &str) -> &'a GeneratedFile {
+        files
+            .iter()
+            .find(|f| f.path == PathBuf::from(path))
+            .unwrap_or_else(|| panic!("missing scaffolded file: {path}"))
+    }
+
+    /// The root `Package.swift` must use `.binaryTarget` with version + checksum
+    /// placeholders so that SwiftPM consumers depending on the repo via
+    /// `.package(url: ...)` can resolve the package. Source-based targets with
+    /// `.unsafeFlags` are rejected by SwiftPM in remote-dependency resolution
+    /// (`error: the target ... contains unsafe build flags`).
+    ///
+    /// The placeholders are filled in by:
+    ///   - `__ALEF_SWIFT_VERSION__` → `alef sync-versions`
+    ///   - `__ALEF_SWIFT_CHECKSUM__` → publish flow when building the artifactbundle.
+    #[test]
+    fn root_package_swift_uses_binary_target_with_placeholders() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "my-lib"
+sources = []
+[crates.package_metadata]
+repository = "https://github.com/example/my-lib"
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_swift(&api, &config).expect("scaffold");
+        let root = find_file(&files, "Package.swift");
+
+        assert!(
+            root.content.contains(".binaryTarget("),
+            "root Package.swift must use .binaryTarget, got:\n{}",
+            root.content
+        );
+        assert!(
+            !root.content.contains(".unsafeFlags"),
+            "root Package.swift must not contain .unsafeFlags (breaks remote SwiftPM consumers), got:\n{}",
+            root.content
+        );
+        assert!(
+            root.content.contains("v__ALEF_SWIFT_VERSION__"),
+            "root Package.swift must contain __ALEF_SWIFT_VERSION__ placeholder for sync-versions, got:\n{}",
+            root.content
+        );
+        assert!(
+            root.content.contains("__ALEF_SWIFT_CHECKSUM__"),
+            "root Package.swift must contain __ALEF_SWIFT_CHECKSUM__ placeholder for publish flow, got:\n{}",
+            root.content
+        );
+        assert!(
+            root.content
+                .contains("https://github.com/example/my-lib/releases/download/v__ALEF_SWIFT_VERSION__/"),
+            "root Package.swift URL must point at configured repository, got:\n{}",
+            root.content
+        );
+    }
+
+    /// The in-tree `packages/swift/Package.swift` keeps the source-based layout
+    /// with `.unsafeFlags` linker settings — that variant is used by `swift test
+    /// --package-path packages/swift` during local development.
+    #[test]
+    fn in_tree_package_swift_keeps_source_based_layout() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "my-lib"
+sources = []
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_swift(&api, &config).expect("scaffold");
+        let pkg = find_file(&files, "packages/swift/Package.swift");
+        assert!(
+            pkg.content.contains(".unsafeFlags"),
+            "in-tree packages/swift/Package.swift must keep source-based layout"
+        );
+        assert!(
+            !pkg.content.contains(".binaryTarget("),
+            "in-tree packages/swift/Package.swift must not use .binaryTarget"
+        );
+    }
 }

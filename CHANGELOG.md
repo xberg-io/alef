@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.20] - 2026-06-04
+
+### Fixed
+
+- fix(wasm): declare `[features]` block with `default = [...]` containing every cfg-referenced feature listed in the binding's explicit `features` clause. Previously alef filtered explicit features out of the passthrough list on the assumption that "forwarded to the core crate" features did not need to be declared on the binding crate, but `#[cfg(feature = X)]` attributes emitted on binding items reference the binding crate's own feature, not the dep's. Without the declaration rustc warns `unexpected cfg condition value` and CI's `-D warnings` rejects the build; without the `default = [...]` entry the cfg silently evaluates false and gated items disappear from the binding. (`src/backends/wasm/gen_bindings/mod.rs`)
+- fix(rustler): annotate `let result: {return_type} = val.into();` and `Result<{return_type}, String>` in the `nif_with_visitor_async_body` and `nif_with_visitor_field_async_body` templates so rustc can infer the target type. Without the annotation, `result.encode(env)` is generic and trips E0282 ("type annotations needed") at the `let result = val.into();` site. (`src/backends/rustler/template_env.rs`, `src/backends/rustler/trait_bridge.rs`)
+- fix(scaffold/elixir): scaffold mix.exs now emits `rustler_crates: targets:` as a multi-line list literal instead of `~w(...)` so `mix format --check-formatted` is idempotent regardless of target count. (`src/scaffold/languages/elixir.rs`)
+- fix(scaffold/swift): root-level `Package.swift` now emits a `.binaryTarget` referencing a pre-built artifactbundle hosted on the published GitHub Release. SwiftPM rejects packages that contain `.unsafeFlags` via `.package(url:)`, so source-based dev manifest stays under `packages/swift/Package.swift` while the root manifest is the published-distribution manifest. (`src/scaffold/languages/swift.rs`)
+- fix(e2e/elixir): plumb `has_mock_server_tests` through `render_mix_exs` so Finch/Req deps only get added when the suite needs them. (`src/e2e/codegen/elixir.rs`)
+
 ## [0.22.19] - 2026-06-03
 
 ### Fixed
