@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(java): skip method handle emission for opaque-type methods (both instance and static). Opaque types do not have FFI method exports — only `_free` handles for deallocating the opaque pointer itself. The loop that generates method handles in `NativeLib.java` now filters to `!t.is_opaque` to prevent `NoSuchElementException` at JVM clinit when `LIB.find()` tries to locate non-existent symbols like `ts_pack_parser_default`. Java wrappers in opaque-handle classes (`Parser.ofDefault()`, etc.) are pure-Java methods with no FFI calls. This mirrors the fix for `_to_json`/`_from_json` handle gating by opaque-type predicate. (`src/backends/java/gen_bindings/native_lib.rs`)
+
 - fix(e2e/go): gate TestMain mock-server bootstrap on `needs_mock_server || needs_http_tests`, matching the Rust scaffold's bin-emission predicate. Without this, fixtures without HTTP/mock-server still got an unconditional `cargo build --bin mock-server` that failed when the bin was correctly not emitted. (`src/e2e/codegen/go.rs`)
 
 - fix(setup/kotlin_android): replace `gradle --no-daemon dependencies --refresh-dependencies` with `gradle --no-daemon tasks --all` in Kotlin/KotlinAndroid setup. The narrower command initializes the Gradle wrapper and plugin classpath (~1-3 min on cold CI) without resolving the full project dependency graph, which was timing out at 1800s. `tasks --all` is a quick introspection command that doesn't need full transitive resolution. Preserves the `require_tool("gradle")` precondition for proper error messaging. (`src/core/config/setup_defaults.rs`)

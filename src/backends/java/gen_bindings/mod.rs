@@ -355,7 +355,7 @@ impl Backend for JavaBackend {
 
         // 4b. Opaque handle types
         let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
-        // Build type classification sets for gating _to_json and _from_json handle references
+        // Build type classification sets for gating _to_json, _from_json, and _default handle references
         let opaque_type_names: AHashSet<String> = api
             .types
             .iter()
