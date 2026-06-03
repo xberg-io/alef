@@ -79,6 +79,11 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                                     let core_ty = core_prim_str(p);
                                     format!("val.{binding_field_name}.map(|v| v as {core_ty})")
                                 }
+                                TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                                    format!(
+                                        "val.{binding_field_name}.map(|v| v.into_iter().map(Into::into).collect())"
+                                    )
+                                }
                                 _ => {
                                     format!("val.{binding_field_name}")
                                 }
@@ -109,6 +114,11 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                     let core_ty = core_prim_str(p);
                                     format!("val.{binding_field_name}.map(|v| v as {core_ty}).unwrap_or_default()")
+                                }
+                                TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                                    format!(
+                                        "val.{binding_field_name}.map(|v| v.into_iter().map(Into::into).collect()).unwrap_or_default()"
+                                    )
                                 }
                                 _ => {
                                     format!("val.{binding_field_name}.unwrap_or_default()")
@@ -295,6 +305,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                     TypeRef::Named(_) => {
                                         format!("{f}: {f}.map(|v| v.into())")
                                     }
+                                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                                        format!("{f}: {f}.map(|v| v.into_iter().map(Into::into).collect())")
+                                    }
                                     _ => format!("{f}: {f}"),
                                 }
                             } else if field.sanitized {
@@ -316,6 +329,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                         | crate::core::ir::PrimitiveType::Isize => format!("{f}: Some({f} as i64)"),
                                         _ => format!("{f}: Some({f})"),
                                     },
+                                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                                        format!("{f}: Some({f}.into_iter().map(Into::into).collect())")
+                                    }
                                     _ => format!("{f}: Some({f})"),
                                 }
                             }
