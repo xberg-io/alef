@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/ruby): anchor `APP`, `route_builder_class`, and `server_config_class` lookups in the harness template at the top-level constant namespace via a leading `::` prefix (`::App.new`, `::RouteBuilder.new(...)`, `::ServerConfig.new(...)`). The harness body lives inside `module AppHarness`, where bare references resolve relative to the module first and miss top-level constants emitted by the consuming binding's `service.rb`. The unanchored form raised `uninitialized constant AppHarness::App (NameError)` at harness startup so every fixture failed with `App harness did not report port within 15s`. (`src/e2e/templates/ruby/app_harness.rb.jinja`)
+
 ## [0.22.17] - 2026-06-03
 
 ### Fixed
