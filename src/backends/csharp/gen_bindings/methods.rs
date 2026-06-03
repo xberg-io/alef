@@ -430,7 +430,7 @@ fn gen_wrapper_function(
     handle_returned_types: &HashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_callbacks: bool,
+    _has_visitor_callbacks: bool,
     types: &[crate::core::ir::TypeDef],
 ) -> String {
     use crate::backends::csharp::template_env::render;
@@ -577,88 +577,6 @@ fn gen_wrapper_function(
                 cleanup_block => &cleanup_block,
             },
         ));
-        out.push_str("    }\n\n");
-        return out;
-    }
-
-    // Detect if this is the main convert function with visitor support.
-    // The convert function should have (string, ConversionOptions?) signature and has_visitor_callbacks=true.
-    let has_options_param = visible_params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions"));
-    let is_convert_with_visitor = has_visitor_callbacks && func.name == "convert" && has_options_param;
-
-    // Special handling for convert function with visitor support:
-    // Extract visitor from options before serialization
-    if is_convert_with_visitor {
-        out.push_str("        var visitor = options?.Visitor;\n");
-        out.push_str(
-            "        var optionsJson = options != null ? JsonSerializer.Serialize(options, JsonSerializationOptions) : \"null\";\n",
-        );
-        out.push_str("        var optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);\n");
-        out.push_str("        try\n");
-        out.push_str("        {\n");
-        out.push_str("            if (visitor != null)\n");
-        out.push_str("            {\n");
-        out.push_str("                using var bridge = new HtmlVisitorBridge(visitor);\n");
-        // Register the bridge in the static registry under its unique ID so that
-        // FFI callbacks (which receive bridge._bridgeId as userData) can dispatch
-        // back to the managed visitor. Without this, every callback's
-        // _bridgeRegistry.TryGetValue returns false and falls back to default
-        // behavior — silently dropping all visitor customizations.
-        out.push_str("                lock (HtmlVisitorBridge._registryLock)\n");
-        out.push_str("                {\n");
-        out.push_str("                    HtmlVisitorBridge._bridgeRegistry[bridge._bridgeId] = bridge;\n");
-        out.push_str("                }\n");
-        out.push_str(
-            "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, bridge._bridgeId);\n",
-        );
-        out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str("                try\n");
-        out.push_str("                {\n");
-        out.push_str("                    NativeMethods.ConversionOptionsSetVisitor(optionsHandle, bridgeHandle);\n");
-        out.push_str("                    var nativeResult = NativeMethods.Convert(html, optionsHandle);\n");
-        out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
-        out.push_str(
-            "                    var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n",
-        );
-        out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str("                    NativeMethods.ConversionResultFree(nativeResult);\n");
-        out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
-        out.push_str("                }\n");
-        out.push_str("                finally\n");
-        out.push_str("                {\n");
-        out.push_str("                    NativeMethods.HtmlVisitorBridgeFree(bridgeHandle);\n");
-        // HtmlVisitorBridgeFree triggers FreeUserDataCallback on the Rust side,
-        // which marks the bridge _disposed. Remove the registry entry now that
-        // Rust will not call back again — otherwise the entry leaks because
-        // DecrementCallbackRef only runs when a callback is in flight.
-        out.push_str("                    lock (HtmlVisitorBridge._registryLock)\n");
-        out.push_str("                    {\n");
-        out.push_str("                        HtmlVisitorBridge._bridgeRegistry.Remove(bridge._bridgeId);\n");
-        out.push_str("                    }\n");
-        out.push_str("                }\n");
-        out.push_str("            }\n");
-        out.push_str("            else\n");
-        out.push_str("            {\n");
-        out.push_str("                var nativeResult = NativeMethods.Convert(html, optionsHandle);\n");
-        out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str("                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
-        out.push_str(
-            "                var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n",
-        );
-        out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
-        out.push_str(
-            "                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n",
-        );
-        out.push_str("            }\n");
-        out.push_str("        }\n");
-        out.push_str("        finally\n");
-        out.push_str("        {\n");
-        out.push_str("            NativeMethods.ConversionOptionsFree(optionsHandle);\n");
-        out.push_str("        }\n");
         out.push_str("    }\n\n");
         return out;
     }
@@ -958,6 +876,16 @@ fn gen_bridge_field_wrapper_function(
     let options_param_camel = options_param.to_lower_camel_case();
     let field_name = &bridge_match.field_name;
     let field_name_pascal = to_csharp_name(field_name);
+    let trait_pascal = csharp_type_name(&bridge_match.bridge.trait_name);
+    let options_pascal = csharp_type_name(&bridge_match.options_type);
+    let result_pascal = match &func.return_type {
+        TypeRef::Named(name) => csharp_type_name(name),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => csharp_type_name(name),
+            _ => csharp_type(&func.return_type).into_owned(),
+        },
+        _ => csharp_type(&func.return_type).into_owned(),
+    };
 
     // Extract bridge from options (must be optional)
     out.push_str(&format!(
@@ -971,7 +899,7 @@ fn gen_bridge_field_wrapper_function(
 
     // Deserialize into native options handle
     out.push_str(&format!(
-        "        var {options_param_camel}Handle = NativeMethods.ConversionOptionsFromJson({options_param_camel}Json);\n"
+        "        var {options_param_camel}Handle = NativeMethods.{options_pascal}FromJson({options_param_camel}Json);\n"
     ));
 
     // If-bridge-present logic
@@ -979,24 +907,26 @@ fn gen_bridge_field_wrapper_function(
         "        try\n        {{\n            if ({field_name} != null)\n            {{\n"
     ));
     out.push_str(&format!(
-        "                using var bridge = new HtmlVisitorBridge({field_name});\n"
+        "                using var bridge = new {trait_pascal}Bridge({field_name});\n"
     ));
     // Insert bridge into the static registry so FFI callbacks (which receive
     // bridge._bridgeId as userData) can dispatch back to the managed visitor.
-    out.push_str("                lock (HtmlVisitorBridge._registryLock)\n");
+    out.push_str(&format!("                lock ({trait_pascal}Bridge._registryLock)\n"));
     out.push_str("                {\n");
-    out.push_str("                    HtmlVisitorBridge._bridgeRegistry[bridge._bridgeId] = bridge;\n");
+    out.push_str(&format!(
+        "                    {trait_pascal}Bridge._bridgeRegistry[bridge._bridgeId] = bridge;\n"
+    ));
     out.push_str("                }\n");
-    out.push_str(
-        "                var bridgeHandle = NativeMethods.HtmlVisitorBridgeNew(bridge._vtable, bridge._bridgeId);\n",
-    );
+    out.push_str(&format!(
+        "                var bridgeHandle = NativeMethods.{trait_pascal}BridgeNew(bridge._vtable, bridge._bridgeId);\n"
+    ));
     out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
     out.push_str("                try\n                {\n");
 
     // Call native function with injected bridge
     let cs_native_name = to_csharp_name(&func.name);
     out.push_str(&format!(
-        "                    NativeMethods.ConversionOptionsSetVisitor({options_param_camel}Handle, bridgeHandle);\n"
+        "                    NativeMethods.{options_pascal}Set{field_name_pascal}({options_param_camel}Handle, bridgeHandle);\n"
     ));
 
     // Build the native call
@@ -1034,25 +964,37 @@ fn gen_bridge_field_wrapper_function(
         out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
     }
 
-    // Handle return value (simplified for now - assumes ConversionResult-like marshalling)
+    // Handle return value through the generated FFI JSON helpers for the actual return type.
     if func.return_type != TypeRef::Unit {
-        out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
+        out.push_str(&format!(
+            "                    var jsonPtr = NativeMethods.{result_pascal}ToJson(nativeResult);\n"
+        ));
         out.push_str(
             "                    var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n",
         );
         out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str("                    NativeMethods.ConversionResultFree(nativeResult);\n");
-        out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
+        out.push_str(&format!(
+            "                    NativeMethods.{result_pascal}Free(nativeResult);\n"
+        ));
+        out.push_str(&format!(
+            "                    return JsonSerializer.Deserialize<{result_pascal}>(json ?? \"null\", JsonOptions)!;\n"
+        ));
     }
 
     out.push_str("                }\n");
     out.push_str("                finally\n");
     out.push_str("                {\n");
-    out.push_str("                    NativeMethods.HtmlVisitorBridgeFree(bridgeHandle);\n");
+    out.push_str(&format!(
+        "                    NativeMethods.{trait_pascal}BridgeFree(bridgeHandle);\n"
+    ));
     // Remove registry entry now that Rust will not call back again.
-    out.push_str("                    lock (HtmlVisitorBridge._registryLock)\n");
+    out.push_str(&format!(
+        "                    lock ({trait_pascal}Bridge._registryLock)\n"
+    ));
     out.push_str("                    {\n");
-    out.push_str("                        HtmlVisitorBridge._bridgeRegistry.Remove(bridge._bridgeId);\n");
+    out.push_str(&format!(
+        "                        {trait_pascal}Bridge._bridgeRegistry.Remove(bridge._bridgeId);\n"
+    ));
     out.push_str("                    }\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
@@ -1077,15 +1019,19 @@ fn gen_bridge_field_wrapper_function(
 
     if func.return_type != TypeRef::Unit {
         out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str("                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
+        out.push_str(&format!(
+            "                var jsonPtr = NativeMethods.{result_pascal}ToJson(nativeResult);\n"
+        ));
         out.push_str(
             "                var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n",
         );
         out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
-        out.push_str(
-            "                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n",
-        );
+        out.push_str(&format!(
+            "                NativeMethods.{result_pascal}Free(nativeResult);\n"
+        ));
+        out.push_str(&format!(
+            "                return JsonSerializer.Deserialize<{result_pascal}>(json ?? \"null\", JsonOptions)!;\n"
+        ));
     }
 
     out.push_str("            }\n");
@@ -1093,7 +1039,7 @@ fn gen_bridge_field_wrapper_function(
     out.push_str("        finally\n");
     out.push_str("        {\n");
     out.push_str(&format!(
-        "            NativeMethods.ConversionOptionsFree({options_param_camel}Handle);\n"
+        "            NativeMethods.{options_pascal}Free({options_param_camel}Handle);\n"
     ));
     out.push_str("        }\n");
     out.push_str("    }\n\n");

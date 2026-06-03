@@ -555,9 +555,7 @@ fn render_build_zig_zon(
                 Some(h) => format!(
                     "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = \"{h}\",\n        }},"
                 ),
-                None => format!(
-                    "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = \"TODO\",\n        }},"
-                ),
+                None => format!("        .{pkg_name} = .{{\n            .url = \"{url}\",\n        }},"),
             }
         }
         crate::e2e::config::DependencyMode::Local => {
@@ -3271,8 +3269,6 @@ mod zig_hash_tests {
             DependencyMode::Registry,
             "1.4.0-rc.32",
             &platform_hashes,
-            "sample-llm",
-            "https://github.com/sample_crate-dev/sample-llm",
             false,
         );
         assert!(
@@ -3290,10 +3286,9 @@ mod zig_hash_tests {
         );
     }
 
-    /// When no hash is available (None) the fallback `.hash = "TODO"` must be
-    /// emitted for the single generic tarball entry.
+    /// When no hash is available (None), no fake hash may be emitted for the single generic tarball entry.
     #[test]
-    fn build_zig_zon_falls_back_to_todo_when_no_hash() {
+    fn build_zig_zon_omits_hash_when_no_hash() {
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
             "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32.tar.gz"
@@ -3305,13 +3300,11 @@ mod zig_hash_tests {
             DependencyMode::Registry,
             "1.4.0-rc.32",
             &platform_hashes,
-            "sample-llm",
-            "https://github.com/sample_crate-dev/sample-llm",
             false,
         );
         assert!(
-            content.contains(".hash = \"TODO\""),
-            "build.zig.zon must fall back to TODO when no hash is available, got:\n{content}"
+            !content.contains(".hash"),
+            "build.zig.zon must omit fake hash metadata when no hash is available, got:\n{content}"
         );
     }
 
@@ -3333,8 +3326,6 @@ mod zig_hash_tests {
             DependencyMode::Registry,
             "3.5.1",
             &platform_hashes,
-            "sample-markdown-rs",
-            "https://github.com/sample_crate-dev/sample-markdown",
             false,
         );
         // Verify the generic (no-suffix) URL is present with proper repo segment.

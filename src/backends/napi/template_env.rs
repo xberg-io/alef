@@ -98,14 +98,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "options_visitor_extract_required.jinja",
         include_str!("templates/options_visitor_extract_required.jinja"),
     ),
-    (
-        "options_convert_optional.jinja",
-        include_str!("templates/options_convert_optional.jinja"),
-    ),
-    (
-        "options_convert_required.jinja",
-        include_str!("templates/options_convert_required.jinja"),
-    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

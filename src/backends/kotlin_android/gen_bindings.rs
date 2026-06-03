@@ -27,6 +27,8 @@ use crate::core::jni::bridge_class_name;
 
 use crate::backends::kotlin_android::naming::kotlin_package;
 use crate::backends::kotlin_android::trait_bridge;
+use crate::core::config::TraitBridgeConfig;
+use crate::core::ir::TypeRef;
 
 /// Emit all Kotlin source files for the AAR module.
 ///
@@ -77,8 +79,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     // Build an `enum_name → default_variant` map so the data-class emitter
     // can synthesise constructor defaults for Named enum fields (e.g.
     // `headingStyle: HeadingStyle = HeadingStyle.ATX`). The Jackson Kotlin
-    // module rejects deserialization of partial JSON (e.g. tests that pass
-    // `{"extract_metadata":true}` into `ConversionOptions`) when a
+    // module rejects deserialization of partial JSON when a
     // non-nullable field has no default — every non-optional Named enum
     // field needs one to round-trip.
     //
@@ -311,7 +312,7 @@ fn emit_trait_interfaces(
             body.push_str("    fun initialize() {}\n");
             body.push_str("    fun shutdown() {}\n");
         }
-        emit_trait_methods(trait_def, &mut imports, &mut body);
+        emit_trait_methods(api, bridge, trait_def, &mut imports, &mut body);
         body.push_str("}\n");
 
         let content = assemble_kt_content(package, &imports, &body);
@@ -393,7 +394,13 @@ pub fn format_method_signature(suspend_keyword: &str, method_name: &str, params:
     }
 }
 
-fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body: &mut String) {
+fn emit_trait_methods(
+    api: &ApiSurface,
+    bridge: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    imports: &mut BTreeSet<String>,
+    body: &mut String,
+) {
     for method in &trait_def.methods {
         if method.sanitized || method.is_static {
             continue;
@@ -401,28 +408,19 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
         emit_kdoc_pub(body, &method.doc, "    ");
         let suspend_keyword = if method.is_async { "suspend " } else { "" };
         let method_name = to_lower_camel(&method.name);
-        // Map InternalDocument to ExtractionResult in parameter types
         let params = method
             .params
             .iter()
             .map(|param| {
                 let name = to_lower_camel(&param.name);
-                let mut ty = kotlin_type_str_pub(&param.ty, param.optional, imports);
-                // Substitute InternalDocument with ExtractionResult in param types
-                if ty.starts_with("InternalDocument") {
-                    ty = ty.replace("InternalDocument", "ExtractionResult");
-                }
+                let ty_ref = substitute_trait_carrier_type(api, bridge, &param.ty);
+                let ty = kotlin_type_str_pub(&ty_ref, param.optional, imports);
                 format!("{name}: {ty}")
             })
             .collect::<Vec<_>>()
             .join(", ");
-        // Map InternalDocument (trait return type) to ExtractionResult (public API type)
-        let return_type = kotlin_type_str_pub(&method.return_type, false, imports);
-        let return_type = if return_type == "InternalDocument" {
-            "ExtractionResult".to_string()
-        } else {
-            return_type
-        };
+        let return_type_ref = substitute_trait_carrier_type(api, bridge, &method.return_type);
+        let return_type = kotlin_type_str_pub(&return_type_ref, false, imports);
         body.push_str(&format_method_signature(
             suspend_keyword,
             &method_name,
@@ -430,6 +428,35 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
             &return_type,
         ));
     }
+}
+
+fn substitute_trait_carrier_type(api: &ApiSurface, bridge: &TraitBridgeConfig, ty: &TypeRef) -> TypeRef {
+    match ty {
+        TypeRef::Named(name) if should_project_trait_carrier(api, bridge, name) => TypeRef::Named(
+            bridge
+                .result_type
+                .as_ref()
+                .expect("checked by should_project_trait_carrier")
+                .clone(),
+        ),
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_trait_carrier_type(api, bridge, inner))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_trait_carrier_type(api, bridge, inner))),
+        TypeRef::Map(key, value) => TypeRef::Map(
+            Box::new(substitute_trait_carrier_type(api, bridge, key)),
+            Box::new(substitute_trait_carrier_type(api, bridge, value)),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn should_project_trait_carrier(api: &ApiSurface, bridge: &TraitBridgeConfig, type_name: &str) -> bool {
+    bridge.context_type.as_deref() == Some(type_name)
+        && bridge.result_type.is_some()
+        && (api.excluded_type_paths.contains_key(type_name)
+            || api
+                .types
+                .iter()
+                .any(|typ| typ.name == type_name && (typ.binding_excluded || typ.is_opaque)))
 }
 
 /// Emit `<Module>.kt` — a Kotlin `object` that re-exposes every free function

@@ -46,6 +46,38 @@ type = "ChatCompletionRequest"
     )
 }
 
+fn make_trait_carrier_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin_android", "java", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.java]
+package = "dev.sample_crate"
+
+[crates.kotlin_android]
+package = "dev.sample_crate.demo.android"
+namespace = "dev.sample_crate.demo.android"
+artifact_id = "demo-android"
+group_id = "dev.sample_crate"
+
+[[crates.trait_bridges]]
+trait_name = "Renderer"
+type_alias = "RendererHandle"
+param_name = "renderer"
+context_type = "HiddenCarrier"
+result_type = "PublicCarrier"
+"#,
+    )
+}
+
 fn make_streaming_api() -> ApiSurface {
     let chat_method = MethodDef {
         name: "chat".into(),
@@ -102,6 +134,93 @@ fn make_streaming_api() -> ApiSurface {
     }
 }
 
+fn make_trait_carrier_api() -> ApiSurface {
+    let render_method = MethodDef {
+        name: "render".into(),
+        params: vec![ParamDef {
+            name: "carrier".into(),
+            ty: TypeRef::Named("HiddenCarrier".into()),
+            optional: false,
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::Named("HiddenCarrier".into()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let trait_type = TypeDef {
+        name: "Renderer".into(),
+        rust_path: "demo::Renderer".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![render_method],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+    let public_carrier = TypeDef {
+        name: "PublicCarrier".into(),
+        rust_path: "demo::PublicCarrier".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+    let mut excluded_type_paths = ::std::collections::HashMap::new();
+    excluded_type_paths.insert("HiddenCarrier".to_string(), "demo::HiddenCarrier".to_string());
+
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type, public_carrier],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths,
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    }
+}
+
 /// `KotlinAndroidBackend` must advertise streaming support so downstream
 /// consumers (e.g. sample-llm) can rely on the `Flow<T>` surface.
 #[test]
@@ -110,6 +229,25 @@ fn supports_streaming_capability_is_true() {
         KotlinAndroidBackend.capabilities().supports_streaming,
         "KotlinAndroidBackend must report supports_streaming = true"
     );
+}
+
+#[test]
+fn trait_interface_projects_configured_excluded_carrier_to_public_result() {
+    let api = make_trait_carrier_api();
+    let config = make_trait_carrier_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let interface = files
+        .iter()
+        .find(|file| file.path.file_name().and_then(|name| name.to_str()) == Some("IRenderer.kt"))
+        .expect("trait bridge interface should be emitted");
+    let content = &interface.content;
+
+    assert!(
+        content.contains("fun render(carrier: PublicCarrier): PublicCarrier"),
+        "{content}"
+    );
+    assert!(!content.contains("HiddenCarrier"), "{content}");
 }
 
 /// A streaming adapter owned by a client type must produce a `Flow<T>`

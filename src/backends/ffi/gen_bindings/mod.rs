@@ -754,13 +754,19 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 .trait_bridges
                 .iter()
                 .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
-                .find_map(|b| trait_map.get(b.trait_name.as_str()).copied());
-            if let Some(vtd) = visitor_trait_def {
+                .find_map(|b| {
+                    trait_map
+                        .get(b.trait_name.as_str())
+                        .copied()
+                        .map(|trait_def| (trait_def, b))
+                });
+            if let Some((vtd, bridge_cfg)) = visitor_trait_def {
                 builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
                     prefix,
                     &core_import,
                     true,
                     vtd,
+                    Some(bridge_cfg),
                 ));
             } else {
                 eprintln!(
@@ -783,6 +789,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 &core_import,
                 false,
                 vtd,
+                None,
             ));
         } else {
             eprintln!(

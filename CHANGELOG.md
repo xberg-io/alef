@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(codegen): remove additional downstream-specific generation behavior in R/extendr, PHP, Kotlin Android, C#/NAPI/WASM/FFI visitor bridges, Swift/Zig scaffold metadata, and generated-header defaults. These paths now derive options, serde defaults, carrier projection, and registry metadata from IR/config instead of product-shaped type names, with central validation diagnostics added for future generation checks. (`src/backends/extendr`, `src/backends/php`, `src/backends/kotlin_android`, `src/backends/{csharp,napi,wasm,ffi}`, `src/core/validation`, `src/scaffold`, `src/e2e/codegen/zig.rs`)
 - fix(ffi): emit inline temporary `Vec<&str>` for `&[&str]` params instead of let-binding inside a block. The previous `{ let _refs: Vec<&str> = ...; &_refs }` form dropped `_refs` at the inner block's end, producing E0597 (borrow does not live long enough) at the outer call. Switched to `&rs.iter().map(|s| s.as_str()).collect::<Vec<&str>>()` so Rust extends the temporary to the enclosing statement. (`src/backends/ffi/gen_bindings/functions.rs`)
 
 ## [0.22.1] - 2026-06-03

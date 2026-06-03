@@ -2,7 +2,7 @@ use crate::adapters::AdapterBodies;
 use crate::backends::php::type_map::PhpMapper;
 use crate::codegen::builder::ImplBuilder;
 use crate::codegen::generators::{self, RustBindingConfig};
-use crate::codegen::naming::wire_variant_value;
+use crate::codegen::naming::{pascal_to_snake, wire_variant_value};
 use crate::codegen::shared::{binding_fields, partition_methods};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
@@ -40,6 +40,42 @@ fn is_php_prop_scalar_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) ->
         TypeRef::Named(n) if enum_names.contains(n) => true,
         TypeRef::Named(_) | TypeRef::Map(_, _) | TypeRef::Json | TypeRef::Bytes | TypeRef::Unit => false,
     }
+}
+
+fn serde_default_fn_name(type_name: &str, field_name: &str) -> String {
+    format!("{}_{}", pascal_to_snake(type_name), pascal_to_snake(field_name))
+}
+
+fn supports_serde_default_fn(field: &FieldDef) -> bool {
+    use crate::core::ir::DefaultValue;
+
+    matches!(
+        (&field.typed_default, &field.ty),
+        (
+            Some(DefaultValue::BoolLiteral(_)),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
+        ) | (
+            Some(DefaultValue::StringLiteral(_) | DefaultValue::EnumVariant(_)),
+            TypeRef::String | TypeRef::Named(_)
+        ) | (
+            Some(DefaultValue::IntLiteral(_)),
+            TypeRef::Primitive(
+                crate::core::ir::PrimitiveType::U8
+                    | crate::core::ir::PrimitiveType::U16
+                    | crate::core::ir::PrimitiveType::U32
+                    | crate::core::ir::PrimitiveType::U64
+                    | crate::core::ir::PrimitiveType::I8
+                    | crate::core::ir::PrimitiveType::I16
+                    | crate::core::ir::PrimitiveType::I32
+                    | crate::core::ir::PrimitiveType::I64
+                    | crate::core::ir::PrimitiveType::Usize
+                    | crate::core::ir::PrimitiveType::Isize
+            )
+        ) | (
+            Some(DefaultValue::FloatLiteral(_)),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64)
+        )
+    )
 }
 
 /// Returns `true` if the PHP-mapped type is `Copy`, meaning `.clone()` can be omitted.
@@ -246,17 +282,9 @@ pub(crate) fn gen_php_struct(
         if cfg.has_serde && matches!(field.ty, TypeRef::Duration) && !field.optional {
             attrs.push("serde(skip_serializing_if = \"Option::is_none\")".to_string());
         }
-        // Bool fields whose core default is `true` need an explicit per-field serde override.
-        // Without it, serde uses bool::default() = false for structs with #[serde(default)],
-        // which is wrong for fields like PreprocessingOptions.enabled.
-        if cfg.has_serde
-            && typ.has_default
-            && matches!(
-                field.typed_default,
-                Some(crate::core::ir::DefaultValue::BoolLiteral(true))
-            )
-        {
-            attrs.push("serde(default = \"crate::serde_defaults::bool_true\")".to_string());
+        if cfg.has_serde && typ.has_default && !field.optional && supports_serde_default_fn(field) {
+            let fn_name = serde_default_fn_name(&typ.name, &field.name);
+            attrs.push(format!("serde(default = \"crate::serde_defaults::{fn_name}\")"));
         }
         // Enum-backed String fields (PHP maps unit enums to plain `String`) default to "" via
         // `String::default()`, but the core enum doesn't accept `""` as a valid variant. Skip
@@ -274,25 +302,6 @@ pub(crate) fn gen_php_struct(
                 } else {
                     attrs.push("serde(skip_serializing_if = \"String::is_empty\")".to_string());
                 }
-            }
-        }
-        // SecurityLimits fields need custom serde defaults to match the Rust struct's Default impl.
-        // When JSON is missing a field, we want the security limit (e.g., 500MB) not 0.
-        if cfg.has_serde && typ.name == "SecurityLimits" && !field.optional {
-            match field.name.as_str() {
-                "max_archive_size"
-                | "max_compression_ratio"
-                | "max_files_in_archive"
-                | "max_nesting_depth"
-                | "max_entity_length"
-                | "max_content_size"
-                | "max_iterations"
-                | "max_xml_depth"
-                | "max_table_cells" => {
-                    let serde_attr = format!("serde(default = \"crate::serde_defaults::{}\")", field.name);
-                    attrs.push(serde_attr);
-                }
-                _ => {}
             }
         }
         attrs
@@ -448,10 +457,11 @@ fn gen_struct_methods_impl(
         // use partial JSON. PHP enum fields map to String in the binding; their Rust-native
         // defaults (e.g. BrowserMode::Auto) are not valid in the generated binding code, so
         // a PHP kwargs __construct would fail to compile for any struct with enum-typed fields.
-        // Special case: ConversionOptions has a hand-written impl Default (not #[derive(Default)])
-        // so the IR may not detect has_default=true. Force from_json for it since it's serializable.
-        let force_from_json_for_options = typ.name == "ConversionOptions";
-        let use_from_json = has_serde && (has_named_params || typ.has_default || force_from_json_for_options);
+        let has_field_defaults = typ
+            .fields
+            .iter()
+            .any(|field| field.default.is_some() || field.typed_default.is_some());
+        let use_from_json = has_serde && (has_named_params || typ.has_default || has_field_defaults);
         if use_from_json {
             let constructor = "#[php(name = \"from_json\")]\npub fn from_json(json: String) -> PhpResult<Self> {\n    \
                  serde_json::from_str(&json)\n        \
@@ -901,10 +911,9 @@ fn gen_struct_methods_impl(
         }
     }
 
-    // Generate wither methods for opaque-type / bridge-type fields (e.g., with_visitor for
-    // ConversionOptions.visitor). These let PHP callers set a single trait-bridge field on an
-    // existing struct instance — required because PHP can't construct opaque handles via the
-    // generated constructor (they're filtered out of constructor params).
+    // Generate wither methods for opaque-type / bridge-type fields. These let PHP callers set
+    // a single trait-bridge field on an existing struct instance. PHP can't construct opaque
+    // handles via the generated constructor because they're filtered out of constructor params.
     //
     // Walk raw `typ.fields` (not `binding_fields()`): trait-bridge fields are often marked
     // binding_excluded so they don't appear in the constructor / from_json builder, but the

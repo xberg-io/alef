@@ -62,6 +62,28 @@ extension_name = "test_lib"
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
+fn make_config_with_php_output(output_path: &std::path::Path) -> ResolvedCrateConfig {
+    let output = output_path.to_string_lossy();
+    let toml = format!(
+        r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.output]
+php = "{output}"
+
+[crates.php]
+extension_name = "test_lib"
+"#
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
+}
+
 fn make_config_with_php_excludes() -> ResolvedCrateConfig {
     let toml = r#"
 [workspace]
@@ -173,6 +195,83 @@ fn php_native_and_facade_allow_null_default_config_param() {
     assert!(
         stub.contains("?\\Test\\Lib\\ExtractionConfig $config = null"),
         "PHP facade stub must allow null default config:\n{stub}"
+    );
+}
+
+#[test]
+fn php_serde_defaults_are_generated_from_typed_default_metadata() {
+    let backend = PhpBackend;
+    let mut max_items = make_field("max_items", TypeRef::Primitive(PrimitiveType::Usize), false);
+    max_items.typed_default = Some(DefaultValue::IntLiteral(500));
+    let mut enabled = make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false);
+    enabled.typed_default = Some(DefaultValue::BoolLiteral(true));
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Limits".to_string(),
+            rust_path: "test_lib::Limits".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![max_items, enabled],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        ..ApiSurface::default()
+    };
+
+    let root = tempfile::tempdir().expect("tempdir");
+    let output_dir = root.path().join("crates/test-lib-php/src");
+    std::fs::create_dir_all(&output_dir).expect("create output dir");
+    std::fs::write(
+        root.path().join("crates/test-lib-php/Cargo.toml"),
+        "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n",
+    )
+    .expect("write Cargo.toml");
+    let config = make_config_with_php_output(&output_dir);
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("PHP bindings must generate");
+    let lib = files
+        .iter()
+        .find(|file| file.path.ends_with("lib.rs"))
+        .expect("lib.rs generated");
+
+    assert!(
+        lib.content
+            .contains("#[serde(default = \"crate::serde_defaults::limits_max_items\")]"),
+        "typed default metadata must drive serde default helpers:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("pub fn limits_max_items() -> i64 { 500 }"),
+        "integer typed default must emit a matching helper:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("pub fn limits_enabled() -> bool { true }"),
+        "boolean typed default must emit a matching helper:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("security_limits"),
+        "serde default helpers must not branch on downstream type names:\n{}",
+        lib.content
     );
 }
 

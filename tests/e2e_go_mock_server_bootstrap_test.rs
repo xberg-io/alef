@@ -113,28 +113,21 @@ fn test_go_main_test_with_mock_server_fixture() {
     );
     assert!(content.contains("bufio"), "TestMain should import bufio for scanner");
     assert!(
-        content.contains("encoding/json"),
-        "TestMain should import encoding/json for MOCK_SERVERS parsing"
-    );
-    assert!(
         content.contains("strings"),
         "TestMain should import strings for prefix matching"
     );
 
     // Verify the logic path for standalone mode
     assert!(
-        content.contains("Build the mock-server"),
-        "TestMain should include comment about building mock-server"
-    );
-    assert!(
         content.contains("cargo"),
         "TestMain should use cargo to build mock-server if missing"
     );
 
-    // Verify env var setting for per-fixture URLs
+    // Test files derive fixture URLs from MOCK_SERVER_URL/fixtures/<id>; TestMain
+    // only needs to discover and export the base URL.
     assert!(
-        content.contains("MOCK_SERVER_"),
-        "TestMain should set MOCK_SERVER_<FIXTURE_ID> env vars"
+        !content.contains("encoding/json"),
+        "TestMain should not import unused JSON parsing helpers"
     );
 }
 

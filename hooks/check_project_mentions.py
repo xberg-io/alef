@@ -44,7 +44,7 @@ POLICY_FILES = {
 }
 
 PROJECT_NAMES = {
-    "kreuzberg": ("kreuzberg",),
+    "kreuzberg": ("kreuz", "berg"),
     "kreuzcrawl": ("kreuzcrawl",),
     "tree-sitter-language-pack": ("tree", "sitter", "language", "pack"),
     "ts-pack": ("ts", "pack"),
@@ -58,6 +58,7 @@ PROJECT_NAMES = {
 INFRASTRUCTURE_ALLOWLIST = (
     "kreuzberg-dev",
     "kreuzberg-bot",
+    "bot@kreuzberg.dev",
     "github.com/kreuzberg-dev/",
     "https://github.com/kreuzberg-dev/",
     "git@github.com:kreuzberg-dev/",

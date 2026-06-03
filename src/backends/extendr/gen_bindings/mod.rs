@@ -914,15 +914,17 @@ fn find_r_options_type<'a>(api: &'a ApiSurface, config: &ResolvedCrateConfig) ->
         .filter(|bridge| bridge.bind_via == crate::core::config::BridgeBinding::OptionsField)
         .filter_map(|bridge| bridge.options_type.as_deref())
         .find_map(|type_name| api.types.iter().find(|t| t.name == type_name && !t.is_trait))
-        .or_else(|| {
-            let input_type_names = crate::codegen::conversions::input_type_names(api);
-            api.types
-                .iter()
-                .find(|t| !t.is_trait && t.has_default && input_type_names.contains(&t.name))
-        })
+        .or_else(|| find_r_options_type_from_api(api))
 }
 
-/// Generate the `options.R` file for the R package from the `ConversionOptions` IR type.
+fn find_r_options_type_from_api(api: &ApiSurface) -> Option<&TypeDef> {
+    let input_type_names = crate::codegen::conversions::input_type_names(api);
+    api.types
+        .iter()
+        .find(|t| !t.is_trait && t.has_default && input_type_names.contains(&t.name))
+}
+
+/// Generate the `options.R` file for the R package from the configured options IR type.
 ///
 /// Produces a roxygen-documented `conversion_options()` helper function with one parameter per
 /// field (all defaulting to `NULL`). R callers use named arguments to override individual
@@ -990,12 +992,11 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 /// Generate the Rust-side `options.rs` module with `decode_options` function.
 ///
 /// The `decode_options` function handles input from R in three main forms:
-/// 1. ExternalPtr<ConversionOptions> (from $default() / builder methods) — unwraps and converts to core
-/// 2. NULL — uses default ConversionOptions
+/// 1. ExternalPtr<T> (from $default() / builder methods) — unwraps and converts to core
+/// 2. NULL — uses the configured options type's default
 /// 3. Named list with field names matching struct fields — decodes field by field
 ///
-/// This allows R callers to pass `ConversionOptions$default()`, NULL, or a named list like
-/// `list(heading_style = "Atx", wrap = TRUE, wrap_width = 100L)` to convert().
+/// This allows R callers to pass `OptionsType$default()`, NULL, or a named list.
 fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> String {
     let mut code = String::new();
     code.push_str("//! Option decoding for R bindings.\n\n");
@@ -1008,7 +1009,14 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     let mut enum_decoders = std::collections::BTreeSet::new();
     let mut struct_decoders = std::collections::BTreeSet::new();
     for field in &opts_type.fields {
-        collect_option_decoder_types(&field.ty, opts_type.name.as_str(), &type_defs, &enum_defs, &mut enum_decoders, &mut struct_decoders);
+        collect_option_decoder_types(
+            &field.ty,
+            opts_type.name.as_str(),
+            &type_defs,
+            &enum_defs,
+            &mut enum_decoders,
+            &mut struct_decoders,
+        );
     }
 
     // Helper function for list access
@@ -1041,8 +1049,8 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     code.push_str(".\n");
     code.push_str("///\n");
     code.push_str("/// Accepts:\n");
-    code.push_str("/// - ExternalPtr<ConversionOptions> (from $default() or builder methods) — unwraps and converts\n");
-    code.push_str("/// - NULL — returns default ConversionOptions\n");
+    code.push_str("/// - ExternalPtr of the configured options type (from $default() or builder methods) — unwraps and converts\n");
+    code.push_str("/// - NULL — returns the configured options type's default\n");
     code.push_str("/// - Named list with field names matching struct fields — decodes field by field\n");
     code.push_str("///\n");
     code.push_str("/// Fields are optional: omitted fields retain their defaults. Unknown fields are ignored.\n");
@@ -1055,7 +1063,7 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     code.push_str("::default());\n");
     code.push_str("    }\n\n");
 
-    code.push_str("    // Accept the wrapper struct returned by `ConversionOptions$default()` / builder methods,\n");
+    code.push_str("    // Accept the wrapper struct returned by the options type's default() / builder methods,\n");
     code.push_str("    // which extendr exposes as an `ExternalPtr`. The binding struct is returned directly\n");
     code.push_str("    // from the #[extendr] impl methods, so unwrap it as the binding type.\n");
     code.push_str("    if let Ok(ext) = ExternalPtr::<crate::");
@@ -1096,7 +1104,14 @@ fn collect_option_decoder_types(
 ) {
     let TypeRef::Named(name) = ty else {
         if let TypeRef::Optional(inner) = ty {
-            collect_option_decoder_types(inner, root_type_name, type_defs, enum_defs, enum_decoders, struct_decoders);
+            collect_option_decoder_types(
+                inner,
+                root_type_name,
+                type_defs,
+                enum_defs,
+                enum_decoders,
+                struct_decoders,
+            );
         }
         return;
     };
@@ -1112,7 +1127,14 @@ fn collect_option_decoder_types(
     }
     if struct_decoders.insert(type_def.name.clone()) {
         for field in &type_def.fields {
-            collect_option_decoder_types(&field.ty, root_type_name, type_defs, enum_defs, enum_decoders, struct_decoders);
+            collect_option_decoder_types(
+                &field.ty,
+                root_type_name,
+                type_defs,
+                enum_defs,
+                enum_decoders,
+                struct_decoders,
+            );
         }
     }
 }
@@ -1373,33 +1395,34 @@ fn gen_field_decoder(
                 code.push_str("    }\n");
             }
         }
-        TypeRef::Named(enum_name) => {
-            if enum_defs.contains_key(enum_name.as_str()) {
-                let fn_name = format!("decode_{}", r_function_component(enum_name));
-                code.push_str("    if let Some(v) = list_get(&list, \"");
-                code.push_str(field_name_trim);
-                code.push_str("\") {\n");
-                code.push_str("        opts.");
-                code.push_str(field_name);
-                code.push_str(" = ");
-                code.push_str(&fn_name);
-                code.push_str("(v)?;\n");
-                code.push_str("    }\n");
-            } else if type_defs.contains_key(enum_name.as_str()) {
-                let fn_name = format!("decode_{}", r_function_component(enum_name));
-                code.push_str("    if let Some(v) = list_get(&list, \"");
-                code.push_str(field_name_trim);
-                code.push_str("\") {\n");
-                code.push_str("        opts.");
-                code.push_str(field_name);
-                code.push_str(" = ");
-                code.push_str(&fn_name);
-                code.push_str("(v)?;\n");
-                code.push_str("    }\n");
-            }
+        TypeRef::Named(enum_name)
+            if (enum_defs.contains_key(enum_name.as_str()) || type_defs.contains_key(enum_name.as_str())) =>
+        {
+            let fn_name = format!("decode_{}", r_function_component(enum_name));
+            code.push_str("    if let Some(v) = list_get(&list, \"");
+            code.push_str(field_name_trim);
+            code.push_str("\") {\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = ");
+            code.push_str(&fn_name);
+            code.push_str("(v)?;\n");
+            code.push_str("    }\n");
         }
         TypeRef::Optional(inner) => {
             match inner.as_ref() {
+                TypeRef::Named(name) if enum_defs.contains_key(name.as_str()) => {
+                    let fn_name = format!("decode_{}", r_function_component(name));
+                    code.push_str("    if let Some(v) = list_get(&list, \"");
+                    code.push_str(field_name_trim);
+                    code.push_str("\") {\n");
+                    code.push_str("        opts.");
+                    code.push_str(field_name);
+                    code.push_str(" = Some(");
+                    code.push_str(&fn_name);
+                    code.push_str("(v)?);\n");
+                    code.push_str("    }\n");
+                }
                 TypeRef::Named(name) if type_defs.contains_key(name.as_str()) => {
                     let fn_name = format!("decode_{}", r_function_component(name));
                     code.push_str("    if let Some(v) = list_get(&list, \"");
@@ -1631,15 +1654,16 @@ fn gen_extendr_bridge_field_function(
         "        .map(|v| Arc::new(Mutex::new(RHtmlVisitorBridge::new(v))) as {core_import}::visitor::VisitorHandle);\n"
     ));
 
-    // Decode options into the R-local `ConversionOptions`, convert to the core type via the
-    // generated `From` impl, then inject the visitor handle. The visitor field exists only on
-    // the core `ConversionOptions`, so we convert first and assign after.
+    // Decode options into the R-local options type, convert to the core type via the
+    // generated `From` impl, then inject the bridge handle. The bridge field exists only on
+    // the core options type, so we convert first and assign after.
     body.push_str(&format!(
         "    let opts_local = crate::options::decode_options({options_param})\n"
     ));
     body.push_str("        .map_err(|e| extendr_api::Error::Other(e))?;\n");
     body.push_str(&format!(
-        "    let mut opts: {core_import}::ConversionOptions = opts_local.into();\n"
+        "    let mut opts: {core_import}::{options_type} = opts_local.into();\n",
+        options_type = bridge_match.options_type
     ));
     body.push_str(&format!("    opts.{field_name} = {field_name}_handle;\n"));
 
@@ -3188,8 +3212,8 @@ fn gen_namespace(
         ));
     }
 
-    // Export the conversion_options helper function if ConversionOptions type exists
-    if api.types.iter().any(|t| t.name == "ConversionOptions" && !t.is_trait) {
+    // Export the options helper function if an options-like input type exists.
+    if find_r_options_type_from_api(api).is_some() {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
             minijinja::context! { name => "conversion_options" },

@@ -36,17 +36,22 @@ fn no_project_name_special_casing_in_enforced_files() {
 fn no_downstream_project_names_in_snapshot_filenames() {
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let snapshot_root = workspace_root.join("tests/snapshots");
-    let leaks: Vec<String> = WalkDir::new(snapshot_root)
+    let leaks: Vec<String> = WalkDir::new(&snapshot_root)
         .into_iter()
         .filter_map(Result::ok)
         .map(walkdir::DirEntry::into_path)
         .filter(|entry_path| entry_path.is_file())
         .filter_map(|entry_path| {
-            let normalized = entry_path.display().to_string().to_lowercase().replace(['_', '/'], "-");
+            let display_path = entry_path
+                .strip_prefix(&snapshot_root)
+                .unwrap_or(&entry_path)
+                .display()
+                .to_string();
+            let normalized = display_path.to_lowercase().replace(['_', '/'], "-");
             SNAPSHOT_FORBIDDEN_MARKERS
                 .iter()
                 .any(|marker| normalized.contains(marker))
-                .then(|| entry_path.display().to_string())
+                .then_some(display_path)
         })
         .collect();
 

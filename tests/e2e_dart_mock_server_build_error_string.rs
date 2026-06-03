@@ -77,6 +77,9 @@ pubspec_name = "sample_app"
 [crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
+
+[crates.e2e.call]
+function = "fetch_data"
 "#;
 
 fn render(fixtures: Vec<Fixture>) -> String {

@@ -501,6 +501,7 @@ pub(super) fn gen_native_methods(
                 lib_name,
                 prefix,
                 &bridge.trait_name,
+                bridge.options_type.as_deref().unwrap_or("Options"),
                 bridge.options_field.as_deref().unwrap_or("visitor"),
             ));
         }

@@ -380,8 +380,11 @@ pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<Strin
         }
     }
 
-    // Swift Package.swift (root seed file with binary URL version)
-    if let Some(found) = extract_version("Package.swift", r#"v(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._]+)*)/LiterLlm"#) {
+    // Swift Package.swift binary release URL, when the root package opts into binary distribution.
+    if let Some(found) = extract_version(
+        "Package.swift",
+        r#"releases/download/v(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._]+)*)/"#,
+    ) {
         if found != expected {
             mismatches.push(format!("Package.swift: found {found}, expected {expected}"));
         }

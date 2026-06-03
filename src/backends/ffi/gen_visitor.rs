@@ -327,9 +327,18 @@ pub fn gen_visitor_bindings(
     core_import: &str,
     embed_visitor_in_options: bool,
     trait_def: &crate::core::ir::TypeDef,
+    bridge_cfg: Option<&crate::core::config::TraitBridgeConfig>,
 ) -> String {
     let pascal_prefix = prefix.to_pascal_case();
     let specs = callback_specs_from_trait(trait_def);
+    let trait_path = trait_def.rust_path.replace('-', "_");
+    let options_type = bridge_cfg
+        .and_then(|cfg| cfg.options_type.as_deref())
+        .unwrap_or("ConversionOptions");
+    let options_field = bridge_cfg
+        .and_then(|cfg| cfg.resolved_options_field())
+        .unwrap_or("visitor");
+    let options_path = format!("{core_import}::{options_type}");
 
     let struct_fields = gen_struct_fields(&specs, &pascal_prefix);
     let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import);
@@ -338,10 +347,10 @@ pub fn gen_visitor_bindings(
     // Build the convert expression for {prefix}_convert_with_visitor.
     let convert_call = if embed_visitor_in_options {
         format!(
-            "    let mut options_with_visitor: Option<{core_import}::ConversionOptions> = options_rs;\n\
+            "    let mut options_with_visitor: Option<{options_path}> = options_rs;\n\
              if visitor_handle.is_some() {{\n\
-             let opts = options_with_visitor.get_or_insert_with({core_import}::ConversionOptions::default);\n\
-             opts.visitor = visitor_handle;\n\
+             let opts = options_with_visitor.get_or_insert_with({options_path}::default);\n\
+             opts.{options_field} = visitor_handle;\n\
              }}\n\
              match {core_import}::convert(&html_str, options_with_visitor) {{"
         )
@@ -543,7 +552,7 @@ fn opt_str_to_c(s: Option<&str>) -> (*const std::ffi::c_char, Option<std::ffi::C
     }}
 }}
 
-impl {core_import}::visitor::HtmlVisitor for {pascal_prefix}Visitor {{
+impl {trait_path} for {pascal_prefix}Visitor {{
 {impl_methods}}}
 
 /// Create a new visitor handle from a callbacks struct.
@@ -592,7 +601,7 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: *mut {pascal_prefix}Visi
     }}
 }}
 
-/// Attach a visitor to a [`{core_import}::ConversionOptions`] handle before calling `{prefix}_convert`.
+/// Attach a visitor to an options handle before calling `{prefix}_convert`.
 ///
 /// The visitor will be invoked during conversion via the normal `{prefix}_convert` path.
 /// The `visitor` pointer must remain valid until after `{prefix}_convert` returns.
@@ -607,7 +616,7 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: *mut {pascal_prefix}Visi
 /// subsequent `{prefix}_convert` call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
-    options: *mut {core_import}::ConversionOptions,
+    options: *mut {options_path},
     visitor: *mut {pascal_prefix}Visitor,
 ) {{
     if options.is_null() || visitor.is_null() {{
@@ -624,11 +633,11 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
     unsafe impl Send for VisitorRef {{}}
     // SAFETY: see Send impl above.
     unsafe impl Sync for VisitorRef {{}}
-    impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
+    impl {trait_path} for VisitorRef {{
 {visitor_ref_methods}    }}
     // SAFETY: options is non-null (checked above); caller guarantees it is valid for write.
     let options_ref = unsafe {{ &mut *options }};
-    options_ref.visitor = Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))));
+    options_ref.{options_field} = Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))));
 }}"#,
         VISIT_RESULT_SKIP = VISIT_RESULT_SKIP,
         VISIT_RESULT_PRESERVE_HTML = VISIT_RESULT_PRESERVE_HTML,
@@ -637,6 +646,9 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         prefix = prefix,
         pascal_prefix = pascal_prefix,
         core_import = core_import,
+        trait_path = trait_path,
+        options_path = options_path,
+        options_field = options_field,
         struct_fields = struct_fields,
         impl_methods = impl_methods,
         visitor_ref_methods = visitor_ref_methods,
@@ -657,7 +669,7 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_convert_with_visitor(
     html: *const std::ffi::c_char,
-    options: *const {core_import}::ConversionOptions,
+    options: *const {options_path},
     visitor: *mut {pascal_prefix}Visitor,
 ) -> *mut {core_import}::ConversionResult {{
     clear_last_error();
@@ -676,7 +688,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         }}
     }};
 
-    let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
+    let options_rs: Option<{options_path}> = if options.is_null() {{
         None
     }} else {{
         // SAFETY: options is a valid pointer guaranteed by the caller.
@@ -694,9 +706,9 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
     unsafe impl Send for VisitorRef {{}}
     // SAFETY: see Send impl above.
     unsafe impl Sync for VisitorRef {{}}
-    impl {core_import}::visitor::HtmlVisitor for VisitorRef {{
+    impl {trait_path} for VisitorRef {{
 {visitor_ref_methods}    }}
-    let visitor_handle: Option<std::sync::Arc<std::sync::Mutex<dyn {core_import}::visitor::HtmlVisitor + Send>>> = if visitor.is_null() {{
+    let visitor_handle: Option<std::sync::Arc<std::sync::Mutex<dyn {trait_path} + Send>>> = if visitor.is_null() {{
         None
     }} else {{
         Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))))
@@ -714,6 +726,8 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         prefix = prefix,
         pascal_prefix = pascal_prefix,
         core_import = core_import,
+        trait_path = trait_path,
+        options_path = options_path,
         visitor_ref_methods = visitor_ref_methods,
         convert_call = convert_call,
     )

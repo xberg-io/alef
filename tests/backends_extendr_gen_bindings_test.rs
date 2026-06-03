@@ -25,6 +25,29 @@ package_name = "testlib"
     )
 }
 
+fn make_options_field_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.r]
+package_name = "testlib"
+
+[[crates.trait_bridges]]
+trait_name = "Renderer"
+type_alias = "RendererHandle"
+param_name = "renderer"
+bind_via = "options_field"
+options_type = "RenderOptions"
+"#,
+    )
+}
+
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         name: name.to_string(),
@@ -45,6 +68,60 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         original_type: None,
+    }
+}
+
+fn make_type(name: &str, fields: Vec<FieldDef>, has_default: bool) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        fields,
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    }
+}
+
+fn make_unit_enum(name: &str, variants: &[&str]) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        variants: variants
+            .iter()
+            .map(|variant| EnumVariant {
+                name: (*variant).to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            })
+            .collect(),
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: false,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -206,6 +283,88 @@ fn test_basic_generation() {
         content.contains("fn extract"),
         "Should register extract function in module"
     );
+}
+
+#[test]
+fn options_decoder_uses_configured_type_and_ir_shapes() {
+    let backend = ExtendrBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            make_type(
+                "RenderOptions",
+                vec![
+                    make_field("style", TypeRef::Named("RenderStyle".to_string()), false),
+                    make_field("nested", TypeRef::Named("NestedOptions".to_string()), false),
+                    make_field("renderer", TypeRef::Named("RendererHandle".to_string()), true),
+                ],
+                true,
+            ),
+            make_type(
+                "NestedOptions",
+                vec![
+                    make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false),
+                    make_field("preset", TypeRef::Named("NestedPreset".to_string()), false),
+                ],
+                true,
+            ),
+        ],
+        functions: vec![FunctionDef {
+            name: "render".to_string(),
+            rust_path: "test_lib::render".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "input".to_string(),
+                    ty: TypeRef::String,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Named("RenderOptions".to_string()),
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![
+            make_unit_enum("RenderStyle", &["Plain", "Rich"]),
+            make_unit_enum("NestedPreset", &["Small", "Large"]),
+        ],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_public_api(&api, &make_options_field_config()).unwrap();
+    let options_rs = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("options.rs"))
+        .expect("options.rs should be generated for configured options field bridge");
+    let content = &options_rs.content;
+
+    assert!(content.contains("std::result::Result<crate::RenderOptions, String>"));
+    assert!(content.contains("fn decode_render_style"));
+    assert!(content.contains("\"Plain\" => Ok(crate::RenderStyle::Plain)"));
+    assert!(content.contains("fn decode_nested_options"));
+    assert!(content.contains("decode_nested_preset(v)?"));
+    assert!(!content.contains("PreprocessingOptions"));
+    assert!(!content.contains("PreprocessingPreset"));
+    assert!(!content.contains("ConversionOptions"));
 }
 
 #[test]

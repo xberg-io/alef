@@ -777,14 +777,17 @@ pub fn gen_options_field_bridge_function(
     // Name of the visitor parameter that will be appended to the function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
     let field_name = bridge_cfg.resolved_options_field().unwrap_or(visitor_kwarg);
-    let options_type = bridge_cfg.options_type.as_deref().unwrap_or_else(|| match &options_param.ty {
-        TypeRef::Named(name) => name.as_str(),
-        TypeRef::Optional(inner) => match inner.as_ref() {
+    let options_type = bridge_cfg
+        .options_type
+        .as_deref()
+        .unwrap_or_else(|| match &options_param.ty {
             TypeRef::Named(name) => name.as_str(),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(name) => name.as_str(),
+                _ => "Options",
+            },
             _ => "Options",
-        },
-        _ => "Options",
-    });
+        });
     let options_path = format!("{core_import}::{options_type}");
 
     // Build parameter list; force the options param to Option<T> if the IR didn't already,

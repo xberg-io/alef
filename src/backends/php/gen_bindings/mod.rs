@@ -9,13 +9,13 @@ use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::doc_emission::{self, DocTarget, sanitize_rust_idioms};
 use crate::codegen::generators::RustBindingConfig;
 use crate::codegen::generators::{self, AsyncPattern};
-use crate::codegen::naming::{to_php_name, wire_variant_value};
+use crate::codegen::naming::{pascal_to_snake, to_php_name, wire_variant_value};
 use crate::codegen::shared::binding_fields;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::ApiSurface;
-use crate::core::ir::{PrimitiveType, TypeRef};
+use crate::core::ir::{DefaultValue, PrimitiveType, TypeRef};
 use ahash::AHashSet;
 use heck::{ToLowerCamelCase, ToPascalCase};
 use minijinja::context;
@@ -41,6 +41,64 @@ fn php_enum_case_value(enum_def: &crate::core::ir::EnumDef, variant: &crate::cor
         variant.serde_rename.as_deref(),
         enum_def.serde_rename_all.as_deref(),
     )
+}
+
+fn serde_default_fn_name(type_name: &str, field_name: &str) -> String {
+    format!("{}_{}", pascal_to_snake(type_name), pascal_to_snake(field_name))
+}
+
+fn typed_default_fn(default: &DefaultValue, ty: &TypeRef) -> Option<(&'static str, String)> {
+    match (default, ty) {
+        (DefaultValue::BoolLiteral(value), TypeRef::Primitive(PrimitiveType::Bool)) => {
+            Some(("bool", value.to_string()))
+        }
+        (
+            DefaultValue::StringLiteral(value) | DefaultValue::EnumVariant(value),
+            TypeRef::String | TypeRef::Named(_),
+        ) => Some(("String", format!("{value:?}.to_string()"))),
+        (DefaultValue::IntLiteral(value), TypeRef::Primitive(primitive)) => {
+            let return_type = match primitive {
+                PrimitiveType::U8 => "u8",
+                PrimitiveType::U16 => "u16",
+                PrimitiveType::U32 => "u32",
+                PrimitiveType::U64 => "i64",
+                PrimitiveType::I8 => "i8",
+                PrimitiveType::I16 => "i16",
+                PrimitiveType::I32 => "i32",
+                PrimitiveType::I64 => "i64",
+                PrimitiveType::Usize | PrimitiveType::Isize => "i64",
+                PrimitiveType::Bool | PrimitiveType::F32 | PrimitiveType::F64 => return None,
+            };
+            Some((return_type, value.to_string()))
+        }
+        (DefaultValue::FloatLiteral(value), TypeRef::Primitive(PrimitiveType::F32)) => Some(("f32", value.to_string())),
+        (DefaultValue::FloatLiteral(value), TypeRef::Primitive(PrimitiveType::F64)) => Some(("f64", value.to_string())),
+        _ => None,
+    }
+}
+
+fn gen_serde_defaults_module(api: &ApiSurface) -> Option<String> {
+    let mut functions = Vec::new();
+    for typ in api.types.iter().filter(|typ| typ.has_default) {
+        for (field, default) in typ
+            .fields
+            .iter()
+            .filter(|field| !field.optional)
+            .filter_map(|field| field.typed_default.as_ref().map(|default| (field, default)))
+        {
+            let Some((return_type, body)) = typed_default_fn(default, &field.ty) else {
+                continue;
+            };
+            let fn_name = serde_default_fn_name(&typ.name, &field.name);
+            functions.push(format!("    pub fn {fn_name}() -> {return_type} {{ {body} }}"));
+        }
+    }
+
+    if functions.is_empty() {
+        None
+    } else {
+        Some(format!("mod serde_defaults {{\n{}\n}}", functions.join("\n")))
+    }
 }
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
@@ -156,10 +214,9 @@ impl Backend for PhpBackend {
         let has_serde = detect_serde_available(&output_dir);
 
         // Build the opaque type names list: IR opaque types + bridge type aliases.
-        // Bridge type aliases (e.g. `VisitorHandle`) wrap Rc-based handles and cannot
-        // implement serde::Serialize/Deserialize.  Including them ensures gen_php_struct
-        // emits #[serde(skip)] for fields of those types so derives on the enclosing
-        // struct (e.g. ConversionOptions) still compile.
+        // Bridge type aliases wrap Rc-based handles and cannot implement serde::Serialize/Deserialize.
+        // Including them ensures gen_php_struct emits #[serde(skip)] for fields of those types so
+        // derives on the enclosing struct still compile.
         let bridge_type_aliases_php: Vec<String> = config
             .trait_bridges
             .iter()
@@ -767,22 +824,12 @@ impl Backend for PhpBackend {
             }
         }
 
-        // Serde default helpers for bool fields whose core default is `true`,
-        // and for SecurityLimits fields which use struct-level defaults.
+        // Serde default helpers generated from IR typed-default metadata.
         // Referenced by #[serde(default = "crate::serde_defaults::...")] on struct fields.
         if has_serde {
-            let serde_module = "mod serde_defaults {\n    pub fn bool_true() -> bool { true }\n\
-                   pub fn max_archive_size() -> i64 { 500 * 1024 * 1024 }\n\
-                   pub fn max_compression_ratio() -> i64 { 100 }\n\
-                   pub fn max_files_in_archive() -> i64 { 10_000 }\n\
-                   pub fn max_nesting_depth() -> i64 { 1024 }\n\
-                   pub fn max_entity_length() -> i64 { 1024 * 1024 }\n\
-                   pub fn max_content_size() -> i64 { 100 * 1024 * 1024 }\n\
-                   pub fn max_iterations() -> i64 { 10_000_000 }\n\
-                   pub fn max_xml_depth() -> i64 { 1024 }\n\
-                   pub fn max_table_cells() -> i64 { 100_000 }\n\
-                }";
-            builder.add_item(serde_module);
+            if let Some(serde_module) = gen_serde_defaults_module(api) {
+                builder.add_item(&serde_module);
+            }
         }
 
         // Always enable abi_vectorcall on Windows — ext-php-rs requires the
@@ -851,7 +898,9 @@ impl Backend for PhpBackend {
             if let Some(field_name) = bridge.resolved_options_field() {
                 let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
                 let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
-                let options_type = bridge.options_type.as_deref().unwrap_or("ConversionOptions");
+                let Some(options_type) = bridge.options_type.as_deref() else {
+                    continue;
+                };
                 let builder_type = format!("{}Builder", options_type);
                 let bridge_struct = format!("Php{}Bridge", bridge.trait_name);
                 let bridge_handle_path = bridge_handle_path(api, bridge, &core_import);

@@ -269,7 +269,7 @@ prefix = "htm"
     // Simple targets without mock server orchestration
     let test_target_lines: Vec<&str> = content
         .lines()
-        .skip_while(|l| !l.contains("^test: "))
+        .skip_while(|l| !l.starts_with("test: "))
         .take_while(|l| !l.starts_with("smoke:"))
         .collect();
     let test_section = test_target_lines.join("\n");
@@ -280,7 +280,7 @@ prefix = "htm"
 
     let smoke_target_lines: Vec<&str> = content
         .lines()
-        .skip_while(|l| !l.contains("^smoke: "))
+        .skip_while(|l| !l.starts_with("smoke: "))
         .take_while(|l| !l.starts_with("run_with") && !l.starts_with("clean:"))
         .collect();
     let smoke_section = smoke_target_lines.join("\n");

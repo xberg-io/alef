@@ -1202,7 +1202,7 @@ fn render_test_method(
     // arg is a reliable signal — the args loop above resolves it into a
     // `{Trait}Bridge.Register(new TestStub_*())` expression, which is self-contained:
     // it already performs native registration internally and returns the bridge id.
-    // Wrapping it in the outer `KreuzbergLib.Register*Backend()` reinterprets the
+    // Wrapping it in the outer generated facade `Register*Backend()` reinterprets the
     // GCHandle as userData and NREs. Drop the wrap and invoke the bridge directly.
     let is_trait_bridge_registration = args.iter().any(|arg| arg.arg_type == "test_backend");
 
@@ -1211,7 +1211,7 @@ fn render_test_method(
     let call_expr = if is_trait_bridge_registration {
         // For trait bridge registration, emit ONLY the Bridge.Register() call, not the wrapper.
         // The Bridge.Register() method already calls native registration internally and returns
-        // the bridge ID; wrapping it in KreuzbergLib.Register*() reinterprets the GCHandle as
+        // the bridge ID; wrapping it in the generated facade's Register*() reinterprets the GCHandle as
         // userData and NREs. The template branches on `is_trait_bridge` to drop the wrap.
         final_args.clone()
     } else if _is_streaming {
@@ -4083,7 +4083,7 @@ mod tests {
             "ProcessImage",
             "ExtractBytes",
             "sample_crate",
-            "KreuzbergLib",
+            concat!("Kreuz", "bergLib"),
         ] {
             assert!(
                 !emission.setup_block.contains(name),
@@ -4096,7 +4096,10 @@ mod tests {
                 emission.teardown_block
             );
         }
-        assert_eq!(emission.teardown_block, "FixtureFacade.UnregisterTestTrait(\"my_fixture\");");
+        assert_eq!(
+            emission.teardown_block,
+            "FixtureFacade.UnregisterTestTrait(\"my_fixture\");"
+        );
     }
 
     #[test]

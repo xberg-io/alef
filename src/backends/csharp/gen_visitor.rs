@@ -237,6 +237,7 @@ pub fn gen_native_methods_visitor(
     lib_name: &str,
     prefix: &str,
     trait_name: &str,
+    options_type: &str,
     options_field: &str,
 ) -> String {
     use crate::backends::csharp::template_env::render;
@@ -249,6 +250,9 @@ pub fn gen_native_methods_visitor(
     let fn_bridge_new = format!("{prefix}_{bridge_snake}_new");
     let fn_bridge_free = format!("{prefix}_{bridge_snake}_free");
     let fn_options_set = format!("{prefix}_options_set_{options_field}");
+    let bridge_name = crate::codegen::naming::csharp_type_name(trait_name) + "Bridge";
+    let options_name = crate::codegen::naming::csharp_type_name(options_type);
+    let field_name = crate::codegen::naming::to_csharp_name(options_field);
 
     let mut out = String::from("\n");
     out.push_str(&render(
@@ -257,6 +261,9 @@ pub fn gen_native_methods_visitor(
             "fn_bridge_new": fn_bridge_new,
             "fn_bridge_free": fn_bridge_free,
             "fn_options_set": fn_options_set,
+            "bridge_name": bridge_name,
+            "options_name": options_name,
+            "field_name": field_name,
         })),
     ));
 

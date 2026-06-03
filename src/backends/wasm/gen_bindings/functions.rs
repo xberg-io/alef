@@ -1403,11 +1403,65 @@ mod tests {
         // and skips re-generating them. When a config type is in the emitted set,
         // it should not be generated again.
         let _emitted_dtos: AHashSet<String> = ["OcrConfig".to_string()].iter().cloned().collect();
+        use crate::core::ir::{CoreWrapper, FieldDef, PrimitiveType, TypeDef};
 
-        // should_have_input_dto returns true for types ending with "Config"
-        assert!(should_have_input_dto("OcrConfig"));
-        assert!(should_have_input_dto("ExtractionConfig"));
-        assert!(!should_have_input_dto("OcrResult"));
+        let make_type = |name: &str, field_name: &str, has_default: bool, has_serde: bool| TypeDef {
+            name: name.to_string(),
+            rust_path: format!("sample::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: field_name.to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        };
+
+        assert!(should_have_input_dto(&make_type("OcrOptions", "max_depth", true, true)));
+        assert!(!should_have_input_dto(&make_type("OcrConfig", "depth", true, true)));
+        assert!(!should_have_input_dto(&make_type(
+            "ExtractionOptions",
+            "max_depth",
+            false,
+            true
+        )));
+        assert!(!should_have_input_dto(&make_type(
+            "ExtractionOptions",
+            "max_depth",
+            true,
+            false
+        )));
     }
 
     #[test]
