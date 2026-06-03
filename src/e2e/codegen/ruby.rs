@@ -3135,4 +3135,82 @@ mod gemfile_tests {
             "local mode must not pin a version for the target gem, got: {out}"
         );
     }
+
+    #[test]
+    fn app_harness_rb_contains_eaddrinuse_retry_block() {
+        use crate::core::config::e2e::{E2eConfig, HarnessConfig};
+        use crate::e2e::fixture::{
+            Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest,
+        };
+        use std::collections::BTreeMap;
+
+        // Build a minimal HTTP fixture so render_app_harness produces server-pattern content.
+        let fixture = Fixture {
+            id: "test_get".to_owned(),
+            description: "test fixture".to_owned(),
+            category: Some("smoke".to_owned()),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertions: vec![],
+            source: "test".to_owned(),
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/test".to_owned(),
+                    method: "GET".to_owned(),
+                    body_schema: None,
+                    parameters: BTreeMap::new(),
+                    middleware: None,
+                },
+                request: HttpRequest {
+                    method: "GET".to_owned(),
+                    path: "/test".to_owned(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
+                    body: None,
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 200,
+                    body: Some(serde_json::json!({"ok": true})),
+                    body_partial: None,
+                    headers: BTreeMap::new(),
+                    validation_errors: None,
+                },
+            }),
+        };
+
+        let groups = vec![FixtureGroup { category: "smoke".to_owned(), fixtures: vec![fixture] }];
+        let e2e_config = E2eConfig {
+            harness: HarnessConfig {
+                imports: vec!["my_gem".to_owned()],
+                ..HarnessConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        let out = super::render_app_harness(&e2e_config, &groups);
+
+        // The EADDRINUSE retry block must be present in the generated harness
+        assert!(
+            out.contains("Errno::EADDRINUSE"),
+            "expected `Errno::EADDRINUSE` retry block in generated app_harness.rb:\n{out}"
+        );
+        // The random port selection must be present
+        assert!(
+            out.contains("rand(40000..60000)") || out.contains("rand("),
+            "expected random port selection in generated app_harness.rb:\n{out}"
+        );
+        // HARNESS_PORT must be printed so spec_helper can read it
+        assert!(
+            out.contains("HARNESS_PORT="),
+            "expected `HARNESS_PORT=` output in generated app_harness.rb:\n{out}"
+        );
+    }
 }
