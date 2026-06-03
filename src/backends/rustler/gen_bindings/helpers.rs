@@ -776,6 +776,21 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
     for method in &typ.methods {
         let method_name = method.name.to_snake_case();
 
+        // Skip emitting `new/0` wrapper if type has a default, since we already
+        // emitted `def new/0` above (lines 765–771). If the Rust type has both
+        // `impl Default` and `pub fn new()`, we only want one Elixir `def new/0`.
+        if typ.has_default && method.name == "new" && method.receiver.is_none() {
+            // Instead of skipping silently, emit the `default/0` function if the
+            // method is the `default()` constructor (uncommon, but defensively handle it).
+            continue;
+        }
+
+        // Similarly, skip emitting `default/0` wrapper from Rust methods if we already
+        // have a `has_default` block above. We'll emit it as a separate function below.
+        if typ.has_default && method.name == "default" && method.receiver.is_none() {
+            continue;
+        }
+
         // Streaming methods: emit a Stream.unfold wrapper driving _start/_next NIFs.
         if streaming_method_names.contains(&method.name) {
             let start_fn = format!("{type_lower}_{}_start", method.name);
@@ -869,6 +884,15 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
         } else {
             out.push_str(&format!("    Native.{nif_fn}({})\n", call_args.join(", ")));
         }
+        out.push_str("  end\n\n");
+    }
+
+    // Emit a separate `default/0` function if the type has a default.
+    // This wraps the `{type_lower}_default()` NIF and is distinct from `new/0`.
+    if typ.has_default {
+        out.push_str("  def default() do\n");
+        out.push_str(&format!("    ref = Native.{type_lower}_default()\n"));
+        out.push_str("    %__MODULE__{ref: ref}\n");
         out.push_str("  end\n\n");
     }
 
