@@ -603,10 +603,7 @@ pub fn build(b: *std.Build) void {
             // tarball), we add FFI linking here as a fallback. This ensures
             // compatibility with both old and new published versions.
             content.push_str("\n    // Fetch the published Zig package from the registry.\n");
-            let _ = writeln!(
-                content,
-                "    const {pkg_name}_dep = b.dependency(\"{pkg_name}\", .{{"
-            );
+            let _ = writeln!(content, "    const {pkg_name}_dep = b.dependency(\"{pkg_name}\", .{{");
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
             let _ = writeln!(content, "    }});");
@@ -620,18 +617,12 @@ pub fn build(b: *std.Build) void {
             // redundant but harmless. If the fetched package's build.zig is an old
             // development version (still references ../../target/release), these
             // lines ensure FFI linking works from the tarball's own lib/ directory.
-            let _ = writeln!(
-                content,
-                "    const {pkg_name}_lib_path = {pkg_name}_dep.path(\"lib\");"
-            );
+            let _ = writeln!(content, "    const {pkg_name}_lib_path = {pkg_name}_dep.path(\"lib\");");
             let _ = writeln!(
                 content,
                 "    const {pkg_name}_include_path = {pkg_name}_dep.path(\"include\");"
             );
-            let _ = writeln!(
-                content,
-                "    {module_name}_module.addLibraryPath({pkg_name}_lib_path);"
-            );
+            let _ = writeln!(content, "    {module_name}_module.addLibraryPath({pkg_name}_lib_path);");
             let _ = writeln!(
                 content,
                 "    {module_name}_module.addIncludePath({pkg_name}_include_path);"
@@ -3264,7 +3255,7 @@ mod zig_hash_tests {
 
 #[cfg(test)]
 mod zig_build_tests {
-    use super::{render_build_zig, ZigBuildFlags};
+    use super::{ZigBuildFlags, render_build_zig};
     use crate::e2e::config::DependencyMode;
 
     /// Registry mode test_app build.zig must NOT reference `../../target/release`

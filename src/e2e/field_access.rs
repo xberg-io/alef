@@ -222,9 +222,13 @@ impl PhpGetterMap {
             // shadow the bare-name fallback.
             let owner_has_field = self.all_fields.get(t).is_some_and(|s| s.contains(field_name));
             if owner_has_field {
-                if let Some(fields) = self.getters.get(t) {
-                    return fields.contains(field_name);
-                }
+                // The owner declares this field — the per-type `getters` map is
+                // the authoritative answer. Returning early here prevents the
+                // global bare-name union (below) from flipping a scalar field
+                // (e.g. `ExtractionResult.content: String`) into a getter call
+                // just because some unrelated type declares a same-named field
+                // as non-scalar (e.g. `Chunk.content: Vec<Span>`).
+                return self.getters.get(t).is_some_and(|fields| fields.contains(field_name));
             }
         }
         self.getters.values().any(|set| set.contains(field_name))
@@ -716,7 +720,13 @@ impl FieldResolver {
             // kotlin_android data classes expose fields as Kotlin properties (no parens),
             // not as Java-style getter methods. Use the dedicated renderer.
             "kotlin_android" => render_kotlin_android_with_optionals(&segments, result_var, &self.optional_fields),
-            "rust" => render_rust_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
+            "rust" => render_rust_with_optionals(
+                &segments,
+                result_var,
+                &self.optional_fields,
+                &self.method_calls,
+                &self.result_fields,
+            ),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
             "swift" if !self.swift_first_class_map.is_empty() => render_swift_with_first_class_map(
@@ -757,7 +767,13 @@ impl FieldResolver {
         // Error fields are simple scalar fields — no array injection needed.
         // For Rust, delegate to render_rust_with_optionals so method_calls are honoured.
         match language {
-            "rust" => render_rust_with_optionals(&segments, err_var, &self.optional_fields, &self.method_calls),
+            "rust" => render_rust_with_optionals(
+                &segments,
+                err_var,
+                &self.optional_fields,
+                &self.method_calls,
+                &self.result_fields,
+            ),
             _ => render_accessor(&segments, language, err_var),
         }
     }
@@ -1779,12 +1795,17 @@ fn render_kotlin_android(segments: &[PathSegment], result_var: &str) -> String {
 ///
 /// When an intermediate field is in the `optional_fields` set, `.as_ref().unwrap()`
 /// is appended after the field access to unwrap the `Option<T>`.
-/// When a path is in `method_calls`, `()` is appended to make it a method call.
+/// When a path is in `method_calls` AND is not in `result_fields`, `()` is appended
+/// to make it a method call. The `result_fields` check prevents the global
+/// `method_calls` set from leaking method-call syntax into accessors that the
+/// per-fixture `[fields_method_calls = []]` config has classified as struct
+/// field access (e.g. a fixture DTO's `DocumentResult.content: String`).
 fn render_rust_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
     optional_fields: &HashSet<String>,
     method_calls: &HashSet<String>,
+    result_fields: &HashSet<String>,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
@@ -1798,7 +1819,7 @@ fn render_rust_with_optionals(
                 path_so_far.push_str(f);
                 out.push('.');
                 out.push_str(&f.to_snake_case());
-                let is_method = method_calls.contains(&path_so_far);
+                let is_method = method_calls.contains(&path_so_far) && !result_fields.contains(&path_so_far);
                 if is_method {
                     out.push_str("()");
                     if !is_leaf && optional_fields.contains(&path_so_far) {
@@ -3025,5 +3046,103 @@ mod tests {
         let r = make_resolver_with_result_fields(&[]);
         assert_eq!(r.namespace_stripped_path("metrics.total_lines"), None);
         assert_eq!(r.namespace_stripped_path("anything.deeply.nested.path"), None);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Rust + PHP accessor regression: result_fields and per-type getter lookups
+    // must override the global "method_calls" / "any-type" leakage.
+    // ---------------------------------------------------------------------------
+
+    /// Rust accessor: when a field is in both `method_calls` (workspace-global
+    /// from `[crates.e2e.fields_method_calls]`) AND `result_fields` (the
+    /// fixture's root-type field list), it must render as field access
+    /// (`result.content`), not a method call (`result.content()`).
+    ///
+    /// Regression: a fixture DTO's `DocumentResult.content: String` is a struct
+    /// field, but other types in the workspace declare `content` as a method,
+    /// so the global `method_calls` set carries it. Without consulting
+    /// `result_fields`, the Rust e2e renderer emitted `result.content()` and
+    /// produced E0599 against `pub content: String`.
+    #[test]
+    fn render_rust_with_result_fields_overrides_method_calls() {
+        let result_fields: HashSet<String> = ["content".to_string(), "mime_type".to_string()].into_iter().collect();
+        let method_calls: HashSet<String> = [
+            "content".to_string(),
+            "mime_type".to_string(),
+            "other_accessor".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        let r = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &result_fields,
+            &HashSet::new(),
+            &method_calls,
+        );
+        assert_eq!(r.accessor("content", "rust", "result"), "result.content");
+        assert_eq!(r.accessor("mime_type", "rust", "result"), "result.mime_type");
+        // A path that's in method_calls but NOT in result_fields still renders
+        // as a method call — the override is targeted at result-root fields.
+        assert_eq!(
+            r.accessor("other_accessor", "rust", "result"),
+            "result.other_accessor()"
+        );
+    }
+
+    /// PHP `needs_getter`: when the owner type declares the field but has no
+    /// entry in `getters` (i.e. all its fields are scalar), the answer must be
+    /// `false` — without falling back to the global bare-name union.
+    ///
+    /// Regression: a fixture DTO `DocumentResult` declares `content: String`
+    /// (scalar) and has no entry in `getters`. Some other type in the workspace
+    /// declares `content` as non-scalar (e.g. a chunk struct). The legacy
+    /// fallback would flip `$result->content` to `$result->getContent()` based
+    /// on the bare-name union — producing a "method does not exist" error
+    /// against the actual ExtractionResult class. The fix: when owner is known
+    /// and declares the field, trust the per-type getters map exclusively.
+    #[test]
+    fn render_php_needs_getter_returns_false_when_owner_has_no_getter_entry() {
+        let getters: HashMap<String, HashSet<String>> = {
+            let mut m = HashMap::new();
+            // Chunk.content is non-scalar (some Vec<Span>); only Chunk has a
+            // getters entry.
+            m.insert("Chunk".to_string(), ["content".to_string()].into_iter().collect());
+            m
+        };
+        let all_fields: HashMap<String, HashSet<String>> = {
+            let mut m = HashMap::new();
+            m.insert(
+                "ExtractionResult".to_string(),
+                ["content".to_string()].into_iter().collect(),
+            );
+            m.insert("Chunk".to_string(), ["content".to_string()].into_iter().collect());
+            m
+        };
+        let map = PhpGetterMap {
+            getters,
+            field_types: HashMap::new(),
+            root_type: Some("ExtractionResult".to_string()),
+            all_fields,
+        };
+        // ExtractionResult declares `content` but has no getters entry — must be
+        // treated as scalar, NOT flipped to getter syntax via bare-name union.
+        assert!(!map.needs_getter(Some("ExtractionResult"), "content"));
+        // Chunk DOES need getter syntax (entry exists).
+        assert!(map.needs_getter(Some("Chunk"), "content"));
+        // Unknown owner still uses the bare-name fallback (legacy behaviour).
+        assert!(map.needs_getter(None, "content"));
+
+        // Confirm end-to-end accessor rendering matches.
+        let r = FieldResolver::new_with_php_getters(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        );
+        assert_eq!(r.accessor("content", "php", "$result"), "$result->content");
     }
 }

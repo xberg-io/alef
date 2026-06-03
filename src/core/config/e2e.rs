@@ -2027,7 +2027,10 @@ tap = "myorg/tap"
 "#;
         let cfg: E2eConfig = toml::from_str(toml_src).expect("must deserialize");
         let pkg = &cfg.registry.packages["homebrew"];
-        assert!(pkg.ffi_formula.is_none(), "ffi_formula must be None when not configured");
+        assert!(
+            pkg.ffi_formula.is_none(),
+            "ffi_formula must be None when not configured"
+        );
     }
 
     #[test]

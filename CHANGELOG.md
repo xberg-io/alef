@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-06-03
+
 ### Fixed
 
 - fix(e2e/{ruby,elixir,c,dart}): test harnesses now build and spawn the alef-generated `test_apps/rust/` mock-server binary on demand in standalone mode (`task <lang>:smoke`, `bundle exec rspec`, etc.) instead of requiring an external `MOCK_SERVER_URL`. The harness still defers to the parent when running under `alef test-apps run` (which exports the shared URL). Without this, registry-mode smoke runs failed with connection-refused / "MOCK_SERVER_URL must be set" / `{:error, "builder error"}` because no orchestrator had built/started the mock-server. Path resolution: `test_apps/<lang>/...` → `../../rust/Cargo.toml` → builds via `cargo build --release --bin mock-server`. (`src/e2e/codegen/{ruby,elixir,c,dart}.rs`)

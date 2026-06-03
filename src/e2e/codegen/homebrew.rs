@@ -180,7 +180,11 @@ fn render_run_tests(
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "# Tests the Homebrew CLI formula{}.", if ffi_formula.is_some() { " and FFI formula" } else { "" });
+    let _ = writeln!(
+        out,
+        "# Tests the Homebrew CLI formula{}.",
+        if ffi_formula.is_some() { " and FFI formula" } else { "" }
+    );
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);
     let _ = writeln!(out, "VERSION=\"{version}\"");
@@ -220,9 +224,19 @@ fn render_run_tests(
     // Emit each CLI test.
     for test in cli_tests {
         let _ = writeln!(out, "# Test: {}.", test.name);
-        let _ = writeln!(out, "_output_{}=$(eval \"{}\" 2>&1 || true)", sanitize_var_name(&test.name), test.command);
+        let _ = writeln!(
+            out,
+            "_output_{}=$(eval \"{}\" 2>&1 || true)",
+            sanitize_var_name(&test.name),
+            test.command
+        );
         if let Some(ref expected) = test.expect_contains {
-            let _ = writeln!(out, "if [[ \"$_output_{}\" == *\"{}\"* ]]; then", sanitize_var_name(&test.name), expected);
+            let _ = writeln!(
+                out,
+                "if [[ \"$_output_{}\" == *\"{}\"* ]]; then",
+                sanitize_var_name(&test.name),
+                expected
+            );
             let _ = writeln!(out, "  pass \"{}\"", test.name);
             let _ = writeln!(out, "else");
             let _ = writeln!(
@@ -235,11 +249,21 @@ fn render_run_tests(
             let _ = writeln!(out, "fi");
         } else {
             // No expected substring — just require zero exit code.
-            let _ = writeln!(out, "_exit_{}=$(eval \"{}\" >/dev/null 2>&1; echo $?)", sanitize_var_name(&test.name), test.command);
+            let _ = writeln!(
+                out,
+                "_exit_{}=$(eval \"{}\" >/dev/null 2>&1; echo $?)",
+                sanitize_var_name(&test.name),
+                test.command
+            );
             let _ = writeln!(out, "if [ \"$_exit_{}\" -eq 0 ]; then", sanitize_var_name(&test.name));
             let _ = writeln!(out, "  pass \"{}\"", test.name);
             let _ = writeln!(out, "else");
-            let _ = writeln!(out, "  fail \"{}\" \"command exited with code $_exit_{}\"", test.name, sanitize_var_name(&test.name));
+            let _ = writeln!(
+                out,
+                "  fail \"{}\" \"command exited with code $_exit_{}\"",
+                test.name,
+                sanitize_var_name(&test.name)
+            );
             let _ = writeln!(out, "fi");
         }
         let _ = writeln!(out);
@@ -336,10 +360,7 @@ fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str, _ffi_formula: &str) ->
     let _ = writeln!(out, "    return 1;");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "  if (!result.content || strlen(result.content) == 0) {{"
-    );
+    let _ = writeln!(out, "  if (!result.content || strlen(result.content) == 0) {{");
     let _ = writeln!(
         out,
         "    fprintf(stderr, \"FAIL: expected non-empty version string\\n\");"
@@ -375,7 +396,10 @@ fn render_readme(
     let _ = writeln!(out, "|---------|--------|");
     let _ = writeln!(out, "| `{cli_formula}` | CLI binary |");
     if let Some(ffi) = ffi_formula {
-        let _ = writeln!(out, "| `{ffi}` | Shared library: C FFI for embedding in other languages |");
+        let _ = writeln!(
+            out,
+            "| `{ffi}` | Shared library: C FFI for embedding in other languages |"
+        );
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "## Running");
@@ -386,7 +410,10 @@ fn render_readme(
     let _ = writeln!(out);
     let _ = writeln!(out, "## What it tests");
     let _ = writeln!(out);
-    let _ = writeln!(out, "1. `brew bundle install` succeeds (tap + formulae install without error).");
+    let _ = writeln!(
+        out,
+        "1. `brew bundle install` succeeds (tap + formulae install without error)."
+    );
     for (i, test) in cli_tests.iter().enumerate() {
         let label = if let Some(ref exp) = test.expect_contains {
             format!("`{}` — output contains `{}`", test.command, exp)
@@ -470,9 +497,18 @@ mod tests {
     fn render_run_tests_no_ffi_omits_ffi_section() {
         let tests = default_cli_tests();
         let out = render_run_tests("myorg/tap", "mytool", None, "1.0.0", "mytool", &tests);
-        assert!(!out.contains("FFI_FORMULA"), "must not reference FFI_FORMULA when ffi is None");
-        assert!(!out.contains("ffi_smoke"), "must not reference ffi_smoke when ffi is None");
-        assert!(!out.contains("pkg-config"), "must not reference pkg-config when ffi is None");
+        assert!(
+            !out.contains("FFI_FORMULA"),
+            "must not reference FFI_FORMULA when ffi is None"
+        );
+        assert!(
+            !out.contains("ffi_smoke"),
+            "must not reference ffi_smoke when ffi is None"
+        );
+        assert!(
+            !out.contains("pkg-config"),
+            "must not reference pkg-config when ffi is None"
+        );
     }
 
     #[test]
@@ -521,7 +557,10 @@ mod tests {
         let tests = vec![cli_test("smoke", "$CLI_FORMULA ping", None)];
         let out = render_run_tests("o/t", "tool", None, "1.0.0", "tool", &tests);
         assert!(out.contains("_exit_smoke="), "must capture exit code");
-        assert!(out.contains("[ \"$_exit_smoke\" -eq 0 ]"), "must check exit code is zero");
+        assert!(
+            out.contains("[ \"$_exit_smoke\" -eq 0 ]"),
+            "must check exit code is zero"
+        );
         // Must NOT emit an expect_contains pattern comparison.
         assert!(!out.contains("*\"\"*"), "must not emit empty string comparison");
     }

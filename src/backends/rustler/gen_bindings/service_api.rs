@@ -364,7 +364,7 @@ fn gen_registration_variant_method(
 }
 
 /// Convert a Rust enum value expression (e.g. `"my_crate::Method::Get"`) to an
-/// Elixir function call (e.g. `"Spikard.Method.get()"`).
+/// Elixir function call (e.g. `"Bindings.Method.get()"`).
 ///
 /// The last two `::` segments are taken as `TypeName::VariantName`; the variant
 /// name is lowercased to form the Elixir function call. When `module_prefix` is
@@ -386,7 +386,7 @@ fn rust_enum_expr_to_elixir(value_expr: &str, module_prefix: &str) -> String {
 }
 
 /// Build the Elixir expression that constructs the wrapper value for a variant,
-/// e.g. `builder = Spikard.RouteBuilder.new(Spikard.Method.get(), path)`.
+/// e.g. `builder = Bindings.RouteBuilder.new(Bindings.Method.get(), path)`.
 ///
 /// Returns `None` when the variant has no `wrapper_call`.
 fn build_elixir_wrapper_constructor_expr(
@@ -455,7 +455,16 @@ fn emit_verb_decorator_variant(
     if let Some(wrapper_expr) = build_elixir_wrapper_constructor_expr(variant, module_prefix) {
         // Wrapper pattern: build the wrapper object, then delegate to the base method.
         out.push_str(&format!("    {wrapper_expr}\n"));
-        out.push_str(&format!("    {}(app, {}, handler)\n", base_method, base_reg.metadata_params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")));
+        out.push_str(&format!(
+            "    {}(app, {}, handler)\n",
+            base_method,
+            base_reg
+                .metadata_params
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     } else {
         // Direct pattern: build call args by substituting overrides into the base params.
         let mut call_args: Vec<String> = Vec::new();
