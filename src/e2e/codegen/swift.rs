@@ -510,7 +510,9 @@ let package = Package(
 /// Render a pre-test shell script that computes the Swift artifact checksum at runtime.
 /// Registry-mode e2e tests use .binaryTarget(url:, checksum:) with a placeholder
 /// checksum (__ALEF_SWIFT_CHECKSUM__). This script downloads the artifact bundle,
-/// computes its SHA256 checksum, and substitutes it into Package.swift before running tests.
+/// computes its SHA256 checksum, and validates that it matches the expected checksum
+/// in Package.swift before using it. If a cached artifact has a mismatched checksum,
+/// the cache is invalidated and re-downloaded.
 fn render_download_swift_artifact_script(module_name: &str, registry_url: &str, pkg_version: &str) -> String {
     let github_repo_url = registry_url.trim_end_matches(".git");
     let artifact_url =
@@ -521,17 +523,43 @@ set -euo pipefail
 
 # Download the Swift artifact bundle and compute its checksum.
 # SwiftPM requires a stable SHA256 checksum for binary targets.
+# Cache is validated against the expected checksum in Package.swift to detect
+# version mismatches (e.g., when upgrading from rc.49 to rc.50, the filename
+# stays the same but the URL changes and the cached zip becomes stale).
 
 ARTIFACT_URL="{artifact_url}"
 ARTIFACT_FILE="{module_name}-rs.artifactbundle.zip"
 PACKAGE_SWIFT="Package.swift"
 
-# Download the artifact if not already cached
-if [ ! -f "$ARTIFACT_FILE" ]; then
+# Extract the expected checksum from Package.swift.
+# Look for the pattern: checksum: "0123456789abcdef..."
+EXPECTED_CHECKSUM=$(grep -oE 'checksum:\s+"[a-f0-9]{{64}}"' "$PACKAGE_SWIFT" | head -1 | grep -oE '[a-f0-9]{{64}}' || true)
+
+# Determine whether to use or invalidate the cache.
+SHOULD_DOWNLOAD=true
+if [ -f "$ARTIFACT_FILE" ]; then
+  if [ -n "$EXPECTED_CHECKSUM" ]; then
+    # Cache exists and we know the expected checksum: validate before reusing.
+    ACTUAL_CHECKSUM=$(swift package compute-checksum "$ARTIFACT_FILE")
+    if [ "$EXPECTED_CHECKSUM" = "$ACTUAL_CHECKSUM" ]; then
+      echo "Using cached artifact (checksum validated): $ARTIFACT_FILE"
+      SHOULD_DOWNLOAD=false
+    else
+      echo "Cached artifact checksum mismatch (expected: $EXPECTED_CHECKSUM, got: $ACTUAL_CHECKSUM)"
+      echo "Removing stale cache and re-downloading"
+      rm -f "$ARTIFACT_FILE"
+    fi
+  else
+    # Expected checksum not yet resolved (placeholder not substituted): assume cache is stale
+    echo "Unable to extract expected checksum from $PACKAGE_SWIFT; invalidating cache"
+    rm -f "$ARTIFACT_FILE"
+  fi
+fi
+
+# Download if needed
+if [ "$SHOULD_DOWNLOAD" = true ]; then
   echo "Downloading Swift artifact from $ARTIFACT_URL"
   curl -fsSL -o "$ARTIFACT_FILE" "$ARTIFACT_URL"
-else
-  echo "Using cached artifact: $ARTIFACT_FILE"
 fi
 
 # Compute SHA256 checksum
@@ -3489,6 +3517,34 @@ mod tests {
         assert!(
             swift_stringy_aggregator_contains_assert(Some("tags"), "result", &resolver, "\"x\"").is_none(),
             "single-stringy-field types must not trigger the aggregator"
+        );
+    }
+
+    /// Regression: registry-mode download_swift_artifact.sh must validate the
+    /// cached zip's checksum against Package.swift's expected checksum before
+    /// reusing it. Without this, a version bump (e.g. rc.49 → rc.50) leaves a
+    /// stale cached zip in place — same filename, different URL contents — and
+    /// SwiftPM rejects with "checksum of downloaded artifact does not match
+    /// checksum specified by the manifest".
+    #[test]
+    fn download_swift_artifact_script_validates_cache_checksum() {
+        let script =
+            render_download_swift_artifact_script("DemoKit", "https://example.invalid/acme/demo-kit", "1.4.0-rc.50");
+        assert!(
+            script.contains("EXPECTED_CHECKSUM=") && script.contains("Package.swift"),
+            "script must extract expected checksum from Package.swift"
+        );
+        assert!(
+            script.contains("ACTUAL_CHECKSUM=$(swift package compute-checksum"),
+            "script must compute checksum of cached artifact"
+        );
+        assert!(
+            script.contains("rm -f \"$ARTIFACT_FILE\""),
+            "script must invalidate cache on checksum mismatch"
+        );
+        assert!(
+            script.contains("Cached artifact checksum mismatch"),
+            "script must log mismatch with the canonical message"
         );
     }
 }
