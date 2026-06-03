@@ -632,11 +632,16 @@ pub(super) fn gen_method_wrapper(
                 }
                 TypeRef::Vec(_inner) if !p.optional => {
                     // When is_ref=true, pass &rs — &Vec<T> coerces to &[T].
-                    // This covers both &[String] and (via Deref) other &[T] slices.
-                    // The previous `_refs` intermediate (Vec<&str>) was incorrect for
-                    // &[String] params (produced &Vec<&str> which doesn't satisfy &[String]).
+                    // However, when vec_inner_is_ref=true (e.g. &[&str] params),
+                    // &Vec<String> does NOT coerce to &[&str]. Build a temporary Vec<&str>
+                    // and pass &_refs instead.
                     if p.is_mut {
                         format!("&mut {rs}")
+                    } else if p.is_ref && p.vec_inner_is_ref {
+                        // Source: &[&T] (or Vec<&T>). The local `rs` is `Vec<T_owned>`
+                        // after JSON deserialization. Build a temporary `Vec<&T>` and
+                        // pass `&_refs` so the call site receives `&[&T]`.
+                        format!("{{ let _refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect(); &_refs }}")
                     } else if p.is_ref {
                         format!("&{rs}")
                     } else {
@@ -1040,11 +1045,16 @@ pub(super) fn gen_free_function(
                 }
                 TypeRef::Vec(_inner) if !p.optional => {
                     // When is_ref=true, pass &rs — &Vec<T> coerces to &[T].
-                    // This covers both &[String] and (via Deref) other &[T] slices.
-                    // The previous `_refs` intermediate (Vec<&str>) was incorrect for
-                    // &[String] params (produced &Vec<&str> which doesn't satisfy &[String]).
+                    // However, when vec_inner_is_ref=true (e.g. &[&str] params),
+                    // &Vec<String> does NOT coerce to &[&str]. Build a temporary Vec<&str>
+                    // and pass &_refs instead.
                     if p.is_mut {
                         format!("&mut {rs}")
+                    } else if p.is_ref && p.vec_inner_is_ref {
+                        // Source: &[&T] (or Vec<&T>). The local `rs` is `Vec<T_owned>`
+                        // after JSON deserialization. Build a temporary `Vec<&T>` and
+                        // pass `&_refs` so the call site receives `&[&T]`.
+                        format!("{{ let _refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect(); &_refs }}")
                     } else if p.is_ref {
                         format!("&{rs}")
                     } else {
@@ -1660,6 +1670,7 @@ mod tests {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         };
         let rs = format!("{}_rs", p.name);
         // Simulate the call-site arm for Named non-optional with is_mut
@@ -1702,6 +1713,7 @@ mod tests {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         };
 
         // Run the real conversion generator.

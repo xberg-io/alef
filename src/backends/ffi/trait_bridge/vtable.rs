@@ -476,6 +476,7 @@ mod tests {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         });
         let trait_def = make_trait_def("Processor", vec![method]);
         let spec = make_spec(&trait_def, &bridge_cfg);

@@ -596,6 +596,12 @@ pub struct ParamDef {
     /// conversion when constructing the `AHashMap` expected by the core function.
     #[serde(default)]
     pub map_key_is_cow: bool,
+    /// True when the original Rust slice/vec element type was a reference (`&T`),
+    /// e.g. `&[&str]` or `Vec<&str>`. FFI codegen uses this to insert a `Vec<&T>` intermediate
+    /// when calling the core function (since `&Vec<T>` coerces to `&[T]`,
+    /// not `&[&T]`).
+    #[serde(default)]
+    pub vec_inner_is_ref: bool,
 }
 
 impl Default for ParamDef {
@@ -613,6 +619,7 @@ impl Default for ParamDef {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
+            vec_inner_is_ref: false,
         }
     }
 }

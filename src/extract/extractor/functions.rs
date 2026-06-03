@@ -743,6 +743,61 @@ fn is_tuple_type(ty: &TypeRef) -> bool {
     }
 }
 
+/// True if `ty` is `&[&T]`, `Vec<&T>`, `Option<&[&T]>`, `Option<Vec<&T>>`, or `&Vec<&T>`.
+/// FFI codegen uses this to emit a `Vec<&T>` intermediate when calling the core function
+/// (since `&Vec<T>` coerces to `&[T]`, not `&[&T]`).
+fn vec_inner_is_ref(ty: &syn::Type) -> bool {
+    // Strip outer reference: `&X` -> `X`
+    let deref_ty = if let syn::Type::Reference(r) = ty {
+        r.elem.as_ref()
+    } else {
+        ty
+    };
+
+    // Strip outer Option: `Option<X>` -> `X`, and check element type
+    let to_check = if let syn::Type::Path(type_path) = deref_ty {
+        if let Some(seg) = type_path.path.segments.last() {
+            if seg.ident == "Option" {
+                if let Some(inner) = type_resolver::extract_single_generic_arg_syn(seg) {
+                    inner
+                } else {
+                    return false;
+                }
+            } else {
+                // Not an Option, check the path itself
+                Box::new(deref_ty.clone())
+            }
+        } else {
+            return false;
+        }
+    } else {
+        Box::new(deref_ty.clone())
+    };
+
+    // Now check if to_check is either:
+    // 1. A Slice `[T]` where T is a Reference
+    // 2. A Path ending with `Vec<T>` where T is a Reference
+    match to_check.as_ref() {
+        syn::Type::Slice(slice) => matches!(*slice.elem, syn::Type::Reference(_)),
+        syn::Type::Path(type_path) => {
+            if let Some(seg) = type_path.path.segments.last() {
+                if seg.ident == "Vec" {
+                    if let Some(elem_type) = type_resolver::extract_single_generic_arg_syn(seg) {
+                        matches!(*elem_type, syn::Type::Reference(_))
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 /// Extract function/method parameters, skipping `self` receivers.
 pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> Vec<ParamDef> {
     inputs
@@ -787,6 +842,7 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     original_type,
                     map_is_ahash,
                     map_key_is_cow,
+                    vec_inner_is_ref: vec_inner_is_ref(&pat_type.ty),
                 })
             } else {
                 None // Skip self receiver
