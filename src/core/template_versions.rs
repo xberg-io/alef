@@ -318,6 +318,9 @@ pub mod hex {
     // renovate: datasource=hex depName=ex_doc
     pub const EX_DOC: &str = "~> 0.40";
 
+    // renovate: datasource=hex depName=finch
+    pub const FINCH: &str = "~> 0.18";
+
     // renovate: datasource=hex depName=req
     pub const REQ: &str = "~> 0.5";
 
@@ -440,5 +443,5 @@ pub mod precommit {
     pub const SAMPLE_CRATE_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.21.7";
+    pub const ALEF_REV: &str = "v0.21.8";
 }

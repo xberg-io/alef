@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.8] - 2026-06-03
+
 ### Fixed
 
 - fix(napi): restore `..Default::default()` in `ConversionOptions` literal in `gen_options_field_bridge_function`. The Phase 1D refactor accidentally replaced the spread expression with a stray `\n` escape, producing invalid Rust (`\n })`) in the generated `crates/*-node/src/lib.rs` `convert` function whenever a `visitor` kwarg coexists with an options struct. Surfaced as `error[E0560]: struct ConversionOptions has no field named n` on every napi binding regen against alef 0.21.7. (`src/backends/napi/trait_bridge.rs`)

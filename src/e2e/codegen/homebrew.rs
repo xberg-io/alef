@@ -406,6 +406,15 @@ fn render_readme(
     out
 }
 
+/// Emit a test backend stub (not applicable for homebrew).
+pub fn emit_test_backend(
+    _trait_bridge: &crate::core::config::TraitBridgeConfig,
+    _methods: &[&crate::core::ir::MethodDef],
+    _fixture: &crate::e2e::fixture::Fixture,
+) -> super::TestBackendEmission {
+    TestBackendEmission::unimplemented("homebrew")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -544,13 +553,4 @@ mod tests {
         assert!(!out.contains("_convert("), "must NOT call _convert — domain-neutral");
         assert!(!out.contains("<h1>Hi</h1>"), "must NOT contain HTML test payload");
     }
-}
-
-/// Emit a test backend stub (not applicable for homebrew).
-pub fn emit_test_backend(
-    _trait_bridge: &crate::core::config::TraitBridgeConfig,
-    _methods: &[&crate::core::ir::MethodDef],
-    _fixture: &crate::e2e::fixture::Fixture,
-) -> super::TestBackendEmission {
-    TestBackendEmission::unimplemented("homebrew")
 }
