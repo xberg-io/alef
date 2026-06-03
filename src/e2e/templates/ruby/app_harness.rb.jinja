@@ -22,12 +22,6 @@ require "socket"
 require "{{ imports[0] }}"
 
 module AppHarness
-  # Discover an available port by probing with TCPServer.
-  probe = TCPServer.new('127.0.0.1', 0)
-  port = probe.addr[1]
-  probe.close
-  PORT = port
-
   # Load fixtures from the JSON payload.
   FIXTURES_JSON = {{ fixtures_json }}
   FIXTURES = JSON.parse(FIXTURES_JSON, symbolize_names: true)
@@ -67,7 +61,8 @@ module AppHarness
     full_route = "/fixtures/#{fixture_id}#{route}"
 
     # Normalize the HTTP method to PascalCase for RouteBuilder (accepts strings via TryConvert).
-    method_val = method_str.capitalize
+    method_str_upper = method_str.upcase
+    method_val = method_str_upper.capitalize
     next if method_val.empty?
 
     # Build the RouteBuilder with the method and path.
@@ -96,9 +91,28 @@ module AppHarness
     APP.{{ register_route_method }}(builder, &handler_fn)
   end
 
-  # Configure and start the server.
-  APP.config({{ server_config_class }}.new(host: "{{ host }}", port: PORT))
-  puts "HARNESS_PORT=#{PORT}"
-  STDOUT.flush
-  APP.{{ run_method }}
+  # Configure and start the server with retry on bind failure.
+  # The probe-close window may leave the port in TIME_WAIT, causing EADDRINUSE.
+  # Retry with fresh random ports from the dynamic range (40000-60000).
+  max_attempts = 20
+  attempt = 0
+  loop do
+    attempt += 1
+    port = rand(40000..60000)
+
+    begin
+      APP.config({{ server_config_class }}.new(host: "{{ host }}", port: port))
+      puts "HARNESS_PORT=#{port}"
+      STDOUT.flush
+      APP.{{ run_method }}
+      break  # Success: run returned normally
+    rescue Errno::EADDRINUSE, RuntimeError => e
+      # Bind failed; raise if we've exhausted retries
+      if attempt >= max_attempts
+        raise "Failed to bind after #{max_attempts} attempts: #{e.message}"
+      end
+      # Try again with a different port
+      next
+    end
+  end
 end

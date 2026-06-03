@@ -430,49 +430,45 @@ RSpec.configure do |config|
     @_harness_stdin, @_harness_stdout, @_harness_stderr, @_harness_thread = Open3.popen3('ruby', harness_bin)
     @_harness_pid = @_harness_thread.pid
     harness_port = nil
-    # Read stdout line-by-line until we see HARNESS_PORT=<port>
     deadline = Time.now + 15.0
+    # Read stdout, collecting all HARNESS_PORT lines. The harness retries on bind
+    # failure, so we may see multiple ports. Keep the latest one and verify it's reachable.
+    latest_port = nil
     while Time.now < deadline
       if @_harness_thread.status.nil?
-        # Process died early
+        # Process died; use the latest port if available
+        harness_port = latest_port if latest_port
         break
       end
       begin
         Timeout.timeout(0.1) do
           line = @_harness_stdout.readline
           if line =~ /^HARNESS_PORT=(\d+)/
-            harness_port = $1.to_i
-            break
+            latest_port = $1.to_i
           end
         end
       rescue Timeout::Error, EOFError, Errno::EAGAIN
-        sleep(0.05)
+        # Try to verify the latest port if we have one
+        if latest_port
+          begin
+            TCPSocket.new('{}', latest_port).close
+            harness_port = latest_port
+            break  # Success: port is reachable
+          rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH
+            # Port not yet listening; keep polling
+            sleep(0.05)
+          end
+        else
+          sleep(0.05)
+        end
       end
     end
     unless harness_port
       Process.kill('TERM', @_harness_pid) rescue nil
-      raise "App harness did not report port within 15s"
+      msg = latest_port ? "App harness did not become reachable on {}:#{{latest_port}} within 15s" : "App harness did not report port within 15s"
+      raise msg
     end
     url = "http://{}:#{{harness_port}}"
-    # Verify the harness is reachable by attempting a TCP connection.
-    ready = false
-    while Time.now < deadline
-      if @_harness_thread.status.nil?
-        # Process died
-        break
-      end
-      begin
-        TCPSocket.new('{}', harness_port).close
-        ready = true
-        break
-      rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH
-        sleep(0.1)
-      end
-    end
-    unless ready
-      Process.kill('TERM', @_harness_pid) rescue nil
-      raise "App harness did not become reachable on {}:#{{harness_port}} within 15s"
-    end
     ENV['SUT_URL'] = url
   end
 

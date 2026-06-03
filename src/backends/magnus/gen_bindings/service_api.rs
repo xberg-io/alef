@@ -86,11 +86,11 @@ fn format_ruby_comment(text: &str, indent: usize) -> String {
 /// - Configurator methods from [`ServiceDef::configurators`].
 /// - Registration methods from [`ServiceDef::registrations`] that accept blocks.
 /// - A `run(...)` method derived from the first [`EntrypointKind::Run`] entrypoint.
-pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str) -> String {
+pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_require_name: &str) -> String {
     let mut out = String::new();
 
     out.push_str("# frozen_string_literal: true\n\n");
-    out.push_str(&format!("require \"{native_module_name}\"\n\n"));
+    out.push_str(&format!("require \"{gem_require_name}\"\n\n"));
 
     for service in &api.services {
         gen_service_class(&mut out, service, api, native_module_name);
@@ -1189,13 +1189,13 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let service_rs = gen_service_rs(api, config);
 
     // Ruby wrapper
-    let service_rb = gen_service_rb(api, &native_module_name);
+    let gem_name = config.ruby_gem_name();
+    let gem_name_snake = gem_name.replace('-', "_");
+    let service_rb = gen_service_rb(api, &native_module_name, &gem_name_snake);
 
     // Ruby lib output base: service.rb is runtime code and must live under lib/,
     // not under sig/ (which is for type stubs loaded only by steep/sorbet).
     // Mirror the path used by the public_api generator in mod.rs.
-    let gem_name = config.ruby_gem_name();
-    let gem_name_snake = gem_name.replace('-', "_");
     let lib_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
     let output_base = PathBuf::from(&lib_dir).join(&gem_name_snake);
 
@@ -1423,7 +1423,7 @@ mod tests {
     #[test]
     fn ruby_output_contains_service_class() {
         let surface = make_fixture_surface();
-        let output = gen_service_rb(&surface, "MyCrate");
+        let output = gen_service_rb(&surface, "MyCrate", "my_crate");
         assert!(
             output.contains("class TestService"),
             "expected `class TestService` in output:\n{output}"
@@ -1434,7 +1434,7 @@ mod tests {
     #[test]
     fn ruby_output_contains_initialize_with_registrations() {
         let surface = make_fixture_surface();
-        let output = gen_service_rb(&surface, "MyCrate");
+        let output = gen_service_rb(&surface, "MyCrate", "my_crate");
         assert!(
             output.contains("def initialize"),
             "expected `def initialize` in output:\n{output}"
@@ -1449,7 +1449,7 @@ mod tests {
     #[test]
     fn ruby_output_contains_configurator() {
         let surface = make_fixture_surface();
-        let output = gen_service_rb(&surface, "MyCrate");
+        let output = gen_service_rb(&surface, "MyCrate", "my_crate");
         assert!(
             output.contains("def with_timeout(timeout_ms)"),
             "expected `with_timeout` configurator with positional param:\n{output}"
@@ -1464,7 +1464,7 @@ mod tests {
     #[test]
     fn ruby_output_contains_registration_block_param() {
         let surface = make_fixture_surface();
-        let output = gen_service_rb(&surface, "MyCrate");
+        let output = gen_service_rb(&surface, "MyCrate", "my_crate");
         assert!(
             output.contains("def add_handler("),
             "expected `add_handler` registration method:\n{output}"
@@ -1483,7 +1483,7 @@ mod tests {
     #[test]
     fn ruby_output_contains_registration_variant() {
         let surface = make_fixture_surface();
-        let output = gen_service_rb(&surface, "MyCrate");
+        let output = gen_service_rb(&surface, "MyCrate", "my_crate");
         assert!(
             output.contains("def get("),
             "expected `def get(` variant method:\n{output}"
@@ -1502,7 +1502,7 @@ mod tests {
     #[test]
     fn ruby_output_contains_run_entrypoint() {
         let surface = make_fixture_surface();
-        let output = gen_service_rb(&surface, "MyCrate");
+        let output = gen_service_rb(&surface, "MyCrate", "my_crate");
         assert!(output.contains("def run("), "expected `def run(` entrypoint:\n{output}");
         assert!(
             output.contains(".test_service_run("),
