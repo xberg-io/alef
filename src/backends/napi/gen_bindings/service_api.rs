@@ -584,7 +584,8 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     // File-level allow attributes to keep clippy happy in generated code
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
     out.push_str("use napi::bindgen_prelude::*;\n");
-    out.push_str("use napi::threadsafe_function::{ThreadsafeFunction, ErrorStrategy};\n");
+    out.push_str("use napi::threadsafe_function::ThreadsafeFunction;\n");
+    out.push_str("use napi_derive::napi;\n");
     out.push_str("use std::sync::Arc;\n\n");
 
     // Emit one handler bridge per unique handler contract referenced by any registration
@@ -624,7 +625,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         let mut variant_methods = String::new();
         for reg in &service.registrations {
             for variant in &reg.variants {
-                gen_variant_napi_method(&mut variant_methods, service, reg, variant, api, &core_import);
+                gen_variant_napi_method(&mut variant_methods, service, reg, variant, api, &core_import, config);
             }
         }
         // Indent all method bodies by 4 spaces to sit inside the impl block
@@ -656,8 +657,8 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 /// Pattern mirrors the proven hand-written handler.rs: wrap the ThreadsafeFunction
 /// and call it with the request DTO, await the Promise, and extract the response DTO.
 ///
-/// The ThreadsafeFunction uses JsUnknown for both request and response to match
-/// the call sites in the generated app_run function, which pass untyped JS values.
+/// The ThreadsafeFunction uses `serde_json::Value` for both request and response,
+/// which napi 3.x supports natively via its serde bridge.
 fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_import: &str) {
     let trait_name = &contract.trait_name;
     let bridge_name = format!("{}Bridge", trait_name.to_upper_camel_case());
@@ -667,24 +668,23 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // The ThreadsafeFunction signature uses JsUnknown for both args and return type,
-    // matching the untyped JS callable shape passed by the TypeScript harness.
-    // Request data is converted from JsUnknown to the wire request type on send.
-    // Response is converted from JsUnknown to the wire response type on receive.
+    // The ThreadsafeFunction uses serde_json::Value for both input and output, which
+    // napi 3.x supports natively. The JS side receives and returns JSON-serializable
+    // values that are transparently converted by napi's serde bridge.
     out.push_str(&format!(
         "/// Generated NAPI bridge for the `{trait_name}` contract.\n\
          ///\n\
          /// Wraps a JavaScript callable (async) via ThreadsafeFunction\n\
          /// so it can be used as `Arc<dyn {trait_name}>` from Rust async code.\n\
          pub struct {bridge_name} {{\n    \
-             handler_fn: ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Status>,\n\
+             handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>,\n\
          }}\n\n"
     ));
 
     out.push_str(&format!(
         "impl {bridge_name} {{\n    \
              /// Create a bridge from a JavaScript callable.\n    \
-             pub fn new(handler_fn: ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Status>) -> Self {{\n        \
+             pub fn new(handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>) -> Self {{\n        \
                  Self {{ handler_fn }}\n    \
              }}\n\
          }}\n\n"
@@ -744,7 +744,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // the async_trait macro, so it satisfies traits whose dispatch method is
     // hand-written as `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     //
-    // We serialize the request to JSON before calling, then deserialize the response.
+    // We serialize the request to a serde_json::Value before calling, then
+    // deserialize the serde_json::Value response. napi 3.x implements
+    // ToNapiValue/FromNapiValue for serde_json::Value via its serde bridge.
     out.push_str(&format!(
         "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
              fn {dispatch_name}(\n        \
@@ -757,7 +759,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                          let req_json = serde_json::to_value(&{wire_name})\n                            \
                              .map_err(|e| Box::new(e) as {box_err})?;\n                \
                          let resp_json = self.handler_fn\n                    \
-                             .call_async::<serde_json::Value>(req_json)\n                    \
+                             .call_async(Ok(req_json))\n                    \
                              .await\n                    \
                              .map_err(|e| Box::new(e) as {box_err})?;\n                \
                          serde_json::from_value(resp_json)\n                    \
@@ -793,7 +795,7 @@ fn gen_run_napi_function(
 
     // Build the function signature
     let mut rust_params = vec![
-        "registrations: Vec<(String, Vec<JsUnknown>, ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Error>)>".to_owned(),
+        "registrations: Vec<(String, Vec<serde_json::Value>, ThreadsafeFunction<serde_json::Value, serde_json::Value>)>".to_owned(),
     ];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
@@ -842,7 +844,7 @@ fn gen_run_napi_function(
                 "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
             ));
 
-            // Extract and convert metadata params from JsUnknown
+            // Extract and convert metadata params from serde_json::Value entries
             if !reg.metadata_params.is_empty() {
                 for (idx, param) in reg.metadata_params.iter().enumerate() {
                     let param_name = &param.name;
@@ -929,18 +931,31 @@ fn build_ep_call_napi(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef
 ///
 /// The method signature mirrors the variant's `signature_params` + a handler callback,
 /// builds the wrapper via the `WrapperConstructorCall` (if present), and delegates to
-/// the base registration method.
+/// the base registration method on the inner host-app value.
 fn gen_variant_napi_method(
     out: &mut String,
-    _service: &ServiceDef,
+    service: &ServiceDef,
     reg: &RegistrationDef,
     variant: &crate::core::ir::RegistrationVariant,
     api: &ApiSurface,
     core_import: &str,
+    config: &ResolvedCrateConfig,
 ) {
     let variant_name = &variant.name;
     let base_method = &reg.method;
     let contract_name = &reg.callback_contract;
+
+    // Look up the optional inner-accessor expression for this service's config.
+    // When present, verb methods call `{accessor}.{base_method}(...)` instead of
+    // `self.{base_method}(...)`, allowing the wrapper type to dereference an inner
+    // field (e.g. `Arc<Mutex<Owner>>`) before dispatching.
+    let inner_accessor: String = config
+        .services
+        .iter()
+        .find(|sc| sc.owner_type == service.name)
+        .and_then(|sc| sc.host_app_inner_accessor.as_deref())
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "self".to_owned());
 
     // Build method signature from variant's signature_params
     let mut rust_params = vec!["&mut self".to_owned()];
@@ -948,10 +963,7 @@ fn gen_variant_napi_method(
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         rust_params.push(format!("{}: {}", p.name, rust_ty));
     }
-    rust_params.push(
-        "handler: napi::bindgen_prelude::ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Error>"
-            .to_string(),
-    );
+    rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
     let param_sig = rust_params.join(", ");
 
     out.push_str(&format!(
@@ -992,13 +1004,18 @@ fn gen_variant_napi_method(
         ));
     }
 
-    // Build the metadata array for the base registration call
-    let mut metadata_names = Vec::new();
+    // Build the metadata argument list for the base registration call.
+    // When a wrapper_call is present, its metadata_param IS the single metadata
+    // argument and the signature_params have already been consumed by the wrapper
+    // constructor — do NOT include them again.
+    // When no wrapper_call is present, metadata comes directly from signature_params.
+    let mut metadata_names: Vec<String> = Vec::new();
     if let Some(wrapper_call) = &variant.wrapper_call {
         metadata_names.push(wrapper_call.metadata_param.clone());
-    }
-    for p in &variant.signature_params {
-        metadata_names.push(p.name.clone());
+    } else {
+        for p in &variant.signature_params {
+            metadata_names.push(p.name.clone());
+        }
     }
 
     // Create the handler bridge and call base registration
@@ -1010,12 +1027,22 @@ fn gen_variant_napi_method(
         ));
     }
 
-    // Call the base registration method
+    // Call the base registration method via the inner accessor or self
     let meta_args = metadata_names.join(", ");
-    if !metadata_names.is_empty() {
-        out.push_str(&format!("    self.{base_method}({meta_args}, handler_arc)\n"));
+    if inner_accessor == "self" {
+        if !metadata_names.is_empty() {
+            out.push_str(&format!("    self.{base_method}({meta_args}, handler_arc)\n"));
+        } else {
+            out.push_str(&format!("    self.{base_method}(handler_arc)\n"));
+        }
     } else {
-        out.push_str(&format!("    self.{base_method}(handler_arc)\n"));
+        // Accessor may return &mut or MutexGuard — bind to a named variable
+        out.push_str(&format!("    let mut inner = {inner_accessor};\n"));
+        if !metadata_names.is_empty() {
+            out.push_str(&format!("    inner.{base_method}({meta_args}, handler_arc)\n"));
+        } else {
+            out.push_str(&format!("    inner.{base_method}(handler_arc)\n"));
+        }
     }
 
     // Handle error if the registration is fallible
@@ -1029,41 +1056,60 @@ fn gen_variant_napi_method(
     out.push_str("}\n\n");
 }
 
-/// Generate code to extract and convert a metadata parameter from a JsUnknown value.
+/// Generate code to extract and convert a metadata parameter from a `serde_json::Value`.
 ///
-/// Returns a Rust expression that converts `val` (a `JsUnknown`) to the target type.
-/// The generated code uses NAPI's coercion methods and type conversions.
+/// Returns a Rust expression that converts `val` (a `&serde_json::Value`) to the target type.
+/// The generated code uses serde_json's native coercion and type conversions.
 fn gen_metadata_extraction(ty: &TypeRef, _core_import: &str) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => {
-            "val.coerce_to_string()?.into_utf8().map(|buf| buf.as_str().to_owned())?".to_owned()
+            "val.as_str().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected string metadata\"))?.to_owned()".to_owned()
         }
         TypeRef::Primitive(p) => {
             use crate::core::ir::PrimitiveType;
             match p {
-                PrimitiveType::Bool => "val.coerce_to_bool()?".to_owned(),
-                PrimitiveType::U8 => "val.coerce_to_number()? as u8".to_owned(),
-                PrimitiveType::U16 => "val.coerce_to_number()? as u16".to_owned(),
-                PrimitiveType::U32 => "val.coerce_to_number()? as u32".to_owned(),
-                PrimitiveType::U64 => "val.coerce_to_number()? as u64".to_owned(),
-                PrimitiveType::I8 => "val.coerce_to_number()? as i8".to_owned(),
-                PrimitiveType::I16 => "val.coerce_to_number()? as i16".to_owned(),
-                PrimitiveType::I32 => "val.coerce_to_number()? as i32".to_owned(),
-                PrimitiveType::I64 => "val.coerce_to_number()? as i64".to_owned(),
-                PrimitiveType::F32 => "val.coerce_to_number()? as f32".to_owned(),
-                PrimitiveType::F64 => "val.coerce_to_number()?".to_owned(),
-                PrimitiveType::Usize => "val.coerce_to_number()? as usize".to_owned(),
-                PrimitiveType::Isize => "val.coerce_to_number()? as isize".to_owned(),
+                PrimitiveType::Bool => {
+                    "val.as_bool().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected bool metadata\"))?".to_owned()
+                }
+                PrimitiveType::F64 => {
+                    "val.as_f64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))?".to_owned()
+                }
+                PrimitiveType::F32 => {
+                    "val.as_f64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as f32".to_owned()
+                }
+                PrimitiveType::U8 => {
+                    "val.as_u64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as u8".to_owned()
+                }
+                PrimitiveType::U16 => {
+                    "val.as_u64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as u16".to_owned()
+                }
+                PrimitiveType::U32 => {
+                    "val.as_u64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as u32".to_owned()
+                }
+                PrimitiveType::U64 | PrimitiveType::Usize => {
+                    "val.as_u64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))?".to_owned()
+                }
+                PrimitiveType::I8 => {
+                    "val.as_i64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as i8".to_owned()
+                }
+                PrimitiveType::I16 => {
+                    "val.as_i64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as i16".to_owned()
+                }
+                PrimitiveType::I32 => {
+                    "val.as_i64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))? as i32".to_owned()
+                }
+                PrimitiveType::I64 | PrimitiveType::Isize => {
+                    "val.as_i64().ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"expected number metadata\"))?".to_owned()
+                }
             }
         }
         TypeRef::Optional(inner) => {
             let inner_extraction = gen_metadata_extraction(inner, "");
-            format!("if val.is_null() || val.is_undefined() {{ None }} else {{ Some({inner_extraction}) }}")
+            format!("if val.is_null() {{ None }} else {{ Some({{ {inner_extraction} }}) }}")
         }
         _ => {
-            // For Named types and other complex types: use JSON serialization roundtrip
-            // The JsUnknown is converted to serde_json::Value, which can then be deserialized
-            "serde_json::from_value(serde_json::to_value(&val).map_err(|e| napi::Error::from_reason(format!(\"metadata serialization failed: {}\", e)))?)
+            // For Named types and other complex types: deserialize directly from serde_json::Value
+            "serde_json::from_value(val.clone())
                 .map_err(|e| napi::Error::from_reason(format!(\"metadata deserialization failed: {}\", e)))?".to_owned()
         }
     }

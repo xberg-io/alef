@@ -158,6 +158,23 @@ pub struct ServiceConfig {
     /// Values must match canonical language names (`"python"`, `"node"`, etc.).
     #[serde(default)]
     pub skip_languages: Vec<String>,
+    /// Verbatim Rust expression that accesses the inner host-app value from the
+    /// generated wrapper type's `self` receiver in verb-method emission.
+    ///
+    /// When the host-app wrapper type (e.g. the napi or wasm binding's `App` struct)
+    /// wraps the real service owner behind a field (e.g. `Arc<Mutex<Owner>>`), set
+    /// this to the expression that unlocks or dereferences it so the generated
+    /// verb methods can call `owner.{base_method}(...)` on the real type.
+    ///
+    /// Example:
+    /// ```toml
+    /// host_app_inner_accessor = "self.inner.lock().expect(\"app mutex poisoned\")"
+    /// ```
+    ///
+    /// When absent (the default), verb methods emit `self.{base_method}(...)` directly,
+    /// which is correct when the generated wrapper IS the owner type.
+    #[serde(default)]
+    pub host_app_inner_accessor: Option<String>,
 }
 
 /// Configuration for one handler-contract entry in `[[crates.handler_contracts]]`.

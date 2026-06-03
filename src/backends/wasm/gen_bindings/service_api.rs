@@ -257,15 +257,34 @@ pub(super) fn gen_service_rs(api: &ApiSurface, _config: &ResolvedCrateConfig) ->
 }
 
 /// Generate all service-related files for the wasm backend.
+///
+/// Services with "wasm" in their `skip_languages` config entry are excluded —
+/// no files are generated for them and `pub mod service;` must not be emitted.
 pub fn gen_service_files(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
 
-    if api.services.is_empty() {
+    // Filter out services that are explicitly skipped for the wasm backend.
+    let active_services: Vec<_> = api
+        .services
+        .iter()
+        .filter(|svc| {
+            !config
+                .services
+                .iter()
+                .any(|sc| sc.owner_type == svc.name && sc.skip_languages.iter().any(|l| l == "wasm"))
+        })
+        .collect();
+
+    if active_services.is_empty() {
         return files;
     }
 
+    // Build a temporary ApiSurface view with only the active services.
+    let mut api_active = api.clone();
+    api_active.services = active_services.into_iter().cloned().collect();
+
     // JavaScript service.js
-    let js_content = gen_service_js(api);
+    let js_content = gen_service_js(&api_active);
     files.push(GeneratedFile {
         path: PathBuf::from("src/service.js"),
         content: js_content,
@@ -273,7 +292,7 @@ pub fn gen_service_files(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<
     });
 
     // Rust service.rs
-    let rs_content = gen_service_rs(api, config);
+    let rs_content = gen_service_rs(&api_active, config);
     files.push(GeneratedFile {
         path: PathBuf::from("src/service.rs"),
         content: rs_content,

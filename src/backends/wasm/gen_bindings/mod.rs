@@ -451,7 +451,15 @@ impl Backend for WasmBackend {
 
         // Service-API glue lives in the generated `service.rs`; declare it so its
         // `#[wasm_bindgen]` entrypoints (e.g. `app_run`) are compiled and exported.
-        if !api.services.is_empty() {
+        // Only emit the module declaration when at least one service is NOT skipped
+        // for the wasm backend via its `skip_languages` config entry.
+        let has_wasm_services = api.services.iter().any(|svc| {
+            !config
+                .services
+                .iter()
+                .any(|sc| sc.owner_type == svc.name && sc.skip_languages.iter().any(|l| l == "wasm"))
+        });
+        if has_wasm_services {
             builder.add_item("pub mod service;");
         }
 
@@ -481,7 +489,7 @@ impl Backend for WasmBackend {
                     &mutex_types,
                     &streaming_item_types,
                     &wasm_skipped_methods,
-                    &bridge_type_aliases,
+                    &config.trait_bridges,
                 ));
                 // Client constructor — emit a #[wasm_bindgen(constructor)] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
