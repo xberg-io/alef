@@ -704,11 +704,63 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     }
 }
 
+/// Convert a Rust enum path expression to a PHP class constant reference.
+///
+/// `"my_crate::Method::Get"` → `"Method::Get"`
+/// `"Method::Get"` → `"Method::Get"`
+///
+/// Takes the last two `::` separated segments so that fully-qualified Rust
+/// paths are trimmed to just `TypeName::Variant`.
+fn rust_enum_expr_to_php(value_expr: &str) -> String {
+    let parts: Vec<&str> = value_expr.split("::").collect();
+    if parts.len() >= 2 {
+        let type_name = parts[parts.len() - 2];
+        let variant = parts[parts.len() - 1];
+        format!("{type_name}::{variant}")
+    } else {
+        value_expr.to_owned()
+    }
+}
+
+/// Build the PHP wrapper-constructor statement for a variant that has a
+/// `wrapper_call`.
+///
+/// Returns a statement like
+/// `$builder = RouteBuilder::new(Method::Get, $path);`
+/// or `None` when the variant has no `wrapper_call`.
+fn build_php_wrapper_constructor_stmt(variant: &crate::core::ir::RegistrationVariant) -> Option<String> {
+    use crate::core::ir::WrapperConstructorArg;
+    let wc = variant.wrapper_call.as_ref()?;
+    let wrapper_type = &wc.wrapper_type_name;
+    let constructor = &wc.constructor_method;
+    let metadata_param = &wc.metadata_param;
+
+    let mut ctor_args: Vec<String> = Vec::new();
+    for arg in &wc.args {
+        match arg {
+            WrapperConstructorArg::Fixed { value_expr, .. } => {
+                ctor_args.push(rust_enum_expr_to_php(value_expr));
+            }
+            WrapperConstructorArg::Free { param } => {
+                ctor_args.push(format!("${}", param.name));
+            }
+        }
+    }
+    let ctor_arg_str = ctor_args.join(", ");
+    Some(format!(
+        "${metadata_param} = {wrapper_type}::{constructor}({ctor_arg_str});"
+    ))
+}
+
 /// Emit a verb-decorator variant method(s) based on the registration style.
 ///
 /// - `VerbDecorator`: Emit only the direct method form (e.g., `get(path, handler): App`)
 /// - `Builder`: Emit only the decorator-factory form (e.g., `getDecorator(path): Closure`)
 /// - `Hybrid`: Emit both direct method and decorator-factory
+///
+/// When the variant has a `wrapper_call`, the method constructs the wrapper
+/// object and delegates to the base registration method instead of writing
+/// directly to `$this->registrations[]`.
 fn gen_registration_variant(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
@@ -739,7 +791,12 @@ fn gen_registration_variant(
     let meta_sig = meta_params.join(", ");
     let direct_sig = direct_params.join(", ");
 
-    // Compute the base registration call arguments
+    // When the variant has a wrapper_call, the body constructs the wrapper
+    // object and delegates to the base method.  Otherwise, fall back to the
+    // legacy computed call_args path.
+    let wrapper_stmt = build_php_wrapper_constructor_stmt(variant);
+
+    // Compute the base registration call arguments (used when wrapper_call is absent)
     let mut call_args: Vec<String> = Vec::new();
     for base_param in &reg.metadata_params {
         if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
@@ -750,6 +807,37 @@ fn gen_registration_variant(
     }
     let call_sig = call_args.join(", ");
 
+    // Pre-compute the method bodies to avoid multiple mutable borrows of `out`.
+    let direct_body = if let Some(ref stmt) = wrapper_stmt {
+        let metadata_param = &variant.wrapper_call.as_ref().unwrap().metadata_param;
+        format!("        {stmt}\n        return $this->{base_method}(${metadata_param}, ${callback_param});\n")
+    } else {
+        let vars = call_args
+            .iter()
+            .filter_map(|arg| if arg.starts_with('$') { Some(arg.clone()) } else { None })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "        $this->registrations[] = ['{base_method}', [{vars}], ${callback_param}];\n        return $this;\n"
+        )
+    };
+
+    let factory_body = if let Some(ref stmt) = wrapper_stmt {
+        let metadata_param = &variant.wrapper_call.as_ref().unwrap().metadata_param;
+        format!(
+            "        return function (callable ${callback_param}): self {{\n            \
+             {stmt}\n            \
+             return $this->{base_method}(${metadata_param}, ${callback_param});\n        \
+             }};\n"
+        )
+    } else {
+        format!(
+            "        return function (callable ${callback_param}): self {{\n            \
+             return $this->{base_method}({call_sig})(${callback_param});\n        \
+             }};\n"
+        )
+    };
+
     match variant.style {
         RegistrationVariantStyle::VerbDecorator => {
             // Emit direct method: $app->get(path, handler): App
@@ -759,18 +847,7 @@ fn gen_registration_variant(
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
             }
-            out.push_str(&format!(
-                "        $this->registrations[] = ['{base_method}', [{}], ${callback_param}];\n",
-                call_args
-                    .iter()
-                    .filter_map(|arg| {
-                        // Extract variable names from arguments (those starting with '$')
-                        if arg.starts_with('$') { Some(arg.clone()) } else { None }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-            out.push_str("        return $this;\n");
+            out.push_str(&direct_body);
             out.push_str("    }\n\n");
         }
 
@@ -783,17 +860,11 @@ fn gen_registration_variant(
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
             }
-            out.push_str(&format!(
-                "        return function (callable ${callback_param}): self {{\n            \
-                 return $this->{base_method}({call_sig})(${callback_param});\n        \
-                 }};\n"
-            ));
+            out.push_str(&factory_body);
             out.push_str("    }\n\n");
         }
 
         RegistrationVariantStyle::Hybrid => {
-            // Emit both forms
-
             // 1. Direct method: $app->get(path, handler): App
             out.push_str(&format!(
                 "    public function {variant_name}({direct_sig}): self\n    {{\n"
@@ -801,15 +872,7 @@ fn gen_registration_variant(
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
             }
-            out.push_str(&format!(
-                "        $this->registrations[] = ['{base_method}', [{}], ${callback_param}];\n",
-                call_args
-                    .iter()
-                    .filter_map(|arg| { if arg.starts_with('$') { Some(arg.clone()) } else { None } })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-            out.push_str("        return $this;\n");
+            out.push_str(&direct_body);
             out.push_str("    }\n\n");
 
             // 2. Decorator factory: $app->getDecorator(path): Closure
@@ -820,11 +883,7 @@ fn gen_registration_variant(
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
             }
-            out.push_str(&format!(
-                "        return function (callable ${callback_param}): self {{\n            \
-                 return $this->{base_method}({call_sig})(${callback_param});\n        \
-                 }};\n"
-            ));
+            out.push_str(&factory_body);
             out.push_str("    }\n\n");
         }
     }
@@ -1644,6 +1703,125 @@ mod tests {
         let config = make_test_config();
         let files = generate(&surface, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
+    }
+
+    /// `gen_registration_variant` with a `wrapper_call` emits wrapper construction
+    /// and delegates to the base method instead of pushing to `$this->registrations[]`.
+    #[test]
+    fn php_output_wrapper_call_delegates_to_base_method() {
+        use crate::core::ir::{
+            ParamDef, RegistrationVariant, RegistrationVariantStyle, TypeRef, WrapperConstructorArg,
+            WrapperConstructorCall,
+        };
+
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let registration = RegistrationDef {
+            method: "route".to_owned(),
+            callback_param: "handler".to_owned(),
+            callback_contract: "RequestHandler".to_owned(),
+            metadata_params: vec![ParamDef {
+                name: "builder".to_owned(),
+                ty: TypeRef::Named("RouteBuilder".to_owned()),
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            return_type: TypeRef::Unit,
+            error_type: None,
+            doc: String::new(),
+            variants: vec![RegistrationVariant {
+                name: "GET".to_owned(),
+                overrides: vec![],
+                wrapper_call: Some(WrapperConstructorCall {
+                    metadata_param: "builder".to_owned(),
+                    wrapper_type_path: "my_crate::RouteBuilder".to_owned(),
+                    wrapper_type_name: "RouteBuilder".to_owned(),
+                    constructor_method: "new".to_owned(),
+                    args: vec![
+                        WrapperConstructorArg::Fixed {
+                            param_name: "method".to_owned(),
+                            value_expr: "my_crate::Method::Get".to_owned(),
+                        },
+                        WrapperConstructorArg::Free {
+                            param: ParamDef {
+                                name: "path".to_owned(),
+                                ty: TypeRef::String,
+                                optional: false,
+                                default: None,
+                                ..ParamDef::default()
+                            },
+                        },
+                    ],
+                }),
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET route.".to_owned()),
+                style: RegistrationVariantStyle::Hybrid,
+            }],
+        };
+
+        let service = ServiceDef {
+            name: "Router".to_owned(),
+            rust_path: "my_crate::Router".to_owned(),
+            constructor,
+            configurators: vec![],
+            registrations: vec![registration],
+            entrypoints: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "0.1.0".to_owned(),
+            services: vec![service],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+
+        let output = gen_service_php(&api, "my_crate");
+
+        // Wrapper construction statement must appear
+        assert!(
+            output.contains("$builder = RouteBuilder::new(Method::Get, $path);"),
+            "expected wrapper construction statement:\n{output}"
+        );
+
+        // Delegation to base method must appear
+        assert!(
+            output.contains("return $this->route($builder, $handler);"),
+            "expected delegation to base route() method:\n{output}"
+        );
+
+        // Must NOT push directly to registrations[] (that would be the old broken path)
+        assert!(
+            !output.contains("$this->registrations[] = ['route', [], $handler]"),
+            "must not push empty metadata to registrations[]:\n{output}"
+        );
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
