@@ -529,6 +529,7 @@ fn gen_struct_methods_impl(
                             typed_default: None,
                             map_is_ahash: false,
                             map_key_is_cow: false,
+                            vec_inner_is_ref: false,
                         }
                     })
                     .collect();
@@ -661,6 +662,7 @@ fn gen_struct_methods_impl(
                         typed_default: None,
                         map_is_ahash: false,
                         map_key_is_cow: false,
+                        vec_inner_is_ref: false,
                     })
                     .collect();
 
