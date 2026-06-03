@@ -513,6 +513,13 @@ android {{
 }}
 
 kotlin {{
+    // Pin the JDK toolchain used for compilation AND test execution. Without this,
+    // Gradle picks the host JDK; under JDK 25 (Temurin) the Android Gradle Plugin
+    // fails to parse the host version string and aborts with
+    // `What went wrong: 25.0.2`. `jvmToolchain(N)` makes Gradle provision the
+    // requested LTS JDK (downloading via toolchains if not present locally) so
+    // `./gradlew test` succeeds on hosts with newer JDKs installed.
+    jvmToolchain({jvm_target})
     compilerOptions {{
         jvmTarget = JvmTarget.JVM_{jvm_target}
     }}
@@ -1037,6 +1044,32 @@ mod tests {
             output.contains("dependsOn(\"verifyAarPublished\")"),
             "Test task must depend on verifyAarPublished, got:\n{output}"
         );
+    }
+
+    /// Regression: build.gradle.kts MUST pin the JDK toolchain (`jvmToolchain(17)`).
+    /// Without this, `./gradlew test` picks the host JDK; under JDK 25 (Temurin)
+    /// the Android Gradle Plugin can't parse the host version string and fails
+    /// with `What went wrong: 25.0.2`. Tested in both registry and local modes
+    /// since the host JDK affects either mode.
+    #[test]
+    fn build_gradle_kotlin_android_pins_jvm_toolchain_for_jdk25_host_compat() {
+        for dep_mode in [
+            crate::e2e::config::DependencyMode::Registry,
+            crate::e2e::config::DependencyMode::Local,
+        ] {
+            let output = render_build_gradle_kotlin_android(
+                "sample_crate",
+                "dev.sample_crate",
+                "5.0.0-rc.1",
+                "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+                dep_mode,
+                false,
+            );
+            assert!(
+                output.contains("jvmToolchain(17)"),
+                "build.gradle.kts ({dep_mode:?}) must pin jvmToolchain(17) so JDK 25 hosts pick up JDK 17 for gradle, got:\n{output}"
+            );
+        }
     }
 
     /// Regression: local-mode build.gradle.kts must NOT emit the AAR verification
