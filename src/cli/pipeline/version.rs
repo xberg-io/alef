@@ -4641,7 +4641,7 @@ packages:
             "let package = Package(\n",
             "    name: \"TestApp\",\n",
             "    dependencies: [\n",
-            "        .package(url: \"https://github.com/kreuzberg-dev/mylib.git\", from: \"1.9.0-rc.16\"),\n",
+            "        .package(url: \"https://example.com/alef-sample/mylib.git\", from: \"1.9.0-rc.16\"),\n",
             "    ],\n",
             "    targets: []\n",
             ")\n",
@@ -4676,7 +4676,7 @@ packages:
             "stale rc.16 from: version must be gone:\n{swift_pkg}"
         );
         assert!(
-            swift_pkg.contains("https://github.com/kreuzberg-dev/mylib.git"),
+            swift_pkg.contains("https://example.com/alef-sample/mylib.git"),
             "repo URL must be preserved:\n{swift_pkg}"
         );
     }
@@ -4702,7 +4702,7 @@ packages:
             "#!/usr/bin/env bash\n",
             "set -euo pipefail\n",
             "\n",
-            "REPO_URL=\"https://github.com/kreuzberg-dev/mylib\"\n",
+            "REPO_URL=\"https://example.com/alef-sample/mylib\"\n",
             "VERSION=\"1.9.0-rc.16\"\n",
             "FFI_PKG_NAME=\"mylib-ffi\"\n",
         );

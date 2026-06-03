@@ -27,7 +27,11 @@
 ///
 /// This differs from the legacy `VisitorCallbacks` pattern (FunctionParam bind_via), where
 /// `user_data` was a FIELD on the struct and context was a typed `*NodeContext` pointer.
-use crate::core::hash::{self, CommentStyle};
+use crate::core::{
+    config::TraitBridgeConfig,
+    hash::{self, CommentStyle},
+    ir::{FunctionDef, TypeRef},
+};
 use serde_json;
 
 /// Derive the cbindgen-generated C type name for a Rust FFI type.
@@ -227,8 +231,7 @@ fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<Callba
 /// - `to_root`: relative path from go output dir to the repo root.
 /// - `vtable_trait_name`: Rust trait name used to derive the VTable struct name
 ///   (e.g. `"HtmlVisitor"` → `"HtmHtmlVisitorVTable"`).
-/// - `options_field`: field name on `ConversionOptions` that holds the bridge
-///   (e.g. `"visitor"`).
+/// - `options_field`: configured field name on the options type that holds the bridge.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_visitor_file(
     pkg_name: &str,
@@ -239,6 +242,8 @@ pub fn gen_visitor_file(
     vtable_trait_name: &str,
     options_field: &str,
     trait_def: &crate::core::ir::TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    bridge_func: &FunctionDef,
 ) -> String {
     let specs = callback_specs_from_trait(trait_def);
     let mut out = String::with_capacity(32_768);
@@ -260,7 +265,15 @@ pub fn gen_visitor_file(
     let bridge_rust_name = format!("{pascal_prefix}{vtable_trait_name}Bridge");
     let vtable_c_type = ffi_c_type_name(ffi_prefix, &vtable_rust_name);
     let bridge_c_type = ffi_c_type_name(ffi_prefix, &bridge_rust_name);
-    let conversion_options_type = format!("{prefix_upper}ConversionOptions");
+    let options_type = bridge_cfg
+        .options_type
+        .as_deref()
+        .expect("go options-field visitor bridge requires options_type");
+    let options_type_snake = go_visitor_bridge_function_component(options_type);
+    let return_type = named_type_name(&bridge_func.return_type)
+        .expect("go options-field visitor bridge currently requires a named return type");
+    let return_type_snake = go_visitor_bridge_function_component(return_type);
+    let conversion_options_type = format!("{prefix_upper}{options_type}");
 
     // Derive bridge_snake from bridge_rust_name for fn names.
     // e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
@@ -268,10 +281,13 @@ pub fn gen_visitor_file(
     let fn_bridge_new = format!("{ffi_prefix}_{bridge_snake}_new");
     let fn_bridge_free = format!("{ffi_prefix}_{bridge_snake}_free");
     let fn_options_set_visitor = format!("{ffi_prefix}_options_set_{options_field}");
-    let fn_options_free = format!("{ffi_prefix}_conversion_options_free");
-    let fn_options_from_json = format!("{ffi_prefix}_conversion_options_from_json");
-    let fn_convert = format!("{ffi_prefix}_convert");
-    let fn_result_free = format!("{ffi_prefix}_conversion_result_free");
+    let fn_options_free = format!("{ffi_prefix}_{options_type_snake}_free");
+    let fn_options_from_json = format!("{ffi_prefix}_{options_type_snake}_from_json");
+    let fn_convert = format!(
+        "{ffi_prefix}_{}",
+        go_visitor_bridge_function_component(&bridge_func.name)
+    );
+    let fn_result_free = format!("{ffi_prefix}_{return_type_snake}_free");
 
     // -------------------------------------------------------------------------
     // CGo preamble
@@ -414,15 +430,34 @@ pub fn gen_visitor_file(
     }
 
     // -----------------------------------------------------------------------
-    // Internal helper: convertWithVisitorHelper
+    // Internal helper for the configured visitor bridge function.
     // -----------------------------------------------------------------------
-    // This helper is called by Convert() in binding.go when options.Visitor is not nil.
+    // This helper is called by binding.go when the configured options field is not nil.
     // It registers the visitor, builds the VTable, creates a bridge, attaches it to
     // options, calls the FFI convert function, and cleans up.
     let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
+    let helper_name = format!(
+        "{}WithVisitorHelper",
+        go_visitor_bridge_function_component(&bridge_func.name)
+    );
+    let helper_params = helper_params(bridge_func);
+    let helper_setup = helper_c_param_setup(bridge_func, options_type);
+    let helper_call_args = helper_call_args(bridge_func, options_type);
+    let options_var = bridge_func
+        .params
+        .iter()
+        .find(|param| named_type_name(&param.ty) == Some(options_type))
+        .map(|param| crate::codegen::naming::go_param_name(&param.name))
+        .unwrap_or_else(|| "options".to_string());
     out.push_str(&crate::backends::go::template_env::render(
         "convert_with_visitor_helper.jinja",
         minijinja::context! {
+            helper_name => helper_name,
+            helper_params => helper_params,
+            helper_setup => helper_setup,
+            helper_call_args => helper_call_args,
+            options_var => options_var,
+            options_type => options_type,
             conversion_options_type => conversion_options_type,
             fn_options_from_json => fn_options_from_json,
             fn_options_free => fn_options_free,
@@ -433,6 +468,7 @@ pub fn gen_visitor_file(
             fn_convert => fn_convert,
             fn_result_to_json => fn_result_to_json,
             fn_result_free => fn_result_free,
+            result_type => return_type,
         },
     ));
     out.push('\n');
@@ -568,7 +604,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 /// 6. Free bridge and options after conversion completes.
 ///
 /// NOTE: This function is no longer used. The same logic is now inlined in
-/// `convertWithVisitorHelper` and generated directly in `gen_visitor_file`.
+/// the generated helper and generated directly in `gen_visitor_file`.
 #[allow(clippy::too_many_arguments, dead_code)]
 fn gen_convert_with_visitor(
     out: &mut String,
@@ -603,4 +639,58 @@ fn capitalize(s: &str) -> String {
 /// Convert a generated visitor bridge type name into its Go wrapper function component.
 fn go_visitor_bridge_function_component(name: &str) -> String {
     crate::codegen::naming::pascal_to_snake(name)
+}
+
+fn named_type_name(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => named_type_name(inner),
+        _ => None,
+    }
+}
+
+fn helper_params(func: &FunctionDef) -> String {
+    let mut params = func
+        .params
+        .iter()
+        .map(|param| {
+            let go_name = crate::codegen::naming::go_param_name(&param.name);
+            let go_type = crate::backends::go::type_map::go_type(&param.ty);
+            format!("{go_name} {go_type}")
+        })
+        .collect::<Vec<_>>();
+    params.push("visitor Visitor".to_string());
+    params.join(", ")
+}
+
+fn helper_c_param_setup(func: &FunctionDef, options_type: &str) -> String {
+    let mut out = String::new();
+    for param in &func.params {
+        if named_type_name(&param.ty) == Some(options_type) {
+            continue;
+        }
+        if matches!(param.ty, TypeRef::String | TypeRef::Path) {
+            let go_name = crate::codegen::naming::go_param_name(&param.name);
+            let c_name = crate::codegen::naming::go_param_name(&format!("c_{}", param.name));
+            out.push_str(&format!("\t{c_name} := C.CString({go_name})\n"));
+            out.push_str(&format!("\tdefer C.free(unsafe.Pointer({c_name}))\n\n"));
+        }
+    }
+    out
+}
+
+fn helper_call_args(func: &FunctionDef, options_type: &str) -> String {
+    func.params
+        .iter()
+        .map(|param| {
+            if named_type_name(&param.ty) == Some(options_type) {
+                "cOptions".to_string()
+            } else if matches!(param.ty, TypeRef::String | TypeRef::Path) {
+                crate::codegen::naming::go_param_name(&format!("c_{}", param.name))
+            } else {
+                crate::codegen::naming::go_param_name(&param.name)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

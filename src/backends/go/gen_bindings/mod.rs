@@ -12,7 +12,9 @@ use types::{
 
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::workspace::ClientConstructorConfig;
-use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
+use crate::core::config::{
+    AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir,
+};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
 use std::collections::HashSet;
@@ -103,10 +105,11 @@ impl Backend for GoBackend {
         // Determine if any bridge is configured for the visitor pattern.
         // Options-field bridges generate visitor.go regardless of visitor_callbacks.
         let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
-        let has_options_field_bridge = config
+        let visitor_bridge_cfg = config
             .trait_bridges
             .iter()
-            .any(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField);
+            .find(|b| b.bind_via == BridgeBinding::OptionsField);
+        let has_options_field_bridge = visitor_bridge_cfg.is_some();
         let has_visitor_bridge =
             has_options_field_bridge || (!config.trait_bridges.is_empty() && visitor_callbacks_enabled);
 
@@ -177,7 +180,7 @@ impl Backend for GoBackend {
             &ffi_exclude_functions,
             &exclude_types,
             &value_only_types,
-            has_options_field_bridge,
+            visitor_bridge_cfg,
         )));
 
         // Build adapter body map (consumed by generators via body substitution)
@@ -197,10 +200,6 @@ impl Backend for GoBackend {
         if has_visitor_bridge {
             // Derive vtable_trait_name and options_field from the first options-field bridge,
             // falling back to sensible defaults for legacy function-param bridges.
-            let visitor_bridge_cfg = config
-                .trait_bridges
-                .iter()
-                .find(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField);
             let (vtable_trait_name, options_field) = visitor_bridge_cfg
                 .and_then(|b| {
                     let field = b.resolved_options_field()?;
@@ -216,8 +215,11 @@ impl Backend for GoBackend {
                 .map(|t| (t.name.as_str(), t))
                 .collect();
             let visitor_trait = visitor_bridge_cfg.and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
+            let visitor_function = visitor_bridge_cfg.and_then(|b| find_options_bridge_function(api, b));
 
-            let visitor_content = if let Some(vt) = visitor_trait {
+            let visitor_content = if let (Some(vt), Some(visitor_func), Some(bridge_cfg)) =
+                (visitor_trait, visitor_function, visitor_bridge_cfg)
+            {
                 strip_trailing_whitespace(&crate::backends::go::gen_visitor::gen_visitor_file(
                     &pkg_name,
                     &ffi_prefix,
@@ -227,10 +229,12 @@ impl Backend for GoBackend {
                     &vtable_trait_name,
                     &options_field,
                     vt,
+                    bridge_cfg,
+                    visitor_func,
                 ))
             } else {
                 eprintln!(
-                    "[alef] gen_visitor_file(go): visitor trait `{vtable_trait_name}` not found in IR, skipping visitor.go"
+                    "[alef] gen_visitor_file(go): visitor bridge `{vtable_trait_name}` missing trait or options function in IR, skipping visitor.go"
                 );
                 String::new()
             };
@@ -445,6 +449,32 @@ fn signature_references_excluded_type(
             .any(|param| references_excluded_type(&param.ty, exclude_types))
 }
 
+fn find_options_bridge_function<'a>(
+    api: &'a ApiSurface,
+    bridge_cfg: &TraitBridgeConfig,
+) -> Option<&'a crate::core::ir::FunctionDef> {
+    api.functions
+        .iter()
+        .find(|func| options_bridge_function_matches(func, bridge_cfg))
+}
+
+fn options_bridge_function_matches(func: &crate::core::ir::FunctionDef, bridge_cfg: &TraitBridgeConfig) -> bool {
+    let Some(options_type) = bridge_cfg.options_type.as_deref() else {
+        return false;
+    };
+    func.params
+        .iter()
+        .any(|param| type_ref_named_type(&param.ty) == Some(options_type))
+}
+
+fn type_ref_named_type(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => type_ref_named_type(inner),
+        _ => None,
+    }
+}
+
 /// Generate the complete Go binding file wrapping the C FFI layer.
 #[allow(clippy::too_many_arguments)]
 fn gen_go_file(
@@ -462,7 +492,7 @@ fn gen_go_file(
     ffi_exclude_functions: &HashSet<String>,
     exclude_types: &HashSet<String>,
     value_only_types: &HashSet<String>,
-    has_options_field_bridge: bool,
+    visitor_bridge_cfg: Option<&TraitBridgeConfig>,
 ) -> String {
     // Two-pass generation: accumulate body content first, then scan for actual usage
     // to determine which imports are truly needed (e.g., runtime.Pinner only appears
@@ -708,14 +738,15 @@ fn gen_go_file(
             )
             && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
     }) {
-        // For the convert function with visitor support, wrap it with visitor-awareness logic
-        // instead of generating the basic wrapper.
-        if func.name == "convert" && has_options_field_bridge {
+        // For the configured options-field visitor function, wrap it with visitor-awareness
+        // logic instead of generating the basic wrapper.
+        if visitor_bridge_cfg.is_some_and(|bridge_cfg| options_bridge_function_matches(func, bridge_cfg)) {
             body.push_str(&gen_convert_with_visitor_wrapper(
                 func,
                 ffi_prefix,
                 &opaque_names,
                 value_only_types,
+                visitor_bridge_cfg.expect("checked above"),
             ));
             body.push_str("\n\n");
         } else {

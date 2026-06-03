@@ -3491,6 +3491,202 @@ package = "com.example"
 }
 
 #[test]
+fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
+    let backend = JavaBackend;
+
+    let field = |name: &str, ty: TypeRef| FieldDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef::core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    };
+    let record = |name: &str, fields: Vec<FieldDef>| TypeDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        fields,
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            record(
+                "WorkConfig",
+                vec![
+                    field("hook", TypeRef::Named("CallbackHandle".to_string())),
+                    field("mode", TypeRef::String),
+                ],
+            ),
+            record("WorkResult", vec![field("text", TypeRef::String)]),
+            TypeDef {
+                name: "Callback".to_string(),
+                rust_path: "test_lib::Callback".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                is_trait: true,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "process_html".to_string(),
+            rust_path: "test_lib::process_html".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "html".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                },
+                ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("WorkConfig".to_string()),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                },
+            ],
+            return_type: TypeRef::Named("WorkResult".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.java]
+package = "com.example"
+
+[[crates.trait_bridges]]
+trait_name = "Callback"
+type_alias = "CallbackHandle"
+bind_via = "options_field"
+options_type = "WorkConfig"
+options_field = "hook"
+"#,
+    );
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("java generation must succeed");
+    let main = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
+        .expect("raw FFI class must be emitted");
+    let main_content = &main.content;
+    assert!(main_content.contains("if (config != null && config.hook() != null)"));
+    assert!(main_content.contains("return processHtmlWithVisitorInternal(html, config);"));
+    assert!(main_content.contains("private static WorkResult processHtmlWithVisitorInternal"));
+    assert!(main_content.contains("new VisitorBridge(config.hook())"));
+    assert!(main_content.contains("NativeLib.TEST_PROCESS_HTML"));
+    assert!(main_content.contains("chtml"));
+    assert!(main_content.contains("cconfig"));
+    assert!(main_content.contains("NativeLib.TEST_WORK_CONFIG_FREE"));
+    assert!(main_content.contains("NativeLib.TEST_WORK_RESULT_TO_JSON"));
+    assert!(main_content.contains("NativeLib.TEST_WORK_RESULT_FREE"));
+    assert!(main_content.contains("return MAPPER.readValue(json, WorkResult.class);"));
+    assert!(!main_content.contains("convertWithVisitorInternal"));
+    assert!(!main_content.contains("ConversionOptions"));
+    assert!(!main_content.contains("ConversionResult"));
+
+    let options = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("WorkConfig.java"))
+        .expect("options record must be emitted");
+    assert!(options.content.contains("@JsonIgnore Visitor hook"));
+    assert!(options.content.contains("withHook(final Visitor value)"));
+}
+
+#[test]
 fn test_facade_no_java_lang_imports() {
     // BLK-12: Regression test that verifies no `java.lang.*` types are explicitly imported
     // in generated Java facades. These types are auto-imported by the JLS, and checkstyle's

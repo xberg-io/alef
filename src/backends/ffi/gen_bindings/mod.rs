@@ -6,8 +6,8 @@ mod types;
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use crate::core::config::{Language, ResolvedCrateConfig};
-use crate::core::ir::ApiSurface;
+use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use heck::ToPascalCase;
 use std::path::PathBuf;
 
@@ -31,6 +31,42 @@ use types::{
 pub struct FfiBackend;
 
 impl FfiBackend {}
+
+fn named_type_ref(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name),
+        TypeRef::Optional(inner) => named_type_ref(inner),
+        _ => None,
+    }
+}
+
+fn has_trait_bridge_param(func: &FunctionDef, trait_bridges: &[TraitBridgeConfig]) -> bool {
+    func.params.iter().any(|param| {
+        let param_type = named_type_ref(&param.ty);
+        trait_bridges.iter().any(|bridge| {
+            bridge.bind_via != BridgeBinding::OptionsField
+                && (bridge.param_name.as_deref() == Some(param.name.as_str())
+                    || bridge.type_alias.as_deref() == param_type)
+        })
+    })
+}
+
+fn options_field_bridge_for_function<'a>(
+    func: &'a FunctionDef,
+    trait_bridges: &'a [TraitBridgeConfig],
+) -> Option<(&'a ParamDef, &'a str)> {
+    trait_bridges
+        .iter()
+        .filter(|bridge| bridge.bind_via == BridgeBinding::OptionsField)
+        .find_map(|bridge| {
+            let options_type = bridge.options_type.as_deref()?;
+            let options_param = func
+                .params
+                .iter()
+                .find(|param| named_type_ref(&param.ty) == Some(options_type))?;
+            Some((options_param, options_type))
+        })
+}
 
 impl Backend for FfiBackend {
     fn name(&self) -> &str {
@@ -654,19 +690,26 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
             continue;
         }
-        // For the legacy FunctionParam visitor path: skip the sanitized convert stub;
-        // gen_convert_no_visitor emits the real implementation below.
-        // For the OptionsField path: skip the IR-generated convert entirely;
-        // gen_convert_with_options_field_bridge emits the definitive implementation that
-        // passes the embedded visitor through options.  The IR version is a duplicate
-        // because the visitor lives in ConversionOptions (not a function parameter), so
-        // the IR correctly generates a 2-arg convert — but we still want the one with
-        // the full options-clone-with-visitor semantics only.
-        if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
+        // For legacy FunctionParam visitor bridges, skip sanitized bridge stubs; the
+        // visitor-specific support emits those ABI entrypoints separately.
+        if visitor_callbacks_enabled && func.sanitized && has_trait_bridge_param(func, &config.trait_bridges) {
             continue;
         }
-        if has_options_field_bridge && func.name == "convert" {
-            continue;
+        if has_options_field_bridge {
+            if let Some((options_param, options_type_name)) =
+                options_field_bridge_for_function(func, &config.trait_bridges)
+            {
+                if let Some(wrapper) = crate::backends::ffi::gen_bridge_field::gen_function_with_options_field_bridge(
+                    prefix,
+                    &core_import,
+                    func,
+                    options_param,
+                    options_type_name,
+                ) {
+                    builder.add_item(&wrapper);
+                    continue;
+                }
+            }
         }
         builder.add_item(&gen_free_function(
             func,
@@ -735,11 +778,6 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 &type_paths,
             ));
         }
-
-        // Emit the correct {prefix}_convert that passes options (with embedded visitor) to core.
-        builder.add_item(
-            &crate::backends::ffi::gen_bridge_field::gen_convert_with_options_field_bridge(prefix, &core_import),
-        );
 
         // When visitor_callbacks is also enabled, additionally emit the
         // {prefix}_visitor_create / {prefix}_visitor_free / {prefix}_options_set_visitor_handle
@@ -2528,7 +2566,52 @@ bind_via = "options_field"
 options_type = "ConversionOptions"
 "#,
         );
-        let api = visitor_api();
+        let mut api = visitor_api();
+        api.types.push(TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "my_lib::ConversionOptions".to_string(),
+            fields: vec![],
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "ConversionResult".to_string(),
+            rust_path: "my_lib::ConversionResult".to_string(),
+            fields: vec![],
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.functions.push(FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "html".to_string(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::Named("ConversionResult".to_string()),
+            is_async: false,
+            error_type: Some("MyError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
         let backend = FfiBackend;
 
         let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2570,6 +2653,107 @@ options_type = "ConversionOptions"
         assert!(
             !lib.content.contains("convert(&html_str, options_rs, visitor_handle"),
             "convert_with_visitor must NOT pass visitor as 3rd arg in OptionsField path"
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_generates_non_convert_function_from_ir() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "doc"
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "RenderHandle"
+param_name = "renderer"
+bind_via = "options_field"
+options_type = "RenderSettings"
+options_field = "renderer"
+"#,
+        );
+        let mut api = visitor_api();
+        api.types.push(TypeDef {
+            name: "RenderSettings".to_string(),
+            rust_path: "my_lib::RenderSettings".to_string(),
+            fields: vec![],
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "RenderedDocument".to_string(),
+            rust_path: "my_lib::RenderedDocument".to_string(),
+            fields: vec![],
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.functions.push(FunctionDef {
+            name: "render_document".to_string(),
+            rust_path: "my_lib::render_document".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "settings".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("RenderSettings".to_string()))),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::Named("RenderedDocument".to_string()),
+            is_async: false,
+            error_type: Some("RenderError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(
+            lib.content.contains("fn doc_render_document("),
+            "must generate IR-derived symbol"
+        );
+        assert!(
+            lib.content.contains("settings: *const my_lib::RenderSettings"),
+            "must use configured options type"
+        );
+        assert!(
+            lib.content.contains(") -> *mut my_lib::RenderedDocument"),
+            "must use actual return type"
+        );
+        assert!(
+            lib.content
+                .contains("match my_lib::render_document(source_rs, settings_rs)"),
+            "must call actual core function with actual parameters"
+        );
+        assert!(
+            !lib.content.contains("my_lib::convert("),
+            "must not hardcode conversion call"
+        );
+        assert!(
+            !lib.content.contains("ConversionOptions") && !lib.content.contains("ConversionResult"),
+            "must not leak conversion-shaped type names in generic wrapper"
         );
     }
 

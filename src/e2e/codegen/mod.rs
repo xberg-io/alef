@@ -35,6 +35,7 @@ pub mod php;
 pub mod php_ext;
 pub mod python;
 pub mod r;
+pub mod recipe;
 pub mod ruby;
 pub mod rust;
 pub mod streaming_assertions;

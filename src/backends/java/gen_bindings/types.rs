@@ -1,7 +1,7 @@
 use crate::backends::java::type_map::{java_boxed_type, java_return_type, java_type};
 use crate::codegen::naming::to_class_name;
 use crate::codegen::shared::binding_fields;
-use crate::core::config::{AdapterConfig, AdapterPattern, JavaBuilderMode};
+use crate::core::config::{AdapterConfig, AdapterPattern, BridgeBinding, JavaBuilderMode, TraitBridgeConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{DefaultValue, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
@@ -42,6 +42,25 @@ fn resolve_field_type(ty: &TypeRef, visible_types: &std::collections::HashSet<&s
     }
 }
 
+fn is_options_field_bridge(
+    type_name: &str,
+    field_name: &str,
+    field_ty: &TypeRef,
+    trait_bridges: &[TraitBridgeConfig],
+) -> bool {
+    trait_bridges.iter().any(|bridge| {
+        let alias_matches = bridge
+            .type_alias
+            .as_deref()
+            .is_none_or(|alias| matches!(field_ty, TypeRef::Named(name) if name == alias));
+
+        bridge.bind_via == BridgeBinding::OptionsField
+            && bridge.options_type.as_deref() == Some(type_name)
+            && bridge.resolved_options_field() == Some(field_name)
+            && alias_matches
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
     package: &str,
@@ -49,7 +68,7 @@ pub(crate) fn gen_record_type(
     complex_enums: &AHashSet<String>,
     sealed_unions_with_unwrapped: &AHashSet<String>,
     _lang_rename_all: &str,
-    has_visitor_pattern: bool,
+    trait_bridges: &[TraitBridgeConfig],
     _main_class: &str,
     builder_mode: JavaBuilderMode,
     enum_defaults: &ahash::AHashMap<String, crate::extract::default_value_for_enum::DefaultEnumVariant>,
@@ -75,9 +94,7 @@ pub(crate) fn gen_record_type(
         // Use Object for flexible Jackson deserialization.
         let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
 
-        // Special handling for visitor field in ConversionOptions when visitor pattern is active:
-        // Change type from VisitorHandle (opaque) to Visitor (interface), mark as transient.
-        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && f.name == "visitor";
+        let is_visitor_field = is_options_field_bridge(typ.name.as_str(), f.name.as_str(), &f.ty, trait_bridges);
 
         // `#[serde(flatten)]` on a `serde_json::Value` field: emit
         // `@JsonAnyGetter Map<String, Object>` so Jackson absorbs unknown
@@ -403,7 +420,7 @@ pub(crate) fn gen_record_type(
         record_block.push_str("    // CPD-OFF\n");
         let nested = gen_builder_nested_class(
             typ,
-            has_visitor_pattern,
+            trait_bridges,
             enum_defaults,
             sealed_interface_names,
             visible_type_names,
@@ -1937,7 +1954,7 @@ fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
 /// (`gen_record_type`) to the combined file's import block.
 fn gen_builder_nested_class(
     typ: &TypeDef,
-    has_visitor_pattern: bool,
+    trait_bridges: &[TraitBridgeConfig],
     enum_defaults: &ahash::AHashMap<String, crate::extract::default_value_for_enum::DefaultEnumVariant>,
     sealed_interface_names: &AHashSet<String>,
     visible_type_names: &std::collections::HashSet<&str>,
@@ -1962,10 +1979,8 @@ fn gen_builder_nested_class(
             continue;
         }
 
-        // Match the record's special-cased ConversionOptions.visitor field (VisitorHandle in
-        // the IR but exposed as the user-facing `Visitor` interface) so the builder's
-        // build() call passes a Visitor — not a VisitorHandle — to the record constructor.
-        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        let is_visitor_field =
+            is_options_field_bridge(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
 
         // `#[serde(flatten)]` on a `serde_json::Value` field — store as
         // `java.util.HashMap<String, Object>` so the builder's matching
@@ -2198,7 +2213,8 @@ fn gen_builder_nested_class(
 
         let field_name = safe_java_field_name(&field.name);
         let field_name_pascal = to_class_name(&field.name);
-        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        let is_visitor_field =
+            is_options_field_bridge(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
         let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
         let has_serde_default = field.default == Some("/* serde(default) */".to_string());
 
@@ -2343,7 +2359,8 @@ fn gen_builder_nested_class(
     for (i, field) in non_tuple_fields.iter().enumerate() {
         let field_name = safe_java_field_name(&field.name);
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
-        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
+        let is_visitor_field =
+            is_options_field_bridge(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
         // Match the Builder field's actual type: call .orElse(null) only when the
         // backing field is stored as Optional<T>; for plain @Nullable T storage
         // (field_is_optional_in_binding) the field IS already nullable T.
@@ -2713,7 +2730,7 @@ mod tests {
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
-            false,
+            &[],
             "SampleLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
@@ -2740,7 +2757,7 @@ mod tests {
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
-            false,
+            &[],
             "SampleLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
@@ -2771,7 +2788,7 @@ mod tests {
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
-            false,
+            &[],
             "SampleCrawler",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
@@ -2866,7 +2883,7 @@ mod tests {
             &AHashSet::default(),
             &AHashSet::default(),
             "SNAKE_CASE",
-            false,
+            &[],
             "SampleLlmRs",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),

@@ -2,7 +2,7 @@
 priority: medium
 ---
 
-When downstream consumer repos (tslp, kreuzcrawl, liter-llm, h2m, kreuzberg, kreuzberg-cloud) test a codegen change, use the local alef binary, not crates.io.
+When downstream consumer repos test a codegen change, use the local alef binary, not crates.io.
 
 **Canonical install path:**
 
