@@ -51,7 +51,9 @@ fn make_mock_server_fixture() -> FixtureGroup {
             env: None,
             call: None,
             input: serde_json::json!({}),
-            mock_response: Some(alef::e2e::fixture::MockResponse::Body(serde_json::json!({"status": "ok"}))),
+            mock_response: Some(alef::e2e::fixture::MockResponse::Body(
+                serde_json::json!({"status": "ok"}),
+            )),
             visitor: None,
             args: Vec::new(),
             assertions: vec![Assertion {
