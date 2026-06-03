@@ -809,7 +809,7 @@ fn render_dart_sut_spawn(out: &mut String) {
     );
     let _ = writeln!(
         out,
-        "          if (_build.exitCode != 0) throw StateError('mock-server build failed: ${{_build.stderr}});"
+        "          if (_build.exitCode != 0) throw StateError('mock-server build failed: ${{_build.stderr}}');"
     );
     let _ = writeln!(out, "        }}");
     let _ = writeln!(

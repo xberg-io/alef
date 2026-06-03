@@ -408,7 +408,16 @@ fn render_package_swift(
 "#
             );
             let deps_block = format!("    dependencies: [\n{package_dep}    ],\n");
-            let pkg_id = "swift"; // Derived from github_repo_url basename, but we can be explicit
+            // SPM identity for url-based deps is the URL basename (last path
+            // component, sans `.git`). For `github.com/<org>/<repo>` that's
+            // `<repo>`. We strip `.git` again defensively even though
+            // `github_repo_url` already has it trimmed.
+            let pkg_id = github_repo_url
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or(module_name)
+                .trim_end_matches(".git");
             let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
             (deps_block, prod)
         }

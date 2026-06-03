@@ -639,13 +639,10 @@ fn render_makefile(
     let _ = writeln!(out, "endef");
     let _ = writeln!(out);
     let _ = writeln!(out, "test: $(TARGET)");
-    let _ = writeln!(out, "\t@TEST_CMD='./$(TARGET)' $$(MAKE) -s run_with_mock_server");
+    let _ = writeln!(out, "\t@TEST_CMD='./$(TARGET)' $(MAKE) -s run_with_mock_server");
     let _ = writeln!(out);
     let _ = writeln!(out, "smoke: $(TARGET)");
-    let _ = writeln!(
-        out,
-        "\t@TEST_CMD='./$(TARGET) --smoke' $$(MAKE) -s run_with_mock_server"
-    );
+    let _ = writeln!(out, "\t@TEST_CMD='./$(TARGET) --smoke' $(MAKE) -s run_with_mock_server");
     let _ = writeln!(out);
     let _ = writeln!(out, "run_with_mock_server:");
     let _ = writeln!(out, "\t$(run_with_mock_server)");

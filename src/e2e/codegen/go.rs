@@ -338,15 +338,14 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
         let _ = writeln!(out, "\t\"io\"");
         let _ = writeln!(out, "\t\"net\"");
     }
+    let _ = writeln!(out, "\t\"net/http\"");
     let _ = writeln!(out, "\t\"os\"");
     let _ = writeln!(out, "\t\"os/exec\"");
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
     let _ = writeln!(out, "\t\"strings\"");
     let _ = writeln!(out, "\t\"testing\"");
-    if has_http_fixtures {
-        let _ = writeln!(out, "\t\"time\"");
-    }
+    let _ = writeln!(out, "\t\"time\"");
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
     let _ = writeln!(out, "func TestMain(m *testing.M) {{");
@@ -432,8 +431,37 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
         let _ = writeln!(out, "\tif os.Getenv(\"MOCK_SERVER_URL\") == \"\" {{");
         let _ = writeln!(out, "\t\tpanic(\"mock-server did not emit MOCK_SERVER_URL\")");
         let _ = writeln!(out, "\t}}");
-        let _ = writeln!(out, "\t// Drain remaining stdout asynchronously so the pipe doesn't fill.");
+        let _ = writeln!(
+            out,
+            "\t// Drain remaining stdout asynchronously so the pipe doesn't fill."
+        );
         let _ = writeln!(out, "\tgo func() {{ for scanner.Scan() {{ }} }}()");
+        let _ = writeln!(out);
+        // Wait until the mock-server actually accepts a TCP connection on the
+        // URL it just announced. The `MOCK_SERVER_URL=` sentinel is printed by
+        // the rust binary right after listener.bind() succeeds — the kernel
+        // queues SYNs from that point on — but the axum::serve task is
+        // spawned only afterward and may not have started accept()ing yet
+        // when the first test request fires. A 1-second connect-poll closes
+        // that window without the panic the previous code would have hit if
+        // the connect ever blocked.
+        let _ = writeln!(out, "\t// Poll the mock-server URL until it answers (axum::serve start race).");
+        let _ = writeln!(out, "\t{{");
+        let _ = writeln!(out, "\t\turl := os.Getenv(\"MOCK_SERVER_URL\")");
+        let _ = writeln!(out, "\t\tready := false");
+        let _ = writeln!(out, "\t\tfor i := 0; i < 100; i++ {{");
+        let _ = writeln!(out, "\t\t\tresp, err := http.Get(url)");
+        let _ = writeln!(out, "\t\t\tif err == nil {{");
+        let _ = writeln!(out, "\t\t\t\t_ = resp.Body.Close()");
+        let _ = writeln!(out, "\t\t\t\tready = true");
+        let _ = writeln!(out, "\t\t\t\tbreak");
+        let _ = writeln!(out, "\t\t\t}}");
+        let _ = writeln!(out, "\t\t\ttime.Sleep(50 * time.Millisecond)");
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t\tif !ready {{");
+        let _ = writeln!(out, "\t\t\tpanic(\"mock-server did not become ready within 5s\")");
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t}}");
         let _ = writeln!(out);
         let _ = writeln!(out, "\tos.Exit(m.Run())");
         let _ = writeln!(out, "}}");

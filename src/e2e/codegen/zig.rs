@@ -532,20 +532,25 @@ fn render_build_zig_zon(
             // `{crate_name}-zig-v{version}.tar.gz` (source + bundled FFI for this build platform).
             // The build.zig script links against the prebuilt FFI library included in the tarball.
             let url = format!("{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
-            let hash_str = match platform_hashes.values().next().and_then(|(_, h)| h.as_ref()) {
-                Some(h) => {
-                    if hash_is_stale {
-                        // Hash is stale; emit as a comment so zig fetch can auto-compute the correct hash.
-                        format!("// STALE: regenerate with `alef sync-versions`\n            // .hash = \"{h}\"")
-                    } else {
-                        format!("\"{h}\"")
-                    }
-                }
-                None => "\"TODO\"".to_string(),
-            };
-            format!(
-                "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = {hash_str},\n        }},"
-            )
+            // When hash is stale (embedded version != current crate version)
+            // we omit the `.hash` field entirely. Zig will reject the .zon as
+            // missing-hash and print the actual computed multihash in its
+            // error; pasting that back via `alef sync-versions` (or hand-edit
+            // of alef.toml's `[crates.e2e.registry.packages.zig].hash`) is
+            // the recovery path. Leaving a syntactically-broken `.hash =
+            // // STALE` line bricks every downstream `zig build`, so this
+            // branch must produce a still-parseable .zon.
+            match platform_hashes.values().next().and_then(|(_, h)| h.as_ref()) {
+                Some(h) if hash_is_stale => format!(
+                    "        // STALE hash (embedded version != current); regenerate via `alef sync-versions`\n        // expected to match crate v{version}, was: {h}\n        .{pkg_name} = .{{\n            .url = \"{url}\",\n        }},"
+                ),
+                Some(h) => format!(
+                    "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = \"{h}\",\n        }},"
+                ),
+                None => format!(
+                    "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = \"TODO\",\n        }},"
+                ),
+            }
         }
         crate::e2e::config::DependencyMode::Local => {
             // Zig 0.16+ requires named dependencies. Use the package name as the key.
