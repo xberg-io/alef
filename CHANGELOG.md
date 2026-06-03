@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.16] - 2026-06-03
+
 ### Fixed
 
+- fix(napi): emit per-service verb-method `impl` blocks with `#[napi]` on the impl itself and use `&self` (not `&mut self`) as the receiver. napi-rs rejects `&mut self` on `#[napi]` methods, and method-level `#[napi]` attributes require `#[napi]` on the enclosing impl to register with the runtime; without these two fixes the generated `service.rs` failed to compile with "arguments cannot be `self`" errors. Mutation of the underlying owner is expected to flow through interior mutability via the configured `host_app_inner_accessor` (e.g. `self.inner.lock().expect(...)` when the wrapper holds an `Arc<Mutex<_>>`). (`src/backends/napi/gen_bindings/service_api.rs`)
 - fix(java): streaming iterator method codegen now unconditionally emits the `{PREFIX}_{ITEM}_TO_JSON` FFI symbol for stream-item types, removing reliance on the `to_json_type_names` set which could exclude cfg-gated types due to IR extraction uncertainty. This fixes double-dot (`NativeLib..invoke`) artifacts in generated streaming methods when the item type carries `#[cfg]` conditions (e.g., `CrawlEvent` with `#[cfg(not(wasm32))]`). If a type is used as a streaming item, it must have serde derives in the Rust source; missing FFI symbols now indicate C FFI generation failures, not Java codegen issues. (`src/backends/java/gen_bindings/types.rs`)
 - fix(rustler): wrap the `targets:` keyword in generated `Native` module onto its own line so the keyword and value span continuation lines rather than a single overly-long line. This ensures `mix format --check-formatted` passes without reformatting when generated for libraries with many NIF target triples (e.g., kreuzcrawl's 7 targets). (`src/backends/rustler/template_env.rs`)
 - fix(rustler): relax the Hex constraint for rustler from `"~> 0.38.0"` to `">= 0.37"` to accept both 0.37.x (stable) and 0.38.x (newly released) versions. This avoids lock-file conflicts when consumers with older dependencies run `mix deps.get` against scaffold-generated `mix.exs`. (`src/core/template_versions.rs`)
