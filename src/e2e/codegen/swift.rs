@@ -3540,89 +3540,89 @@ mod tests {
             "script must log mismatch with the canonical message"
         );
 
-    /// Registry-mode Package.swift must use .package(url:, from:) to fetch the Swift
-    /// package from GitHub, NOT .binaryTarget which only provides static libraries
-    /// without Swift module wrappers. The generated Package.swift must have
-    /// correct indentation and proper dependencies block.
-    #[test]
-    fn registry_mode_package_swift_uses_package_url() {
-        let package_swift = render_package_swift(
-            "TestKit",
-            "https://github.com/example/test-kit.git",
-            "../../packages/swift",
-            "1.0.0",
-            crate::e2e::config::DependencyMode::Registry,
-            false,
-        );
-        // Must use .package(url:) to fetch from GitHub
-        assert!(
-            package_swift.contains(r#".package(url: "https://github.com/example/test-kit"#),
-            "must use .package(url:) for registry mode: {}"#, package_swift
-        );
-        // Must specify version constraint
-        assert!(
-            package_swift.contains(r#"from: "1.0.0"#),
-            "must specify version constraint with from: {}"#, package_swift
-        );
-        // Must NOT use .binaryTarget which was the old broken approach
-        assert!(
-            !package_swift.contains("binaryTarget"),
-            "must not use .binaryTarget in registry mode (breaks module resolution)"
-        );
-        // Test target must use .product to reference the module
-        assert!(
-            package_swift.contains(r#"dependencies: [.product(name: "TestKit", package: "swift")]"#),
-            "test target must reference module via .product"
-        );
-        // Must have exactly one dependencies block (at package level)
-        let deps_count = package_swift.matches("dependencies:").count();
-        assert_eq!(
-            deps_count, 1,
-            "must have exactly one dependencies block (at package level), got {}: {}"#, deps_count, package_swift
-        );
-        // Indentation check: all targets must be at 8 spaces (2 levels)
-        assert!(
-            !package_swift.contains("                .executableTarget"),
-            "executableTarget must not be over-indented (16 spaces)"
-        );
-        assert!(
-            !package_swift.contains("                .testTarget"),
-            "testTarget must not be over-indented (16 spaces)"
-        );
-    }
+        /// Registry-mode Package.swift must use .package(url:, from:) to fetch the Swift
+        /// package from GitHub, NOT .binaryTarget which only provides static libraries
+        /// without Swift module wrappers. The generated Package.swift must have
+        /// correct indentation and proper dependencies block.
+        #[test]
+        fn registry_mode_package_swift_uses_package_url() {
+            let package_swift = render_package_swift(
+                "TestKit",
+                "https://github.com/example/test-kit.git",
+                "../../packages/swift",
+                "1.0.0",
+                crate::e2e::config::DependencyMode::Registry,
+                false,
+            );
+            // Must use .package(url:) to fetch from GitHub
+            assert!(
+                package_swift.contains(r#".package(url: "https://github.com/example/test-kit"#),
+                "must use .package(url:) for registry mode: {}"#, package_swift
+            );
+            // Must specify version constraint
+            assert!(
+                package_swift.contains(r#"from: "1.0.0"#),
+                "must specify version constraint with from: {}"#, package_swift
+            );
+            // Must NOT use .binaryTarget which was the old broken approach
+            assert!(
+                !package_swift.contains("binaryTarget"),
+                "must not use .binaryTarget in registry mode (breaks module resolution)"
+            );
+            // Test target must use .product to reference the module
+            assert!(
+                package_swift.contains(r#"dependencies: [.product(name: "TestKit", package: "swift")]"#),
+                "test target must reference module via .product"
+            );
+            // Must have exactly one dependencies block (at package level)
+            let deps_count = package_swift.matches("dependencies:").count();
+            assert_eq!(
+                deps_count, 1,
+                "must have exactly one dependencies block (at package level), got {}: {}"#, deps_count, package_swift
+            );
+            // Indentation check: all targets must be at 8 spaces (2 levels)
+            assert!(
+                !package_swift.contains("                .executableTarget"),
+                "executableTarget must not be over-indented (16 spaces)"
+            );
+            assert!(
+                !package_swift.contains("                .testTarget"),
+                "testTarget must not be over-indented (16 spaces)"
+            );
+        }
 
-    /// Local-mode Package.swift must use .package(path:) and reference the module
-    /// via .product with the correct package identity.
-    #[test]
-    fn local_mode_package_swift_uses_package_path() {
-        let package_swift = render_package_swift(
-            "TestKit",
-            "https://github.com/example/test-kit.git",
-            "../../packages/swift",
-            "1.0.0",
-            crate::e2e::config::DependencyMode::Local,
-            false,
-        );
-        // Must use .package(path:) for local mode
-        assert!(
-            package_swift.contains(r#".package(path: "../../packages/swift")"#),
-            "must use .package(path:) for local mode: {}"#, package_swift
-        );
-        // Must NOT have binary targets or registry URLs
-        assert!(
-            !package_swift.contains("binaryTarget"),
-            "must not use .binaryTarget in local mode"
-        );
-        assert!(
-            !package_swift.contains("github.com/example"),
-            "must not reference GitHub URL in local mode"
-        );
-        // Test target must reference the module via .product with derived package identity
-        assert!(
-            package_swift.contains(r#".product(name: "TestKit", package: "swift")"#),
-            "test target must reference module via .product with correct package id"
-        );
-    }
+        /// Local-mode Package.swift must use .package(path:) and reference the module
+        /// via .product with the correct package identity.
+        #[test]
+        fn local_mode_package_swift_uses_package_path() {
+            let package_swift = render_package_swift(
+                "TestKit",
+                "https://github.com/example/test-kit.git",
+                "../../packages/swift",
+                "1.0.0",
+                crate::e2e::config::DependencyMode::Local,
+                false,
+            );
+            // Must use .package(path:) for local mode
+            assert!(
+                package_swift.contains(r#".package(path: "../../packages/swift")"#),
+                "must use .package(path:) for local mode: {}"#, package_swift
+            );
+            // Must NOT have binary targets or registry URLs
+            assert!(
+                !package_swift.contains("binaryTarget"),
+                "must not use .binaryTarget in local mode"
+            );
+            assert!(
+                !package_swift.contains("github.com/example"),
+                "must not reference GitHub URL in local mode"
+            );
+            // Test target must reference the module via .product with derived package identity
+            assert!(
+                package_swift.contains(r#".product(name: "TestKit", package: "swift")"#),
+                "test target must reference module via .product with correct package id"
+            );
+        }
     }
 }
 
