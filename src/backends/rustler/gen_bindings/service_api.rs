@@ -202,7 +202,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
 
     // Registration methods as decorator-style helpers
     for reg in &service.registrations {
-        gen_registration_method(out, reg, service, api);
+        gen_registration_method(out, reg, service, api, module_prefix);
     }
 
     // GenServer module for dispatching trait_call messages
@@ -257,7 +257,13 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     out.push_str("end\n\n");
 }
 
-fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &ServiceDef, _api: &ApiSurface) {
+fn gen_registration_method(
+    out: &mut String,
+    reg: &RegistrationDef,
+    _service: &ServiceDef,
+    _api: &ApiSurface,
+    module_prefix: &str,
+) {
     let method_name = &reg.method;
 
     if !reg.doc.is_empty() {
@@ -333,7 +339,7 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &S
 
     // Emit registration variants (decorator-style shortcuts)
     for variant in &reg.variants {
-        gen_registration_variant_method(out, variant, reg);
+        gen_registration_variant_method(out, variant, reg, module_prefix);
     }
 }
 
@@ -341,31 +347,93 @@ fn gen_registration_variant_method(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
     base_reg: &RegistrationDef,
+    module_prefix: &str,
 ) {
-    let _variant_name = &variant.name;
-    let _base_method = &base_reg.method;
-
     match variant.style {
         RegistrationVariantStyle::VerbDecorator => {
-            emit_verb_decorator_variant(out, variant, base_reg);
+            emit_verb_decorator_variant(out, variant, base_reg, module_prefix);
         }
         RegistrationVariantStyle::Builder => {
-            emit_builder_variant(out, variant, base_reg);
+            emit_builder_variant(out, variant, base_reg, module_prefix);
         }
         RegistrationVariantStyle::Hybrid => {
-            emit_verb_decorator_variant(out, variant, base_reg);
-            emit_builder_variant(out, variant, base_reg);
+            emit_verb_decorator_variant(out, variant, base_reg, module_prefix);
+            emit_builder_variant(out, variant, base_reg, module_prefix);
         }
     }
 }
 
-/// Emit the verb-decorator form: `def variant(app, path, ..., handler) do ... end`
+/// Convert a Rust enum value expression (e.g. `"my_crate::Method::Get"`) to an
+/// Elixir function call (e.g. `"Spikard.Method.get()"`).
+///
+/// The last two `::` segments are taken as `TypeName::VariantName`; the variant
+/// name is lowercased to form the Elixir function call. When `module_prefix` is
+/// non-empty it is prepended, otherwise the bare type name is used.
+fn rust_enum_expr_to_elixir(value_expr: &str, module_prefix: &str) -> String {
+    let parts: Vec<&str> = value_expr.split("::").collect();
+    if parts.len() >= 2 {
+        let type_name = parts[parts.len() - 2];
+        let variant = parts[parts.len() - 1].to_lowercase();
+        if module_prefix.is_empty() {
+            format!("{type_name}.{variant}()")
+        } else {
+            format!("{module_prefix}.{type_name}.{variant}()")
+        }
+    } else {
+        // Fallback: use verbatim (already a literal)
+        value_expr.to_owned()
+    }
+}
+
+/// Build the Elixir expression that constructs the wrapper value for a variant,
+/// e.g. `builder = Spikard.RouteBuilder.new(Spikard.Method.get(), path)`.
+///
+/// Returns `None` when the variant has no `wrapper_call`.
+fn build_elixir_wrapper_constructor_expr(
+    variant: &crate::core::ir::RegistrationVariant,
+    module_prefix: &str,
+) -> Option<String> {
+    let wc = variant.wrapper_call.as_ref()?;
+    let mut call_args: Vec<String> = Vec::new();
+    for arg in &wc.args {
+        match arg {
+            crate::core::ir::WrapperConstructorArg::Fixed { value_expr, .. } => {
+                call_args.push(rust_enum_expr_to_elixir(value_expr, module_prefix));
+            }
+            crate::core::ir::WrapperConstructorArg::Free { param } => {
+                call_args.push(param.name.clone());
+            }
+        }
+    }
+    let type_name = &wc.wrapper_type_name;
+    let ctor = &wc.constructor_method;
+    let qualified_type = if module_prefix.is_empty() {
+        type_name.clone()
+    } else {
+        format!("{module_prefix}.{type_name}")
+    };
+    let call_expr = if ctor.is_empty() || ctor == "__init__" {
+        format!("{qualified_type}({})", call_args.join(", "))
+    } else {
+        format!("{qualified_type}.{ctor}({})", call_args.join(", "))
+    };
+    Some(format!("{} = {}", wc.metadata_param, call_expr))
+}
+
+/// Emit the verb-decorator form: `def variant(app, path, ..., handler) do ... end`.
+///
+/// When the variant has a `wrapper_call`, the body constructs the wrapper object
+/// (e.g. `builder = RouteBuilder.new(Method.get(), path)`) and delegates to the
+/// base registration method. Without a wrapper, it delegates directly passing the
+/// free params to the base method.
 fn emit_verb_decorator_variant(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
-    _base_reg: &RegistrationDef,
+    base_reg: &RegistrationDef,
+    module_prefix: &str,
 ) {
     let variant_name = &variant.name;
+    let base_method = &base_reg.method;
 
     if let Some(doc) = &variant.doc {
         out.push_str("  @doc \"\"\"\n");
@@ -384,21 +452,43 @@ fn emit_verb_decorator_variant(
     }
     out.push_str(", handler) do\n");
 
-    // Call the base registration with fixed + free args
-    out.push_str("    ");
-    if variant.wrapper_call.is_some() {
-        // Wrapper pattern: build wrapper + call base with wrapper
-        out.push_str("app\n");
+    if let Some(wrapper_expr) = build_elixir_wrapper_constructor_expr(variant, module_prefix) {
+        // Wrapper pattern: build the wrapper object, then delegate to the base method.
+        out.push_str(&format!("    {wrapper_expr}\n"));
+        out.push_str(&format!("    {}(app, {}, handler)\n", base_method, base_reg.metadata_params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")));
     } else {
-        // Direct pattern: call base with substituted args
-        out.push_str("app\n");
+        // Direct pattern: build call args by substituting overrides into the base params.
+        let mut call_args: Vec<String> = Vec::new();
+        for base_param in &base_reg.metadata_params {
+            if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
+                // Fixed override: convert Rust expression to Elixir
+                call_args.push(rust_enum_expr_to_elixir(&override_.value_expr, module_prefix));
+            } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
+                call_args.push(sig_param.name.clone());
+            }
+        }
+        let args_str = if call_args.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", call_args.join(", "))
+        };
+        out.push_str(&format!("    {}(app{}, handler)\n", base_method, args_str));
     }
 
     out.push_str("  end\n\n");
 }
 
-/// Emit the builder form: `def variant(app, path, ...) do ... end` returning a decorator
-fn emit_builder_variant(out: &mut String, variant: &crate::core::ir::RegistrationVariant, _base_reg: &RegistrationDef) {
+/// Emit the builder form: `def variant_decorator(app, path, ...) do ... end` returning a closure.
+///
+/// The returned closure accepts a handler and delegates to the verb-decorator form of the same
+/// variant. When a `wrapper_call` is present, the wrapper is built inside the closure so each
+/// call produces a fresh wrapper instance.
+fn emit_builder_variant(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    _base_reg: &RegistrationDef,
+    module_prefix: &str,
+) {
     let variant_name = &variant.name;
     let builder_name = format!("{}_decorator", variant_name);
 
@@ -419,7 +509,8 @@ fn emit_builder_variant(out: &mut String, variant: &crate::core::ir::Registratio
     }
     out.push_str(") do\n");
 
-    // Return a function that accepts the handler
+    // Return a function that accepts the handler and delegates to the verb form.
+    // The verb form already handles wrapper construction, so simply call it.
     out.push_str("    fn(handler) ->\n");
     out.push_str(&format!("      {}(app", variant_name));
     for param in &variant.signature_params {
@@ -429,6 +520,7 @@ fn emit_builder_variant(out: &mut String, variant: &crate::core::ir::Registratio
     out.push_str("    end\n");
 
     out.push_str("  end\n\n");
+    let _ = module_prefix; // consumed via emit_verb_decorator_variant delegation
 }
 
 fn gen_genserver_module(out: &mut String, service: &ServiceDef, _api: &ApiSurface) {
