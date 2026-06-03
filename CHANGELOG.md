@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(ffi): emit inline temporary `Vec<&str>` for `&[&str]` params instead of let-binding inside a block. The previous `{ let _refs: Vec<&str> = ...; &_refs }` form dropped `_refs` at the inner block's end, producing E0597 (borrow does not live long enough) at the outer call. Switched to `&rs.iter().map(|s| s.as_str()).collect::<Vec<&str>>()` so Rust extends the temporary to the enclosing statement. (`src/backends/ffi/gen_bindings/functions.rs`)
+
 ## [0.22.1] - 2026-06-03
 
 ### Fixed

@@ -639,9 +639,11 @@ pub(super) fn gen_method_wrapper(
                         format!("&mut {rs}")
                     } else if p.is_ref && p.vec_inner_is_ref {
                         // Source: &[&T] (or Vec<&T>). The local `rs` is `Vec<T_owned>`
-                        // after JSON deserialization. Build a temporary `Vec<&T>` and
-                        // pass `&_refs` so the call site receives `&[&T]`.
-                        format!("{{ let _refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect(); &_refs }}")
+                        // after JSON deserialization. Materialize a temporary `Vec<&T>`
+                        // inline so Rust extends the temporary to the enclosing
+                        // statement; the call site then receives `&[&T]`. A `let`
+                        // binding inside a block would drop the Vec before the call.
+                        format!("&{rs}.iter().map(|s| s.as_str()).collect::<Vec<&str>>()")
                     } else if p.is_ref {
                         format!("&{rs}")
                     } else {
@@ -1052,9 +1054,11 @@ pub(super) fn gen_free_function(
                         format!("&mut {rs}")
                     } else if p.is_ref && p.vec_inner_is_ref {
                         // Source: &[&T] (or Vec<&T>). The local `rs` is `Vec<T_owned>`
-                        // after JSON deserialization. Build a temporary `Vec<&T>` and
-                        // pass `&_refs` so the call site receives `&[&T]`.
-                        format!("{{ let _refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect(); &_refs }}")
+                        // after JSON deserialization. Materialize a temporary `Vec<&T>`
+                        // inline so Rust extends the temporary to the enclosing
+                        // statement; the call site then receives `&[&T]`. A `let`
+                        // binding inside a block would drop the Vec before the call.
+                        format!("&{rs}.iter().map(|s| s.as_str()).collect::<Vec<&str>>()")
                     } else if p.is_ref {
                         format!("&{rs}")
                     } else {
