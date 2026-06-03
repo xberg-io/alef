@@ -449,6 +449,12 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Service-API glue lives in the generated `service.rs`; declare it so its
+        // `#[wasm_bindgen]` entrypoints (e.g. `app_run`) are compiled and exported.
+        if !api.services.is_empty() {
+            builder.add_item("pub mod service;");
+        }
+
         // Collect tagged-data enum names once for use in struct generation and conversions.
         // These are enums with a serde tag *and* at least one data variant — they are emitted
         // as wasm-bindgen structs with `JsValue` storage for fields that are Vec<TaggedEnum>.
