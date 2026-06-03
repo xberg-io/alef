@@ -184,6 +184,11 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         };
         format!("  spec.metadata[\"keywords\"] = {}.join(\",\")\n", array_literal)
     };
+    let homepage_ruby = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("  spec.homepage      = \"{repository}\"\n"))
+        .unwrap_or_default();
 
     let content = format!(
         r#"# frozen_string_literal: true
@@ -194,7 +199,7 @@ Gem::Specification.new do |spec|
   spec.authors       = {authors}
   spec.summary       = "{description}"
   spec.description   = "{description}"
-  spec.homepage      = "{repository}"
+{homepage}
   spec.license       = "{license}"
   spec.required_ruby_version = ">= 3.2.0"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
@@ -213,7 +218,7 @@ end
         version = version,
         authors = authors_ruby,
         description = meta.description,
-        repository = meta.repository,
+        homepage = homepage_ruby,
         license = meta.license,
         metadata = metadata_ruby,
         rb_sys = tv::gem::RB_SYS,

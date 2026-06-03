@@ -30,7 +30,6 @@ DOC_EXTENSIONS = {
 SKIP_PATH_PARTS = {
     ".git",
     ".alef",
-    ".ai-rulez",
     ".cursor",
     "__pycache__",
     "fixtures",
@@ -80,6 +79,11 @@ DOWNSTREAM_DOMAIN_TYPES = (
     "BatchBytesItem",
     "BatchFileItem",
     "ConversionOptions",
+    "HtmlVisitor",
+    "IHtmlVisitor",
+    "OcrBackend",
+    "VisitorBridge",
+    "VisitorHandle",
 )
 
 
@@ -103,6 +107,18 @@ DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
     "ends_with(",
     "unwrap_or(",
 )
+DOMAIN_TYPE_EMBEDDED_BEHAVIOR_MARKERS = (
+    "class ",
+    "interface ",
+    "new ",
+    "struct ",
+    "type ",
+    "format!(",
+    "const ",
+    "public ",
+    "private ",
+    "internal ",
+)
 
 
 def is_enforced_path(path: Path) -> bool:
@@ -111,6 +127,8 @@ def is_enforced_path(path: Path) -> bool:
         return False
     if any(part in SKIP_PATH_PARTS for part in path.parts):
         return False
+    if ".ai-rulez" in path.parts:
+        return True
     return path.suffix.lower() not in DOC_EXTENSIONS
 
 
@@ -158,7 +176,9 @@ def is_domain_type_special_case(line: str) -> bool:
         return False
     if "assert" in stripped:
         return False
-    return any(marker in stripped for marker in DOMAIN_TYPE_SPECIAL_CASE_MARKERS)
+    return any(marker in stripped for marker in DOMAIN_TYPE_SPECIAL_CASE_MARKERS) or any(
+        marker in stripped for marker in DOMAIN_TYPE_EMBEDDED_BEHAVIOR_MARKERS
+    )
 
 
 def violations_for_file(path: Path) -> list[str]:

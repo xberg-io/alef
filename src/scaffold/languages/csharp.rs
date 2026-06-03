@@ -33,6 +33,11 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         let escaped: Vec<String> = meta.authors.iter().map(|a| xml_escape(a)).collect();
         format!("    <Authors>{}</Authors>\n", escaped.join(";"))
     };
+    let repository_csproj = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("    <RepositoryUrl>{}</RepositoryUrl>\n", xml_escape(repository)))
+        .unwrap_or_default();
 
     format!(
         r#"<Project Sdk="Microsoft.NET.Sdk">
@@ -43,8 +48,7 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
     <Version>{version}</Version>
     <Description>{description}</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <RepositoryUrl>{repository}</RepositoryUrl>
-{authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+{repository}{authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
@@ -64,7 +68,7 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         package_id = package_id,
         version = version,
         description = meta.description,
-        repository = meta.repository,
+        repository = repository_csproj,
         authors = authors_csproj,
     )
 }

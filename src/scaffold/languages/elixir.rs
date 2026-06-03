@@ -315,6 +315,11 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     } else {
         format!("~w({})", files_line)
     };
+    let links_line = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("links: %{{\"GitHub\" => \"{repository}\"}},"))
+        .unwrap_or_default();
 
     let content = format!(
         r#"defmodule {module}.MixProject do
@@ -335,7 +340,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
   defp package do
     [
       licenses: ["{license}"],
-      links: %{{"GitHub" => "{repository}"}},
+      {links}
       files:{files_keyword}
     ]
   end
@@ -359,7 +364,7 @@ end
         jason_dep = jason_dep,
         description = meta.description,
         license = meta.license,
-        repository = meta.repository,
+        links = links_line,
         rustler_hex = tv::hex::RUSTLER,
         rustler_precompiled = tv::hex::RUSTLER_PRECOMPILED,
         credo = tv::hex::CREDO,

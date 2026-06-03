@@ -259,6 +259,82 @@ fn test_scaffold_node_omits_repository_when_unconfigured() {
 }
 
 #[test]
+fn test_scaffold_csharp_omits_repository_when_unconfigured() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Csharp]).unwrap();
+    let files = language_files(&all_files);
+    let csproj = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".csproj"))
+        .expect("C# project file must be emitted");
+
+    assert!(
+        !csproj.content.contains("<RepositoryUrl>"),
+        "unconfigured C# scaffold must not invent repository metadata:\n{}",
+        csproj.content
+    );
+}
+
+#[test]
+fn test_scaffold_wasm_omits_repository_when_unconfigured() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
+    let files = language_files(&all_files);
+    let package_json = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-wasm/package.json"))
+        .expect("WASM package.json must be emitted");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&package_json.content).expect("emitted package.json must be valid JSON");
+
+    assert!(
+        parsed.get("repository").is_none(),
+        "unconfigured WASM manifest must not invent repository metadata:\n{}",
+        package_json.content
+    );
+}
+
+#[test]
+fn test_scaffold_java_requires_publish_metadata() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let err = scaffold(&api, &config, &[Language::Java]).expect_err("Java scaffold must require publish metadata");
+
+    assert!(
+        err.to_string()
+            .contains("Java scaffold requires package metadata repository"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_scaffold_kotlin_requires_publish_metadata() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let err = scaffold(&api, &config, &[Language::Kotlin]).expect_err("Kotlin scaffold must require publish metadata");
+
+    assert!(
+        err.to_string()
+            .contains("Kotlin scaffold requires package metadata repository"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_scaffold_r_requires_authors() {
+    let config = minimal_config_from_toml("");
+    let api = test_api();
+    let err = scaffold(&api, &config, &[Language::R]).expect_err("R scaffold must require authors");
+
+    assert!(
+        err.to_string().contains("R scaffold requires package metadata authors"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn test_scaffold_multiple() {
     let config = test_config();
     let api = test_api();

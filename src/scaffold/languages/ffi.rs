@@ -163,10 +163,15 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     }
     dep_entries.sort();
     let dep_block = dep_entries.join("\n");
+    let repository_line = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("repository = \"{repository}\"\n"))
+        .unwrap_or_default();
 
     let content = format!(
         r#"{pkg_header}
-repository = "{repository}"
+{repository_line}
 
 # `serde_json`, `ahash`, and `tokio` are emitted unconditionally above so the
 # manifest is stable across regens (and so the C FFI codegen can pull them in
@@ -195,7 +200,7 @@ cbindgen = "{cbindgen}"
 tempfile = "{tempfile}"
 "#,
         pkg_header = pkg_header,
-        repository = meta.repository,
+        repository_line = repository_line,
         dep_block = dep_block,
         target_blocks_section = target_blocks_section,
         cbindgen = tv::cargo::CBINDGEN,

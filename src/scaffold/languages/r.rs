@@ -21,15 +21,20 @@ pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyh
     }
 
     let authors_r = if meta.authors.is_empty() {
-        r#"Authors@R: person("Author", "Name", email = "author@example.com", role = c("aut", "cre"))"#.to_string()
+        anyhow::bail!("R scaffold requires package metadata authors; set package_metadata.authors or scaffold.authors");
     } else if let Some((given, family, email)) = parse_r_author(meta.authors.first().unwrap_or(&String::new())) {
         format!("Authors@R: person(\"{given}\", \"{family}\", email = \"{email}\", role = c(\"aut\", \"cre\"))")
     } else {
         format!(
-            "Authors@R: person(\"{}\", email = \"author@example.com\", role = c(\"aut\", \"cre\"))",
+            "Authors@R: person(\"{}\", role = c(\"aut\", \"cre\"))",
             meta.authors.first().unwrap_or(&"Author Name".to_string())
         )
     };
+    let repository_lines = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("URL: {repository}\nBugReports: {repository}/issues\n"))
+        .unwrap_or_default();
 
     let content = format!(
         r#"Package: {package}
@@ -38,8 +43,7 @@ Version: {version}
 {authors}
 Description: {description}
     Rust bindings generated with extendr.
-URL: {repository}
-BugReports: {repository}/issues
+{repository_lines}
 License: {license}
 Depends: R (>= 4.2)
 Imports: jsonlite
@@ -61,7 +65,7 @@ Config/testthat/edition: 3
         version = version,
         authors = authors_r,
         description = description,
-        repository = meta.repository,
+        repository_lines = repository_lines,
         license = meta.license,
         rextendr = tv::cran::REXTENDR,
     );

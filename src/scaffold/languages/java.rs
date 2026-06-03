@@ -13,8 +13,18 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let name = name.as_str();
     let version = &api.version;
 
+    let repo_url = meta.configured_repository.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Java scaffold requires package metadata repository; set package_metadata.repository or scaffold.repository"
+        )
+    })?;
+    if meta.authors.is_empty() {
+        anyhow::bail!(
+            "Java scaffold requires package metadata authors; set package_metadata.authors or scaffold.authors"
+        );
+    }
+
     // Derive SCM URLs from repository URL
-    let repo_url = &meta.repository;
     let repo_path = repo_url
         .strip_prefix("https://github.com/")
         .or_else(|| repo_url.strip_prefix("http://github.com/"))

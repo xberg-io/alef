@@ -217,6 +217,45 @@ fn reports_conversion_options_visitor_special_paths_in_codegen() {
 }
 
 #[test]
+fn reports_embedded_visitor_bridge_class_names_in_codegen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let backend_dir = dir.path().join("src").join("backends").join("java");
+    fs::create_dir_all(&backend_dir).expect("create backend dir");
+    let file = backend_dir.join("ffi_class.rs");
+    fs::write(&file, r#"out.push_str("new VisitorBridge(config.hook())");"#).expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject embedded visitor bridge class names"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `VisitorBridge`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn scans_ai_rulez_source_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let rules_dir = dir.path().join(".ai-rulez").join("rules");
+    fs::create_dir_all(&rules_dir).expect("create rule dir");
+    let file = rules_dir.join("project.md");
+    fs::write(&file, forbidden(&["liter", "llm"], "-")).expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(!output.status.success(), "hook should scan .ai-rulez sources");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden project mention `liter-llm`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn reports_string_literal_fallbacks_in_e2e_codegen() {
     let dir = tempfile::tempdir().expect("tempdir");
     let codegen_dir = dir.path().join("src").join("e2e").join("codegen");

@@ -62,7 +62,16 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     // is signed and uploaded with publishingType=AUTOMATIC so the Central Portal
     // deployment auto-releases (the bare `maven-publish` plugin can only stage).
     let vanniktech = maven::VANNIKTECH_MAVEN_PUBLISH;
-    let repo_url = meta.repository.clone();
+    let repo_url = meta.configured_repository.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Kotlin scaffold requires package metadata repository; set package_metadata.repository or scaffold.repository"
+        )
+    })?;
+    if meta.authors.is_empty() {
+        anyhow::bail!(
+            "Kotlin scaffold requires package metadata authors; set package_metadata.authors or scaffold.authors"
+        );
+    }
     let repo_path = repo_url
         .strip_prefix("https://github.com/")
         .or_else(|| repo_url.strip_prefix("http://github.com/"))

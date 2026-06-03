@@ -20,6 +20,20 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // wasm-pack converts hyphens to underscores in the generated filenames
     // (Rust convention), so `sample-markdown` becomes `sample_markdown`
     let core_crate_file = core_crate_dir.replace('-', "_");
+    let repository_block = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| {
+            format!(
+                r#",
+  "repository": {{
+    "type": "git",
+    "url": "{repository}",
+    "directory": "crates/{core_crate_dir}-wasm"
+  }}"#
+            )
+        })
+        .unwrap_or_default();
 
     let pkg_json = format!(
         r#"{{
@@ -27,12 +41,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "version": "{version}",
   "private": false,
   "description": "{description}",
-  "license": "{license}",
-  "repository": {{
-    "type": "git",
-    "url": "{repository}",
-    "directory": "crates/{core_crate_dir}-wasm"
-  }},
+  "license": "{license}"{repository_block},
   "publishConfig": {{
     "access": "public"
   }},
@@ -65,8 +74,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         version = version,
         description = meta.description,
         license = meta.license,
-        repository = meta.repository,
-        core_crate_dir = core_crate_dir,
+        repository_block = repository_block,
         core_crate_file = core_crate_file,
     );
 
