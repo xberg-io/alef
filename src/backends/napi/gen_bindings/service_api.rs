@@ -655,29 +655,36 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 ///
 /// Pattern mirrors the proven hand-written handler.rs: wrap the ThreadsafeFunction
 /// and call it with the request DTO, await the Promise, and extract the response DTO.
+///
+/// The ThreadsafeFunction uses JsUnknown for both request and response to match
+/// the call sites in the generated app_run function, which pass untyped JS values.
 fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_import: &str) {
     let trait_name = &contract.trait_name;
     let bridge_name = format!("{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types
+    // Determine wire types for conversion on the handler side
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
+    // The ThreadsafeFunction signature uses JsUnknown for both args and return type,
+    // matching the untyped JS callable shape passed by the TypeScript harness.
+    // Request data is converted from JsUnknown to the wire request type on send.
+    // Response is converted from JsUnknown to the wire response type on receive.
     out.push_str(&format!(
         "/// Generated NAPI bridge for the `{trait_name}` contract.\n\
          ///\n\
          /// Wraps a JavaScript callable (async) via ThreadsafeFunction\n\
          /// so it can be used as `Arc<dyn {trait_name}>` from Rust async code.\n\
          pub struct {bridge_name} {{\n    \
-             handler_fn: ThreadsafeFunction<{core_import}::{req_type}, {core_import}::{resp_type}, (), napi::Error>,\n\
+             handler_fn: ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Status>,\n\
          }}\n\n"
     ));
 
     out.push_str(&format!(
         "impl {bridge_name} {{\n    \
              /// Create a bridge from a JavaScript callable.\n    \
-             pub fn new(handler_fn: ThreadsafeFunction<{core_import}::{req_type}, {core_import}::{resp_type}, (), napi::Error>) -> Self {{\n        \
+             pub fn new(handler_fn: ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Status>) -> Self {{\n        \
                  Self {{ handler_fn }}\n    \
              }}\n\
          }}\n\n"
@@ -736,6 +743,8 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // object-safe async-trait shape the contract declares) rather than via
     // the async_trait macro, so it satisfies traits whose dispatch method is
     // hand-written as `-> Pin<Box<dyn Future<..> + Send + '_>>`.
+    //
+    // We serialize the request to JSON before calling, then deserialize the response.
     out.push_str(&format!(
         "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
              fn {dispatch_name}(\n        \
@@ -743,14 +752,16 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                  {wire_name}: {req_path},\n    \
              ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
                  Box::pin(async move {{\n            \
-                     // Call the ThreadsafeFunction and await the Promise\n            \
+                     // Serialize request to JSON and call the ThreadsafeFunction\n            \
                      let outcome: {wire_output} = async move {{\n                \
-                         self.handler_fn\n                    \
-                             .call_async::<{resp_path}>({wire_name})\n                    \
+                         let req_json = serde_json::to_value(&{wire_name})\n                            \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
+                         let resp_json = self.handler_fn\n                    \
+                             .call_async::<serde_json::Value>(req_json)\n                    \
                              .await\n                    \
-                             .map_err(|e| {{\n                        \
-                                 Box::new(e) as {box_err}\n                    \
-                             }})\n            \
+                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
+                         serde_json::from_value(resp_json)\n                    \
+                             .map_err(|e| Box::new(e) as {box_err})\n            \
                      }}\n            \
                      .await;\n\n            \
                      {tail}\n        \

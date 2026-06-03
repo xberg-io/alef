@@ -68,6 +68,18 @@ impl<'a> E2eCallRecipe<'a> {
         }
         value.is_object() || (value.is_null() && arg.optional && self.json_object_arg_has_default(arg))
     }
+
+    /// Resolve the config type used to materialize a handle argument.
+    ///
+    /// Handle fixtures create an opaque owner before invoking the target call.
+    /// The config type must come from explicit fixture/call metadata instead of
+    /// language generators guessing a downstream DTO name.
+    pub fn handle_config_type(&self, arg: &'a ArgMapping) -> Option<&'a str> {
+        if arg.arg_type != "handle" {
+            return None;
+        }
+        arg.element_type.as_deref().or(self.options_type)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +130,18 @@ impl<'a> ResolvedE2eCallRecipe<'a> {
         self.options_type
             .and_then(|name| self.type_defs.iter().find(|ty| ty.name == name))
             .is_some_and(|ty| ty.has_default)
+    }
+
+    /// Resolve the config type used to materialize a handle argument.
+    ///
+    /// Handle fixtures create an opaque owner before invoking the target call.
+    /// The config type must come from explicit fixture/call metadata instead of
+    /// language generators guessing a downstream DTO name.
+    pub fn handle_config_type(&self, arg: &'a ArgMapping) -> Option<&'a str> {
+        if arg.arg_type != "handle" {
+            return None;
+        }
+        arg.element_type.as_deref().or(self.options_type)
     }
 }
 
