@@ -407,7 +407,7 @@ fn render_harness_main(
     let register_method = e2e_config
         .harness
         .register_method_idiomatic("java")
-        .unwrap_or_else(|| "registerRoute".to_string());
+        .unwrap_or_else(|| "registerAppRoute".to_string());
     let body_field = &e2e_config.harness.response_body_field;
 
     // Collect all HTTP fixtures for this harness to register.
