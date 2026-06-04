@@ -1518,8 +1518,14 @@ fn gen_lossy_binding_to_core_fields_inner(
             TypeRef::String => {
                 // Cow<'_, str> and Box<str> both need `.into()` to convert
                 // back to the wrapper from the binding-side `String`.
+                // When the field is optional, use `.map(Into::into)` so that
+                // Option<String> converts to Option<Cow<'_, str>> correctly.
                 if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
-                    format!("self.{name}.clone().into()")
+                    if field.optional {
+                        format!("self.{name}.clone().map(Into::into)")
+                    } else {
+                        format!("self.{name}.clone().into()")
+                    }
                 } else {
                     format!("self.{name}.clone()")
                 }

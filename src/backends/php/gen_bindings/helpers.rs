@@ -864,12 +864,15 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         }
                     }
                     TypeRef::String | TypeRef::Char => {
-                        let into_suffix = if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
-                            ".into()"
+                        if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
+                            if field.optional {
+                                format!("self.{name}.clone().map(Into::into)")
+                            } else {
+                                format!("self.{name}.clone().into()")
+                            }
                         } else {
-                            ""
-                        };
-                        format!("self.{name}.clone(){into_suffix}")
+                            format!("self.{name}.clone()")
+                        }
                     }
                     TypeRef::Bytes => format!("self.{name}.clone().into()"),
                     TypeRef::Path => {
