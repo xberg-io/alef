@@ -114,6 +114,12 @@ enum Commands {
         /// versions. Use when you want to run alef:generate separately.
         #[arg(long)]
         no_regen: bool,
+        /// Skip the swift artifactbundle build and checksum substitution.
+        /// Use when Xcode / the required Apple targets are not available on the
+        /// current host, or during fast dev iterations where the checksum
+        /// placeholder in Package.swift is acceptable.
+        #[arg(long)]
+        skip_swift_checksum: bool,
     },
     /// Run format commands on generated output.
     Fmt {
@@ -778,7 +784,7 @@ fn main() -> Result<()> {
                 // Always re-sync versions across user-owned manifests.
                 // Pass no_regen=true: alef generate owns the test_apps/ stage
                 // itself and will regenerate them in its own pass below.
-                if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None, true) {
+                if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None, true, true) {
                     tracing::warn!("version sync failed: {e}");
                 }
 
@@ -1010,7 +1016,7 @@ fn main() -> Result<()> {
             println!("Generated {grand_total} API doc files");
             Ok(())
         }
-        Commands::SyncVersions { bump, set, no_regen } => {
+        Commands::SyncVersions { bump, set, no_regen, skip_swift_checksum } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
@@ -1028,7 +1034,7 @@ fn main() -> Result<()> {
                 } else {
                     eprintln!("Syncing versions from Cargo.toml");
                 }
-                pipeline::sync_versions(resolved_cfg, config_path, bump.as_deref(), no_regen)?;
+                pipeline::sync_versions(resolved_cfg, config_path, bump.as_deref(), no_regen, skip_swift_checksum)?;
             }
             println!("Version sync complete");
             Ok(())
