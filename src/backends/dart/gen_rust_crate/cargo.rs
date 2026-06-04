@@ -173,7 +173,6 @@ pub(crate) fn emit_cargo_toml(
 
     // Merge [crate.extra_dependencies] from alef.toml — required for multi-crate
     // workspaces where the bindings codegen emits qualified paths from sibling
-    // TODO(alef-generic-cleanup): Replace QueryOnlyConfig sibling-crate example with a neutral fixture type.
     // crates (e.g. mylib_extra::QueryOnlyConfig). The umbrella crate is
     // already listed above; these are the additional sibling crates.
     let workspace_extra = config.extra_deps_for_language(crate::core::config::extras::Language::Dart);
