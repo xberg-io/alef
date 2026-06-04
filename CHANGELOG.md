@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **csharp backend (gen_opaque_streaming_static_wrapper)**: append `Async` suffix to the delegated instance-method call when the underlying method is async. The static facade wrapper emits a signature `ChatStreamAsync(DefaultClient engine, ...)`, but the delegate body was calling `engine.ChatStream(req)` — and the instance method on `DefaultClient` is named `ChatStreamAsync`, not `ChatStream`. The static wrapper therefore failed to compile with `CS1061: 'DefaultClient' does not contain a definition for 'ChatStream'`, blocking every C# NuGet publish for consumers with opaque streaming methods (e.g., liter-llm rc.60). (`src/backends/csharp/gen_bindings/methods.rs`)
+
 ## [0.23.3] - 2026-06-04
 
 ### Fixed
