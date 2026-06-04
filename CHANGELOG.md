@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **toolchain**: pin `rust-toolchain.toml` back to `1.95` (MSRV in `Cargo.toml` is `1.85` — the 1.96 bump in PR #120 wasn't required for any feature). Eliminates rustup's `default toolchain implicitly overridden` warning for contributors whose host default doesn't already match 1.96. (`rust-toolchain.toml`)
+- **toolchain**: make `rust-toolchain.toml` maximally explicit — pin exact patch (`channel = "1.96.0"` — current stable, released 2026-05-25) and declare `profile = "minimal"`. Removes the ambiguity rustup would otherwise resolve implicitly and silences the `default toolchain implicitly overridden with 1.96-aarch64-apple-darwin by rustup toolchain file` warning. (`rust-toolchain.toml`)
 
 - **elixir e2e harness**: drop `:connect_options` from generated `Req.get(...)` calls when the `:finch` pool is configured. Req 0.5.18+ rejects setting both `:finch` and `:connect_options` simultaneously because the custom Finch pool already controls protocol selection. Previously emitted both, causing every elixir e2e test to fail at request time with `ArgumentError: cannot set both :finch and :connect_options`. (`src/e2e/codegen/elixir.rs`)
 
