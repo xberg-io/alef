@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **zig e2e**: handle negative assertion values (e.g., `greater_than: -1`) by casting to `i64` instead of `usize`. Zig's type system disallows `@as(usize, -1)`, so assertions comparing array lengths against negative bounds now use signed comparison for semantic correctness (e.g., "links.length > -1" compiles as "links.length > @as(i64, -1)"). Affects scrape-empty-page and any fixture using negative comparison values. (`src/e2e/codegen/zig.rs`)
+
+- **kotlin backend**: file-level `@file:Suppress("MaxLineLength", ...)` block now emitted on every generated `.kt` file (previously only JNI-client wrapper and kotlin_android files had it), matching the suppression set already used by the android and JNI emitters. Prevents downstream `detekt MaxLineLength` failures on generated service-API files.
+
+- **go backend**: scrub stale consumer-specific reference in source comment; replace with library-agnostic wording.
+
 ## [0.23.1] - 2026-06-04
 
 ### Fixed

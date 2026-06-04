@@ -2511,8 +2511,14 @@ fn render_json_assertion(
     } else {
         String::new()
     };
+    // For usize comparisons, use i64 if n is negative (can't cast -1 to usize directly).
+    // Zig comparison operators handle i64 on both sides implicitly.
     let n_as_usize = if has_n {
-        format!("@as(usize, {})", n)
+        if n.starts_with('-') {
+            format!("@as(i64, {})", n)
+        } else {
+            format!("@as(usize, {})", n)
+        }
     } else {
         String::new()
     };
