@@ -865,7 +865,16 @@ fn result_variants_from_enum(enum_def: &EnumDef, result_type: &str) -> Vec<Resul
             let payload_name = variant
                 .fields
                 .first()
-                .map(|field| field.name.as_str())
+                .map(|field| {
+                    let name = field.name.as_str();
+                    // If the field name is just the positional index (e.g., "0"), use a
+                    // real identifier instead. This handles unnamed tuple fields.
+                    if name.parse::<usize>().is_ok() {
+                        "value"
+                    } else {
+                        name
+                    }
+                })
                 .unwrap_or("value")
                 .to_string();
             ResultVariantMetadata {
