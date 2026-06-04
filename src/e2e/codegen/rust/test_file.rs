@@ -175,6 +175,11 @@ pub fn render_test_file(
         let _ = writeln!(body_buf);
     }
 
+    // Collect all crate-level type imports (handle config types, constructor names, trait
+    // imports, options_type annotations) into one BTreeSet so a symbol that appears in
+    // more than one source is emitted only once, preventing E0252 "defined multiple times".
+    let mut crate_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
     // Import handle constructor functions and any resolved config types they use.
     let has_handle_args = fixtures.iter().any(|fixture| {
         let call_config = e2e_config.resolve_call_for_fixture(
@@ -210,28 +215,28 @@ pub fn render_test_file(
         }
         for config_type in handle_config_types {
             if body_references_symbol(&body_buf, &config_type) {
-                let _ = writeln!(out, "use {module}::{config_type};");
+                crate_imports.insert(config_type);
             }
         }
-    }
-    let mut constructor_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for fixture in fixtures {
-        let call_config = e2e_config.resolve_call_for_fixture(
-            fixture.call.as_deref(),
-            &fixture.id,
-            &fixture.resolved_category(),
-            &fixture.tags,
-            &fixture.input,
-        );
-        let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
-        for arg in recipe.args.iter().filter(|a| a.arg_type == "handle") {
-            use heck::ToSnakeCase;
-            constructor_names.insert(format!("create_{}", arg.name.to_snake_case()));
+        let mut constructor_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for fixture in fixtures {
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+            for arg in recipe.args.iter().filter(|a| a.arg_type == "handle") {
+                use heck::ToSnakeCase;
+                constructor_names.insert(format!("create_{}", arg.name.to_snake_case()));
+            }
         }
-    }
-    for constructor_name in constructor_names {
-        if body_references_symbol(&body_buf, &constructor_name) {
-            let _ = writeln!(out, "use {module}::{constructor_name};");
+        for constructor_name in constructor_names {
+            if body_references_symbol(&body_buf, &constructor_name) {
+                crate_imports.insert(constructor_name);
+            }
         }
     }
 
@@ -244,9 +249,40 @@ pub fn render_test_file(
             .get("rust")
             .map(|o| o.trait_imports.clone())
             .unwrap_or_default();
-        for trait_name in &trait_imports {
-            let _ = writeln!(out, "use {module}::{trait_name};");
+        for trait_name in trait_imports {
+            crate_imports.insert(trait_name);
         }
+    }
+
+    // When the rust override specifies an `options_type`,
+    // type annotations are emitted on json_object bindings so that `Default::default()`
+    // and `serde_json::from_value(…)` can be resolved without a trailing positional arg.
+    // Import the named type so it is in scope in every test function in this file.
+    // Only consider json_object args without an element_type: those with an element_type
+    // are annotated as Vec<ElemType> and do not use options_type for their annotation.
+    if file_has_call_based {
+        for fixture in fixtures {
+            let call_config = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+            if recipe.args.iter().any(|a| a.arg_type == "json_object" && a.element_type.is_none()) {
+                if let Some(opts_type) = recipe.options_type {
+                    if body_references_symbol(&body_buf, opts_type) {
+                        crate_imports.insert(opts_type.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Emit all collected crate-level imports in a single sorted pass (deduped by BTreeSet).
+    for symbol in &crate_imports {
+        let _ = writeln!(out, "use {module}::{symbol};");
     }
 
     // Import mock_server and common modules when any fixture in this file uses mock_response.
@@ -280,34 +316,6 @@ pub fn render_test_file(
             out,
             "use {module}::visitor::{{{visitor_trait}, NodeContext, VisitResult}};"
         );
-    }
-
-    // When the rust override specifies an `options_type`,
-    // type annotations are emitted on json_object bindings so that `Default::default()`
-    // and `serde_json::from_value(…)` can be resolved without a trailing positional arg.
-    // Import the named type so it is in scope in every test function in this file.
-    if file_has_call_based {
-        let mut option_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for fixture in fixtures {
-            let call_config = e2e_config.resolve_call_for_fixture(
-                fixture.call.as_deref(),
-                &fixture.id,
-                &fixture.resolved_category(),
-                &fixture.tags,
-                &fixture.input,
-            );
-            let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
-            if recipe.args.iter().any(|a| a.arg_type == "json_object") {
-                if let Some(opts_type) = recipe.options_type {
-                    option_types.insert(opts_type.to_string());
-                }
-            }
-        }
-        for opts_type in option_types {
-            if body_references_symbol(&body_buf, &opts_type) {
-                let _ = writeln!(out, "use {module}::{opts_type};");
-            }
-        }
     }
 
     // Collect and import element types from json_object args that have an element_type specified.
@@ -581,7 +589,10 @@ pub fn render_test_function(
         // Add explicit type annotation to json_object bindings so Rust can resolve
         // `Default::default()` and `serde_json::from_value(…)` without a trailing
         // positional argument to guide inference.
-        if arg.arg_type == "json_object" {
+        // Skip when the arg has an element_type: render_json_object_arg already emits
+        // `serde_json::from_value::<Vec<ElementType>>(…)`, so annotating with options_type
+        // would produce a mismatched-types error (e.g. `let actions: CrawlConfig = … Vec<PageAction>`).
+        if arg.arg_type == "json_object" && arg.element_type.is_none() {
             if let Some(ref opts_type) = options_type {
                 bindings = bindings
                     .into_iter()
