@@ -674,10 +674,14 @@ fn render_test_file(
             "                fatalError(\"Harness did not become ready within 15s\")"
         );
         let _ = writeln!(out, "            }}");
-        let _ = writeln!(
-            out,
-            "            ProcessInfo.processInfo.environment[\"SUT_URL\"] = \"http://127.0.0.1:8009\""
-        );
+        // `ProcessInfo.processInfo.environment` is read-only; use the C `setenv`
+        // function to mutate the actual process environment so subsequent
+        // `getenv("SUT_URL")` lookups (and Swift's `ProcessInfo` snapshot) see it.
+        let _ = writeln!(out, "            _ = \"http://127.0.0.1:8009\".withCString {{ url in");
+        let _ = writeln!(out, "                \"SUT_URL\".withCString {{ key in");
+        let _ = writeln!(out, "                    setenv(key, url, 1)");
+        let _ = writeln!(out, "                }}");
+        let _ = writeln!(out, "            }}");
         let _ = writeln!(out, "        }}");
     }
 
