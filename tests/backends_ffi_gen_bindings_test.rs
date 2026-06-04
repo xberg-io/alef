@@ -1080,3 +1080,106 @@ ffi = "crates/mylib-ffi/src/"
         "must not emit manual Some(val) => val match for passthrough primitive; got:\n{code}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Opaque type configured in [workspace.opaque_types] regression
+// ---------------------------------------------------------------------------
+
+/// A type declared in [workspace.opaque_types] must have its _new() and _free()
+/// FFI functions emitted, even though it is not defined in the API surface.
+/// This enables return values like `fn get_language() -> Language` to work.
+/// Regression: alef 0.23.0 excluded all opaque_types from FFI emission, causing
+/// cgo compilation to fail with "could not determine what C.language_free refers to".
+#[test]
+fn test_opaque_type_configured_in_workspace_emits_ffi_allocators() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+opaque_types = { Language = "mylib::Language" }
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    // Language is an opaque type, so it appears in config but not in the API surface.
+    // However, it may be returned by functions, so we need to emit the wrapper.
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Language".to_string(),
+            rust_path: "mylib::Language".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![FunctionDef {
+            name: "get_language".to_string(),
+            rust_path: "mylib::get_language".to_string(),
+            original_rust_path: String::new(),
+            params: vec![make_param("name", TypeRef::String, true)],
+            return_type: TypeRef::Named("Language".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    // The function must exist and return the opaque type.
+    assert!(
+        code.contains("pub unsafe extern \"C\" fn ml_get_language("),
+        "ml_get_language function must be emitted; got:\n{code}"
+    );
+
+    // Most importantly, the _free() function for the opaque type must be emitted.
+    // Without this fix, the cgo compilation fails: "could not determine what C.language_free refers to".
+    assert!(
+        code.contains("pub unsafe extern \"C\" fn ml_language_free("),
+        "opaque type Language must emit ml_language_free() for cgo compatibility; got:\n{code}"
+    );
+}

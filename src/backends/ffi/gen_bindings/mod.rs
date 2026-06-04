@@ -399,12 +399,6 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     ffi_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()));
-    // Declared opaque types (from `[workspace.opaque_types]`) are external host-runtime
-    // references — they are NOT owned by the binding, so the FFI surface must not emit
-    // `_free` / `_new` / field accessors for them. Their rust_path typically points at
-    // upstream crates (e.g. `axum::http::Request`) that the binding's Cargo.toml does not
-    // depend on, and may carry generic parameters that the injected TypeDef cannot model.
-    ffi_exclude_types.extend(config.opaque_types.keys().map(|s| s.as_str()));
 
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in api
