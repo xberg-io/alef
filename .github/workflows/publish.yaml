@@ -200,7 +200,7 @@ jobs:
           echo "name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload CLI artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7
         with:
           name: cli-${{ matrix.label }}
           path: ${{ steps.archive.outputs.path }}
@@ -301,7 +301,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload bottle JSON manifests
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7
         with:
           name: homebrew-bottle-json-${{ matrix.bottle_tag }}
           path: ${{ github.workspace }}/bottle-json/*.json
@@ -331,7 +331,7 @@ jobs:
           token: ${{ secrets.HOMEBREW_TOKEN }}
           path: homebrew-tap
 
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8
         with:
           pattern: homebrew-bottle-json-*
           path: ${{ github.workspace }}/bottle-json
@@ -380,7 +380,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Download all CLI artifacts
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8
         with:
           pattern: cli-*
           path: dist/cli
