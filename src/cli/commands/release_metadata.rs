@@ -136,7 +136,7 @@ pub fn compute(
             .map(|l| l.to_string())
             .filter(|l| !valid_targets.contains(l.as_str()))
             .collect();
-        // TODO(phase-2): emit release_* flags for dynamically discovered languages.
+        // release metadata currently omits release_* flags for dynamically discovered languages.
     }
 
     Ok(ReleaseMetadata {

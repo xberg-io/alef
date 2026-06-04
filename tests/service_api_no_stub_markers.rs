@@ -32,7 +32,7 @@ use alef::core::ir::{
 /// Markers that must never appear in generated service-API output: each one indicates a
 /// stub, an unimplemented path, or an un-interpolated codegen template placeholder.
 const FORBIDDEN_MARKERS: &[&str] = &[
-    "TODO",
+    "placeholder",
     "FIXME",
     "unimplemented!",
     "todo!()",

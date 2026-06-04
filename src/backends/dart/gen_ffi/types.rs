@@ -100,7 +100,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
 ///
 /// Data variants (tagged unions) cannot be expressed ergonomically via
 /// `dart:ffi` since C has no stable tagged-union ABI. Non-unit variants
-/// emit a `// TODO` comment and are skipped.
+/// emit an unsupported comment and are skipped.
 pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
     if !en.doc.is_empty() {
         let doc_lines: Vec<String> = en.doc.lines().map(ToString::to_string).collect();
@@ -145,7 +145,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         }
         out.push_str(&template_env::render("enum_close.jinja", minijinja::context! {}));
     } else {
-        // TODO: data variants are deferred for FFI mode. dart:ffi cannot represent
+        // Unsupported: data variants are deferred for FFI mode. dart:ffi cannot represent
         // tagged unions ergonomically. Emit a unit placeholder for now.
         out.push_str(&template_env::render(
             "enum_data_variants_todo.jinja",

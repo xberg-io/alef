@@ -379,7 +379,7 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
                 // Unrecognised whitelisted method — emit a dead-code stub so the binding
                 // still compiles and the method name remains visible to reviewers.
                 format!(
-                    "    // TODO: emit binding for method `{other}` on `{wasm_struct_name}`\n    \
+                    "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`\n    \
                      #[allow(dead_code)]\n    \
                      pub fn {other}(&self) {{}}"
                 )
@@ -466,12 +466,12 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
             .to_string(),
         );
     }
-    // Emit TODO stubs for any other whitelisted methods.
+    // Emit unsupported stubs for any other whitelisted methods.
     for method in &error.methods {
         match method.name.as_str() {
             "status_code" | "is_transient" | "error_type" => {}
             other => getters.push(format!(
-                "    // TODO: emit getter for method `{other}` on `{struct_name}`"
+                "    // Not emitted: getter for method `{other}` on `{struct_name}`"
             )),
         }
     }
@@ -619,7 +619,7 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!("    // TODO: emit #[napi] method `{other}` on `{struct_name}`"));
+                methods.push(format!("    // Not emitted: #[napi] method `{other}` on `{struct_name}`"));
             }
         }
     }
@@ -704,7 +704,7 @@ pub fn gen_magnus_error_methods_struct(error: &ErrorDef, core_import: &str) -> S
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!("    // TODO: emit method `{other}` on `{struct_name}`"));
+                methods.push(format!("    // Not emitted: method `{other}` on `{struct_name}`"));
             }
         }
     }
@@ -850,7 +850,7 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!("    // TODO: emit method for `{other}` on `{struct_name}`"));
+                methods.push(format!("    // Not emitted: method for `{other}` on `{struct_name}`"));
             }
         }
     }
@@ -1049,7 +1049,7 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
             other => {
                 // Unknown whitelisted method — emit a comment so it is visible in review.
                 items.push(format!(
-                    "// TODO: emit FFI helper for method `{other}` on `{rust_path}`"
+                    "// Not emitted: FFI helper for method `{other}` on `{rust_path}`"
                 ));
             }
         }

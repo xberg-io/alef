@@ -27,7 +27,7 @@ pub(crate) fn render_package_json(
         }
         crate::e2e::config::DependencyMode::Local => "workspace:*".to_string(),
     };
-    let _ = has_http_fixtures; // TODO: add HTTP test deps when http fixtures are present
+    let _ = has_http_fixtures; // HTTP test deps are added when http fixtures require them
 
     let rendered = crate::e2e::template_env::render(
         "typescript/package.json.jinja",

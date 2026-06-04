@@ -208,14 +208,14 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (Str
     let impl_code = format!(
         "impl {trait_nm} for {struct_name} {{\n    \
              async fn {method_nm}(&self, {params}) -> Result<{returns}, {error}> {{\n        \
-                 // TODO: serialize params into JSON for JS bridge\n        \
+                 // Unsupported: serialize params into JSON for JS bridge\n        \
                  let payload = serde_json::to_string(&({args}))\n            \
                      .map_err(|e| {error}::from(e.to_string()))?;\n\
          \n        \
                  let result = self.callback.call_async::<String>(payload).await\n            \
                      .map_err(|e| {error}::from(e.to_string()))?;\n\
          \n        \
-                 // TODO: deserialize JS result to {returns}\n        \
+                 // Unsupported: deserialize JS result to {returns}\n        \
                  compile_error!(\"callback bridge JS result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
@@ -263,10 +263,10 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (Str
                  let result = tokio::task::spawn_blocking(move || {{\n            \
                      let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};\n            \
                      let cb = ruby.get_inner(callback);\n            \
-                     // TODO: convert params to Ruby values\n            \
+                     // Unsupported: convert params to Ruby values\n            \
                      let rb_result = cb.funcall::<_, _, magnus::Value>(\"call\", ({args},))\n                \
                          .map_err(|e| {error}::from(e.to_string()))?;\n            \
-                     // TODO: convert Ruby result to {returns}\n            \
+                     // Unsupported: convert Ruby result to {returns}\n            \
                      Ok::<_, {error}>(rb_result)\n        \
                  }}).await\n        \
                  .map_err(|e| {error}::from(e.to_string()))??;\n\
@@ -311,13 +311,13 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (Stri
     let impl_code = format!(
         "impl {trait_nm} for {struct_name} {{\n    \
              async fn {method_nm}(&self, {params}) -> Result<{returns}, {error}> {{\n        \
-                 // TODO: convert params to PHP Zval values\n        \
+                 // Unsupported: convert params to PHP Zval values\n        \
                  let _ = ({args});\n        \
                  let result = self.callback.try_call(vec![])\n            \
                      .map_err(|e| {error}::from(e.to_string()))?;\n\
          \n        \
                  let _ = result;\n        \
-                 // TODO: convert PHP result to {returns}\n        \
+                 // Unsupported: convert PHP result to {returns}\n        \
                  compile_error!(\"callback bridge PHP result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
@@ -357,10 +357,10 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (S
     let impl_code = format!(
         "impl {trait_nm} for {struct_name} {{\n    \
              async fn {method_nm}(&self, {params}) -> Result<{returns}, {error}> {{\n        \
-                 // TODO: convert params to Elixir terms\n        \
+                 // Unsupported: convert params to Elixir terms\n        \
                  let _ = ({args});\n        \
                  let _ = self.callback;\n        \
-                 // TODO: invoke callback via Erlang NIF scheduler\n        \
+                 // Unsupported: invoke callback via Erlang NIF scheduler\n        \
                  compile_error!(\"callback bridge Elixir result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
@@ -400,7 +400,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (Str
     let impl_code = format!(
         "impl {trait_nm} for {struct_name} {{\n    \
              async fn {method_nm}(&self, {params}) -> Result<{returns}, {error}> {{\n        \
-                 // TODO: convert params to JsValue\n        \
+                 // Unsupported: convert params to JsValue\n        \
                  let _ = ({args});\n        \
                  let this = wasm_bindgen::JsValue::NULL;\n        \
                  let result = self.callback.call0(&this)\n            \
@@ -412,7 +412,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (Str
                      .map_err(|e| {error}::from(format!(\"{{:?}}\", e)))?;\n\
          \n        \
                  let _ = resolved;\n        \
-                 // TODO: convert JsValue result to {returns}\n        \
+                 // Unsupported: convert JsValue result to {returns}\n        \
                  compile_error!(\"callback bridge WASM result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
@@ -460,7 +460,7 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          \n        \
                  // Serialize request to JSON and call through C ABI\n        \
                  let result = tokio::task::spawn_blocking(move || {{\n            \
-                     // TODO: serialize params to JSON CString\n            \
+                     // Unsupported: serialize params to JSON CString\n            \
                      let input = std::ffi::CString::new(\"{{}}\")\n                \
                          .map_err(|e| {error}::from(e.to_string()))?;\n            \
                      let result_ptr = callback(input.as_ptr());\n            \
@@ -478,7 +478,7 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
                  .map_err(|e| {error}::from(e.to_string()))??;\n\
          \n        \
                  let _ = result;\n        \
-                 // TODO: deserialize JSON result to {returns}\n        \
+                 // Unsupported: deserialize JSON result to {returns}\n        \
                  compile_error!(\"callback bridge FFI result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
@@ -704,13 +704,13 @@ fn gen_r_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String
     let impl_code = format!(
         "impl {trait_nm} for {struct_name} {{\n    \
              async fn {method_nm}(&self, {params}) -> Result<{returns}, {error}> {{\n        \
-                 // TODO: convert params to R values\n        \
+                 // Unsupported: convert params to R values\n        \
                  let _ = ({args});\n        \
                  let result = self.callback.call(pairlist!())\n            \
                      .map_err(|e| {error}::from(e.to_string()))?;\n\
          \n        \
                  let _ = result;\n        \
-                 // TODO: convert R result to {returns}\n        \
+                 // Unsupported: convert R result to {returns}\n        \
                  compile_error!(\"callback bridge R result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"

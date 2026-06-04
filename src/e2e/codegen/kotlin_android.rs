@@ -217,7 +217,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             })
             .collect();
 
-        // kotlin_android lacks a JNI trait-handle bridge (see alef-backend-jni TODO), so
+        // kotlin_android lacks a JNI trait-handle bridge (see alef-backend-jni follow-up), so
         // [crates.kotlin_android] excludes the visitor function. Fixtures whose payload uses
         // a visitor cannot be exercised through this binding — skip any visitor-using fixture.
         for group in groups {

@@ -19,7 +19,7 @@ use super::trait_types::{
 ///    `plugin_version: String` fields.
 /// 2. `impl SuperTrait for {Trait}DartImpl` — for each super-trait in `super_traits`,
 ///    emits a stub impl. The well-known `Plugin` super-trait is handled directly;
-///    other super-traits emit a `// TODO` comment stub.
+///    other super-traits emit an unsupported comment stub.
 /// 3. `impl {Trait} for {Trait}DartImpl` — delegates each method to its closure.
 /// 4. `pub fn create_{trait_snake}_dart_impl(...)` — factory function.
 ///

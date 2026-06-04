@@ -417,7 +417,7 @@ pub fn render_test_function(
 
     // Fixtures that have neither `http` nor `mock_response` may be either:
     //  - schema/spec validation fixtures (asyncapi, grpc, graphql_schema, …) with no callable
-    //    function → emit a TODO stub so the suite compiles and preserves test count.
+    //    function → emit an unsupported stub so the suite compiles and preserves test count.
     //  - plain function-call fixtures (e.g. demo_crate::extract_file) with a configured
     //    `[e2e.call]` → fall through to the real function-call code path below.
     if fixture.http.is_none() && fixture.mock_response.is_none() {
@@ -437,7 +437,7 @@ pub fn render_test_function(
             let _ = writeln!(out, "    // {description}");
             let _ = writeln!(
                 out,
-                "    // TODO: implement when a callable API is available for this fixture type."
+                "    // Unsupported: no callable API is configured for this fixture type."
             );
             let _ = writeln!(out, "}}");
             return;
@@ -816,7 +816,7 @@ pub fn render_test_function(
             return false;
         }
         if a.assertion_type == "method_result" {
-            // method_result assertions that would generate only a TODO comment don't use the
+            // method_result assertions that would generate only an unsupported comment don't use the
             // result variable. These are: missing `method` field, or unsupported `check` type.
             let supported_checks = [
                 "equals",

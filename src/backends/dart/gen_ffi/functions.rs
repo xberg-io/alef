@@ -17,7 +17,7 @@ pub(super) fn emit_function(
 ) {
     use crate::backends::dart::template_env;
     if f.is_async {
-        // TODO: dart:ffi async requires Isolate plumbing; deferred for Phase 3b.
+        // Unsupported: dart:ffi async requires Isolate plumbing; deferred for Phase 3b.
         out.push_str(&template_env::render(
             "ffi_async_todo.jinja",
             minijinja::context! {

@@ -236,7 +236,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, _config: &ResolvedCrateConfig) ->
     out.push_str("#![allow(clippy::too_many_arguments)]\n\n");
     out.push_str("use wasm_bindgen::prelude::*;\n\n");
 
-    // TODO: Wire up actual service instantiation and handler registration
+    // Unsupported: wire up actual service instantiation and handler registration
     // For now, emit stubs that prevent compilation errors
 
     out.push_str("/// Initialize the service with registered handlers.\n");

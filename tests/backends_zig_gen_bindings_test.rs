@@ -206,15 +206,15 @@ fn trait_bridge_complex_return_is_explicitly_unsupported() {
     let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
     let content = &files[0].content;
 
-    // The Zig backend currently emits a placeholder thunk carrying a TODO marker
+    // The Zig backend currently emits a placeholder thunk carrying an unsupported marker
     // for complex trait-vtable return types — the prior @compileError contract
     // was softened so downstream packages compile even when a slot is not yet
-    // wired. The TODO marker is the load-bearing invariant: it ensures a
+    // wired. The unsupported marker is the load-bearing invariant: it ensures a
     // regression to a silent default still surfaces. See alef issue tracking
     // JSON serialization for complex trait-vtable return types.
     assert!(
-        content.contains("TODO: implement JSON serialization for this complex return type"),
-        "complex Zig trait-vtable return must carry a TODO marker so it isn't silently shipped: {content}"
+        content.contains("Unsupported: JSON serialization for this complex return type"),
+        "complex Zig trait-vtable return must carry an unsupported marker so it isn't silently shipped: {content}"
     );
 }
 

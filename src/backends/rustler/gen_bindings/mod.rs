@@ -566,7 +566,7 @@ impl Backend for RustlerBackend {
                 let default_val = rustler_default_for_type(&method.return_type);
                 let shim = format!(
                     "/// Introspection NIF: returns the `{method_name}` value carried by the error.\n\
-                     /// TODO: extend to accept a structured error term once error passing is upgraded.\n\
+                     /// Planned: extend to accept a structured error term once error passing is upgraded.\n\
                      #[allow(dead_code)]\n\
                      #[rustler::nif]\n\
                      fn {fn_name}(_msg: String) -> {return_type} {{\n    {default_val}\n}}\n",

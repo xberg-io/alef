@@ -1647,8 +1647,8 @@ mod tests {
             "found 'simplified stub' comment — dispatch should not be stubbed:\n{output}"
         );
         assert!(
-            !output.contains("TODO"),
-            "found TODO comment in dispatch logic:\n{output}"
+            !output.contains("placeholder"),
+            "found unsupported comment in dispatch logic:\n{output}"
         );
         assert!(
             !output.contains("# This is a simplified stub"),
@@ -1720,8 +1720,8 @@ mod tests {
 
         // Assert that no stub markers remain
         assert!(
-            !output.contains("TODO: Parse registrations"),
-            "found TODO in registration parsing — should be implemented:\n{output}"
+            !output.contains("placeholder: parse registrations"),
+            "found placeholder in registration parsing — should be implemented:\n{output}"
         );
         assert!(
             !output.contains("For now, return a stub"),

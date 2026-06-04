@@ -1,9 +1,9 @@
 //! Regression: rust e2e codegen used to short-circuit any fixture without `http`
-//! or `mock_response` to a TODO stub, on the assumption that such fixtures were
+//! or `mock_response` to an unsupported stub, on the assumption that such fixtures were
 //! schema/spec validation (asyncapi, grpc, graphql_schema, …) with no callable
 //! Rust API. That assumption is wrong for libraries whose fixtures invoke a
 //! plain function (e.g. `demo_crate::extract_file(path, mime, config)`): every
-//! such fixture would emit `// TODO: implement when a callable API is available`
+//! such fixture would emit `// Unsupported: no callable API is configured`
 //! instead of a real call, producing 0 effective rust e2e tests.
 //!
 //! The codegen now stubs only when the resolved call config has no function
@@ -127,11 +127,11 @@ fn rust_codegen_emits_real_call_for_function_fixture_without_http_or_mock() {
     );
     assert!(
         content.contains("extract_file("),
-        "real `extract_file(...)` call missing — codegen still stubs to TODO:\n{content}"
+        "real `extract_file(...)` call missing — codegen still emits an unsupported stub:\n{content}"
     );
     assert!(
-        !content.contains("TODO: implement when a callable API is available"),
-        "TODO stub still emitted for a fixture with a configured call:\n{content}"
+        !content.contains("Unsupported: no callable API is configured"),
+        "unsupported stub still emitted for a fixture with a configured call:\n{content}"
     );
 }
 
@@ -431,8 +431,8 @@ fn rust_codegen_still_stubs_when_no_callable_function_configured() {
     let content = &test_file.content;
 
     assert!(
-        content.contains("TODO: implement when a callable API is available"),
-        "expected TODO stub when no function is configured, got:\n{content}"
+        content.contains("Unsupported: no callable API is configured"),
+        "expected unsupported stub when no function is configured, got:\n{content}"
     );
 }
 

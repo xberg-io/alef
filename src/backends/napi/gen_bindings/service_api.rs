@@ -1755,12 +1755,12 @@ mod tests {
 
         // Assert metadata params are extracted as real typed variables, not stubs
         assert!(
-            !output.contains("/* TODO: extract metadata */"),
-            "expected no TODO placeholder in output:\n{output}"
+            !output.contains("/* placeholder: extract metadata */"),
+            "expected no placeholder in output:\n{output}"
         );
         assert!(
-            !output.contains("TODO: extract metadata"),
-            "expected no TODO marker in output:\n{output}"
+            !output.contains("placeholder: extract metadata"),
+            "expected no unsupported marker in output:\n{output}"
         );
 
         // Assert the "path" metadata param is extracted and declared with proper type

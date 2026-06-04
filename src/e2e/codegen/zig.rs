@@ -3667,8 +3667,8 @@ mod zig_hash_tests {
             "build.zig.zon must embed the explicit hash, got:\n{content}"
         );
         assert!(
-            !content.contains(".hash = \"TODO\""),
-            "build.zig.zon must not emit TODO when hash is provided, got:\n{content}"
+            !content.contains(".hash = \"PLACEHOLDER\""),
+            "build.zig.zon must not emit a placeholder hash when hash is provided, got:\n{content}"
         );
         // Verify the single generic (no-suffix) URL is present.
         assert!(

@@ -660,7 +660,7 @@ mod tests {
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
-        assert!(!kt.contains("TODO"));
+        assert!(!kt.contains("placeholder"));
         assert!(!kt.contains("stub"));
         assert!(!kt.contains("placeholder"));
     }

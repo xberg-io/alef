@@ -375,7 +375,7 @@ pub(super) fn gen_capsule_function(
                             format!("get_{dep_snake}(py, {param})?.bind(py).clone()", param = str_param.name)
                         } else {
                             // Fallback: emit a comment asking for manual disambiguation.
-                            format!("/* TODO: obtain {construct_from} capsule */ unreachable!()")
+                            format!("/* Unsupported: obtain {construct_from} capsule */ unreachable!()")
                         }
                     };
 

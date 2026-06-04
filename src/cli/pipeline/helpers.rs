@@ -504,7 +504,7 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
             Some(module) => config.push_str(&format!("\n[crates.go]\nmodule = \"{module}\"\n")),
             None => {
                 config.push_str(
-                    "\n[crates.go]\n# module = \"github.com/<org>/<repo>\"  # TODO: set the Go module path\n",
+                    "\n[crates.go]\n# module = \"github.com/<org>/<repo>\"  # set the Go module path\n",
                 );
             }
         }
@@ -525,7 +525,7 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
         {
             Some(pkg) => config.push_str(&format!("\n[crates.java]\npackage = \"{pkg}\"\n")),
             None => {
-                config.push_str("\n[crates.java]\n# package = \"com.example.<org>\"  # TODO: set the Java package\n");
+                config.push_str("\n[crates.java]\n# package = \"com.example.<org>\"  # set the Java package\n");
             }
         }
     }

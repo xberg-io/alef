@@ -1061,7 +1061,7 @@ pub(crate) fn gen_opaque_handle_class(
     // Build the class body first so we can compute imports from actual usage —
     // Checkstyle's UnusedImports rule fails if we declare an import that
     // never appears in the file body (e.g. when every instance method body
-    // is a `TODO unsupported return shape` stub).
+    // is a `Unsupported return shape` stub).
     let mut body = String::new();
 
     emit_javadoc(&mut body, &typ.doc, "");

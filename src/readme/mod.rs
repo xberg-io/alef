@@ -554,7 +554,7 @@ fn generate_readme_hardcoded(
 
     let (lang_display, install_instructions, example_code, dir_name) = match lang {
         // Examples are derived from the API surface so the snippet shows a real call
-        // signature instead of a `// TODO` placeholder. Falls back to a "see main README"
+        // signature instead of a `// placeholder. Falls back to a "see main README"
         // pointer when the API has no public functions to demonstrate.
         Language::Python => {
             let module = config.python_module_name().trim_start_matches('_').to_string();

@@ -251,7 +251,7 @@ fn result_returning_functions_check_last_error_code() {
     );
 }
 
-/// An async function in FFI mode emits a TODO comment and is skipped.
+/// An async function in FFI mode emits an unsupported comment and is skipped.
 #[test]
 fn async_functions_emit_todo_comment_in_ffi_mode() {
     let mut f = make_function("stream_data", vec![], TypeRef::Unit, None);
@@ -269,8 +269,8 @@ fn async_functions_emit_todo_comment_in_ffi_mode() {
         .unwrap();
 
     assert!(
-        ffi_file.content.contains("// TODO: async function 'stream_data'"),
-        "missing TODO comment for async function"
+        ffi_file.content.contains("// Unsupported: async function 'stream_data'"),
+        "missing unsupported comment for async function"
     );
 }
 

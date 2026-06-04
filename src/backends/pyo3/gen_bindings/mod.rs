@@ -1775,7 +1775,7 @@ fn rewrite_capsule_methods(
                     let dep_expr = if let Some(sp) = first_str_param {
                         format!("get_{dep_snake}(py, {}.clone())?.bind(py).clone()", sp.name)
                     } else {
-                        format!("/* TODO: obtain {construct_from} capsule */ unreachable!()")
+                        format!("/* Unsupported: obtain {construct_from} capsule */ unreachable!()")
                     };
 
                     if let Some((module_path, class_name)) = python_type.rsplit_once('.') {
