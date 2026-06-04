@@ -474,7 +474,7 @@ fn context_field_specs(context_def: &TypeDef) -> Vec<ContextFieldSpec> {
                 .to_string();
             let setup = match (&field.ty, field.optional) {
                 (TypeRef::String, false) => format!(
-                    "    let {name}_cstring = std::ffi::CString::new(ctx.{name}.as_str()).unwrap_or_default();\n",
+                    "    let {name}_cstring = std::ffi::CString::new(ctx.{name}.as_ref()).unwrap_or_default();\n",
                     name = field.name
                 ),
                 (TypeRef::String, true) => format!(

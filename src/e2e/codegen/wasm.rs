@@ -689,13 +689,24 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
                 continue;
             }
             let http_data = &fixture.http.as_ref().unwrap();
+            let mut handler_obj = serde_json::json!({
+                "route": &http_data.handler.route,
+                "method": &http_data.handler.method,
+                "body_schema": http_data.handler.body_schema.clone(),
+            });
+            // Include middleware if present for CORS preflight registration
+            if let Some(middleware) = &http_data.handler.middleware {
+                if let Ok(middleware_json) = serde_json::to_value(middleware) {
+                    if let serde_json::Value::Object(ref obj) = handler_obj {
+                        let mut handler_map = obj.clone();
+                        handler_map.insert("middleware".to_string(), middleware_json);
+                        handler_obj = serde_json::Value::Object(handler_map);
+                    }
+                }
+            }
             let fixture_json = serde_json::json!({
                 "http": {
-                    "handler": {
-                        "route": &http_data.handler.route,
-                        "method": &http_data.handler.method,
-                        "body_schema": http_data.handler.body_schema.clone(),
-                    },
+                    "handler": handler_obj,
                     "request": {
                         "path": &http_data.request.path,
                     },

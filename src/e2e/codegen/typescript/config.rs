@@ -149,11 +149,12 @@ pub fn render_app_harness(
             });
             // Include middleware if present for CORS preflight registration
             if let Some(middleware) = &http_data.handler.middleware {
-                if let serde_json::Value::Object(ref obj) = handler_obj {
-                    let mut handler_map = obj.clone();
-                    let middleware_value = serde_json::to_value(middleware).unwrap_or(serde_json::Value::Null);
-                    handler_map.insert("middleware".to_string(), middleware_value);
-                    handler_obj = serde_json::Value::Object(handler_map);
+                if let Ok(middleware_json) = serde_json::to_value(middleware) {
+                    if let serde_json::Value::Object(ref obj) = handler_obj {
+                        let mut handler_map = obj.clone();
+                        handler_map.insert("middleware".to_string(), middleware_json);
+                        handler_obj = serde_json::Value::Object(handler_map);
+                    }
                 }
             }
             let mut request_obj = serde_json::json!({
