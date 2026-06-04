@@ -1384,8 +1384,8 @@ gem_name = "test_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let code = gen_function(
             &func,
             &mapper,
@@ -1413,8 +1413,8 @@ gem_name = "test_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let code = gen_function(
             &func,
             &mapper,
@@ -1440,8 +1440,8 @@ gem_name = "test_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let code = gen_module_init(
             "TestLib",
             &api,

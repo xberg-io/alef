@@ -33,6 +33,9 @@ fn effective_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface) -> st
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types.extend(api.enums.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
     exclude_types.extend(api.excluded_type_paths.keys().cloned());
+    // Declared opaque types are external host-runtime references whose actual Rust path
+    // carries generic parameters the injected IR cannot model; skip them.
+    exclude_types.extend(config.opaque_types.keys().cloned());
     exclude_types
 }
 
@@ -5677,8 +5680,7 @@ mod tests {
             version: "0.1.0".to_string(),
             types: vec![trait_def],
             ..Default::default()
-unsupported_public_items: Vec::new(),
-};
+        };
         let toml = r#"
 [workspace]
 languages = ["swift"]

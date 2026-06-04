@@ -187,7 +187,7 @@ fn make_basic_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 fn make_basic_config() -> ResolvedCrateConfig {
@@ -290,7 +290,7 @@ fn snapshot_conversion_struct_with_named_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -372,7 +372,7 @@ fn snapshot_conversion_enum_with_data() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -433,7 +433,7 @@ fn snapshot_conversion_vec_of_named() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -632,7 +632,7 @@ fn snapshot_trait_bridge_inbound() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let toml = r#"
 [workspace]
@@ -758,7 +758,7 @@ fn snapshot_tuple_field_as_vec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -826,7 +826,7 @@ fn snapshot_streaming_adapter() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let toml = r#"
 [workspace]
@@ -905,7 +905,7 @@ fn snapshot_first_class_struct_optional_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1079,7 +1079,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let toml = r#"
 [workspace]
@@ -1178,7 +1178,7 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1329,7 +1329,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1434,7 +1434,7 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1544,7 +1544,7 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1673,7 +1673,7 @@ fn snapshot_enum_variant_optional_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1788,7 +1788,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();

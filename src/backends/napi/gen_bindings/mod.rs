@@ -208,11 +208,15 @@ impl Backend for NapiBackend {
             builder.add_import("std::sync::Mutex");
         }
 
-        let exclude_types: ahash::AHashSet<String> = config
+        let mut exclude_types: ahash::AHashSet<String> = config
             .node
             .as_ref()
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
+        // Declared opaque types are external host-runtime references — bindings cannot
+        // wrap them as #[napi] classes because their actual Rust type carries generic
+        // parameters that the injected IR cannot model.
+        exclude_types.extend(config.opaque_types.keys().cloned());
 
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Node)?;

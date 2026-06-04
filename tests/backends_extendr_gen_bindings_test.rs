@@ -240,7 +240,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -361,7 +361,7 @@ fn options_decoder_uses_configured_type_and_ir_shapes() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_public_api(&api, &make_options_field_config()).unwrap();
     let options_rs = files
@@ -424,7 +424,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -511,7 +511,7 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -609,7 +609,7 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
     let content = &files[0].content;
@@ -719,7 +719,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
     let content = &files[0].content;
@@ -784,7 +784,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -883,7 +883,7 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
     let wrappers = files
@@ -993,7 +993,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1044,8 +1044,8 @@ mod trait_bridge {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
@@ -1170,7 +1170,8 @@ mod trait_bridge {
     fn test_plugin_bridge_generates_wrapper_struct() {
         let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("pub struct ROcrBackendBridge"),
@@ -1192,7 +1193,8 @@ mod trait_bridge {
     fn test_plugin_bridge_generates_trait_impl() {
         let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("impl my_lib::OcrBackend for ROcrBackendBridge"),
@@ -1210,7 +1212,8 @@ mod trait_bridge {
     fn test_plugin_bridge_sync_method_uses_dollar_lookup() {
         let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("Analyzer");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("dollar(\"analyze\")"),
@@ -1224,7 +1227,8 @@ mod trait_bridge {
     fn test_plugin_bridge_async_method_uses_spawn_blocking() {
         let trait_def = make_trait_def("Processor", vec![make_async_method("run")]);
         let cfg = make_plugin_bridge_cfg("Processor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("spawn_blocking"),
@@ -1242,7 +1246,8 @@ mod trait_bridge {
     fn test_plugin_bridge_generates_registration_fn() {
         let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("pub fn register_ocrbackend("),
@@ -1270,7 +1275,8 @@ mod trait_bridge {
             ],
         );
         let cfg = make_plugin_bridge_cfg("Transform");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("\"transform\""),
@@ -1288,7 +1294,8 @@ mod trait_bridge {
     fn test_plugin_bridge_constructor_caches_name() {
         let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
         let cfg = make_plugin_bridge_cfg("Worker");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("cached_name"),
@@ -1325,7 +1332,8 @@ mod trait_bridge {
             context_type: None,
             result_type: None,
         };
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("impl my_lib::Plugin for ROcrBackendBridge"),
@@ -1351,7 +1359,8 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("pub struct RHtmlVisitorBridge"),
@@ -1366,7 +1375,8 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             !code.code.contains("#[extendr]"),
@@ -1381,7 +1391,8 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("impl my_lib::HtmlVisitor for RHtmlVisitorBridge"),
@@ -1399,7 +1410,8 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+            .expect("trait bridge generation should succeed");
 
         assert!(
             code.code.contains("unsafe impl Send for RHtmlVisitorBridge {}"),
@@ -1465,8 +1477,8 @@ mod trait_bridge {
             excluded_trait_names: Default::default(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
 
         // Config with exclude_functions for R
         let mut config = super::make_config();

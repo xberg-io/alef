@@ -258,19 +258,13 @@ mod tests {
         );
 
         // Must link the bundled lib/ and include/ using b.path() which works in fetched pkgs.
-        assert!(
-            s.contains("b.path(\"lib\")"),
-            "must link bundled lib/ directory:\n{s}"
-        );
+        assert!(s.contains("b.path(\"lib\")"), "must link bundled lib/ directory:\n{s}");
         assert!(
             s.contains("b.path(\"include\")"),
             "must link bundled include/ directory:\n{s}"
         );
 
         // Must link libc so C header symbols resolve.
-        assert!(
-            s.contains(".link_libc = true"),
-            "must enable libc linking:\n{s}"
-        );
+        assert!(s.contains(".link_libc = true"), "must enable libc linking:\n{s}");
     }
 }

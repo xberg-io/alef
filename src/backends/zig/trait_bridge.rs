@@ -1278,6 +1278,7 @@ mod tests {
             core_import: "sample_crate",
             wrapper_prefix: "Zig",
             type_paths: HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
             error_type: "SampleCrateError".to_string(),
             error_constructor: "SampleCrateError::msg({msg})".to_string(),
         }

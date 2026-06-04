@@ -29,14 +29,18 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
                     format!("cd {output_dir} && poetry update"),
                     format!("cd {output_dir} && poetry update --with dev"),
                 ),
-                // `--no-install-project`: an update/upgrade only needs to relock
-                // dependencies. Building the project here (e.g. a maturin extension whose
-                // `manifest-path` is relative to the deployed package dir rather than the
-                // uv project dir) is a separate step (`maturin develop`) and can fail
-                // during a bare relock — the python `install` default already skips it.
+                // `--no-install-project` + `--no-install-workspace`: an update/upgrade only
+                // needs to relock dependencies. Building any project (e.g. a maturin
+                // extension whose `manifest-path` is relative to the deployed package dir
+                // rather than the uv project dir) is a separate step (`maturin develop`) and
+                // can fail during a bare relock. `--all-packages` makes uv touch every
+                // workspace member, so we also pass `--no-install-workspace` to keep the
+                // relock from invoking maturin/pep517 against any of them.
                 _ => (
-                    format!("cd {output_dir} && uv sync --upgrade --no-install-project"),
-                    format!("cd {output_dir} && uv sync --all-packages --all-extras --upgrade --no-install-project"),
+                    format!("cd {output_dir} && uv sync --upgrade --no-install-project --no-install-workspace"),
+                    format!(
+                        "cd {output_dir} && uv sync --all-packages --all-extras --upgrade --no-install-project --no-install-workspace"
+                    ),
                 ),
             };
             UpdateConfig {
@@ -75,11 +79,22 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             }
         }
         Language::Ruby => UpdateConfig {
+            // Wrap `bundle update` so it works even when a generated package has
+            // `BUNDLE_FROZEN=true` in `.bundle/config` (the default for shipped gems —
+            // dependents must not edit Gemfile.lock at install time). For the duration of
+            // the update we drop frozen mode locally, then restore the prior value so the
+            // checked-in config is unchanged.
+            //
+            // `bundle update --all --conservative=false` is rejected by bundler: there is
+            // no boolean form of the flag. Plain `bundle update --all` is the correct
+            // "upgrade everything" invocation.
             precondition: Some(require_tool("bundle")),
             before: None,
-            update: Some(StringOrVec::Single(format!("cd {output_dir} && bundle update --all"))),
+            update: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && prev_frozen=$(bundle config get frozen 2>/dev/null | awk '/Set for your local app/ {{print $NF}}'); bundle config set --local frozen false; bundle update --all; status=$?; if [ -n \"$prev_frozen\" ] && [ \"$prev_frozen\" != \"false\" ]; then bundle config set --local frozen \"$prev_frozen\"; fi; exit $status"
+            ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && bundle update --all --conservative=false"
+                "cd {output_dir} && prev_frozen=$(bundle config get frozen 2>/dev/null | awk '/Set for your local app/ {{print $NF}}'); bundle config set --local frozen false; bundle update --all; status=$?; if [ -n \"$prev_frozen\" ] && [ \"$prev_frozen\" != \"false\" ]; then bundle config set --local frozen \"$prev_frozen\"; fi; exit $status"
             ))),
         },
         Language::Php => UpdateConfig {
@@ -308,6 +323,10 @@ mod tests {
         // manifest-path is relative to the deployed package dir, not the uv project dir).
         assert!(update.contains("--no-install-project"));
         assert!(upgrade.contains("--no-install-project"));
+        // `--all-packages` makes uv touch every workspace member, so we must also skip
+        // installing workspace members to keep the relock from invoking maturin/pep517.
+        assert!(update.contains("--no-install-workspace"));
+        assert!(upgrade.contains("--no-install-workspace"));
     }
 
     #[test]

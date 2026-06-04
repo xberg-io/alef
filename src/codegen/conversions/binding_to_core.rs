@@ -32,6 +32,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             minijinja::context! {
                 core_path => core_path,
                 binding_name => binding_name,
+                has_lifetime_params => typ.has_lifetime_params,
                 is_newtype => true,
                 newtype_inner_expr => newtype_inner_expr,
                 builder_mode => false,
@@ -41,6 +42,15 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 fields => vec![] as Vec<String>,
             },
         );
+    }
+
+    // Types with lifetime parameters have private fields that forbid struct-literal construction.
+    // Find a suitable static factory method from the IR (a method with no receiver whose params
+    // are a superset of the type's fields) and emit a constructor call instead.
+    if typ.has_lifetime_params {
+        if let Some(constructor_call) = gen_from_lifetime_type_constructor(typ, &core_path, &binding_name, config) {
+            return constructor_call;
+        }
     }
 
     // Determine if we're using the builder pattern
@@ -147,6 +157,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             minijinja::context! {
                 core_path => core_path,
                 binding_name => binding_name,
+                has_lifetime_params => typ.has_lifetime_params,
                 is_newtype => false,
                 newtype_inner_expr => "",
                 builder_mode => true,
@@ -345,6 +356,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         minijinja::context! {
             core_path => core_path,
             binding_name => binding_name,
+            has_lifetime_params => typ.has_lifetime_params,
             is_newtype => false,
             newtype_inner_expr => "",
             builder_mode => optionalized,
@@ -1054,6 +1066,86 @@ pub fn apply_core_wrapper_to_core(
             }
         }
     }
+}
+
+/// Generate a `From<Binding> for CoreType<'_>` impl using a static constructor method.
+///
+/// For types with `has_lifetime_params=true`, struct-literal construction is forbidden
+/// (private fields). This function locates a static method (no receiver) in `typ.methods`
+/// whose parameters are a superset of the type's binding fields, then emits a call to that
+/// constructor, using field conversion expressions for params that match a binding field and
+/// `Default::default()` for any extra params not present in the binding struct.
+///
+/// Returns `None` when no suitable constructor is found.
+fn gen_from_lifetime_type_constructor(
+    typ: &TypeDef,
+    core_path: &str,
+    binding_name: &str,
+    config: &ConversionConfig,
+) -> Option<String> {
+    // Field names present in the binding struct.
+    let field_names: std::collections::HashSet<&str> = typ
+        .fields
+        .iter()
+        .filter(|f| !f.binding_excluded)
+        .map(|f| f.name.as_str())
+        .collect();
+
+    // Find a static method whose params include all binding field names.
+    let constructor = typ.methods.iter().find(|m| {
+        // Must be static (no receiver).
+        m.receiver.is_none()
+            // All binding fields must appear as a param.
+            && field_names.iter().all(|fname| m.params.iter().any(|p| p.name == *fname))
+    })?;
+
+    // Build the argument list in param order.
+    let mut args: Vec<String> = Vec::new();
+    for param in &constructor.params {
+        if let Some(field) = typ.fields.iter().find(|f| f.name == param.name) {
+            // Binding field exists — generate conversion expression.
+            let binding_field = config.binding_field_name_owned(&typ.name, &field.name);
+            let expr = match &field.ty {
+                TypeRef::String if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) => {
+                    if field.optional {
+                        format!("val.{binding_field}.map(Into::into)")
+                    } else {
+                        format!("val.{binding_field}.into()")
+                    }
+                }
+                TypeRef::Named(_) => {
+                    if field.optional {
+                        format!("val.{binding_field}.map(Into::into)")
+                    } else {
+                        format!("val.{binding_field}.into()")
+                    }
+                }
+                TypeRef::Primitive(_) | TypeRef::String | TypeRef::Unit => {
+                    format!("val.{binding_field}")
+                }
+                TypeRef::Optional(_) => format!("val.{binding_field}.map(Into::into)"),
+                _ => format!("val.{binding_field}.into()"),
+            };
+            args.push(expr);
+        } else {
+            // No binding field for this param — use Default::default().
+            args.push("Default::default()".to_string());
+        }
+    }
+
+    let args_str = args.join(",\n        ");
+    let code = format!(
+        "#[allow(clippy::redundant_closure, clippy::useless_conversion)]\n\
+         impl From<{binding_name}> for {core_path}<'_> {{\n\
+             fn from(val: {binding_name}) -> Self {{\n\
+                 {core_path}::{constructor_name}(\n\
+                     {args_str},\n\
+                 )\n\
+             }}\n\
+         }}\n",
+        constructor_name = constructor.name,
+    );
+    Some(code)
 }
 
 #[cfg(test)]

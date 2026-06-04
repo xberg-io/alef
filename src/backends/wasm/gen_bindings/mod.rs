@@ -203,6 +203,10 @@ impl Backend for WasmBackend {
         let wasm_config = config.wasm.as_ref();
         let mut exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let mut exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
+        // Declared opaque types are external host-runtime references whose actual Rust
+        // path carries generic parameters the injected IR cannot model; skip them so
+        // wasm-bindgen does not try to wrap them as #[wasm_bindgen] classes.
+        exclude_types.extend(config.opaque_types.keys().cloned());
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
@@ -1123,8 +1127,8 @@ sources = ["src/lib.rs"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = make_config();
         let files = WasmBackend.generate_bindings(&api, &config).unwrap();
         assert_eq!(files.len(), 2);
@@ -1162,8 +1166,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 
         let serde_lines = cargo_toml
@@ -1222,8 +1226,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = make_config();
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 
@@ -1252,8 +1256,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = make_config();
         let cargo_toml = super::gen_cargo_toml(&api, &config);
         assert!(
@@ -1304,8 +1308,8 @@ features = ["wasm-target"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let cargo_toml = super::gen_cargo_toml(&api, &config);
         assert!(
             cargo_toml.contains(r#"extra = ["test-lib/extra"]"#),
@@ -1343,8 +1347,8 @@ features = ["wasm-target"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = make_config();
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 

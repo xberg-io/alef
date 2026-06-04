@@ -5,7 +5,7 @@
 #[allow(clippy::field_reassign_with_default, clippy::let_and_return)]
 {%- endif %}
 #[allow(clippy::redundant_closure, clippy::useless_conversion)]
-impl From<{{ binding_name }}> for {{ core_path }} {
+impl From<{{ binding_name }}> for {{ core_path }}{% if has_lifetime_params %}<'_>{% endif %} {
     fn from(val: {{ binding_name }}) -> Self {
         {%- if is_newtype %}
         Self({{ newtype_inner_expr }})

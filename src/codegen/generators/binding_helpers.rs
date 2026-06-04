@@ -1201,6 +1201,16 @@ fn gen_lossy_binding_to_core_fields_inner(
 ) -> String {
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
     let mut_kw = if needs_mut { "mut " } else { "" };
+
+    // Types with lifetime parameters (e.g. `NodeContext<'a>`) have private fields that make
+    // struct-literal construction impossible. Delegate to the `From` impl (generated separately
+    // via `gen_from_binding_to_core_cfg`) which uses the appropriate constructor.
+    // The `mut` qualifier is not needed here because method bodies call immutable methods on
+    // `core_self` and use `into_owned()` for the owned-receiver case.
+    if typ.has_lifetime_params {
+        return format!("let {mut_kw}core_self = {core_path}::from(self.clone());\n        ");
+    }
+
     // When has_stripped_cfg_fields is true we emit ..Default::default() at the end of the
     // struct literal to fill cfg-gated fields that were stripped from the binding IR.
     // Suppress clippy::needless_update because the fields only exist when the corresponding

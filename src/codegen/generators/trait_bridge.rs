@@ -22,6 +22,10 @@ pub struct TraitBridgeSpec<'a> {
     pub wrapper_prefix: &'a str,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,
+    /// Set of core type names that carry a lifetime parameter (e.g. `NodeContext<'a>`).
+    /// When non-empty, method signatures emit `TypeName<'_>` for these types so the
+    /// generated `impl Trait for Wrapper` matches the trait definition exactly.
+    pub lifetime_type_names: HashSet<String>,
     /// The crate's error type name (e.g., `"SampleCrateError"`). Defaults to `"Error"`.
     pub error_type: String,
     /// Error constructor pattern. `{msg}` is replaced with the message expression.
@@ -332,11 +336,18 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
             None => "",
         };
 
-        // Build params (excluding self), using format_param_type to respect is_ref/is_mut
+        // Build params (excluding self), using format_param_type_with_lifetimes to respect
+        // is_ref/is_mut and emit `<'_>` for core types that carry lifetime parameters.
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("{}: {}", p.name, format_param_type(p, &spec.type_paths)))
+            .map(|p| {
+                format!(
+                    "{}: {}",
+                    p.name,
+                    format_param_type_with_lifetimes(p, &spec.type_paths, &spec.lifetime_type_names)
+                )
+            })
             .collect();
 
         let all_params = if receiver.is_empty() {
@@ -1217,6 +1228,7 @@ mod tests {
             core_import: "mylib",
             wrapper_prefix,
             type_paths,
+            lifetime_type_names: std::collections::HashSet::new(),
             error_type: "MyError".to_string(),
             error_constructor: "MyError::from({msg})".to_string(),
         }

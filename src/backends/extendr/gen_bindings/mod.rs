@@ -3457,8 +3457,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     #[test]
@@ -3752,8 +3752,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -3887,8 +3887,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     #[test]
@@ -4052,8 +4052,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -4218,8 +4218,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -4531,8 +4531,8 @@ exclude_languages = ["r"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()

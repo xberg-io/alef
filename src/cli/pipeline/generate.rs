@@ -201,7 +201,8 @@ fn validate_generation_api<'a>(
             .join("\n");
         anyhow::bail!("{formatted}");
     }
-    ValidatedApiSurface::new(api, &config.suppress_validation_codes).map_err(|report| anyhow::anyhow!(report.format_errors()))
+    ValidatedApiSurface::new(api, &config.suppress_validation_codes)
+        .map_err(|report| anyhow::anyhow!(report.format_errors()))
 }
 
 /// Apply `0o755` permissions to a file whose content begins with a shebang line.

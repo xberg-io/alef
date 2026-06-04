@@ -225,7 +225,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         crate_name: default_name.to_string(),
         version: version.clone(),
         ..ApiSurface::default()
-};
+    };
 
     for (crate_name, sources) in &groups {
         let api = crate::extract::extractor::extract(sources, crate_name, &version, workspace_root)
@@ -1088,6 +1088,18 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
     api.errors
         .retain(|e| !is_type_excluded(&e.name, &e.rust_path, &exclude.types));
 
+    // Filter `unsupported_public_items` against the same config-level excludes so that
+    // a generic item the user has already opted out of via `[crates.exclude]` does not
+    // surface as a fatal `unsupported_generic_item` diagnostic. The extractor's own
+    // attribute-based skip check (`#[alef::skip]`, `#[doc(hidden)]`) is necessarily
+    // narrower because it cannot see the user's `alef.toml` at extraction time.
+    api.unsupported_public_items.retain(|item| {
+        let short_name = item.item_path.rsplit("::").next().unwrap_or(item.item_path.as_str());
+        let by_type_name = is_type_excluded(short_name, &item.item_path, &exclude.types);
+        let by_fn_name = item.item_kind == "function" && exclude.functions.contains(&short_name.to_string());
+        !(by_type_name || by_fn_name)
+    });
+
     // Apply method-level excludes: "TypeName.method_name"
     if !exclude.methods.is_empty() {
         for typ in &mut api.types {
@@ -1414,7 +1426,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-};
+        };
 
         let err = validate_extracted_api(&api, &["unknown_named_type".to_string()]).expect_err("must stay fatal");
 
@@ -1566,8 +1578,8 @@ mod tests {
             excluded_trait_names: std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     /// Regression for a batch-result include bug: a function listed in

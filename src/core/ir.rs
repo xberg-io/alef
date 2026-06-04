@@ -408,7 +408,7 @@ pub struct TypeDef {
 }
 
 /// A field on a public struct.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FieldDef {
     pub name: String,
     pub ty: TypeRef,
@@ -474,7 +474,7 @@ pub struct FieldDef {
 }
 
 /// A method on a public struct.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MethodDef {
     pub name: String,
     pub params: Vec<ParamDef>,
@@ -528,7 +528,7 @@ pub enum ReceiverKind {
 }
 
 /// A free function exposed to bindings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionDef {
     pub name: String,
     pub rust_path: String,
@@ -767,7 +767,7 @@ pub struct ErrorVariant {
 }
 
 /// Reference to a type, with enough info for codegen.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum TypeRef {
     Primitive(PrimitiveType),
     String,
@@ -779,6 +779,7 @@ pub enum TypeRef {
     Map(Box<TypeRef>, Box<TypeRef>),
     Named(String),
     Path,
+    #[default]
     Unit,
     Json,
     Duration,

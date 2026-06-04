@@ -178,7 +178,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -277,7 +277,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -364,7 +364,7 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -436,7 +436,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -553,7 +553,7 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -665,7 +665,7 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -740,7 +740,7 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -843,7 +843,7 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -920,7 +920,7 @@ fn test_default_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -1036,7 +1036,7 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -1094,8 +1094,8 @@ mod trait_bridge {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
@@ -1188,7 +1188,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.contains("pub struct RbHtmlVisitorBridge"),
@@ -1210,7 +1211,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             !code.contains("#[magnus::init]"),
@@ -1232,7 +1234,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.contains("impl my_lib::HtmlVisitor for RbHtmlVisitorBridge"),
@@ -1286,7 +1289,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             !code.is_empty(),
@@ -1317,7 +1321,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.contains("register_embedding_backend"),
@@ -1339,7 +1344,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.contains("impl sample_crate::Plugin for RbPostProcessorBridge"),
@@ -1366,7 +1372,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.contains("impl my_lib::Validator for RbValidatorBridge"),
@@ -1389,7 +1396,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.is_empty(),
@@ -1414,7 +1422,8 @@ mod trait_bridge {
             "MyError",
             "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
             &make_api(),
-        );
+        )
+        .expect("trait bridge generation should succeed");
 
         assert!(
             code.contains("respond_to"),
@@ -1540,7 +1549,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -1640,7 +1649,7 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1707,7 +1716,7 @@ fn test_tuple_variant_bytes_stays_as_vec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1796,7 +1805,7 @@ fn test_optional_ref_string_method_returns_owned_option() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1885,7 +1894,7 @@ fn test_opaque_owned_builder_return_rewraps_arc() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1989,7 +1998,7 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2081,7 +2090,7 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2184,7 +2193,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let code = gen_trait_bridge(
         &trait_def,
@@ -2193,7 +2202,8 @@ fn test_visitor_bridge_debug_not_duplicated() {
         "ConversionError",
         "ConversionError::new({msg})",
         &api,
-    );
+    )
+    .expect("trait bridge generation should succeed");
 
     let debug_count = code.matches("impl std::fmt::Debug for RbHtmlVisitorBridge").count();
     assert_eq!(
@@ -2221,7 +2231,7 @@ fn test_module_init_requires_json_stdlib() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -2286,7 +2296,7 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -2407,7 +2417,7 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -2487,7 +2497,7 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -2571,7 +2581,7 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -2678,7 +2688,7 @@ fn tagged_enum_dispatcher_uses_serde_wire_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
     let content = &files
@@ -2794,7 +2804,7 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -2925,7 +2935,7 @@ fn test_enum_yard_doc_emission() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -3020,7 +3030,7 @@ fn test_enum_variant_method_yard_docs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -3187,7 +3197,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = resolved_one(
         r#"
@@ -3331,8 +3341,8 @@ fn test_registration_variant_styles_emit_unified_block_form() {
                 cfg: None,
             }],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     };
 
     let config = make_config();

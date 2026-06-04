@@ -215,16 +215,16 @@ pub(crate) fn swift_call_arg(
     // EXCEPTION: Enum wrappers do not have a `.0` field — they are plain enums.
     // For enums, the parameter is already the correct type (the bridge deserialized it
     // via the JSON-bridge path above at lines 142-152). Just use it directly.
-    if let TypeRef::Named(name) = &p.ty {
+    if let TypeRef::Named(type_name) = &p.ty {
         // Enums are guarded by is_bridgeable_fn to prevent them from being
         // bridged as function parameters (no reverse From impl).
         // If an enum reaches here, it's a logic error in the guard.
-        if enum_names.contains(name.as_str()) {
+        if enum_names.contains(type_name.as_str()) {
             // Enums cannot be reversed via From<BridgeEnum> for SourceEnum,
             // and they fall here because enum params are marked is_ref/optional false,
             // missing the JSON-bridge path above. This is guarded at is_bridgeable_fn level.
-            // For now, return name directly; the is_bridgeable_fn guard should prevent this.
-            return name.clone();
+            // For now, return the parameter name directly; the is_bridgeable_fn guard should prevent this.
+            return name;
         }
         // Struct wrappers have .0; access it with appropriate reference/mutability.
         if p.optional {

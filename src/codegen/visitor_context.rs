@@ -415,7 +415,7 @@ pub(crate) mod test_support {
                 },
             ],
             ..ApiSurface::default()
-};
+        };
         let bridge = TraitBridgeConfig {
             trait_name: "DocumentWalker".to_string(),
             type_alias: Some("DocumentWalkerHandle".to_string()),

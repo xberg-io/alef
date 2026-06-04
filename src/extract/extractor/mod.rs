@@ -40,7 +40,7 @@ pub fn extract(
         crate_name: crate_name.to_string(),
         version: version.to_string(),
         ..ApiSurface::default()
-};
+    };
 
     let mut visited = Vec::<PathBuf>::new();
 
@@ -483,6 +483,30 @@ fn resolve_typeref(newtype_map: &AHashMap<String, TypeRef>, ty: &mut TypeRef) {
     }
 }
 
+fn has_non_lifetime_generics(generics: &syn::Generics) -> bool {
+    generics
+        .params
+        .iter()
+        .any(|param| !matches!(param, syn::GenericParam::Lifetime(_)))
+}
+
+fn unsupported_public_item(
+    item_kind: &str,
+    crate_name: &str,
+    module_path: &str,
+    name: &str,
+    reason: &str,
+) -> UnsupportedPublicItem {
+    UnsupportedPublicItem {
+        item_kind: item_kind.to_string(),
+        item_path: build_rust_path(crate_name, module_path, name),
+        reason: reason.to_string(),
+        suggested_fix:
+            "exclude the item, configure an opaque/bridge policy, or provide explicit monomorphization metadata"
+                .to_string(),
+    }
+}
+
 /// Resolve unresolved `trait_source` on methods after all source files have been processed.
 ///
 /// When `impl Trait for Type` is encountered before the trait definition has been extracted
@@ -606,11 +630,39 @@ fn extract_items(
     for item in items {
         match item {
             syn::Item::Struct(item_struct) if is_pub(&item_struct.vis) => {
+                if has_non_lifetime_generics(&item_struct.generics) {
+                    // Generic items annotated with `#[alef::skip]` (or `#[doc(hidden)]`) are
+                    // intentionally not part of the binding surface — skip silently instead
+                    // of producing a fatal `unsupported_generic_item` diagnostic. The same
+                    // applies to enums/functions/type-aliases below.
+                    if extract_binding_exclusion_reason(&item_struct.attrs).is_none() {
+                        surface.unsupported_public_items.push(unsupported_public_item(
+                            "struct",
+                            crate_name,
+                            module_path,
+                            &item_struct.ident.to_string(),
+                            "public generic structs cannot be represented without explicit monomorphization metadata",
+                        ));
+                    }
+                    continue;
+                }
                 if let Some(td) = extract_struct(item_struct, crate_name, module_path) {
                     surface.types.push(td);
                 }
             }
             syn::Item::Enum(item_enum) if is_pub(&item_enum.vis) => {
+                if has_non_lifetime_generics(&item_enum.generics) {
+                    if extract_binding_exclusion_reason(&item_enum.attrs).is_none() {
+                        surface.unsupported_public_items.push(unsupported_public_item(
+                            "enum",
+                            crate_name,
+                            module_path,
+                            &item_enum.ident.to_string(),
+                            "public generic enums cannot be represented without explicit monomorphization metadata",
+                        ));
+                    }
+                    continue;
+                }
                 if is_thiserror_enum(&item_enum.attrs) {
                     if let Some(ed) = extract_error_enum(item_enum, crate_name, module_path) {
                         surface.errors.push(ed);

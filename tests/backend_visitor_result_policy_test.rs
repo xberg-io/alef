@@ -143,7 +143,7 @@ fn api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 fn bridge_cfg() -> TraitBridgeConfig {
@@ -191,7 +191,8 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
         "Error",
         "Error::from({msg})",
         &api,
-    );
+    )
+    .expect("napi visitor bridge should generate");
     assert_metadata_driven(&napi.code);
     assert_payload_wire_name(&napi.code);
 
@@ -202,7 +203,8 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
         "Error",
         "Error::from({msg})",
         &api,
-    );
+    )
+    .expect("wasm visitor bridge should generate");
     assert_metadata_driven(&wasm.code);
     assert_payload_wire_name(&wasm.code);
 
@@ -213,7 +215,8 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
         "Error",
         "Error::from({msg})",
         &api,
-    );
+    )
+    .expect("pyo3 visitor bridge should generate");
     assert_metadata_driven(&pyo3.code);
     assert_payload_wire_name(&pyo3.code);
 
@@ -224,7 +227,8 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
         "Error",
         "Error::from({msg})",
         &api,
-    );
+    )
+    .expect("magnus visitor bridge should generate");
     assert_metadata_driven(&magnus);
     assert_payload_wire_name(&magnus);
 
@@ -235,7 +239,8 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
         "Error",
         "Error::from({msg})",
         &api,
-    );
+    )
+    .expect("extendr visitor bridge should generate");
     assert_metadata_driven(&extendr.code);
     assert_payload_wire_name(&extendr.code);
 
@@ -246,6 +251,7 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
         "Error",
         "Error::from({msg})",
         &api,
-    );
+    )
+    .expect("rustler visitor bridge should generate");
     assert_metadata_driven(&rustler.code);
 }

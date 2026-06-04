@@ -323,7 +323,7 @@ package_name = "@myorg/my-lib"
             "x64",
             Some("glibc"),
             &PackageMetadata {
-                license: "MIT".to_string(),
+                license: Some("MIT".to_string()),
                 repository_url: Some("git+https://github.com/scope/foo.git".to_string()),
             },
         );

@@ -174,7 +174,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -262,7 +262,7 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let lib_rs = files
@@ -388,7 +388,7 @@ fn dts_preserves_native_argument_order_for_defaultable_config_param() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let dts = backend.generate_type_stubs(&api, &make_config()).unwrap()[0]
         .content
         .clone();
@@ -540,7 +540,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let content = backend.generate_public_api(&api, &make_config()).unwrap()[0]
         .content
@@ -609,7 +609,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -704,7 +704,7 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -800,7 +800,7 @@ fn test_binding_excluded_field_is_hidden_from_napi_api() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -843,7 +843,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -910,7 +910,7 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1026,7 +1026,7 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1125,7 +1125,7 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1210,7 +1210,7 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1287,7 +1287,7 @@ fn test_optional_and_default_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1391,7 +1391,7 @@ fn test_async_method() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1490,7 +1490,7 @@ fn test_static_method_with_error() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1559,7 +1559,7 @@ fn test_map_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1677,7 +1677,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1797,7 +1797,7 @@ fn make_api_napi() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 fn make_plugin_bridge_cfg(trait_name: &str) -> alef::core::config::TraitBridgeConfig {
@@ -1859,7 +1859,8 @@ fn test_napi_visitor_bridge_produces_visitor_struct() {
     let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("JsHtmlVisitorBridge"),
@@ -1882,7 +1883,8 @@ fn test_napi_visitor_bridge_has_obj_field() {
     let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code
@@ -1902,7 +1904,8 @@ fn test_napi_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("pub struct JsOcrBackendBridge"),
@@ -1929,7 +1932,8 @@ fn test_napi_plugin_bridge_generates_super_trait_impl() {
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("impl my_lib::Plugin for JsOcrBackendBridge"),
@@ -1957,7 +1961,8 @@ fn test_napi_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("impl my_lib::OcrBackend for JsOcrBackendBridge"),
@@ -1980,7 +1985,8 @@ fn test_napi_plugin_bridge_generates_registration_fn_with_napi_attribute() {
     let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("#[napi]"),
@@ -2025,7 +2031,8 @@ fn test_napi_plugin_bridge_validates_required_methods() {
     };
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     // Constructor must check for the required method "analyze"
     assert!(
@@ -2042,7 +2049,8 @@ fn test_napi_sync_method_body_uses_get_named_property() {
     let bridge_cfg = make_plugin_bridge_cfg("Scanner");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("get_named_property"),
@@ -2058,7 +2066,8 @@ fn test_napi_async_method_body_uses_box_pin() {
     let bridge_cfg = make_plugin_bridge_cfg("Processor");
     let api = make_api_napi();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("get_named_property(\"run\")"),
@@ -2124,8 +2133,7 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
             },
         ],
         ..make_api_napi()
-unsupported_public_items: Vec::new(),
-};
+    };
 
     let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
 
@@ -2280,7 +2288,7 @@ fn test_capsule_types_end_to_end() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config_with_capsule_types(capsule_map);
 
@@ -2368,7 +2376,7 @@ fn test_capsule_types_dts_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config_with_capsule_types(capsule_map);
 
@@ -2493,7 +2501,7 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config_with_capsule_types(capsule_map);
 
@@ -2583,7 +2591,7 @@ fn test_capsule_types_method_on_opaque_dts() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config_with_capsule_types(capsule_map);
 
@@ -2675,7 +2683,7 @@ fn test_napi_js_name_on_non_opaque_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -2734,7 +2742,7 @@ fn test_napi_js_name_on_opaque_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -2809,7 +2817,7 @@ fn test_napi_js_name_on_string_enum() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -2870,7 +2878,7 @@ fn test_dts_dto_fields_are_readonly() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let stubs = backend
@@ -2963,7 +2971,7 @@ fn test_optional_return_types_emit_null_not_undefined() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -3047,7 +3055,7 @@ fn struct_doc_and_field_docs_emitted_as_rustdoc() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("should succeed");
     let content = files
@@ -3123,7 +3131,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("should succeed");
     let content = files
@@ -3198,7 +3206,7 @@ fn function_doc_emitted_as_rustdoc_single_and_multiline() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("should succeed");
     let content = files
@@ -3271,7 +3279,7 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let lib_rs = files
@@ -3407,7 +3415,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend
         .generate_bindings(&api, &config)

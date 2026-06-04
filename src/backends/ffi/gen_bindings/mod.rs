@@ -399,6 +399,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     ffi_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()));
+    // Declared opaque types (from `[workspace.opaque_types]`) are external host-runtime
+    // references — they are NOT owned by the binding, so the FFI surface must not emit
+    // `_free` / `_new` / field accessors for them. Their rust_path typically points at
+    // upstream crates (e.g. `axum::http::Request`) that the binding's Cargo.toml does not
+    // depend on, and may carry generic parameters that the injected TypeDef cannot model.
+    ffi_exclude_types.extend(config.opaque_types.keys().map(|s| s.as_str()));
 
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in api
@@ -1166,8 +1172,8 @@ result_type = "VisitResult"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     /// Like `sample_api()` but includes an `HtmlVisitor` trait with representative methods.
@@ -1176,6 +1182,45 @@ result_type = "VisitResult"
     /// `ParamKind` variant: Str, OptStr, Bool, U32, Usize, CellSlice, and no-params.
     fn visitor_api() -> ApiSurface {
         let mut api = sample_api();
+        api.types.push(TypeDef {
+            name: "NodeContext".to_string(),
+            rust_path: "my_lib::visitor::NodeContext".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "node_type".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::I32),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "tag_name".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "depth".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Usize),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "index_in_parent".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Usize),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "parent_tag".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "is_inline".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        });
         api.types.push(TypeDef {
             name: "HtmlVisitor".to_string(),
             rust_path: "my_lib::visitor::HtmlVisitor".to_string(),
@@ -1689,7 +1734,7 @@ result_type = "VisitResult"
             binding_exclusion_reason: None,
         });
         api
-}
+    }
 
     fn visitor_result_string_field(name: &str) -> FieldDef {
         FieldDef {
@@ -1820,8 +1865,8 @@ sources = ["src/lib.rs"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     #[test]
@@ -2008,8 +2053,8 @@ sources = ["src/lib.rs"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     #[test]
@@ -2326,7 +2371,7 @@ visitor_callbacks = true
 
         // Callback struct should be generated
         assert!(lib.content.contains("struct HtmVisitorCallbacks"));
-        assert!(lib.content.contains("pub struct HtmNodeContext"));
+        assert!(lib.content.contains("pub struct HtmContext"));
 
         // Visit-result codes should be defined
         assert!(lib.content.contains("HTM_VISIT_CONTINUE"));
@@ -2409,7 +2454,7 @@ visitor_callbacks = true
 
         // Callback type signatures should be extern "C" function pointers
         assert!(lib.content.contains("extern \"C\" fn("));
-        assert!(lib.content.contains("*const HtmNodeContext"));
+        assert!(lib.content.contains("*const HtmContext"));
         assert!(lib.content.contains("user_data: *mut std::ffi::c_void"));
         assert!(lib.content.contains("out_custom: *mut *mut std::ffi::c_char"));
         assert!(lib.content.contains("out_len: *mut usize"));
@@ -2429,7 +2474,7 @@ visitor_callbacks = true
 
         // Custom prefix should be used throughout (struct/function names and constants)
         assert!(lib.content.contains("MlVisitorCallbacks"));
-        assert!(lib.content.contains("MlNodeContext"));
+        assert!(lib.content.contains("MlContext"));
         assert!(lib.content.contains("ml_visitor_create"));
         assert!(lib.content.contains("ml_visitor_free"));
         assert!(lib.content.contains("ml_render_document_with_visitor"));
@@ -2478,10 +2523,10 @@ visitor_callbacks = true
 
         // Helper function to decode visit result codes back to Rust enum
         assert!(lib.content.contains("decode_visit_result"));
-        assert!(lib.content.contains("VisitResult::Skip"));
-        assert!(lib.content.contains("VisitResult::PreserveHtml"));
-        assert!(lib.content.contains("VisitResult::Custom"));
-        assert!(lib.content.contains("VisitResult::Error"));
+        assert!(lib.content.contains("VisitorResult::Skip"));
+        assert!(lib.content.contains("VisitorResult::PreserveHtml"));
+        assert!(lib.content.contains("VisitorResult::Custom"));
+        assert!(lib.content.contains("VisitorResult::Error"));
     }
 
     #[test]
@@ -2638,9 +2683,9 @@ result_type = "WalkOutcome"
         assert!(lib.content.contains("pub is_recovery: i32"));
         assert!(lib.content.contains("PRS_VISIT_STOP_HERE"));
         assert!(lib.content.contains("my_lib::syntax::WalkOutcome::StopHere"));
-        assert!(lib.content.contains("WalkOutcome::ReplaceWith(msg)"));
+        assert!(lib.content.contains("VisitorResult::ReplaceWith(msg)"));
         assert!(lib.content.contains("context: &my_lib::syntax::ParseContext"));
-        assert!(!lib.content.contains("VisitResult"));
+        assert!(!lib.content.contains("my_lib::visitor::VisitResult"));
         assert!(!lib.content.contains("my_lib::visitor::NodeContext"));
     }
 
@@ -2655,9 +2700,9 @@ result_type = "WalkOutcome"
 
         // Helper function for building and passing NodeContext to C callbacks
         assert!(lib.content.contains("call_with_ctx"));
-        assert!(lib.content.contains("HtmNodeContext"));
+        assert!(lib.content.contains("HtmContext"));
         assert!(lib.content.contains("tag_cstring"));
-        assert!(lib.content.contains("parent_cstring"));
+        assert!(lib.content.contains("parent_tag_cstring"));
     }
 
     #[test]
@@ -2758,8 +2803,8 @@ result_type = "WalkOutcome"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -2871,8 +2916,8 @@ unsupported_public_items: Vec::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     /// Non-Clone opaque Named-type fields must not emit `.clone()` in the
@@ -2941,6 +2986,8 @@ type_alias = "VisitorHandle"
 param_name = "visitor"
 bind_via = "options_field"
 options_type = "BridgeOptions"
+context_type = "NodeContext"
+result_type = "VisitResult"
 "#,
         );
         let mut api = visitor_api();
@@ -3153,6 +3200,8 @@ visitor_callbacks = true
 trait_name = "HtmlVisitor"
 type_alias = "RenderHandle"
 param_name = "renderer"
+context_type = "NodeContext"
+result_type = "VisitResult"
 "#,
         );
         let mut api = visitor_api();
@@ -3319,8 +3368,8 @@ core_import = "my_custom_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -3441,8 +3490,8 @@ type = "ChatRequest"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let backend = FfiBackend;
 
         let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3571,8 +3620,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let backend = FfiBackend;
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -3668,8 +3717,8 @@ unsupported_public_items: Vec::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     /// The FFI wrapper for a function with `Option<&AHashMap<Cow<'static, str>, Value>>` must:
@@ -3757,8 +3806,8 @@ unsupported_public_items: Vec::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -3947,8 +3996,8 @@ unsupported_public_items: Vec::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -4034,8 +4083,8 @@ unsupported_public_items: Vec::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -4201,8 +4250,8 @@ unsupported_public_items: Vec::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     #[test]

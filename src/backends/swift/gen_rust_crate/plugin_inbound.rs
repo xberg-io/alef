@@ -433,6 +433,7 @@ fn build_bridge_spec<'a>(
         core_import: source_crate,
         wrapper_prefix: "Swift",
         type_paths: type_paths.clone(),
+        lifetime_type_names: std::collections::HashSet::new(),
         error_type: error_type.to_string(),
         error_constructor: error_constructor.to_string(),
     }

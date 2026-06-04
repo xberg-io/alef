@@ -35,6 +35,7 @@ pub fn gen_from_core_to_binding_cfg(
             minijinja::context! {
                 core_path => core_path,
                 binding_name => binding_name,
+                has_lifetime_params => typ.has_lifetime_params,
                 is_newtype => true,
                 newtype_inner_expr => newtype_inner_expr,
                 fields => vec![] as Vec<String>,
@@ -237,6 +238,7 @@ pub fn gen_from_core_to_binding_cfg(
         minijinja::context! {
             core_path => core_path,
             binding_name => binding_name,
+            has_lifetime_params => typ.has_lifetime_params,
             is_newtype => false,
             newtype_inner_expr => "",
             fields => fields,
