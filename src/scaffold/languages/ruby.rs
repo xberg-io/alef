@@ -88,19 +88,15 @@ pub(crate) fn scaffold_ruby_cargo(
     // through Magnus—cargo-machete sees it as unused at the leaf crate level.
     // `tokio`, `async-trait`, `futures`, and `ahash` are now directly imported
     // by the generated NIF code, so they should NOT be in the ignored list.
-    let machete_ignored = vec!["rb-sys"];
+    let machete_ignored = ["rb-sys"];
     // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
     // before `[lib]` / `[dependencies]`.
-    let machete_section = if machete_ignored.is_empty() {
-        String::new()
-    } else {
-        let ignored_list = machete_ignored
-            .iter()
-            .map(|d| format!("\"{d}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n")
-    };
+    let ignored_list = machete_ignored
+        .iter()
+        .map(|d| format!("\"{d}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let machete_section = format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n");
 
     let content = format!(
         r#"{pkg_header}

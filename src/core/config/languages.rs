@@ -1129,7 +1129,7 @@ pub struct SwiftConfig {
     /// emits this snippet verbatim as the function body (no implicit `Ok(...)`).
     ///
     /// Use this when the source crate's constructor signature differs from the
-    /// default `Type::new(api_key, base_url)` shape — e.g. sample-llm uses
+    /// default `Type::new(api_key, base_url)` shape — e.g. some clients use
     /// `DefaultClient::new(ClientConfig, Option<&str>)` and needs to build a
     /// `ClientConfig` from the bridge inputs first.
     ///

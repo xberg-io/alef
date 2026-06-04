@@ -61,6 +61,30 @@ fn is_options_field_bridge(
     })
 }
 
+fn options_field_bridge_trait_name(
+    type_name: &str,
+    field_name: &str,
+    field_ty: &TypeRef,
+    trait_bridges: &[TraitBridgeConfig],
+) -> Option<String> {
+    trait_bridges.iter().find_map(|bridge| {
+        let alias_matches = bridge
+            .type_alias
+            .as_deref()
+            .is_none_or(|alias| matches!(field_ty, TypeRef::Named(name) if name == alias));
+
+        if bridge.bind_via == BridgeBinding::OptionsField
+            && bridge.options_type.as_deref() == Some(type_name)
+            && bridge.resolved_options_field() == Some(field_name)
+            && alias_matches
+        {
+            Some(bridge.trait_name.clone())
+        } else {
+            None
+        }
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
     package: &str,
@@ -94,7 +118,9 @@ pub(crate) fn gen_record_type(
         // Use Object for flexible Jackson deserialization.
         let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
 
-        let is_visitor_field = is_options_field_bridge(typ.name.as_str(), f.name.as_str(), &f.ty, trait_bridges);
+        let visitor_trait_name =
+            options_field_bridge_trait_name(typ.name.as_str(), f.name.as_str(), &f.ty, trait_bridges);
+        let is_visitor_field = visitor_trait_name.is_some();
 
         // `#[serde(flatten)]` on a `serde_json::Value` field: emit
         // `@JsonAnyGetter Map<String, Object>` so Jackson absorbs unknown
@@ -117,7 +143,7 @@ pub(crate) fn gen_record_type(
         // Otherwise primitive types like `long` cannot hold null and auto-unbox NPEs.
         let f_optional_no_wrapper = f.optional && !matches!(resolved_ty, TypeRef::Optional(_));
         let ftype = if is_visitor_field {
-            "Visitor".to_string()
+            visitor_trait_name.expect("visitor field type is resolved")
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
         } else if is_complex {
@@ -1992,8 +2018,9 @@ fn gen_builder_nested_class(
             continue;
         }
 
-        let is_visitor_field =
-            is_options_field_bridge(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
+        let visitor_trait_name =
+            options_field_bridge_trait_name(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
+        let is_visitor_field = visitor_trait_name.is_some();
 
         // `#[serde(flatten)]` on a `serde_json::Value` field — store as
         // `java.util.HashMap<String, Object>` so the builder's matching
@@ -2017,7 +2044,10 @@ fn gen_builder_nested_class(
         // is a type/value mismatch (uncompilable).
         let field_is_optional_in_binding = field.optional && !matches!(resolved_field_ty, TypeRef::Optional(_));
         let field_type = if is_visitor_field {
-            "Optional<Visitor>".to_string()
+            format!(
+                "Optional<{}>",
+                visitor_trait_name.expect("visitor field type is resolved")
+            )
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
         } else if matches!(resolved_field_ty, TypeRef::Optional(_)) {
@@ -2226,8 +2256,9 @@ fn gen_builder_nested_class(
 
         let field_name = safe_java_field_name(&field.name);
         let field_name_pascal = to_class_name(&field.name);
-        let is_visitor_field =
-            is_options_field_bridge(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
+        let visitor_trait_name =
+            options_field_bridge_trait_name(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
+        let is_visitor_field = visitor_trait_name.is_some();
         let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
         let has_serde_default = field.default == Some("/* serde(default) */".to_string());
 
@@ -2238,7 +2269,7 @@ fn gen_builder_nested_class(
         // expose `withVisitor(Visitor)` to keep the user-facing API ergonomic — callers
         // should not have to write `Optional.of(visitor)` themselves.
         let field_type = if is_visitor_field {
-            "Visitor".to_string()
+            visitor_trait_name.expect("visitor field type is resolved")
         } else if is_flattened_json {
             "Map<String, Object>".to_string()
         } else if matches!(resolved_field_ty, TypeRef::Optional(_)) {

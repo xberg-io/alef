@@ -35,6 +35,7 @@ fn make_http_fixture(id: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "status_code".to_string(),
             field: None,

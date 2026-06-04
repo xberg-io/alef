@@ -124,6 +124,7 @@ fn make_fixture(id: &str, assertion: Assertion) -> Fixture {
         }),
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![assertion],
         source: "smoke.json".to_string(),
         http: None,

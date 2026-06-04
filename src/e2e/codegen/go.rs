@@ -4346,6 +4346,7 @@ mod trait_bridge_tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 
@@ -4716,6 +4717,7 @@ mod tests {
             }],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 
@@ -4788,6 +4790,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: String::new(),
             http: None,
@@ -5012,6 +5015,7 @@ mod tests {
             ],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         };
 
         let mut out = String::new();
@@ -5100,6 +5104,7 @@ mod tests {
             }],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         };
 
         let config = crate::core::config::ResolvedCrateConfig::default();

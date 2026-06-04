@@ -1,5 +1,6 @@
 //! JSON Schema and semantic validation for e2e fixture files.
 
+use crate::e2e::codegen::assertion_recipes;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::{Fixture, group_fixtures};
 use anyhow::{Context, Result};
@@ -65,6 +66,7 @@ pub fn validate_fixtures(fixtures_dir: &Path) -> Result<Vec<ValidationError>> {
 /// 4. Missing required input fields for the resolved call config
 /// 5. (D1) Argument arity and type mismatches in call configs
 /// 6. (D2) Field path assertions against simple return types
+/// 7. Domain-shaped assertions without required assertion recipes
 pub fn validate_fixtures_semantic(
     fixtures: &[Fixture],
     e2e_config: &E2eConfig,
@@ -111,6 +113,18 @@ pub fn validate_fixtures_semantic(
 
         // Check 4: missing required input fields
         let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        for language in languages {
+            if let Some(missing) = assertion_recipes::missing_recipe_for_language(fixture, call_config, language) {
+                errors.push(ValidationError {
+                    file: fixture.source.clone(),
+                    message: format!(
+                        "fixture '{}' assertion '{}' requires assertion recipe '{}' for language '{}'",
+                        fixture.id, missing.field, missing.recipe, language
+                    ),
+                    severity: Severity::Error,
+                });
+            }
+        }
         for arg in &call_config.args {
             if arg.optional {
                 continue;
@@ -291,8 +305,9 @@ fn validate_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::e2e::{ArgMapping, CallConfig};
-    use crate::e2e::fixture::SkipDirective;
+    use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride};
+    use crate::e2e::codegen::assertion_recipes::{EMBEDDINGS_RECIPE, KEYWORDS_RECIPE};
+    use crate::e2e::fixture::{Assertion, SkipDirective};
 
     fn make_fixture(id: &str, source: &str, skip: Option<SkipDirective>, call: Option<&str>) -> Fixture {
         Fixture {
@@ -307,6 +322,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: source.to_string(),
             http: None,
@@ -350,6 +366,71 @@ mod tests {
         let config = make_e2e_config(vec![("embed", CallConfig::default())]);
         let errors = validate_fixtures_semantic(&fixtures, &config, &["rust".to_string()]);
         assert!(!errors.iter().any(|e| e.message.contains("unknown call")));
+    }
+
+    #[test]
+    fn domain_assertion_without_recipe_is_error() {
+        let mut fixture = make_fixture("test_embeddings", "test.json", None, None);
+        fixture.assertions = vec![Assertion {
+            assertion_type: "is_true".to_string(),
+            field: Some("embeddings_valid".to_string()),
+            ..Default::default()
+        }];
+        let config = make_e2e_config(vec![]);
+
+        let errors = validate_fixtures_semantic(&[fixture], &config, &["rust".to_string()]);
+
+        assert!(
+            errors.iter().any(|e| {
+                e.severity == Severity::Error && e.message.contains("requires assertion recipe 'embeddings'")
+            }),
+            "expected missing embeddings recipe error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn fixture_recipe_allows_domain_assertion() {
+        let mut fixture = make_fixture("test_embeddings", "test.json", None, None);
+        fixture.assertion_recipes.push(EMBEDDINGS_RECIPE.to_string());
+        fixture.assertions = vec![Assertion {
+            assertion_type: "is_true".to_string(),
+            field: Some("embeddings_valid".to_string()),
+            ..Default::default()
+        }];
+        let config = make_e2e_config(vec![]);
+
+        let errors = validate_fixtures_semantic(&[fixture], &config, &["rust".to_string()]);
+
+        assert!(
+            !errors.iter().any(|e| e.message.contains("requires assertion recipe")),
+            "fixture-level recipe should allow embeddings assertion, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn language_override_allows_domain_assertion_for_that_language_only() {
+        let mut fixture = make_fixture("test_keywords", "test.json", None, Some("extract"));
+        fixture.assertions = vec![Assertion {
+            assertion_type: "not_empty".to_string(),
+            field: Some("keywords".to_string()),
+            ..Default::default()
+        }];
+        let mut call = CallConfig::default();
+        let mut python_override = CallOverride::default();
+        python_override.assertion_recipes.insert(KEYWORDS_RECIPE.to_string());
+        call.overrides.insert("python".to_string(), python_override);
+        let config = make_e2e_config(vec![("extract", call)]);
+
+        let errors = validate_fixtures_semantic(&[fixture], &config, &["python".to_string(), "rust".to_string()]);
+
+        assert!(
+            !errors.iter().any(|e| e.message.contains("language 'python'")),
+            "python override should allow keywords assertion, got: {errors:?}"
+        );
+        assert!(
+            errors.iter().any(|e| e.message.contains("language 'rust'")),
+            "rust should still require an explicit recipe, got: {errors:?}"
+        );
     }
 
     #[test]
@@ -427,6 +508,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: "test.json".to_string(),
             http: None,
@@ -494,6 +576,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: "smoke/basic_chat.json".to_string(),
             http: None,
@@ -546,6 +629,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             // resolved_category() derives "budget" from this path
             source: "budget/budget_enforced.json".to_string(),

@@ -36,6 +36,11 @@
           "type": "object",
           "description": "Input data passed to the function under test. Fields map to args via [e2e.call.args] config"
         },
+        "assertion_recipes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Assertion recipes enabled for domain-shaped assertion shortcuts"
+        },
         "assertions": {
           "type": "array",
           "items": { "$ref": "#/$defs/assertion" },

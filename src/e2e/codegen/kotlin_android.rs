@@ -1311,6 +1311,7 @@ mod test_backend_tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 

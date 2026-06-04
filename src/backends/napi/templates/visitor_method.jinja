@@ -5,17 +5,17 @@
         let __env = napi::Env::from_raw(self.env);
         let obj_ref = match self.obj_ref.as_ref() {
             Some(r) => r,
-            None => return {{ return_type }}::Continue,
+            None => return {{ default_result_expr }},
         };
         let obj = match obj_ref.get_value(&__env) {
             Ok(o) => o,
-            Err(_) => return {{ return_type }}::Continue,
+            Err(_) => return {{ default_result_expr }},
         };
 
         // Try to get the JS function from the object
         let func: napi::bindgen_prelude::Function<{{ args_tuple_ty }}, napi::bindgen_prelude::Unknown> = match obj.get_named_property("{{ js_method_name }}") {
             Ok(f) => f,
-            Err(_) => return {{ return_type }}::Continue,
+            Err(_) => return {{ default_result_expr }},
         };
 
 {% if empty_args %}
@@ -28,35 +28,30 @@
 {% endif %}
 
         match result {
-            Err(_) => {{ return_type }}::Continue,
+            Err(_) => {{ default_result_expr }},
             Ok(val) => {
                 if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object) {
                     if let Ok(obj) = val.coerce_to_object() {
-                        if let Ok(cv) = obj.get_named_property::<napi::bindgen_prelude::Unknown>("custom") {
+{%- for variant in payload_result_variants %}
+                        if let Ok(cv) = obj.get_named_property::<napi::bindgen_prelude::Unknown>("{{ variant.wire_name }}") {
                             if !matches!(cv.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {
                                 if let Ok(s) = cv.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
-                                    return {{ return_type }}::Custom(s);
+                                    return {{ return_type }}::{{ variant.name }}(s);
                                 }
                             }
                         }
-                        if let Ok(ev) = obj.get_named_property::<napi::bindgen_prelude::Unknown>("error") {
-                            if !matches!(ev.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {
-                                if let Ok(s) = ev.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
-                                    return {{ return_type }}::Error(s);
-                                }
-                            }
-                        }
+{%- endfor %}
                     }
                 }
                 if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
                     match s.to_lowercase().as_str() {
-                        "continue" => {{ return_type }}::Continue,
-                        "skip" => {{ return_type }}::Skip,
-                        "preserve_html" | "preservehtml" => {{ return_type }}::PreserveHtml,
-                        _ => {{ return_type }}::Custom(s),
+{%- for variant in unit_result_variants %}
+                        "{{ variant.wire_name }}" => {{ return_type }}::{{ variant.name }},
+{%- endfor %}
+                        _ => {{ unknown_string_result_expr }},
                     }
                 } else {
-                    {{ return_type }}::Continue
+                    {{ default_result_expr }}
                 }
             }
         }

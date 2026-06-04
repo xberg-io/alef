@@ -51,6 +51,7 @@ fn fixture(id: &str, language: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: Vec::new(),
         source: format!("smoke/{id}.json"),
         http: None,

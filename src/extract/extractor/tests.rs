@@ -937,13 +937,13 @@ fn test_tuple_struct_wrapping_named_type_not_resolved() {
     // A tuple struct wrapping a complex Named type (like a builder pattern)
     // should NOT be resolved as a transparent newtype.
     let source = r#"
-        pub struct ConversionOptions {
+        pub struct RenderOptions {
             pub format: String,
         }
 
-        pub struct ConversionOptionsBuilder(ConversionOptions);
+        pub struct RenderOptionsBuilder(RenderOptions);
 
-        impl ConversionOptionsBuilder {
+        impl RenderOptionsBuilder {
             pub fn format(&mut self, fmt: String) -> &mut Self {
                 self.0.format = fmt;
                 self
@@ -953,9 +953,9 @@ fn test_tuple_struct_wrapping_named_type_not_resolved() {
 
     let surface = extract_from_source(source);
 
-    // ConversionOptionsBuilder wraps a Named type AND has methods — should be kept
+    // RenderOptionsBuilder wraps a Named type AND has methods — should be kept
     assert!(
-        surface.types.iter().any(|t| t.name == "ConversionOptionsBuilder"),
+        surface.types.iter().any(|t| t.name == "RenderOptionsBuilder"),
         "Tuple struct wrapping Named type should not be resolved away"
     );
 }
@@ -2099,17 +2099,17 @@ fn test_pub_trait_with_supertrait() {
     let source = r#"
         pub trait Backend: Send + Sync {}
 
-        pub trait OcrBackend: Backend {}
+        pub trait WorkerBackend: Backend {}
     "#;
 
     let surface = extract_from_source(source);
-    let ocr = surface
+    let worker = surface
         .types
         .iter()
-        .find(|t| t.name == "OcrBackend")
-        .expect("OcrBackend not found");
-    assert!(ocr.is_trait);
-    assert_eq!(ocr.super_traits, vec!["Backend"]);
+        .find(|t| t.name == "WorkerBackend")
+        .expect("WorkerBackend not found");
+    assert!(worker.is_trait);
+    assert_eq!(worker.super_traits, vec!["Backend"]);
 
     // Send and Sync are marker traits — filtered out
     let backend = surface
@@ -3397,7 +3397,7 @@ fn test_disambiguation_pass_runs_on_full_extract() {
 
 #[test]
 fn test_error_enum_methods_whitelist() {
-    // Simulates sample-llm's SampleLlmError with whitelisted introspection methods
+    // Simulates a downstream error enum with whitelisted introspection methods
     // plus a noisy Display::fmt that must be excluded.
     let source = r#"
         #[derive(Debug, thiserror::Error)]

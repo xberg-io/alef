@@ -76,6 +76,8 @@ static TEMPLATES: &[(&str, &str)] = &[
         "native_methods_visitor.jinja",
         include_str!("templates/native_methods_visitor.jinja"),
     ),
+    ("node_context.jinja", include_str!("templates/node_context.jinja")),
+    ("visit_result.jinja", include_str!("templates/visit_result.jinja")),
     ("null_check.jinja", include_str!("templates/null_check.jinja")),
     (
         "opaque_class_ctor.jinja",

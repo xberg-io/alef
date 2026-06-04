@@ -748,6 +748,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: "test".to_owned(),
             http: Some(HttpFixture {

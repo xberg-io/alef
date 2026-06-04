@@ -229,11 +229,17 @@ pub(crate) fn swift_call_arg(
         // Struct wrappers have .0; access it with appropriate reference/mutability.
         if p.optional {
             if p.is_ref {
+                if p.is_mut {
+                    return format!("{name}.as_ref().map(|w| &mut w.0)");
+                }
                 return format!("{name}.as_ref().map(|w| &w.0)");
             }
             return format!("{name}.map(|w| w.0)");
         }
         if p.is_ref {
+            if p.is_mut {
+                return format!("&mut {name}.0");
+            }
             return format!("&{name}.0");
         }
         return format!("{name}.0");
@@ -463,9 +469,13 @@ pub(crate) fn emit_function_shim(
                 // Apply coercions for &str → String and Vec<&str> → Vec<String>
                 // in Result-returning functions, same as for direct returns.
                 match &f.return_type {
-                    TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
-                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path) => {
+                    TypeRef::String => ".map(|s| s.to_string())".to_string(),
+                    TypeRef::Path => ".map(|s| s.display().to_string())".to_string(),
+                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
                         ".map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>())".to_string()
+                    }
+                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+                        ".map(|v| v.into_iter().map(|s| s.display().to_string()).collect::<Vec<_>>())".to_string()
                     }
                     _ => String::new(),
                 }

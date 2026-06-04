@@ -82,6 +82,7 @@ mod plugin_trait_stub_generation {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 

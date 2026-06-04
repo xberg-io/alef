@@ -295,12 +295,14 @@ pub fn gen_trait_bridge(
     let is_visitor_bridge = bridge_cfg.type_alias.is_some()
         && bridge_cfg.register_fn.is_none()
         && bridge_cfg.super_trait.is_none()
+        && bridge_cfg.context_type.is_some()
+        && bridge_cfg.result_type.is_some()
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
         let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
-        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths, api);
 
         // Note: PHP interface file generation is handled separately by the PHP backend
         // in generate_bindings() to emit it as a standalone PHP file, not inline Rust code.
@@ -343,6 +345,7 @@ fn gen_visitor_bridge(
     struct_name: &str,
     trait_path: &str,
     type_paths: &HashMap<String, String>,
+    api: &ApiSurface,
 ) -> String {
     let mut out = String::with_capacity(4096);
     let core_crate = trait_path
@@ -351,12 +354,42 @@ fn gen_visitor_bridge(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| panic!("trait_path '{trait_path}' must be a qualified path of the form 'crate_name::...'; configure extension_name in alef.toml"))
         .to_string();
+    let Some(result_type) = bridge_cfg.result_type.as_deref() else {
+        eprintln!(
+            "[alef] gen_visitor(php): skip visitor bridge `{}` because result_type is not configured",
+            bridge_cfg.trait_name
+        );
+        return String::new();
+    };
+    let result_type_path = type_paths
+        .get(result_type)
+        .cloned()
+        .unwrap_or_else(|| format!("{core_crate}::{result_type}"));
+    let Some(context_type) = bridge_cfg.context_type.as_deref() else {
+        eprintln!(
+            "[alef] gen_visitor(php): skip visitor bridge `{}` because context_type is not configured",
+            bridge_cfg.trait_name
+        );
+        return String::new();
+    };
+    let context_type_path = type_paths
+        .get(context_type)
+        .cloned()
+        .unwrap_or_else(|| format!("{core_crate}::{context_type}"));
+    let Some(result_metadata) = crate::codegen::visitor_result::visitor_result_metadata(api, bridge_cfg) else {
+        eprintln!(
+            "[alef] gen_visitor(php): skip visitor bridge `{}` because result_type `{result_type}` is not in IR",
+            bridge_cfg.trait_name
+        );
+        return String::new();
+    };
+    let default_variant = result_metadata.default_variant.name.as_str();
 
     // Helper: convert NodeContext to a PHP array (Zval)
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_nodecontext_helper.jinja",
         context! {
-            core_crate => &core_crate,
+            context_type_path => &context_type_path,
         },
     ));
     out.push('\n');
@@ -365,7 +398,18 @@ fn gen_visitor_bridge(
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_zval_to_visitresult.jinja",
         context! {
-            core_crate => &core_crate,
+            result_type_path => &result_type_path,
+            default_variant => default_variant,
+            unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+                &result_metadata.string_payload_variants,
+            ),
+            single_payload_variant => result_metadata.string_payload_variants.len() == 1,
+            single_payload_name => result_metadata
+                .string_payload_variants
+                .first()
+                .map(|variant| variant.name.as_str())
+                .unwrap_or(default_variant),
         },
     ));
     out.push('\n');
@@ -374,7 +418,10 @@ fn gen_visitor_bridge(
     out.push_str(&crate::backends::php::template_env::render(
         "php_visit_result_with_template.jinja",
         context! {
-            core_crate => &core_crate,
+            result_type_path => &result_type_path,
+            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+                &result_metadata.string_payload_variants,
+            ),
         },
     ));
     out.push_str("\n\n");
@@ -400,7 +447,15 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_php(&mut out, method, bridge_cfg, type_paths);
+        if named_type_name(&method.return_type) != bridge_cfg.result_type.as_deref()
+            || !method
+                .params
+                .iter()
+                .any(|param| named_type_name(&param.ty) == bridge_cfg.context_type.as_deref())
+        {
+            continue;
+        }
+        gen_visitor_method_php(&mut out, method, bridge_cfg, type_paths, default_variant);
     }
     out.push_str("}\n");
     out.push('\n');
@@ -414,6 +469,7 @@ fn gen_visitor_method_php(
     method: &MethodDef,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
+    default_variant: &str,
 ) {
     let name = &method.name;
 
@@ -575,6 +631,7 @@ fn gen_visitor_method_php(
         "php_visitor_method_result_match.jinja",
         context! {
             ret_ty => &ret_ty,
+            default_variant => format!("{ret_ty}::{default_variant}"),
             tmpl_vars_expr => &tmpl_vars_expr,
         },
     ));
@@ -877,6 +934,8 @@ pub fn gen_visitor_interface(
     type_paths: &HashMap<String, String>,
 ) -> String {
     let interface_name = format!("{}Interface", bridge_cfg.trait_name);
+    let context_type = bridge_cfg.context_type.as_deref().unwrap_or("mixed");
+    let result_type = bridge_cfg.result_type.as_deref().unwrap_or("mixed");
     let mut out = String::with_capacity(2048);
 
     // PHP file header with declare(strict_types=1)
@@ -896,6 +955,9 @@ pub fn gen_visitor_interface(
     // Generate each interface method
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
+            continue;
+        }
+        if named_type_name(&method.return_type) != bridge_cfg.result_type.as_deref() {
             continue;
         }
 
@@ -946,6 +1008,8 @@ pub fn gen_visitor_interface(
                 method_params => &method_params,
                 doc_lines => &doc_lines,
                 param_docs => &param_docs_str,
+                context_type => context_type,
+                result_type => result_type,
             },
         ));
         out.push('\n');
@@ -954,6 +1018,14 @@ pub fn gen_visitor_interface(
     out.push_str("}\n");
 
     out
+}
+
+fn named_type_name(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => named_type_name(inner),
+        _ => None,
+    }
 }
 
 /// Generate a PHP interface stub definition for a registration-style trait bridge.

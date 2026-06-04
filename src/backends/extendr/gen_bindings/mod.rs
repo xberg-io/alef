@@ -1458,7 +1458,9 @@ fn gen_field_decoder(
                     code.push_str("(v)?);\n");
                     code.push_str("    }\n");
                 }
-                TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize)) => {
+                TypeRef::Primitive(
+                    prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+                ) => {
                     // R maps these types to Option<f64> in the binding layer, but the core
                     // field uses the original integer type, so cast f64 back to the core type.
                     let core_ty = match prim {

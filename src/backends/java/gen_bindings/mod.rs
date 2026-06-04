@@ -160,15 +160,7 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        // Generate visitor support when visitor_callbacks is enabled in FFI config (canonical check),
-        // OR when any trait bridge is bound via options_field (Java-specific activation path).
-        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false)
-            || config
-                .trait_bridges
-                .iter()
-                .any(|b| b.bind_via == BridgeBinding::OptionsField);
-        let bridge_associated_types = config.bridge_associated_types();
-
+        let has_visitor_pattern = crate::backends::java::gen_visitor::has_visitor_generation_metadata(api, config);
         let mut files = Vec::new();
 
         // 0. package-info.java - required by Checkstyle
@@ -300,10 +292,8 @@ impl Backend for JavaBackend {
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             let is_unit_serde = !typ.is_opaque && typ.fields.is_empty() && typ.has_serde;
             if !typ.is_opaque && (!typ.fields.is_empty() || is_unit_serde) {
-                // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_pattern && bridge_associated_types.contains(typ.name.as_str()) {
-                    continue;
-                }
+                // The visitor context remains a normal IR-derived record; only the result enum
+                // and bridge/interface files are visitor-specific.
                 let builder_mode = config
                     .java
                     .as_ref()
@@ -395,7 +385,12 @@ impl Backend for JavaBackend {
         // 5. Enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_pattern && bridge_associated_types.contains(enum_def.name.as_str()) {
+            if has_visitor_pattern
+                && config
+                    .trait_bridges
+                    .iter()
+                    .any(|bridge| bridge.result_type.as_deref() == Some(enum_def.name.as_str()))
+            {
                 continue;
             }
             files.push(GeneratedFile {
@@ -434,7 +429,10 @@ impl Backend for JavaBackend {
 
         // 7. Visitor support files (only when compatible trait-bridge metadata exists)
         if has_visitor_pattern {
-            for (filename, content) in crate::backends::java::gen_visitor::gen_visitor_files(&package, &main_class) {
+            for (filename, content) in
+                crate::backends::java::gen_visitor::gen_visitor_files(api, config, &package, &main_class)
+                    .unwrap_or_default()
+            {
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
                     content,

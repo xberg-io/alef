@@ -41,6 +41,7 @@ fn make_fixture_with_contains_on_string() -> FixtureGroup {
             }),
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![
                 Assertion {
                     assertion_type: "contains".to_string(),
@@ -220,6 +221,7 @@ type = "json_object"
             }),
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "contains".to_string(),
                 field: Some("tags".to_string()),

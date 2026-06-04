@@ -53,6 +53,7 @@ fn make_fixture(id: &str, input: serde_json::Value) -> Fixture {
         assertions: vec![],
         visitor: None,
         args: vec![],
+        assertion_recipes: Vec::new(),
     }
 }
 

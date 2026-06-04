@@ -3480,6 +3480,7 @@ mod test_backend_tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 
@@ -3601,6 +3602,7 @@ mod test_backend_tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         };
 
         let emission = emit_test_backend(&bridge, &methods, &fixture, "");
@@ -3681,6 +3683,7 @@ mod tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 

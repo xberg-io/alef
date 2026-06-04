@@ -79,6 +79,7 @@ fn build_fixture_with_assertions(id: &str, assertions: Vec<Assertion>) -> Fixtur
             }),
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions,
             source: "test.json".to_string(),
             http: None,
@@ -153,6 +154,7 @@ fn build_fixture() -> FixtureGroup {
             }),
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: Some("content".to_string()),

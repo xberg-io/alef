@@ -2520,6 +2520,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: String::new(),
             http: None,
@@ -2848,6 +2849,7 @@ mod tests {
             }),
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: String::new(),
             http: None,
@@ -2926,6 +2928,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: String::new(),
             http: Some(HttpFixture {

@@ -4351,6 +4351,7 @@ mod visitor_tests {
             mock_response: None,
             visitor: Some(VisitorSpec { callbacks }),
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![Assertion {
                 assertion_type: "contains".to_string(),
                 field: None,

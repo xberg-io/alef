@@ -37,13 +37,10 @@ pub(super) fn handle_method_name(java_method: &str) -> String {
     name
 }
 
-pub(super) fn iface_param_str(spec: &CallbackSpec) -> String {
-    let mut params = vec!["final NodeContext context".to_string()];
-    for ep in spec.extra {
+pub(super) fn iface_param_str(spec: &CallbackSpec, context_type: &str) -> String {
+    let mut params = vec![format!("final {context_type} context")];
+    for ep in &spec.extra {
         params.push(format!("final {} {}", ep.java_type, ep.java_name));
-    }
-    if spec.has_is_header {
-        params.push("final boolean isHeader".to_string());
     }
     params.join(", ")
 }
@@ -56,13 +53,10 @@ pub(super) fn callback_descriptor(spec: &CallbackSpec) -> String {
         "ValueLayout.ADDRESS".to_string(), // ctx
         "ValueLayout.ADDRESS".to_string(), // user_data
     ];
-    for ep in spec.extra {
-        for layout in ep.c_layouts {
-            layouts.push((*layout).to_string());
+    for ep in &spec.extra {
+        for layout in &ep.c_layouts {
+            layouts.push(layout.clone());
         }
-    }
-    if spec.has_is_header {
-        layouts.push("ValueLayout.JAVA_INT".to_string());
     }
     layouts.push("ValueLayout.ADDRESS".to_string()); // out_custom
     layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
@@ -78,13 +72,10 @@ pub(super) fn callback_method_type(spec: &CallbackSpec) -> String {
         "MemorySegment.class".to_string(), // ctx
         "MemorySegment.class".to_string(), // user_data
     ];
-    for ep in spec.extra {
-        for layout in ep.c_layouts {
+    for ep in &spec.extra {
+        for layout in &ep.c_layouts {
             types.push(layout_to_java_class(layout).to_string());
         }
-    }
-    if spec.has_is_header {
-        types.push("int.class".to_string());
     }
     types.push("MemorySegment.class".to_string()); // out_custom
     types.push("MemorySegment.class".to_string()); // out_len
@@ -103,28 +94,25 @@ pub(super) fn layout_to_java_class(layout: &str) -> &'static str {
 }
 
 /// Generate one `handle_*` instance method inside `VisitorBridge`.
-pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
+pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec, context_type: &str) {
     let mut params = vec![
         "final MemorySegment ctx".to_string(),
         "final MemorySegment userData".to_string(),
     ];
-    for ep in spec.extra {
+    for ep in &spec.extra {
         for (c_idx, layout) in ep.c_layouts.iter().enumerate() {
-            let java_ptype = match *layout {
+            let java_ptype = match layout.as_str() {
                 "ValueLayout.JAVA_INT" => "int",
                 "ValueLayout.JAVA_LONG" => "long",
                 _ => "MemorySegment",
             };
-            params.push(format!("final {java_ptype} {}", raw_var_name(ep.java_name, c_idx)));
+            params.push(format!("final {java_ptype} {}", raw_var_name(&ep.java_name, c_idx)));
         }
-    }
-    if spec.has_is_header {
-        params.push("final int isHeader".to_string());
     }
     params.push("final MemorySegment outCustom".to_string());
     params.push("final MemorySegment outLen".to_string());
 
-    let method_name = handle_method_name(spec.java_method);
+    let method_name = handle_method_name(&spec.java_method);
     let single_line = format!("    int {}({}) {{", method_name, params.join(", "));
     let single_line_fits = single_line.len() <= 80;
 
@@ -135,7 +123,7 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
             let mut decode = ep.decode.to_string();
             for (c_idx, _) in ep.c_layouts.iter().enumerate() {
                 let placeholder = format!("raw_{}_{}", ep.java_name, c_idx);
-                let var = raw_var_name(ep.java_name, c_idx);
+                let var = raw_var_name(&ep.java_name, c_idx);
                 decode = decode.replace(&placeholder, &var);
             }
             format!("var {} = {};", ep.java_name, decode)
@@ -143,11 +131,8 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
         .collect();
 
     let mut call_args = vec!["context".to_string()];
-    for ep in spec.extra {
+    for ep in &spec.extra {
         call_args.push(ep.java_name.to_string());
-    }
-    if spec.has_is_header {
-        call_args.push("goIsHeader".to_string());
     }
 
     out.push_str(&crate::backends::java::template_env::render(
@@ -157,8 +142,8 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
             method_name => &method_name,
             params => &params,
             decode_lines => &decode_lines,
-            has_is_header => spec.has_is_header,
-            java_method => spec.java_method,
+            context_type => context_type,
+            java_method => &spec.java_method,
             call_args => &call_args,
         },
     ));
@@ -183,8 +168,22 @@ pub(super) fn raw_var_name(java_name: &str, c_idx: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::callbacks::CALLBACKS;
+    use super::super::callbacks::{CallbackSpec, ExtraParam};
     use super::*;
+
+    fn callback() -> CallbackSpec {
+        CallbackSpec {
+            c_field: "inspect".to_string(),
+            java_method: "inspect".to_string(),
+            doc: String::new(),
+            extra: vec![ExtraParam {
+                java_name: "label".to_string(),
+                java_type: "String".to_string(),
+                c_layouts: vec!["ValueLayout.ADDRESS".to_string()],
+                decode: "rawLabel0.reinterpret(Long.MAX_VALUE).getString(0)".to_string(),
+            }],
+        }
+    }
 
     #[test]
     fn stub_var_name_capitalises_first_letter() {
@@ -214,8 +213,8 @@ mod tests {
 
     #[test]
     fn callback_descriptor_includes_ctx_and_user_data() {
-        let spec = &CALLBACKS[0]; // visit_text
-        let descriptor = callback_descriptor(spec);
+        let spec = callback();
+        let descriptor = callback_descriptor(&spec);
         assert!(
             descriptor.contains("FunctionDescriptor.of("),
             "must be FunctionDescriptor.of"
@@ -227,8 +226,8 @@ mod tests {
 
     #[test]
     fn callback_method_type_includes_int_return() {
-        let spec = &CALLBACKS[0];
-        let method_type = callback_method_type(spec);
+        let spec = callback();
+        let method_type = callback_method_type(&spec);
         assert!(
             method_type.contains("MethodType.methodType("),
             "must be MethodType.methodType"
@@ -238,12 +237,12 @@ mod tests {
 
     #[test]
     fn iface_param_str_starts_with_node_context() {
-        let spec = &CALLBACKS[0]; // visit_text has text param
-        let params = iface_param_str(spec);
+        let spec = callback();
+        let params = iface_param_str(&spec, "VisitContext");
         assert!(
-            params.starts_with("final NodeContext context"),
-            "first param must be NodeContext"
+            params.starts_with("final VisitContext context"),
+            "first param must use configured context"
         );
-        assert!(params.contains("String text"), "must include text param");
+        assert!(params.contains("String label"), "must include string param");
     }
 }

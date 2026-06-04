@@ -1,4 +1,4 @@
-//! Generate Java visitor support: interface, NodeContext record, VisitResult sealed interface,
+//! Generate Java visitor support: interface, result sealed interface,
 //! VisitorBridge (upcall stubs), and IR-driven convert-with-visitor method fragments.
 //!
 //! # Panama FFM upcall strategy
@@ -6,10 +6,9 @@
 //! Java cannot expose method references as raw C function pointers. The generated
 //! code uses Java 21+ Foreign Function & Memory API (Panama) upcall stubs:
 //!
-//! - `NodeContext`: a `record` carrying fields from the generated C visitor context.
-//! - `VisitResult`: a `sealed interface` with `Continue`, `Skip`, `PreserveHtml`,
-//!   `Custom`, and `Error` implementations.
-//! - `Visitor`: an `interface` with default no-op methods for all 40 callbacks.
+//! - the configured context type is emitted as a normal IR-derived Java record.
+//! - the configured result type is emitted as a `sealed interface` from `EnumDef` metadata.
+//! - the configured trait is emitted as an `interface` with default no-op methods.
 //! - `VisitorBridge`: a package-private class that allocates one `MemorySegment`
 //!   upcall stub per callback inside a `Arena.ofConfined()` scope, then writes
 //!   all stubs into a flat `MemorySegment` matching the generated C callback table.
@@ -20,28 +19,31 @@ mod callbacks;
 mod files;
 mod helpers;
 
-pub use callbacks::{CALLBACKS, CallbackSpec, ExtraParam};
+pub use callbacks::{CallbackSpec, ExtraParam};
+
+use crate::core::config::ResolvedCrateConfig;
+use crate::core::ir::ApiSurface;
 
 // ---------------------------------------------------------------------------
 // Public API: generate visitor-related Java source files
 // ---------------------------------------------------------------------------
 
-/// Returns `(filename, content)` pairs for all visitor-related Java files.
+/// Returns `(filename, content)` pairs for visitor-related Java files when metadata is complete.
 ///
 /// Callers push these into the `files` vector in `generate_bindings`.
-pub fn gen_visitor_files(package: &str, class_name: &str) -> Vec<(String, String)> {
-    vec![
-        ("NodeContext.java".to_string(), files::gen_node_context(package)),
-        ("VisitResult.java".to_string(), files::gen_visit_result(package)),
-        (
-            "Visitor.java".to_string(),
-            files::gen_visitor_interface(package, class_name),
-        ),
-        (
-            "VisitorBridge.java".to_string(),
-            files::gen_visitor_bridge(package, class_name),
-        ),
-    ]
+pub fn gen_visitor_files(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    package: &str,
+    class_name: &str,
+) -> Option<Vec<(String, String)>> {
+    let visitor = files::resolve_visitor_generation(api, config, class_name)?;
+    Some(files::gen_visitor_files(package, &visitor))
+}
+
+/// Returns true when Java has enough metadata to emit visitor support safely.
+pub fn has_visitor_generation_metadata(api: &ApiSurface, config: &ResolvedCrateConfig) -> bool {
+    files::resolve_visitor_generation(api, config, "").is_some()
 }
 
 /// Generate NativeLib method handle declarations for visitor FFI functions.
@@ -131,25 +133,25 @@ mod tests {
 
     #[test]
     fn gen_visitor_files_returns_four_files() {
-        let files = gen_visitor_files("dev.sample_crate", "Demo");
-        assert_eq!(files.len(), 4, "must return 4 files");
+        let api = super::files::tests::visitor_api("DemoVisitor", "VisitContext", "FlowDecision");
+        let config = super::files::tests::visitor_config("DemoVisitor", "VisitContext", "FlowDecision");
+        let files = gen_visitor_files(&api, &config, "dev.sample_crate", "Demo").expect("metadata is complete");
+        assert_eq!(files.len(), 3, "must return 3 files");
         let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(names.contains(&"NodeContext.java"), "must include NodeContext.java");
-        assert!(names.contains(&"VisitResult.java"), "must include VisitResult.java");
-        assert!(names.contains(&"Visitor.java"), "must include Visitor.java");
-        assert!(names.contains(&"VisitorBridge.java"), "must include VisitorBridge.java");
         assert!(
             !names.contains(&"VisitContext.java"),
-            "must NOT include VisitContext.java"
+            "context is emitted by normal record generation"
         );
-        assert!(
-            !names.contains(&"TestVisitor.java"),
-            "must NOT include TestVisitor.java"
-        );
-        assert!(
-            !names.contains(&"TestVisitorAdapter.java"),
-            "must NOT include TestVisitorAdapter.java"
-        );
+        assert!(names.contains(&"FlowDecision.java"), "must include result enum");
+        assert!(names.contains(&"DemoVisitor.java"), "must include visitor interface");
+        assert!(names.contains(&"VisitorBridge.java"), "must include VisitorBridge.java");
+    }
+
+    #[test]
+    fn gen_visitor_files_skips_when_associated_metadata_is_absent() {
+        let api = super::files::tests::visitor_api("DemoVisitor", "VisitContext", "FlowDecision");
+        let config = super::files::tests::visitor_config_without_associated_types("DemoVisitor");
+        assert!(gen_visitor_files(&api, &config, "dev.sample_crate", "Demo").is_none());
     }
 
     #[test]

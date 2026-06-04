@@ -6,7 +6,7 @@
 //! structured reports here.
 
 use crate::core::config::Language;
-use crate::core::ir::{ApiSurface, FunctionDef, HandlerContractDef, MethodDef, ServiceDef, TypeRef};
+use crate::core::ir::{ApiSurface, FunctionDef, HandlerContractDef, MethodDef, ReceiverKind, ServiceDef, TypeRef};
 use crate::extract::validation::sanitized_public_api_diagnostics;
 use ahash::AHashSet;
 use std::fmt;
@@ -205,6 +205,7 @@ pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
 
 fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> {
     let known_names = known_type_names(api);
+    let opaque_names = opaque_type_names(api);
     let mut diagnostics = Vec::new();
 
     for function in &api.functions {
@@ -212,7 +213,7 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
             continue;
         }
         let item_path = format!("function {}", function.name);
-        collect_function_diagnostics(api, &known_names, &item_path, function, &mut diagnostics);
+        collect_function_diagnostics(api, &known_names, &opaque_names, &item_path, function, &mut diagnostics);
     }
 
     for typ in &api.types {
@@ -224,7 +225,7 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
                 continue;
             }
             let item_path = format!("method {}.{}", typ.name, method.name);
-            collect_method_diagnostics(api, &known_names, &item_path, method, &mut diagnostics);
+            collect_method_diagnostics(api, &known_names, &opaque_names, &item_path, method, &mut diagnostics);
         }
         for field in &typ.fields {
             if field.binding_excluded {
@@ -270,7 +271,7 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
                 continue;
             }
             let item_path = format!("error method {}.{}", error_def.name, method.name);
-            collect_method_diagnostics(api, &known_names, &item_path, method, &mut diagnostics);
+            collect_method_diagnostics(api, &known_names, &opaque_names, &item_path, method, &mut diagnostics);
         }
         for variant in &error_def.variants {
             for field in &variant.fields {
@@ -288,10 +289,10 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
         }
     }
     for service in &api.services {
-        collect_service_diagnostics(api, &known_names, service, &mut diagnostics);
+        collect_service_diagnostics(api, &known_names, &opaque_names, service, &mut diagnostics);
     }
     for contract in &api.handler_contracts {
-        collect_handler_contract_diagnostics(api, &known_names, contract, &mut diagnostics);
+        collect_handler_contract_diagnostics(api, &known_names, &opaque_names, contract, &mut diagnostics);
     }
 
     diagnostics
@@ -306,9 +307,18 @@ fn known_type_names(api: &ApiSurface) -> AHashSet<&str> {
         .collect()
 }
 
+fn opaque_type_names(api: &ApiSurface) -> AHashSet<&str> {
+    api.types
+        .iter()
+        .filter(|typ| typ.is_opaque)
+        .map(|typ| typ.name.as_str())
+        .collect()
+}
+
 fn collect_function_diagnostics(
     api: &ApiSurface,
     known_names: &AHashSet<&str>,
+    opaque_names: &AHashSet<&str>,
     item_path: &str,
     function: &FunctionDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -321,6 +331,14 @@ fn collect_function_diagnostics(
             "function signature was sanitized and may require backend stub generation",
             "exclude the item, configure an opaque/trait bridge, or expose a binding-safe DTO",
         ));
+    }
+    if fallback_body_would_require_opaque_return(
+        function.sanitized,
+        &function.params,
+        &function.return_type,
+        opaque_names,
+    ) {
+        diagnostics.push(opaque_stub_path_diagnostic(api, item_path, &function.return_type));
     }
     for param in &function.params {
         collect_type_ref_diagnostics(
@@ -337,6 +355,7 @@ fn collect_function_diagnostics(
 fn collect_method_diagnostics(
     api: &ApiSurface,
     known_names: &AHashSet<&str>,
+    opaque_names: &AHashSet<&str>,
     item_path: &str,
     method: &MethodDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
@@ -350,6 +369,18 @@ fn collect_method_diagnostics(
             "exclude the item, configure an opaque/trait bridge, or expose a binding-safe DTO",
         ));
     }
+    let non_delegatable_ref_mut =
+        matches!(method.receiver, Some(ReceiverKind::RefMut)) && method.trait_source.is_none();
+    if (non_delegatable_ref_mut && returns_opaque(&method.return_type, opaque_names))
+        || fallback_body_would_require_opaque_return(
+            method.sanitized,
+            &method.params,
+            &method.return_type,
+            opaque_names,
+        )
+    {
+        diagnostics.push(opaque_stub_path_diagnostic(api, item_path, &method.return_type));
+    }
     for param in &method.params {
         collect_type_ref_diagnostics(
             api,
@@ -362,15 +393,72 @@ fn collect_method_diagnostics(
     collect_type_ref_diagnostics(api, known_names, item_path, &method.return_type, diagnostics);
 }
 
+fn fallback_body_would_require_opaque_return(
+    sanitized: bool,
+    params: &[crate::core::ir::ParamDef],
+    return_type: &TypeRef,
+    opaque_names: &AHashSet<&str>,
+) -> bool {
+    returns_opaque(return_type, opaque_names)
+        && (sanitized
+            || params
+                .iter()
+                .any(|param| param.sanitized || is_named_ref_param(param, opaque_names)))
+}
+
+fn is_named_ref_param(param: &crate::core::ir::ParamDef, opaque_names: &AHashSet<&str>) -> bool {
+    if !param.is_ref {
+        return false;
+    }
+    match &param.ty {
+        TypeRef::Named(name) => !opaque_names.contains(name.as_str()),
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::String | TypeRef::Char),
+        _ => false,
+    }
+}
+
+fn returns_opaque(ty: &TypeRef, opaque_names: &AHashSet<&str>) -> bool {
+    match ty {
+        TypeRef::Named(name) => opaque_names.contains(name.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => returns_opaque(inner, opaque_names),
+        TypeRef::Map(key, value) => returns_opaque(key, opaque_names) || returns_opaque(value, opaque_names),
+        _ => false,
+    }
+}
+
+fn opaque_stub_path_diagnostic(api: &ApiSurface, item_path: &str, return_type: &TypeRef) -> ValidationDiagnostic {
+    ValidationDiagnostic::error(
+        ValidationCode::BackendStubPath,
+        api.crate_name.clone(),
+        Some(item_path.to_string()),
+        format!(
+            "non-delegatable signature returns opaque type `{}`",
+            type_ref_label(return_type)
+        ),
+        "exclude the item, add an adapter body, or change the API to return a binding-safe type",
+    )
+}
+
+fn type_ref_label(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_label(inner),
+        TypeRef::Map(_, value) => type_ref_label(value),
+        _ => format!("{ty:?}"),
+    }
+}
+
 fn collect_service_diagnostics(
     api: &ApiSurface,
     known_names: &AHashSet<&str>,
+    opaque_names: &AHashSet<&str>,
     service: &ServiceDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     collect_method_diagnostics(
         api,
         known_names,
+        opaque_names,
         &format!("service {} constructor", service.name),
         &service.constructor,
         diagnostics,
@@ -379,6 +467,7 @@ fn collect_service_diagnostics(
         collect_method_diagnostics(
             api,
             known_names,
+            opaque_names,
             &format!("service {} configurator {}", service.name, configurator.name),
             configurator,
             diagnostics,
@@ -439,12 +528,14 @@ fn collect_service_diagnostics(
 fn collect_handler_contract_diagnostics(
     api: &ApiSurface,
     known_names: &AHashSet<&str>,
+    opaque_names: &AHashSet<&str>,
     contract: &HandlerContractDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     collect_method_diagnostics(
         api,
         known_names,
+        opaque_names,
         &format!("handler contract {} dispatch", contract.trait_name),
         &contract.dispatch,
         diagnostics,
@@ -453,6 +544,7 @@ fn collect_handler_contract_diagnostics(
         collect_method_diagnostics(
             api,
             known_names,
+            opaque_names,
             &format!(
                 "handler contract {} optional method {}",
                 contract.trait_name, method.name
@@ -815,6 +907,69 @@ mod tests {
             diagnostic.severity == ValidationSeverity::Error
                 && diagnostic.code == ValidationCode::BackendStubPath
                 && diagnostic.item_path.as_deref() == Some("function render")
+        }));
+    }
+
+    #[test]
+    fn api_surface_validation_errors_for_non_delegatable_function_returning_opaque_type() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            types: vec![TypeDef {
+                name: "Session".to_string(),
+                rust_path: "sample_lib::Session".to_string(),
+                is_opaque: true,
+                ..TypeDef::default()
+            }],
+            functions: vec![function_def(
+                "lookup",
+                vec![ParamDef {
+                    name: "key".to_string(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    sanitized: true,
+                    ..ParamDef::default()
+                }],
+                TypeRef::Named("Session".to_string()),
+            )],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::BackendStubPath
+                && diagnostic.item_path.as_deref() == Some("function lookup")
+                && diagnostic.reason.contains("Session")
+        }));
+    }
+
+    #[test]
+    fn api_surface_validation_errors_for_mut_method_returning_opaque_type() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            types: vec![TypeDef {
+                name: "Session".to_string(),
+                rust_path: "sample_lib::Session".to_string(),
+                is_opaque: true,
+                methods: vec![MethodDef {
+                    receiver: Some(ReceiverKind::RefMut),
+                    ..method_def("refresh", vec![], TypeRef::Named("Session".to_string()))
+                }],
+                ..TypeDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::BackendStubPath
+                && diagnostic.item_path.as_deref() == Some("method Session.refresh")
+                && diagnostic.reason.contains("Session")
         }));
     }
 

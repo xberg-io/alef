@@ -74,6 +74,7 @@ fn build_fixture_group() -> FixtureGroup {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![
                 // List structure first in the fixture so insertion order
                 // differs from lexicographic order — a sort step is required

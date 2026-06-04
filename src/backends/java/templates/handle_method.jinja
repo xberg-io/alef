@@ -5,13 +5,10 @@
             {{ params | join(', \n            ') }}) {
 {% endif %}
         try {
-            var context = decodeNodeContext(ctx);
+            var context = decodeContext(ctx);
 {% for decode_line in decode_lines %}
             {{ decode_line }}
 {% endfor %}
-{% if has_is_header %}
-            var goIsHeader = isHeader != 0;
-{% endif %}
 
             var result = visitor.{{ java_method }}({{ call_args | join(', ') }});
             return encodeVisitResult(result, outCustom, outLen);

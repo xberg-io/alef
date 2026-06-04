@@ -971,6 +971,8 @@ impl Backend for PhpBackend {
                 let is_visitor_bridge = bridge_cfg.type_alias.is_some()
                     && bridge_cfg.register_fn.is_none()
                     && bridge_cfg.super_trait.is_none()
+                    && bridge_cfg.context_type.is_some()
+                    && bridge_cfg.result_type.is_some()
                     && trait_type.methods.iter().all(|m| m.has_default_impl);
 
                 let interface_content = if is_visitor_bridge {

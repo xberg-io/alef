@@ -91,6 +91,7 @@ fn build_function_call_fixture(id: &str) -> FixtureGroup {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -183,6 +184,7 @@ result_is_simple = true
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -272,6 +274,7 @@ result_is_simple = true
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -358,6 +361,7 @@ result_is_simple = true
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -486,6 +490,7 @@ function = "process"
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "count_min".to_string(),
                 field: Some("chunks".to_string()),

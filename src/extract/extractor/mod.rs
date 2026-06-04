@@ -724,7 +724,7 @@ fn extract_items(
                     })
                     .collect();
 
-                // Extract super-traits (e.g., Plugin from `trait OcrBackend: Plugin`)
+                // Extract super-traits (e.g., Plugin from `trait WorkerBackend: Plugin`)
                 let super_traits: Vec<String> = item_trait
                     .supertraits
                     .iter()
@@ -771,7 +771,7 @@ fn extract_items(
             syn::Item::Mod(item_mod) => {
                 // Follow pub modules unconditionally.
                 // Also follow non-pub modules whose items are re-exported via `pub use`
-                // at this level (e.g., `mod ocr; pub use ocr::{OcrBackend, ...}`).
+                // at this level (e.g., `mod worker; pub use worker::{WorkerBackend, ...}`).
                 // Without this, traits defined in private submodules wouldn't be extracted,
                 // causing unresolved trait_source on methods in downstream types.
                 let mod_name = item_mod.ident.to_string();

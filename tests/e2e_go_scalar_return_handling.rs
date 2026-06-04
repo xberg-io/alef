@@ -75,6 +75,7 @@ fn make_bool_fixture() -> FixtureGroup {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "is_true".to_string(),
                 field: None,
@@ -106,6 +107,7 @@ fn make_uint_fixture() -> FixtureGroup {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "greater_than_or_equal".to_string(),
                 field: None,

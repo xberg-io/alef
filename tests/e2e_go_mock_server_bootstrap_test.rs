@@ -61,6 +61,7 @@ fn make_mock_server_fixture() -> FixtureGroup {
             }),
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_error".to_string(),
                 field: None,
@@ -151,6 +152,7 @@ fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![],
             source: "test/http.json".to_string(),
             http: Some(HttpFixture {

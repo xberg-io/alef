@@ -105,6 +105,7 @@ fn fixture_for(category: &str, id: &str) -> Fixture {
         }),
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,
@@ -133,6 +134,7 @@ fn fixture_for_file(category: &str, id: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,

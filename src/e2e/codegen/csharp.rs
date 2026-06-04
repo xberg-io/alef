@@ -3988,6 +3988,7 @@ mod tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 
@@ -4145,6 +4146,7 @@ mod tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         };
 
         let methods = vec![&method];
@@ -4239,6 +4241,7 @@ mod tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         };
 
         let methods = vec![&method];

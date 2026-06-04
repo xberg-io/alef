@@ -380,6 +380,7 @@ pub fn gen_trait_bridge(
             &trait_path,
             core_import,
             &type_paths,
+            api,
         );
         BridgeOutput {
             imports: vec![],
@@ -428,6 +429,7 @@ pub fn gen_trait_bridge(
 ///
 /// Every trait method checks if the JS object has a matching camelCase property,
 /// then calls it via `js_sys::Reflect` and maps the return value to `VisitResult`.
+#[allow(clippy::too_many_arguments)]
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
@@ -436,14 +438,16 @@ fn gen_visitor_bridge(
     trait_path: &str,
     core_crate: &str,
     type_paths: &HashMap<String, String>,
+    api: &ApiSurface,
 ) {
+    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
     let methods: Vec<_> = trait_type
         .methods
         .iter()
         .filter(|m| m.trait_source.is_none())
         .map(|method| {
             let mut method_out = String::new();
-            gen_visitor_method_wasm(&mut method_out, method, bridge_cfg, type_paths);
+            gen_visitor_method_wasm(&mut method_out, method, bridge_cfg, type_paths, &result_metadata);
             minijinja::context! {
                 code => method_out,
             }
@@ -467,6 +471,7 @@ fn gen_visitor_method_wasm(
     method: &MethodDef,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) {
     let name = &method.name;
     let js_name = to_camel_case(name);
@@ -492,6 +497,16 @@ fn gen_visitor_method_wasm(
         name => name.clone(),
         sig => sig,
         ret_ty => ret_ty.clone(),
+        default_result_expr => crate::codegen::visitor_result::default_result_expr(&ret_ty, result_metadata),
+        unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+            &ret_ty,
+            result_metadata,
+            "s",
+        ),
+        unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+        payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+            &result_metadata.string_payload_variants,
+        ),
         js_name => js_name,
         params => params,
     };

@@ -3574,6 +3574,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
+            record("VisitContext", vec![field("path", TypeRef::String)]),
             record(
                 "WorkConfig",
                 vec![
@@ -3587,7 +3588,55 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
                 rust_path: "test_lib::Callback".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
-                methods: vec![],
+                methods: vec![MethodDef {
+                    name: "inspect".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "context".to_string(),
+                            ty: TypeRef::Named("VisitContext".to_string()),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
+                            vec_inner_is_ref: false,
+                        },
+                        ParamDef {
+                            name: "label".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: true,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
+                            vec_inner_is_ref: false,
+                        },
+                    ],
+                    return_type: TypeRef::Named("FlowDecision".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::RefMut),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: true,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
                 is_opaque: false,
                 is_clone: false,
                 is_copy: false,
@@ -3655,7 +3704,38 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
-        enums: vec![],
+        enums: vec![EnumDef {
+            name: "FlowDecision".to_string(),
+            rust_path: "test_lib::FlowDecision".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Proceed".to_string(),
+                    is_default: true,
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "DropNode".to_string(),
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "ReplaceWith".to_string(),
+                    fields: vec![field("value", TypeRef::String)],
+                    is_tuple: true,
+                    ..EnumVariant::default()
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -3684,6 +3764,8 @@ type_alias = "CallbackHandle"
 bind_via = "options_field"
 options_type = "WorkConfig"
 options_field = "hook"
+context_type = "VisitContext"
+result_type = "FlowDecision"
 "#,
     );
 
@@ -3710,12 +3792,29 @@ options_field = "hook"
     assert!(!main_content.contains("ConversionOptions"));
     assert!(!main_content.contains("ConversionResult"));
 
+    let visitor = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Callback.java"))
+        .expect("visitor interface must be emitted");
+    assert!(visitor.content.contains("public interface Callback"));
+    assert!(visitor.content.contains("FlowDecision inspect"));
+    assert!(visitor.content.contains("return new FlowDecision.Proceed();"));
+
+    let result = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("FlowDecision.java"))
+        .expect("visitor result enum must be emitted");
+    assert!(result.content.contains("public sealed interface FlowDecision"));
+    assert!(result.content.contains("record Proceed()"));
+    assert!(result.content.contains("record ReplaceWith(String value)"));
+
     let options = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("WorkConfig.java"))
         .expect("options record must be emitted");
-    assert!(options.content.contains("@JsonIgnore Visitor hook"));
-    assert!(options.content.contains("withHook(final Visitor value)"));
+    assert!(options.content.contains("@JsonIgnore Callback hook"));
+    assert!(options.content.contains("withHook(final Callback value)"));
+    assert!(!options.content.contains("Visitor hook"));
 }
 
 #[test]

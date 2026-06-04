@@ -1,11 +1,11 @@
 {{ header }}package {{ package }};
 
 /** Visitor interface for callbacks implemented by the host language. */
-public interface Visitor {
+public interface {{ trait_name }} {
 {% for callback in callbacks %}
     /** {{ callback.doc }} */
-    default VisitResult {{ callback.java_method }}({{ callback.params }}) {
-        return VisitResult.continueDefault();
+    default {{ result_type }} {{ callback.java_method }}({{ callback.params }}) {
+        return new {{ result_type }}.{{ default_variant }}();
     }
 {% endfor %}
 }

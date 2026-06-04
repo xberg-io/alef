@@ -2811,6 +2811,7 @@ mod trait_bridge_tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 

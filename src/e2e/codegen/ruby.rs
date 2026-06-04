@@ -2857,6 +2857,7 @@ mod trait_bridge_tests {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         }
     }
 
@@ -3173,6 +3174,7 @@ mod gemfile_tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: "test".to_owned(),
             http: Some(HttpFixture {

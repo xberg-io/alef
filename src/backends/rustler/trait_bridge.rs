@@ -259,6 +259,7 @@ pub fn gen_trait_bridge(
                 core_crate: core_import,
                 type_paths: &type_paths,
                 bridge_cfg,
+                api,
             },
         );
         BridgeOutput {
@@ -297,6 +298,7 @@ struct VisitorBridgeCtx<'a> {
     core_crate: &'a str,
     type_paths: &'a std::collections::HashMap<String, String>,
     bridge_cfg: &'a crate::core::config::TraitBridgeConfig,
+    api: &'a ApiSurface,
 }
 
 /// Generate a visitor-style bridge wrapping a `rustler::OwnedEnv` + `rustler::Term`.
@@ -315,7 +317,9 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         core_crate,
         type_paths,
         bridge_cfg,
+        api,
     } = ctx;
+    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
     // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
     let ctx_helper = minijinja::context! {
         core_crate => core_crate
@@ -388,7 +392,7 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_async(out, method, type_paths, struct_name, bridge_cfg);
+        gen_visitor_method_async(out, method, type_paths, struct_name, bridge_cfg, &result_metadata);
     }
     out.push_str("}\n");
     out.push('\n');
@@ -405,6 +409,7 @@ fn gen_visitor_method_async(
     type_paths: &std::collections::HashMap<String, String>,
     _struct_name: &str,
     bridge_cfg: &crate::core::config::TraitBridgeConfig,
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) {
     let name = &method.name;
 
@@ -451,6 +456,16 @@ fn gen_visitor_method_async(
         method_name => name,
         sig => sig,
         ret_ty => ret_ty,
+        default_result_expr => crate::codegen::visitor_result::default_result_expr(&ret_ty, result_metadata),
+        unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+            &ret_ty,
+            result_metadata,
+            "s",
+        ),
+        unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+        payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+            &result_metadata.string_payload_variants,
+        ),
         handle_name => handle_name,
         args => args
     };

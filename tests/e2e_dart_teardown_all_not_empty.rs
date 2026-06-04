@@ -23,6 +23,7 @@ fn make_fixture(id: &str, description: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![],
         source: "smoke.json".to_string(),
         http: None, // Explicitly no HTTP fixtures

@@ -162,6 +162,7 @@ fn make_fixture(id: &str, assertion_type: &str, field: &str, value: serde_json::
         }),
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: assertion_type.to_string(),
             field: Some(field.to_string()),

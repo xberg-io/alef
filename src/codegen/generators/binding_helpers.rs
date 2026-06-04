@@ -36,7 +36,7 @@ fn expr_is_already_arc(expr: &str) -> bool {
 ///
 /// - `TypeRef::Named(n)` where `n == type_name` → re-wrap in `Self { inner: Arc::new(...) }`
 /// - `TypeRef::Named(n)` where `n` is another opaque type → wrap in `{n} { inner: Arc::new(...) }`
-/// - `TypeRef::Named(n)` where `n` is a non-opaque type → `todo!()` placeholder (From may not exist)
+/// - `TypeRef::Named(n)` where `n` is a non-opaque type → `.into()` conversion
 /// - Everything else (primitives, String, Vec, etc.) → pass through unchanged
 /// - `TypeRef::Unit` → pass through unchanged
 ///
@@ -1646,7 +1646,10 @@ pub fn gen_async_body(
                 },
             )
         }
-        AsyncPattern::None => "todo!(\"async not supported by backend\")".to_string(),
+        AsyncPattern::None => {
+            "compile_error!(\"async delegation is not supported by this backend; exclude the item or configure an adapter\")"
+                .to_string()
+        }
     };
     if inner_clone_line.is_empty() {
         pattern_body
@@ -1656,11 +1659,13 @@ pub fn gen_async_body(
 }
 
 /// Generate a compilable body for functions that can't be auto-delegated.
-/// Returns a default value or error instead of `todo!()` which would panic.
+/// Returns a default value or error instead of a runtime panic placeholder.
 ///
 /// `opaque_types` is the set of opaque type names (Arc-wrapped). Opaque types do not
 /// implement `Default`, so returning `Default::default()` for their Named return types
-/// would fail to compile. For those cases a `todo!()` body is emitted instead.
+/// would fail to compile. Central validation rejects non-delegatable opaque return
+/// paths before generation; this fallback emits a compile-time diagnostic if it is
+/// still reached.
 pub fn gen_unimplemented_body(
     return_type: &TypeRef,
     fn_name: &str,
@@ -1717,11 +1722,11 @@ pub fn gen_unimplemented_body(
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0".to_string(),
             TypeRef::Named(name) => {
-                // Opaque types (Arc-wrapped) do not implement Default — use todo!() to
-                // produce a compilable placeholder that panics at runtime if called.
-                // Non-opaque Named types (config structs) do derive Default, so use that.
                 if opaque_types.contains(name.as_str()) {
-                    format!("todo!(\"{err_msg}\")")
+                    format!(
+                        "compile_error!(\"non-delegatable function `{fn_name}` returns opaque type `{name}`; \
+                         run `alef build` validation and configure an adapter body or exclude this item\")"
+                    )
                 } else {
                     "Default::default()".to_string()
                 }

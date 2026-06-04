@@ -20,32 +20,42 @@ final class VisitorBridge implements AutoCloseable {
     private static final MethodHandles.Lookup LOOKUP =
         MethodHandles.lookup();
 
-    // VisitResult discriminant codes returned to C
-    private static final int VISIT_RESULT_CONTINUE = 0;
-    private static final int VISIT_RESULT_SKIP = 1;
-    private static final int VISIT_RESULT_PRESERVE_HTML = 2;
-    private static final int VISIT_RESULT_CUSTOM = 3;
-    private static final int VISIT_RESULT_ERROR = 4;
+    // {{ result_type }} discriminant codes returned to C
+{% for constant in result_constants %}
+    private static final int VISIT_RESULT_{{ constant.code_name }} = {{ constant.code }};
+{% endfor %}
 
     // Callback table: user_data + {{ num_callbacks }} callbacks
     // = {{ num_fields }} pointer-sized slots
     private static final long CALLBACKS_STRUCT_SIZE =
         (long) ValueLayout.ADDRESS.byteSize() * {{ num_fields }}L;
 
-    // Visitor context field offsets
+    // Visitor context field offsets for the FFI callback ABI.
     private static final long CTX_OFFSET_TAG_NAME = 8L;
     private static final long CTX_OFFSET_DEPTH = 16L;
     private static final long CTX_OFFSET_INDEX_IN_PARENT = 24L;
     private static final long CTX_OFFSET_PARENT_TAG = 32L;
     private static final long CTX_OFFSET_IS_INLINE = 40L;
 
+    private static final MemoryLayout CTX_LAYOUT =
+        MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("node_type"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("tag_name"),
+            ValueLayout.JAVA_LONG.withName("depth"),
+            ValueLayout.JAVA_LONG.withName("index_in_parent"),
+            ValueLayout.ADDRESS.withName("parent_tag"),
+            ValueLayout.JAVA_INT.withName("is_inline"),
+            MemoryLayout.paddingLayout(4)
+    );
+
     private final Arena arena;
     private final MemorySegment struct;
-    private final Visitor visitor;
+    private final {{ trait_name }} visitor;
     /** Sticky exception captured during a visitor upcall; surfaced after conversion. */
     private volatile Throwable visitorError;
 
-    VisitorBridge(Visitor visitor) {
+    VisitorBridge({{ trait_name }} visitor) {
         this.visitor = visitor;
         this.arena = Arena.ofConfined();
         this.struct = arena.allocate(CALLBACKS_STRUCT_SIZE);
@@ -84,68 +94,45 @@ final class VisitorBridge implements AutoCloseable {
 {{ handle_method }}
 {% endfor %}
 
-    // Visitor context: int32 node_type, char* tag_name, uintptr depth,
-    //   uintptr index_in_parent, char* parent_tag,
-    //   int32 is_inline
-    private static final MemoryLayout CTX_LAYOUT =
-        MemoryLayout.structLayout(
-            ValueLayout.JAVA_INT.withName("node_type"),
-            MemoryLayout.paddingLayout(4),
-            ValueLayout.ADDRESS.withName("tag_name"),
-            ValueLayout.JAVA_LONG.withName("depth"),
-            ValueLayout.JAVA_LONG.withName("index_in_parent"),
-            ValueLayout.ADDRESS.withName("parent_tag"),
-            ValueLayout.JAVA_INT.withName("is_inline"),
-            MemoryLayout.paddingLayout(4)
-    );
-
-    private static NodeContext decodeNodeContext(
+    private static {{ context_type }} decodeContext(
             final MemorySegment ctxPtr) {
-        var ctx = ctxPtr.reinterpret(
-            CTX_LAYOUT.byteSize());
-        int nodeType = ctx.get(
-            ValueLayout.JAVA_INT, 0L);
-        var tagNamePtr = ctx.get(
-            ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);
-        String tagName = tagNamePtr
-            .reinterpret(Long.MAX_VALUE).getString(0);
+        var ctx = ctxPtr.reinterpret(CTX_LAYOUT.byteSize());
+        int nodeType = ctx.get(ValueLayout.JAVA_INT, 0L);
+        var tagNamePtr = ctx.get(ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);
+        String tagName = tagNamePtr.reinterpret(Long.MAX_VALUE).getString(0);
         long depth = ctx.get(ValueLayout.JAVA_LONG, CTX_OFFSET_DEPTH);
         long indexInParent = ctx.get(ValueLayout.JAVA_LONG, CTX_OFFSET_INDEX_IN_PARENT);
         var parentTagPtr = ctx.get(ValueLayout.ADDRESS, CTX_OFFSET_PARENT_TAG);
         String parentTag = parentTagPtr.equals(MemorySegment.NULL) ? null
                 : parentTagPtr.reinterpret(Long.MAX_VALUE).getString(0);
         int isInlineRaw = ctx.get(ValueLayout.JAVA_INT, CTX_OFFSET_IS_INLINE);
-        return new NodeContext(nodeType, tagName, depth, indexInParent, parentTag, isInlineRaw != 0);
+        return new {{ context_type }}(nodeType, tagName, depth, indexInParent, parentTag, isInlineRaw != 0);
     }
 
-    private static List<String> decodeCells(MemorySegment cellsPtr, long count) {
+    private static List<String> decodeStringList(MemorySegment valuesPtr, long count) {
         var result = new ArrayList<String>((int) count);
         for (long i = 0; i < count; i++) {
-            var ptr = cellsPtr.get(ValueLayout.ADDRESS, i * ValueLayout.ADDRESS.byteSize());
+            var ptr = valuesPtr.get(ValueLayout.ADDRESS, i * ValueLayout.ADDRESS.byteSize());
             result.add(ptr.reinterpret(Long.MAX_VALUE).getString(0));
         }
         return result;
     }
 
-    private int encodeVisitResult(VisitResult result, MemorySegment outCustom, MemorySegment outLen) {
+    private int encodeVisitResult({{ result_type }} result, MemorySegment outCustom, MemorySegment outLen) {
         return switch (result) {
-            case VisitResult.Continue ignored -> VISIT_RESULT_CONTINUE;
-            case VisitResult.Skip ignored -> VISIT_RESULT_SKIP;
-            case VisitResult.PreserveHtml ignored -> VISIT_RESULT_PRESERVE_HTML;
-            case VisitResult.Custom c -> {
-                var buf = Arena.global().allocateFrom(c.markdown());
+{% for case in result_cases %}
+{% if case.payload_field %}
+            case {{ case.result_type }}.{{ case.variant_name }} c -> {
+                var buf = Arena.global().allocateFrom(c.{{ case.payload_field }}());
                 outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);
-                long customLen = (long) c.markdown().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                long customLen = (long) c.{{ case.payload_field }}().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
                 outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, customLen);
-                yield VISIT_RESULT_CUSTOM;
+                yield VISIT_RESULT_{{ case.code_name }};
             }
-            case VisitResult.Error e -> {
-                var buf = Arena.global().allocateFrom(e.message());
-                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);
-                long errorLen = (long) e.message().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-                outLen.reinterpret(ValueLayout.JAVA_LONG.byteSize()).set(ValueLayout.JAVA_LONG, 0L, errorLen);
-                yield VISIT_RESULT_ERROR;
-            }
+{% else %}
+            case {{ case.result_type }}.{{ case.variant_name }} ignored -> VISIT_RESULT_{{ case.code_name }};
+{% endif %}
+{% endfor %}
         };
     }
 

@@ -97,6 +97,7 @@ pub fn gen_trait_bridge(
             &trait_path,
             core_import,
             &type_paths,
+            api,
         );
         out
     } else {
@@ -144,6 +145,7 @@ pub fn gen_trait_bridge(
 ///
 /// Every trait method checks if the Ruby object responds to a snake_case method,
 /// then calls it via `funcall` and maps the return value to `VisitResult`.
+#[allow(clippy::too_many_arguments)]
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
@@ -152,12 +154,14 @@ fn gen_visitor_bridge(
     trait_path: &str,
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    api: &ApiSurface,
 ) {
+    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
     let methods: Vec<String> = trait_type
         .methods
         .iter()
         .filter(|m| m.trait_source.is_none())
-        .map(|m| gen_visitor_method_magnus(m, bridge_cfg, type_paths))
+        .map(|m| gen_visitor_method_magnus(m, bridge_cfg, type_paths, &result_metadata))
         .collect();
 
     let rendered = crate::backends::magnus::template_env::render(
@@ -189,6 +193,7 @@ fn gen_visitor_method_magnus(
     method: &MethodDef,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &std::collections::HashMap<String, String>,
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) -> String {
     let name = &method.name;
 
@@ -225,6 +230,16 @@ fn gen_visitor_method_magnus(
             name => name,
             signature => signature,
             return_type => return_type,
+            default_result_expr => crate::codegen::visitor_result::default_result_expr(&return_type, result_metadata),
+            unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+                &return_type,
+                result_metadata,
+                "s",
+            ),
+            unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+                &result_metadata.string_payload_variants,
+            ),
             has_args => has_args,
             args_tuple => args_tuple,
         },

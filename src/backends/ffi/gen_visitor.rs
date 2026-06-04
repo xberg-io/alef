@@ -47,22 +47,6 @@ impl<'a> VisitorProtocol<'a> {
     }
 }
 
-/// The integer codes that map to `VisitResult` variants crossing the FFI boundary.
-///
-/// | Value | Meaning               |
-/// |-------|-----------------------|
-/// |   0   | `VisitResult::Continue`     |
-/// |   1   | `VisitResult::Skip`         |
-/// |   2   | `VisitResult::PreserveHtml` |
-/// |   3   | `VisitResult::Custom(…)`    |
-/// |   4   | `VisitResult::Error(…)`     |
-#[allow(dead_code)]
-pub const VISIT_RESULT_CONTINUE: i32 = 0;
-pub const VISIT_RESULT_SKIP: i32 = 1;
-pub const VISIT_RESULT_PRESERVE_HTML: i32 = 2;
-pub const VISIT_RESULT_CUSTOM: i32 = 3;
-pub const VISIT_RESULT_ERROR: i32 = 4;
-
 // ---------------------------------------------------------------------------
 // Data-driven callback specifications
 // ---------------------------------------------------------------------------
@@ -272,15 +256,20 @@ fn rust_param_list(spec: &CallbackSpec, core_import: &str, protocol: &VisitorPro
 ///
 /// Produces local CString bindings, the `call_with_ctx` invocation, and the
 /// callback argument forwarding.
-fn gen_impl_body(spec: &CallbackSpec, core_import: &str, protocol: &VisitorProtocol<'_>) -> String {
+fn gen_impl_body(
+    spec: &CallbackSpec,
+    _core_import: &str,
+    protocol: &VisitorProtocol<'_>,
+    default_result: &str,
+) -> String {
     let mut bindings = String::new();
     let mut cb_args = Vec::new();
-    let result_path = protocol.result_path(core_import);
+    let _ = protocol;
 
     for p in &spec.params {
         match p {
             ParamKind::Str(n) => {
-                bindings.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {result_path}::Continue,\n        }};\n") }));
+                bindings.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {default_result},\n        }};\n") }));
                 cb_args.push(format!("{n}_cs.as_ptr()"));
             }
             ParamKind::OptStr(n) => {
@@ -315,7 +304,7 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str, protocol: &VisitorProto
     };
 
     format!(
-        "        let Some(cb) = self.callbacks.{name} else {{\n            return {result_path}::Continue;\n        }};\n        let user_data = self.callbacks.user_data;\n{bindings}        // SAFETY: cb is a valid function pointer; all temporaries live for this call.\n        unsafe {{\n            call_with_ctx(ctx, |c_ctx, out_custom, out_len| {{\n                cb(c_ctx, user_data, {args_str})\n            }})\n        }}",
+        "        let Some(cb) = self.callbacks.{name} else {{\n            return {default_result};\n        }};\n        let user_data = self.callbacks.user_data;\n{bindings}        // SAFETY: cb is a valid function pointer; all temporaries live for this call.\n        unsafe {{\n            call_with_ctx(ctx, |c_ctx, out_custom, out_len| {{\n                cb(c_ctx, user_data, {args_str})\n            }})\n        }}",
         name = spec.name,
     )
 }
@@ -326,11 +315,12 @@ fn gen_impl_methods(
     pascal_prefix: &str,
     core_import: &str,
     protocol: &VisitorProtocol<'_>,
+    default_result: &str,
 ) -> String {
     let mut out = String::new();
     let result_path = protocol.result_path(core_import);
     for spec in specs {
-        out.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {result_path} {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, core_import, protocol), body = gen_impl_body(spec, core_import, protocol)) }));
+        out.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {result_path} {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, core_import, protocol), body = gen_impl_body(spec, core_import, protocol, default_result)) }));
     }
     // Close the impl block — caller opens it.
     let _ = pascal_prefix; // used by caller
@@ -373,6 +363,39 @@ fn gen_visitor_ref_methods(specs: &[CallbackSpec], core_import: &str, protocol: 
     out
 }
 
+fn gen_result_decode_arms(
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
+    default_result: &str,
+) -> String {
+    let mut seen_codes = std::collections::HashSet::new();
+    let mut arms = String::new();
+    for variant in &result_metadata.unit_variants {
+        if seen_codes.insert(variant.code) {
+            arms.push_str(&format!("        {} => VisitResult::{},\n", variant.code, variant.name));
+        }
+    }
+    for variant in &result_metadata.string_payload_variants {
+        if seen_codes.insert(variant.code) {
+            arms.push_str(&format!(
+                r#"        {} => {{
+            let msg = if custom_ptr.is_null() {{
+                String::new()
+            }} else {{
+                // SAFETY: caller guarantees this is a valid heap CString.
+                let cstr = unsafe {{ std::ffi::CString::from_raw(custom_ptr) }};
+                cstr.to_string_lossy().into_owned()
+            }};
+            VisitResult::{}(msg)
+        }},
+"#,
+                variant.code, variant.name
+            ));
+        }
+    }
+    arms.push_str(&format!("        _ => {default_result},\n"));
+    arms
+}
+
 /// Generate the visitor FFI bindings block for `lib.rs`.
 ///
 /// # Parameters
@@ -384,6 +407,7 @@ fn gen_visitor_ref_methods(specs: &[CallbackSpec], core_import: &str, protocol: 
 ///   options)`.  Set `true` for the OptionsField bridge pattern; `false` for the legacy
 ///   FunctionParam pattern where `convert` takes a third visitor argument directly.
 /// - `trait_def`: the IR `TypeDef` for the visitor trait, used to derive callback specs.
+#[cfg(test)]
 pub fn gen_visitor_bindings(
     prefix: &str,
     core_import: &str,
@@ -392,9 +416,40 @@ pub fn gen_visitor_bindings(
     bridge_cfg: Option<&TraitBridgeConfig>,
     function: Option<&FunctionDef>,
 ) -> String {
+    gen_visitor_bindings_with_api(
+        prefix,
+        core_import,
+        embed_visitor_in_options,
+        trait_def,
+        bridge_cfg,
+        function,
+        None,
+    )
+}
+
+pub fn gen_visitor_bindings_with_api(
+    prefix: &str,
+    core_import: &str,
+    embed_visitor_in_options: bool,
+    trait_def: &crate::core::ir::TypeDef,
+    bridge_cfg: Option<&TraitBridgeConfig>,
+    function: Option<&FunctionDef>,
+    api: Option<&crate::core::ir::ApiSurface>,
+) -> String {
     let pascal_prefix = prefix.to_pascal_case();
     let visit_prefix = prefix.to_uppercase();
     let protocol = VisitorProtocol::from_bridge(bridge_cfg);
+    let result_metadata = bridge_cfg
+        .map(|cfg| crate::codegen::visitor_result::visitor_result_metadata_or_legacy(api, cfg))
+        .unwrap_or_else(|| {
+            crate::codegen::visitor_result::visitor_result_metadata_or_legacy(None, &TraitBridgeConfig::default())
+        });
+    let default_result = format!(
+        "{}::{}",
+        protocol.result_path(core_import),
+        result_metadata.default_variant.name
+    );
+    let result_decode_arms = gen_result_decode_arms(&result_metadata, &default_result);
     let specs = callback_specs_from_trait(trait_def, bridge_cfg);
     if specs.is_empty() {
         eprintln!(
@@ -422,7 +477,7 @@ pub fn gen_visitor_bindings(
     let options_path = format!("{core_import}::{options_type}");
 
     let struct_fields = gen_struct_fields(&specs, &pascal_prefix);
-    let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import, &protocol);
+    let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import, &protocol, &default_result);
     let visitor_ref_methods = gen_visitor_ref_methods(&specs, core_import, &protocol);
 
     let visitor_function = function.and_then(|func| {
@@ -554,23 +609,7 @@ unsafe fn decode_visit_result(
 ) -> {result_path} {{
     use {result_path} as VisitResult;
     match code {{
-        {VISIT_RESULT_SKIP} => VisitResult::Skip,
-        {VISIT_RESULT_PRESERVE_HTML} => VisitResult::PreserveHtml,
-        {VISIT_RESULT_CUSTOM} | {VISIT_RESULT_ERROR} => {{
-            let msg = if custom_ptr.is_null() {{
-                String::new()
-            }} else {{
-                // SAFETY: caller guarantees this is a valid heap CString.
-                let cstr = unsafe {{ std::ffi::CString::from_raw(custom_ptr) }};
-                cstr.to_string_lossy().into_owned()
-            }};
-            if code == {VISIT_RESULT_CUSTOM} {{
-                VisitResult::Custom(msg)
-            }} else {{
-                VisitResult::Error(msg)
-            }}
-        }}
-        _ => VisitResult::Continue,
+{result_decode_arms}
     }}
 }}
 
@@ -719,10 +758,6 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
     let options_ref = unsafe {{ &mut *options }};
     options_ref.{options_field} = Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))));
 }}"#,
-        VISIT_RESULT_SKIP = VISIT_RESULT_SKIP,
-        VISIT_RESULT_PRESERVE_HTML = VISIT_RESULT_PRESERVE_HTML,
-        VISIT_RESULT_CUSTOM = VISIT_RESULT_CUSTOM,
-        VISIT_RESULT_ERROR = VISIT_RESULT_ERROR,
         prefix = prefix,
         visit_prefix = visit_prefix,
         pascal_prefix = pascal_prefix,
@@ -731,6 +766,7 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         context_type = protocol.context_type,
         context_path = context_path,
         result_path = result_path,
+        result_decode_arms = result_decode_arms,
         trait_path = trait_path,
         options_path = options_path,
         options_field = options_field,
@@ -1104,7 +1140,7 @@ fn rust_call_arg(param: &ParamDef) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::{MethodDef, ReceiverKind, TypeDef};
+    use crate::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ReceiverKind, TypeDef};
 
     fn param(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
         ParamDef {
@@ -1254,5 +1290,78 @@ mod tests {
         assert!(code.contains("return my_lib::visitor::RenderDecision::Continue"));
         assert!(!code.contains("ctx: &my_lib::visitor::NodeContext"));
         assert!(!code.contains(") -> my_lib::visitor::VisitResult"));
+    }
+
+    #[test]
+    fn visitor_bindings_use_derived_default_result_variant() {
+        let trait_def = visitor_trait(
+            "RenderVisitor",
+            vec![method(
+                "visit_text",
+                vec![param("context", TypeRef::Named("RenderContext".to_string()), true)],
+                TypeRef::Named("RenderDecision".to_string()),
+            )],
+        );
+        let bridge_cfg = bridge_config(
+            "RenderVisitor",
+            "RenderOptions",
+            Some("RenderContext"),
+            Some("RenderDecision"),
+        );
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![EnumDef {
+                name: "RenderDecision".to_string(),
+                rust_path: "my_lib::visitor::RenderDecision".to_string(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Proceed".to_string(),
+                        is_default: true,
+                        ..EnumVariant::default()
+                    },
+                    EnumVariant {
+                        name: "ReplaceWith".to_string(),
+                        fields: vec![FieldDef {
+                            name: "value".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            doc: String::new(),
+                            sanitized: false,
+                            is_boxed: false,
+                            type_rust_path: None,
+                            cfg: None,
+                            typed_default: None,
+                            core_wrapper: crate::core::ir::CoreWrapper::None,
+                            vec_inner_core_wrapper: crate::core::ir::CoreWrapper::None,
+                            newtype_wrapper: None,
+                            serde_rename: None,
+                            serde_flatten: false,
+                            binding_excluded: false,
+                            binding_exclusion_reason: None,
+                            original_type: None,
+                        }],
+                        is_tuple: true,
+                        ..EnumVariant::default()
+                    },
+                ],
+                ..EnumDef::default()
+            }],
+            errors: vec![],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: Default::default(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+
+        let code =
+            gen_visitor_bindings_with_api("doc", "my_lib", false, &trait_def, Some(&bridge_cfg), None, Some(&api));
+
+        assert!(code.contains("return my_lib::visitor::RenderDecision::Proceed"));
+        assert!(code.contains("_ => my_lib::visitor::RenderDecision::Proceed"));
+        assert!(!code.contains("RenderDecision::Continue"));
     }
 }

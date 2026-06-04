@@ -4,7 +4,8 @@
 //! Trait bridge extern blocks live in `trait_bridge.rs`.
 
 use crate::backends::swift::gen_rust_crate::type_bridge::{
-    bridge_type, bridge_type_enum_aware, bridge_type_enum_aware_ref, bridge_type_with_handles, is_vec_of_enum, needs_json_bridge,
+    bridge_type, bridge_type_enum_aware, bridge_type_enum_aware_ref, bridge_type_with_handles, is_vec_of_enum,
+    needs_json_bridge,
 };
 use crate::backends::swift::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use crate::core::config::AdapterConfig;

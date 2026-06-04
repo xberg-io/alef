@@ -1934,8 +1934,8 @@ fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef::core
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        context_type: None,
-        result_type: None,
+        context_type: Some("NodeContext".to_string()),
+        result_type: Some("VisitResult".to_string()),
     }
 }
 

@@ -465,14 +465,14 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         let args_json = serde_json::Value::Object(args_map).to_string();
         let result = visitor_send_and_wait(self, "{{ handle_name }}", args_json);
         match result {
-            None => {{ ret_ty }}::Continue,
+            None => {{ default_result_expr }},
             Some(s) => {
                 let lower = s.to_lowercase();
                 match lower.as_str() {
-                    "continue" => {{ ret_ty }}::Continue,
-                    "skip" => {{ ret_ty }}::Skip,
-                    "preserve_html" | "preservehtml" => {{ ret_ty }}::PreserveHtml,
-                    _ => {{ ret_ty }}::Custom(s),
+{%- for variant in unit_result_variants %}
+                    "{{ variant.wire_name }}" => {{ ret_ty }}::{{ variant.name }},
+{%- endfor %}
+                    _ => {{ unknown_string_result_expr }},
                 }
             }
         }
@@ -602,7 +602,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
       {:visitor_callback, ref_id, callback_name, args_json} ->
         result =
           case Map.get(visitor, callback_name) do
-            nil -> "continue"
+            nil -> "{{ default_result_wire_name }}"
             fun -> apply_visitor_callback(fun, args_json)
           end
 
@@ -626,12 +626,15 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
     result = fun.(args)
 
     case result do
-      :continue -> "continue"
-      :skip -> "skip"
-      :preserve_html -> "preserve_html"
+{%- for variant in unit_result_variants %}
+      "{{ variant.wire_name }}" -> "{{ variant.wire_name }}"
+{%- if variant.atom_name %}
+      :{{ variant.atom_name }} -> "{{ variant.wire_name }}"
+{%- endif %}
+{%- endfor %}
       {:custom, value} -> to_string(value)
       binary when is_binary(binary) -> binary
-      _ -> "continue"
+      _ -> "{{ default_result_wire_name }}"
     end
   end
 

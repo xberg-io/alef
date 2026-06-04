@@ -926,20 +926,34 @@ pub(crate) fn emit_type_method_shims(
                     return format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
                 }
                 if p.optional {
-                    if let TypeRef::Named(_) = &p.ty {
-                        return format!("{name}.map(|v| v.0)");
+                    if let TypeRef::Named(n) = &p.ty {
+                        // Skip .0 access for enums (they're already JSON-deserialized above).
+                        // For struct wrappers, unwrap to inner type via .0.
+                        if !enum_names.contains(n.as_str()) {
+                            return format!("{name}.map(|v| v.0)");
+                        }
                     }
                 }
                 match &p.ty {
-                    TypeRef::Named(_) if p.is_ref => format!("&{name}.0"),
-                    TypeRef::Named(_) => format!("{name}.0"),
+                    TypeRef::Named(n) if p.is_ref && !enum_names.contains(n.as_str()) => format!("&{name}.0"),
+                    TypeRef::Named(n) if p.is_ref && enum_names.contains(n.as_str()) => format!("&{name}"),
+                    TypeRef::Named(n) if !enum_names.contains(n.as_str()) => format!("{name}.0"),
+                    TypeRef::Named(n) if enum_names.contains(n.as_str()) => name,
                     TypeRef::String => format!("&{name}"),
                     TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
                     TypeRef::Bytes if p.is_ref => format!("&{name}"),
-                    TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String) => {
+                    TypeRef::Vec(_)
+                        if p.is_ref
+                            && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)) =>
+                    {
                         // Core takes `&[&str]`; swift-bridge delivers `Vec<String>`.
                         // Borrow the temporary Vec<&str> into &[&str].
                         format!("&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+                    }
+                    TypeRef::Vec(_) if p.is_ref => {
+                        // Core takes `&[T]`; swift-bridge delivers `Vec<T>`.
+                        // Coerce `&Vec<T>` to `&[T]`.
+                        format!("&{name}")
                     }
                     _ => name,
                 }
@@ -997,6 +1011,14 @@ pub(crate) fn emit_type_method_shims(
                 } else {
                     match &method.return_type {
                         TypeRef::Named(t) => format!(".map({t})"),
+                        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                            // Vec<Named> → Vec<Wrapper> via .map(|v| Wrapper(v))
+                            if let TypeRef::Named(t) = inner.as_ref() {
+                                format!(".map(|vec| vec.into_iter().map({t}).collect())")
+                            } else {
+                                String::new()
+                            }
+                        }
                         TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
                         // `bytes::Bytes` is bridged as `Vec<u8>` in the swift-bridge surface.
                         // The trait method returns `Bytes`; convert via `.to_vec()`.
@@ -1017,6 +1039,14 @@ pub(crate) fn emit_type_method_shims(
             } else {
                 match &method.return_type {
                     TypeRef::Named(t) => format!(".map({t})"),
+                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                        // Vec<Named> → Vec<Wrapper> via .map(|v| Wrapper(v))
+                        if let TypeRef::Named(t) = inner.as_ref() {
+                            format!(".map(|vec| vec.into_iter().map({t}).collect())")
+                        } else {
+                            String::new()
+                        }
+                    }
                     TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
                     TypeRef::Bytes => ".map(|b| b.to_vec())".to_string(),
                     _ => String::new(),

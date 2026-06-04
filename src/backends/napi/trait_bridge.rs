@@ -340,6 +340,7 @@ pub fn gen_trait_bridge(
             &trait_path,
             core_import,
             &type_paths,
+            api,
         );
         BridgeOutput { imports: vec![], code }
     } else {
@@ -373,7 +374,9 @@ fn gen_visitor_bridge(
     trait_path: &str,
     core_crate: &str,
     type_paths: &HashMap<String, String>,
+    api: &ApiSurface,
 ) -> String {
+    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
     let mut method_impls = String::with_capacity(4096);
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
@@ -386,6 +389,7 @@ fn gen_visitor_bridge(
             core_crate,
             bridge_cfg,
             type_paths,
+            &result_metadata,
         );
     }
 
@@ -417,6 +421,7 @@ fn gen_visitor_method_napi(
     _core_crate: &str,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) {
     let name = &method.name;
     let js_method_name = to_camel_case(name);
@@ -467,6 +472,16 @@ fn gen_visitor_method_napi(
             js_method_name => js_method_name,
             signature => signature,
             return_type => return_type,
+            default_result_expr => crate::codegen::visitor_result::default_result_expr(&return_type, result_metadata),
+            unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+                &return_type,
+                result_metadata,
+                "s",
+            ),
+            unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+                &result_metadata.string_payload_variants,
+            ),
             empty_args => empty_args,
             arg_exprs => arg_exprs,
             tuple_args => tuple_args,

@@ -714,6 +714,13 @@ pub struct CallConfig {
     /// Per-call override for `[e2e].fields_c_types`.
     #[serde(default)]
     pub fields_c_types: HashMap<String, String>,
+    /// Assertion recipes enabled for all fixtures routed to this call.
+    ///
+    /// Recipes intentionally gate domain-shaped assertion shortcuts such as
+    /// `embeddings_*`, `keywords`, and tree parser helpers. Generic recursive
+    /// field/text/JSON assertions do not require a recipe.
+    #[serde(default)]
+    pub assertion_recipes: HashSet<String>,
     /// The function name (alef applies language naming conventions).
     #[serde(default)]
     pub function: String,
@@ -1078,6 +1085,9 @@ pub struct CallOverride {
     /// Override the function name.
     #[serde(default)]
     pub function: Option<String>,
+    /// Assertion recipes enabled only for this language.
+    #[serde(default)]
+    pub assertion_recipes: HashSet<String>,
     /// Maps canonical argument names to language-specific argument names.
     ///
     /// Used when a language binding uses a different parameter name than the

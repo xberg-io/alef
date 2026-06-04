@@ -1,8 +1,8 @@
     /**
      * {{ doc_lines }}
      *
-     * @param NodeContext $context Node context information (type, depth, path, etc.)
+     * @param {{ context_type }} $context Visitor context information
 {{ param_docs }}
-     * @return VisitResult How to proceed with traversal (Continue, Skip, or Custom output)
+     * @return {{ result_type }} How to proceed with traversal
      */
-    public function {{ method_name }}(NodeContext $context{% if method_params %}, {{ method_params }}{% endif %}): VisitResult;
+    public function {{ method_name }}({{ context_type }} $context{% if method_params %}, {{ method_params }}{% endif %}): {{ result_type }};

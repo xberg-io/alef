@@ -348,6 +348,7 @@ pub fn gen_trait_bridge(
             &trait_path,
             core_import,
             &type_paths,
+            api,
         );
         BridgeOutput {
             imports: vec![],
@@ -423,6 +424,7 @@ pub fn gen_send_robj_helper() -> &'static str {
 ///
 /// Every trait method checks if the list has a function with the snake_case method name,
 /// calls it via extendr's `.call()`, and maps the return value to `VisitResult`.
+#[allow(clippy::too_many_arguments)]
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
@@ -431,14 +433,16 @@ fn gen_visitor_bridge(
     trait_path: &str,
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    api: &ApiSurface,
 ) {
+    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
     let context_type = bridge_cfg.context_type.as_deref();
     let mut method_impls = String::with_capacity(4096);
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_extendr(&mut method_impls, method, context_type, type_paths);
+        gen_visitor_method_extendr(&mut method_impls, method, context_type, type_paths, &result_metadata);
     }
 
     out.push_str(&crate::backends::extendr::template_env::render(
@@ -459,6 +463,7 @@ fn gen_visitor_method_extendr(
     method: &MethodDef,
     context_type: Option<&str>,
     type_paths: &std::collections::HashMap<String, String>,
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) {
     let name = &method.name;
 
@@ -497,6 +502,16 @@ fn gen_visitor_method_extendr(
             method_name => name,
             signature => signature,
             return_type => return_type,
+            default_result_expr => crate::codegen::visitor_result::default_result_expr(&return_type, result_metadata),
+            unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+                &return_type,
+                result_metadata,
+                "s.to_string()",
+            ),
+            unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+                &result_metadata.string_payload_variants,
+            ),
             empty_args => empty_args,
             args_pairs => args_pairs,
         },

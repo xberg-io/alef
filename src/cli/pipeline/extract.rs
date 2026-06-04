@@ -468,7 +468,7 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
                 .insert(typ.name.clone(), typ.rust_path.replace('-', "_"));
             // Preserve trait-ness across the strip so trait-bridge codegen can tell
             // an excluded trait (`&dyn Trait` → non-bridgeable, skip the method) from
-            // an excluded struct/enum (`&InternalDocument` → reference by qualified path).
+            // an excluded struct/enum (`&HiddenDocument` → reference by qualified path).
             if typ.is_trait {
                 api.excluded_trait_names.insert(typ.name.clone());
             }
@@ -1058,7 +1058,7 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
     // Capture rust_paths of excluded types BEFORE dropping them, so trait_bridge
     // codegen can still reference them by qualified path when they appear in trait
     // method signatures (preserves `impl Trait for Wrapper { fn render(&self,
-    // doc: &sample_core::types::internal::InternalDocument) }`).
+    // doc: &sample_core::types::internal::HiddenDocument) }`).
     for typ in &api.types {
         if is_type_excluded(&typ.name, &typ.rust_path, &exclude.types) {
             api.excluded_type_paths
@@ -1108,7 +1108,7 @@ fn expand_include_list(api: &ApiSurface, include_types: &[String], include_funct
     // before the fixed-point loop. The user has explicitly opted into these functions
     // via `include.functions`, so the types they expose at their public boundary must
     // survive the include-list filter — otherwise the function's return type gets
-    // sanitized away to `String` later in the pipeline (regression for sample-crawler's
+    // sanitized away to `String` later in the pipeline (regression for a batch fixture's
     // `BatchScrapeResults` / `BatchCrawlResults` wrapper structs).
     let include_function_set: AHashSet<&str> = include_functions.iter().map(String::as_str).collect();
     if !include_function_set.is_empty() {
@@ -1561,7 +1561,7 @@ mod tests {
         }
     }
 
-    /// Regression for sample-crawler's `BatchScrapeResults` bug: a function listed in
+    /// Regression for a batch-result include bug: a function listed in
     /// `[crates.include].functions` returns a wrapper struct that is NOT in
     /// `[crates.include].types`. Before the fix, the include filter dropped the
     /// wrapper struct (it was unreachable from the included types), and the later

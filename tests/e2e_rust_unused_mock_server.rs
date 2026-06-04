@@ -46,6 +46,7 @@ fn error_fixture_with_mock() -> FixtureGroup {
             }),
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "error".to_string(),
                 field: None,

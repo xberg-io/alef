@@ -117,7 +117,7 @@ pub struct AdapterConfig {
     ///
     /// Mirrors the same field on `[[crates.e2e.calls.*]]`. Useful when a
     /// consumer's core crate cannot compile on a given target (e.g.
-    /// `sample-crawler` on `wasm32-unknown-unknown` which has no working async
+    /// a streaming crate on `wasm32-unknown-unknown` which has no working async
     /// runtime for streaming). The adapter remains declared for every backend
     /// where it works, with explicit per-backend opt-out rather than removing
     /// the adapter entirely.

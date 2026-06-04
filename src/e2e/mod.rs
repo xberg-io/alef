@@ -17,7 +17,7 @@ pub mod validate;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::e2e::DependencyMode;
 use crate::core::config::{Language, ResolvedCrateConfig};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use config::E2eConfig;
 use fixture::{group_fixtures, load_fixtures};
 use std::path::Path;
@@ -104,6 +104,20 @@ pub fn generate_e2e(
             Severity::Error => warn!("{}: {}", diag.file, diag.message),
             Severity::Warning => warn!("{}: {}", diag.file, diag.message),
         }
+    }
+    let assertion_recipe_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error && diag.message.contains("requires assertion recipe"))
+        .collect();
+    if !assertion_recipe_errors.is_empty() {
+        bail!(
+            "e2e fixture assertion recipe validation failed: {}",
+            assertion_recipe_errors
+                .iter()
+                .map(|diag| format!("{}: {}", diag.file, diag.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
     }
 
     let all_groups = group_fixtures(&fixtures);

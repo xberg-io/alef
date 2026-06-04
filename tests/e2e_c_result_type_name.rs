@@ -71,6 +71,7 @@ fn build_simple_fixture() -> FixtureGroup {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: vec![Assertion {
                 assertion_type: "not_empty".to_string(),
                 field: None,

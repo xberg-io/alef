@@ -29,6 +29,7 @@ fn make_fixture(id: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "equals".to_string(),
             field: Some("mime_type".to_string()),

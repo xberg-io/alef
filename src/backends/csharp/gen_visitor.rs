@@ -1,12 +1,12 @@
-/// Generate C# visitor support for compatibility callback bridges.
+/// Generate C# visitor support for configured callback bridges.
 ///
 /// # P/Invoke delegate callback strategy
 ///
 /// C# uses `[UnmanagedFunctionPointer]` delegate types to create `IntPtr` function pointers
 /// that can be passed through the generated visitor callback C struct.
 ///
-/// - `NodeContext`: a `record` used when the configured bridge methods require it.
-/// - `VisitResult`: a discriminated union emitted when the configured bridge methods return it.
+/// - configured context type: a `record` used when the configured bridge methods require it.
+/// - configured result type: a discriminated union emitted when the configured bridge methods return it.
 /// - `IVisitor`: an interface with default no-op implementations for all 40 callbacks.
 /// - `VisitorCallbacks`: an internal class that allocates `GCHandle`s for all delegate
 ///   instances and writes them into a marshalled struct layout matching the C struct.
@@ -14,9 +14,6 @@
 ///   struct, calls `htm_visitor_create`, `htm_convert_with_visitor`, deserialises JSON.
 use crate::core::hash::{self, CommentStyle};
 use heck::ToSnakeCase;
-
-const COMPAT_CONTEXT_TYPE: &str = "NodeContext";
-const COMPAT_RESULT_TYPE: &str = "VisitResult";
 
 // ---------------------------------------------------------------------------
 // Callback specification table
@@ -29,7 +26,7 @@ pub struct CallbackSpec {
     pub cs_method: String,
     /// XML doc summary.
     pub doc: String,
-    /// Extra parameters beyond `NodeContext` in the C# interface.
+    /// Extra parameters beyond the configured context type in the C# interface.
     pub extra: Vec<ExtraParam>,
     /// If true, add `bool isHeader` (only visit_table_row).
     pub has_is_header: bool,
@@ -213,19 +210,59 @@ pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) ->
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Returns `(filename, content)` pairs for required compatibility visitor files.
+/// Returns `(filename, content)` pairs for required configured visitor files.
 ///
 /// IVisitor.cs and VisitorCallbacks.cs are superseded by IVisitor and VisitorCallbacks
 /// in TraitBridges.cs which use the configured trait bridge approach. They are intentionally
 /// excluded here; stale committed copies are removed by delete_superseded_visitor_files.
-pub fn gen_visitor_files(namespace: &str, trait_def: &crate::core::ir::TypeDef) -> Vec<(String, String)> {
+pub fn gen_visitor_files(
+    namespace: &str,
+    api: &crate::core::ir::ApiSurface,
+    bridge_cfg: &crate::core::config::TraitBridgeConfig,
+    trait_def: &crate::core::ir::TypeDef,
+) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    if trait_requires_named_param(trait_def, COMPAT_CONTEXT_TYPE) {
-        files.push(("NodeContext.cs".to_string(), gen_node_context(namespace)));
+
+    if let Some(context_type) = bridge_cfg.context_type.as_deref() {
+        if trait_requires_named_param(trait_def, context_type) {
+            if let Some(context_def) = api.types.iter().find(|typ| typ.name == context_type && !typ.is_trait) {
+                files.push((
+                    format!("{}.cs", crate::codegen::naming::csharp_type_name(context_type)),
+                    gen_node_context(namespace, context_def),
+                ));
+            } else {
+                eprintln!(
+                    "[alef] gen_visitor(csharp): skip context file — configured context_type `{context_type}` is absent from IR"
+                );
+            }
+        }
+    } else if trait_def.methods.iter().any(|method| method.trait_source.is_none()) {
+        eprintln!(
+            "[alef] gen_visitor(csharp): skip context file — trait bridge `{}` has no context_type metadata",
+            bridge_cfg.trait_name
+        );
     }
-    if trait_returns_named_type(trait_def, COMPAT_RESULT_TYPE) {
-        files.push(("VisitResult.cs".to_string(), gen_visit_result(namespace)));
+
+    if let Some(result_type) = bridge_cfg.result_type.as_deref() {
+        if trait_returns_named_type(trait_def, result_type) {
+            if let Some(enum_def) = api.enums.iter().find(|enum_def| enum_def.name == result_type) {
+                files.push((
+                    format!("{}.cs", crate::codegen::naming::csharp_type_name(result_type)),
+                    gen_visit_result(namespace, enum_def),
+                ));
+            } else {
+                eprintln!(
+                    "[alef] gen_visitor(csharp): skip result file — configured result_type `{result_type}` is absent from IR"
+                );
+            }
+        }
+    } else if trait_def.methods.iter().any(|method| method.trait_source.is_none()) {
+        eprintln!(
+            "[alef] gen_visitor(csharp): skip result file — trait bridge `{}` has no result_type metadata",
+            bridge_cfg.trait_name
+        );
     }
+
     files
 }
 
@@ -291,86 +328,137 @@ pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> St
 // Individual file generators
 // ---------------------------------------------------------------------------
 
-fn gen_node_context(namespace: &str) -> String {
+fn gen_node_context(namespace: &str, context_def: &crate::core::ir::TypeDef) -> String {
     use crate::backends::csharp::template_env::render;
+    use crate::backends::csharp::type_map::csharp_type_for_dto_field;
+    use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_field_name};
     use minijinja::Value;
 
-    let mut out = String::with_capacity(1024);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str("#nullable enable\n");
-    out.push('\n');
-    out.push_str("using System;\n");
-    out.push('\n');
-    out.push_str(&render(
-        "namespace_decl.jinja",
+    let fields = crate::codegen::shared::binding_fields(&context_def.fields)
+        .map(|field| {
+            let mut cs_type = csharp_type_for_dto_field(&field.ty).to_string();
+            if field.optional && !cs_type.ends_with('?') {
+                cs_type.push('?');
+            }
+            serde_json::json!({
+                "cs_name": to_csharp_name(&field.name),
+                "cs_type": cs_type,
+                "wire_name": wire_field_name(
+                    &field.name,
+                    field.serde_rename.as_deref(),
+                    context_def.serde_rename_all.as_deref(),
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    render(
+        "node_context.jinja",
         Value::from_serialize(serde_json::json!({
+            "header": hash::header(CommentStyle::DoubleSlash),
             "namespace": namespace,
+            "context_type": csharp_type_name(&context_def.name),
+            "fields": fields,
         })),
-    ));
-    out.push_str("/// <summary>Context passed to every visitor callback.</summary>\n");
-    out.push_str("public record NodeContext(\n");
-    out.push_str("    /// <summary>Coarse-grained node type tag.</summary>\n");
-    out.push_str("    NodeType NodeType,\n");
-    out.push_str("    /// <summary>Element tag name.</summary>\n");
-    out.push_str("    string TagName,\n");
-    out.push_str("    /// <summary>Traversal depth (0 = root).</summary>\n");
-    out.push_str("    ulong Depth,\n");
-    out.push_str("    /// <summary>0-based sibling index.</summary>\n");
-    out.push_str("    ulong IndexInParent,\n");
-    out.push_str("    /// <summary>Parent element tag name, or null at the root.</summary>\n");
-    out.push_str("    string? ParentTag,\n");
-    out.push_str("    /// <summary>True when this element is treated as inline.</summary>\n");
-    out.push_str("    bool IsInline\n");
-    out.push_str(");\n");
-    out
+    )
 }
 
-fn gen_visit_result(namespace: &str) -> String {
+fn gen_visit_result(namespace: &str, enum_def: &crate::core::ir::EnumDef) -> String {
     use crate::backends::csharp::template_env::render;
+    use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_variant_value};
     use minijinja::Value;
 
-    let mut out = String::with_capacity(2048);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str("#nullable enable\n");
-    out.push('\n');
-    out.push_str("using System;\n");
-    out.push('\n');
-    out.push_str(&render(
-        "namespace_decl.jinja",
+    let result_type = csharp_type_name(&enum_def.name);
+    let unit_variants = enum_def
+        .variants
+        .iter()
+        .filter(|variant| variant.fields.is_empty() && !variant.originally_had_data_fields)
+        .map(|variant| {
+            serde_json::json!({
+                "cs_name": to_csharp_name(&variant.name),
+                "wire_name": wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload_variants = enum_def
+        .variants
+        .iter()
+        .filter(|variant| variant.fields.len() == 1 && matches!(variant.fields[0].ty, crate::core::ir::TypeRef::String))
+        .map(|variant| {
+            let field = &variant.fields[0];
+            let payload_property = if field.name.starts_with('_') {
+                "Value".to_string()
+            } else {
+                to_csharp_name(field.name.trim_start_matches('_'))
+            };
+            serde_json::json!({
+                "cs_name": to_csharp_name(&variant.name),
+                "payload_property": payload_property,
+                "wire_name": wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+    let default_wire_name = default_unit_variant(enum_def)
+        .map(|variant| {
+            wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            )
+        })
+        .unwrap_or_default();
+
+    render(
+        "visit_result.jinja",
         Value::from_serialize(serde_json::json!({
+            "header": hash::header(CommentStyle::DoubleSlash),
             "namespace": namespace,
+            "result_type": result_type,
+            "unit_variants": unit_variants,
+            "payload_variants": payload_variants,
+            "default_wire_name": default_wire_name,
         })),
-    ));
-    out.push_str("/// <summary>Controls how the visitor affects the conversion pipeline.</summary>\n");
-    out.push_str("public abstract record VisitResult\n");
-    out.push_str("{\n");
-    out.push_str("    private VisitResult() {}\n");
-    out.push('\n');
-    out.push_str("    /// <summary>Proceed with default conversion.</summary>\n");
-    out.push_str("    public sealed record Continue : VisitResult;\n");
-    out.push('\n');
-    out.push_str("    /// <summary>Omit this element from output entirely.</summary>\n");
-    out.push_str("    public sealed record Skip : VisitResult;\n");
-    out.push('\n');
-    out.push_str("    /// <summary>Keep original content verbatim.</summary>\n");
-    out.push_str("    public sealed record PreserveHtml : VisitResult;\n");
-    out.push('\n');
-    out.push_str("    /// <summary>Replace with custom output.</summary>\n");
-    out.push_str("    public sealed record Custom(string Output) : VisitResult;\n");
-    out.push('\n');
-    out.push_str("    /// <summary>Abort conversion with an error message.</summary>\n");
-    out.push_str("    public sealed record Error(string Message) : VisitResult;\n");
-    out.push('\n');
-    out.push_str("    internal string ToFfiJson() => this switch {\n");
-    out.push_str("        VisitResult.Continue => \"\\\"Continue\\\"\",\n");
-    out.push_str("        VisitResult.Skip => \"\\\"Skip\\\"\",\n");
-    out.push_str("        VisitResult.PreserveHtml => \"\\\"PreserveHtml\\\"\",\n");
-    out.push_str("        VisitResult.Custom c => \"{\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Output) + \"}\",\n");
-    out.push_str("        VisitResult.Error e => \"{\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + \"}\",\n");
-    out.push_str("        _ => \"\\\"Continue\\\"\"\n");
-    out.push_str("    };\n");
-    out.push_str("}\n");
-    out
+    )
+}
+
+fn default_unit_variant(enum_def: &crate::core::ir::EnumDef) -> Option<&crate::core::ir::EnumVariant> {
+    let unit_variants = enum_def
+        .variants
+        .iter()
+        .filter(|variant| variant.fields.is_empty() && !variant.originally_had_data_fields)
+        .collect::<Vec<_>>();
+    let default_variants = unit_variants
+        .iter()
+        .copied()
+        .filter(|variant| variant.is_default)
+        .collect::<Vec<_>>();
+
+    match default_variants.as_slice() {
+        [variant] => Some(*variant),
+        [] if unit_variants.len() == 1 => Some(unit_variants[0]),
+        [] => {
+            eprintln!(
+                "[alef] gen_visitor(csharp): result_type `{}` has no default unit variant; fallback JSON is empty",
+                enum_def.name
+            );
+            None
+        }
+        _ => {
+            eprintln!(
+                "[alef] gen_visitor(csharp): result_type `{}` has multiple default unit variants; fallback JSON is empty",
+                enum_def.name
+            );
+            None
+        }
+    }
 }
 
 fn trait_requires_named_param(trait_def: &crate::core::ir::TypeDef, type_name: &str) -> bool {
@@ -405,44 +493,154 @@ fn named_type_name(ty: &crate::core::ir::TypeRef) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::gen_visitor_files;
-    use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{
+        ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    };
 
     #[test]
-    fn emits_compat_files_only_when_trait_methods_require_them() {
-        let files = gen_visitor_files(
-            "Sample",
-            &trait_def(
-                "Renderer",
-                vec![method(
-                    "visit_text",
-                    vec![param("_ctx", TypeRef::Named("NodeContext".to_string()))],
-                    TypeRef::Named("VisitResult".to_string()),
-                )],
-            ),
-        );
+    fn emits_configured_context_and_result_files_from_metadata() {
+        let api = api();
+        let bridge_cfg = bridge_cfg(Some("RenderContext"), Some("FlowDecision"));
+        let trait_def = api.types.iter().find(|typ| typ.name == "MarkupVisitor").unwrap();
+        let files = gen_visitor_files("Sample", &api, &bridge_cfg, trait_def);
 
         let filenames = files.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>();
-        assert_eq!(filenames, vec!["NodeContext.cs", "VisitResult.cs"]);
+        assert_eq!(filenames, vec!["RenderContext.cs", "FlowDecision.cs"]);
+        let context = &files[0].1;
+        assert!(context.contains("public record RenderContext("));
+        assert!(context.contains("[property: JsonPropertyName(\"node_kind\")] string Kind"));
+        assert!(context.contains("[property: JsonPropertyName(\"depth\")] ulong Depth"));
+
+        let result = &files[1].1;
+        assert!(result.contains("public abstract record FlowDecision"));
+        assert!(result.contains("public sealed record Proceed : FlowDecision;"));
+        assert!(result.contains("public sealed record DropNode : FlowDecision;"));
+        assert!(result.contains("public sealed record ReplaceWith(string Markdown) : FlowDecision;"));
+        assert!(result.contains("FlowDecision.Proceed => \"\\\"go_on\\\"\""));
+        assert!(result.contains("FlowDecision.ReplaceWith c => \"{\\\"swap\\\":\""));
+        assert!(result.contains("_ => \"\\\"go_on\\\"\""));
+        assert!(!result.contains("VisitResult"));
+        assert!(!result.contains("Continue"));
+        assert!(!result.contains("PreserveHtml"));
+        assert!(!result.contains("Custom"));
     }
 
     #[test]
-    fn skips_fixed_compat_files_for_generic_traits() {
-        let files = gen_visitor_files(
-            "Sample",
-            &trait_def(
-                "Renderer",
-                vec![method(
-                    "render",
-                    vec![param("_input", TypeRef::String)],
-                    TypeRef::String,
-                )],
-            ),
-        );
+    fn skips_visitor_files_when_metadata_is_absent() {
+        let api = api();
+        let bridge_cfg = bridge_cfg(None, None);
+        let trait_def = api.types.iter().find(|typ| typ.name == "MarkupVisitor").unwrap();
+        let files = gen_visitor_files("Sample", &api, &bridge_cfg, trait_def);
 
         assert!(files.is_empty());
     }
 
+    fn api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "sample".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![
+                TypeDef {
+                    name: "RenderContext".to_string(),
+                    fields: vec![
+                        field("kind", TypeRef::String, Some("node_kind")),
+                        field("depth", TypeRef::Primitive(PrimitiveType::U64), None),
+                    ],
+                    serde_rename_all: Some("camelCase".to_string()),
+                    ..type_def("RenderContext", vec![])
+                },
+                trait_def(
+                    "MarkupVisitor",
+                    vec![method(
+                        "visit_node",
+                        vec![param("context", TypeRef::Named("RenderContext".to_string()))],
+                        TypeRef::Named("FlowDecision".to_string()),
+                    )],
+                ),
+            ],
+            functions: vec![],
+            enums: vec![EnumDef {
+                name: "FlowDecision".to_string(),
+                rust_path: "sample::FlowDecision".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Proceed".to_string(),
+                        is_default: true,
+                        serde_rename: Some("go_on".to_string()),
+                        ..EnumVariant::default()
+                    },
+                    EnumVariant {
+                        name: "DropNode".to_string(),
+                        ..EnumVariant::default()
+                    },
+                    EnumVariant {
+                        name: "ReplaceWith".to_string(),
+                        fields: vec![field("markdown", TypeRef::String, None)],
+                        serde_rename: Some("swap".to_string()),
+                        ..EnumVariant::default()
+                    },
+                ],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: true,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: Some("snake_case".to_string()),
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                excluded_variants: vec![],
+            }],
+            errors: vec![],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: Default::default(),
+            services: vec![],
+            handler_contracts: vec![],
+        }
+    }
+
+    fn bridge_cfg(context_type: Option<&str>, result_type: Option<&str>) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: "MarkupVisitor".to_string(),
+            context_type: context_type.map(str::to_string),
+            result_type: result_type.map(str::to_string),
+            ..TraitBridgeConfig::default()
+        }
+    }
+
+    fn field(name: &str, ty: TypeRef, serde_rename: Option<&str>) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: crate::core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: serde_rename.map(str::to_string),
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }
+    }
+
     fn trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            is_trait: true,
+            ..type_def(name, methods)
+        }
+    }
+
+    fn type_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         TypeDef {
             name: name.to_string(),
             rust_path: format!("sample::{name}"),
@@ -454,7 +652,7 @@ mod tests {
             is_copy: false,
             doc: String::new(),
             cfg: None,
-            is_trait: true,
+            is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
             is_return_type: false,

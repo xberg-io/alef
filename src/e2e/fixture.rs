@@ -121,6 +121,13 @@ pub struct Fixture {
     /// for this specific fixture (used for trait-bridge stubs and other per-fixture args).
     #[serde(default)]
     pub args: Vec<ArgMapping>,
+    /// Assertion recipes this fixture opts into.
+    ///
+    /// Built-in domain-shaped assertions such as embeddings, keyword extraction,
+    /// and tree-query helpers require an explicit recipe so generic e2e
+    /// fixtures don't silently inherit downstream-specific assumptions.
+    #[serde(default)]
+    pub assertion_recipes: Vec<String>,
     /// List of assertions to check.
     #[serde(default)]
     pub assertions: Vec<Assertion>,

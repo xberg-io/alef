@@ -26,6 +26,7 @@ fn make_http_fixture(id: &str, description: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![],
         source: "http.json".to_string(),
         http: Some(HttpFixture {

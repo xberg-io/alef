@@ -21,6 +21,7 @@ fn make_fixture(id: &str, description: &str, assertions: Vec<Assertion>) -> Fixt
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions,
         source: "language_detection.json".to_string(),
         http: None,

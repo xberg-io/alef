@@ -5,31 +5,25 @@ using System;
 namespace {{ namespace }};
 
 /// <summary>Controls how the visitor affects the conversion pipeline.</summary>
-public abstract record VisitResult
+public abstract record {{ result_type }}
 {
-    private VisitResult() {}
+    private {{ result_type }}() {}
 
-    /// <summary>Proceed with default conversion.</summary>
-    public sealed record Continue : VisitResult;
+{% for variant in unit_variants %}
+    public sealed record {{ variant.cs_name }} : {{ result_type }};
 
-    /// <summary>Omit this element from output entirely.</summary>
-    public sealed record Skip : VisitResult;
+{% endfor %}
+{% for variant in payload_variants %}
+    public sealed record {{ variant.cs_name }}(string {{ variant.payload_property }}) : {{ result_type }};
 
-    /// <summary>Keep original content verbatim.</summary>
-    public sealed record PreserveHtml : VisitResult;
-
-    /// <summary>Replace with custom output.</summary>
-    public sealed record Custom(string Output) : VisitResult;
-
-    /// <summary>Abort conversion with an error message.</summary>
-    public sealed record Error(string Message) : VisitResult;
-
+{% endfor %}
     internal string ToFfiJson() => this switch {
-        VisitResult.Continue => "\"Continue\"",
-        VisitResult.Skip => "\"Skip\"",
-        VisitResult.PreserveHtml => "\"PreserveHtml\"",
-        VisitResult.Custom c => "{{ \"{{\" }}\\\"Custom\\\":\" + System.Text.Json.JsonSerializer.Serialize(c.Output) + "{{ \"}}\" }}",
-        VisitResult.Error e => "{{ \"{{\" }}\\\"Error\\\":\" + System.Text.Json.JsonSerializer.Serialize(e.Message) + "{{ \"}}\" }}",
-        _ => "\"Continue\""
+{% for variant in unit_variants %}
+        {{ result_type }}.{{ variant.cs_name }} => "\"{{ variant.wire_name }}\"",
+{% endfor %}
+{% for variant in payload_variants %}
+        {{ result_type }}.{{ variant.cs_name }} c => "{{ "{" }}\"{{ variant.wire_name }}\":" + System.Text.Json.JsonSerializer.Serialize(c.{{ variant.payload_property }}) + "{{ "}" }}",
+{% endfor %}
+        _ => "\"{{ default_wire_name }}\""
     };
 }

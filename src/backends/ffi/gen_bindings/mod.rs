@@ -829,13 +829,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 });
             if let Some((vtd, bridge_cfg)) = visitor_trait_def {
                 let visitor_function = find_options_field_bridge_function(api, bridge_cfg);
-                builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
+                builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings_with_api(
                     prefix,
                     &core_import,
                     true,
                     vtd,
                     Some(bridge_cfg),
                     visitor_function,
+                    Some(api),
                 ));
             } else {
                 eprintln!(
@@ -856,13 +857,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     Some(bridge_cfg),
                     Some(visitor_function),
                 ));
-                builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
+                builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings_with_api(
                     prefix,
                     &core_import,
                     false,
                     vtd,
                     Some(bridge_cfg),
                     Some(visitor_function),
+                    Some(api),
                 ));
             } else {
                 eprintln!(
@@ -1613,6 +1615,41 @@ result_type = "VisitResult"
             is_return_type: true,
             ..TypeDef::default()
         });
+        api.enums.push(EnumDef {
+            name: "VisitResult".to_string(),
+            rust_path: "my_lib::visitor::VisitResult".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Continue".to_string(),
+                    fields: vec![],
+                    is_default: true,
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "Skip".to_string(),
+                    fields: vec![],
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "PreserveHtml".to_string(),
+                    fields: vec![],
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "Custom".to_string(),
+                    fields: vec![visitor_result_string_field("output")],
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "Error".to_string(),
+                    fields: vec![visitor_result_string_field("message")],
+                    ..EnumVariant::default()
+                },
+            ],
+            has_serde: true,
+            ..EnumDef::default()
+        });
         api.functions.push(FunctionDef {
             name: "render_document".to_string(),
             rust_path: "my_lib::render_document".to_string(),
@@ -1651,6 +1688,29 @@ result_type = "VisitResult"
             binding_exclusion_reason: None,
         });
         api
+    }
+
+    fn visitor_result_string_field(name: &str) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }
     }
 
     fn sample_config() -> ResolvedCrateConfig {

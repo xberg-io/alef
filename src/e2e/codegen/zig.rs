@@ -3439,6 +3439,7 @@ mod zig_visitor_tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: String::new(),
             http: None,
@@ -3560,6 +3561,7 @@ mod tests_trait_bridge {
             assertions: vec![],
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
         };
 
         let methods = vec![&method];

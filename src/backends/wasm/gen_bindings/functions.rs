@@ -3,7 +3,7 @@
 use crate::backends::wasm::type_map::WasmMapper;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name};
-use crate::core::ir::{FunctionDef, TypeRef, ApiSurface};
+use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
 use ahash::AHashSet;
 use std::collections::HashMap;
 
@@ -1291,6 +1291,16 @@ pub(super) fn wasm_wrap_return_fn(
     }
 }
 
+/// Lookup whether a named type has `Default` impl in the IR.
+/// Returns true if the type is found and `has_default` is true, false otherwise.
+fn type_has_default(type_name: &str, api: &ApiSurface) -> bool {
+    api.types
+        .iter()
+        .find(|t| t.name == type_name)
+        .map(|t| t.has_default)
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1772,18 +1782,14 @@ mod tests {
         };
 
         // type_has_default should return false for unknown types
-        assert!(!type_has_default("NonExistentType", &api), "Unknown type should return false");
+        assert!(
+            !type_has_default("NonExistentType", &api),
+            "Unknown type should return false"
+        );
         // and for empty API
-        assert!(!type_has_default("AnyType", &api), "Empty API should return false for any type");
+        assert!(
+            !type_has_default("AnyType", &api),
+            "Empty API should return false for any type"
+        );
     }
-}
-
-/// Lookup whether a named type has `Default` impl in the IR.
-/// Returns true if the type is found and `has_default` is true, false otherwise.
-fn type_has_default(type_name: &str, api: &ApiSurface) -> bool {
-    api.types
-        .iter()
-        .find(|t| t.name == type_name)
-        .map(|t| t.has_default)
-        .unwrap_or(false)
 }

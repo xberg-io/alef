@@ -45,7 +45,7 @@ pub struct ApiSurface {
     /// Type names → fully qualified rust_paths for types that were extracted but
     /// then excluded from the public binding surface. Preserved so trait_bridge
     /// codegen can still reference them by qualified path when they appear in
-    /// trait method signatures (e.g. `Renderer::render(&InternalDocument)`).
+    /// trait method signatures (e.g. `Renderer::render(&HiddenDocument)`).
     #[serde(default)]
     pub excluded_type_paths: std::collections::HashMap<String, String>,
     /// Subset of `excluded_type_paths` keys whose underlying definition is a trait
@@ -360,7 +360,7 @@ pub struct TypeDef {
     /// without serde derives cannot be (de)serialized.
     #[serde(default)]
     pub has_serde: bool,
-    /// Super-traits of this trait (e.g., `["Plugin"]` for `OcrBackend: Plugin`).
+    /// Super-traits of this trait (e.g., `["Plugin"]` for `WorkerBackend: Plugin`).
     /// Only populated when `is_trait` is true. Used by trait bridge codegen
     /// to determine which super-trait impls to generate.
     #[serde(default)]

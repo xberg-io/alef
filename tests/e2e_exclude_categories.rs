@@ -25,6 +25,7 @@ fn make_fixture(id: &str, category: Option<&str>, source: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: Vec::new(),
         source: source.to_string(),
         http: None,

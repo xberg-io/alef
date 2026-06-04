@@ -41,6 +41,7 @@ fn make_fixture(id: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: Vec::new(),
         source: "smoke.json".to_string(),
         http: None,

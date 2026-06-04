@@ -1079,6 +1079,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![Assertion {
                 assertion_type: "count_min".to_string(),
                 field: Some("chunks".to_string()),
@@ -1155,6 +1156,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![
                 Assertion {
                     assertion_type: "not_error".to_string(),
@@ -1251,6 +1253,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: vec![],
+            assertion_recipes: vec![],
             assertions: vec![],
             source: String::new(),
             http: None,

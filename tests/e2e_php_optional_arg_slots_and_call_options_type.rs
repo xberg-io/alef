@@ -52,6 +52,7 @@ fn smoke_fixture(input: serde_json::Value) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: Vec::new(),
         source: "smoke/smoke_case.json".to_string(),
         http: None,

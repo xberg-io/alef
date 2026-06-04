@@ -557,7 +557,7 @@ pub fn sync_versions(
     //   3. "{config.output_for("python")}/pyproject.toml" — the maturin-build
     //      pyproject that lives alongside the PyO3 source crate (e.g.
     //      "crates/{lib}-py/src/pyproject.toml").  This was the missed case that
-    //      caused version drift in sample-crawler rc.24 (job 77612730306).
+    //      caused version drift in prerelease downstream packages.
     let python_version = to_pep440(&version);
     {
         let pkg_dir = config.package_dir(Language::Python);
@@ -1016,7 +1016,7 @@ pub fn sync_versions(
     }
 
     // Go e2e go.mod — discover the module path fragment from the file itself
-    // so this logic works for any consumer repo (not just sample-crawler).
+    // so this logic works for any consumer repo.
     // We look for a `require` line whose module path ends with `/packages/go`
     // and update its version.
     for entry in glob::glob("e2e/go/go.mod").into_iter().flatten().flatten() {
@@ -1945,11 +1945,11 @@ fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option<String> {
 /// The e2e `pom.xml` carries a `<dependency>` block like:
 /// ```xml
 /// <dependency>
-///   <groupId>dev.sample_core.sample-crawler</groupId>
-///   <artifactId>sample-crawler</artifactId>
+///   <groupId>dev.sample_core.sample_widget</groupId>
+///   <artifactId>sample-widget</artifactId>
 ///   <version>0.3.0-rc.27</version>
 ///   <scope>system</scope>
-///   <systemPath>.../sample-crawler-0.3.0-rc.27.jar</systemPath>
+///   <systemPath>.../sample-widget-0.3.0-rc.27.jar</systemPath>
 /// </dependency>
 /// ```
 /// Unlike `packages/java/pom.xml`, this file has a *separate* `<version>0.1.0</version>`
@@ -2031,11 +2031,11 @@ fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<String> {
 ///
 /// The e2e `go.mod` has a line like:
 /// ```text
-/// github.com/sample_core-dev/sample-crawler/packages/go v0.3.0-rc.27
+/// github.com/sample-core-dev/sample-widget/packages/go v0.3.0-rc.27
 /// ```
 /// We want to update ONLY lines whose module path matches `module_path_fragment`
 /// — a substring that uniquely identifies the library module (e.g.
-/// `"sample_core-dev/sample-crawler/packages/go"`). All other `require` entries are
+/// `"sample-core-dev/sample-widget/packages/go"`). All other `require` entries are
 /// left untouched.
 ///
 /// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
@@ -2079,7 +2079,7 @@ fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_version: &str)
 ///
 /// Dart's pub lockfile has entries like:
 /// ```yaml
-///   sample-crawler:
+///   sample-widget:
 ///     dependency: "direct main"
 ///     description:
 ///       path: "../../packages/dart"
@@ -4144,7 +4144,7 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
 
     /// `sync_registry_package_versions` must update all language entries with
     /// both a plain prefix-less version and a prefixed constraint in a single call,
-    /// covering the sample-crawler-style alef.toml shape used in production.
+    /// covering a production alef.toml shape with mixed version constraints.
     #[test]
     fn sync_registry_package_versions_handles_go_and_bare_semver_langs() {
         let tmp = tempfile::tempdir().expect("tempdir");

@@ -396,7 +396,7 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let trait_path = trait_type.rust_path.replace('-', "_");
         let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
-        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths, api);
         BridgeOutput { imports: vec![], code }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
@@ -431,7 +431,9 @@ fn gen_visitor_bridge(
     struct_name: &str,
     trait_path: &str,
     type_paths: &HashMap<String, String>,
+    api: &ApiSurface,
 ) -> String {
+    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
     let core_crate = trait_path
         .split("::")
         .next()
@@ -461,7 +463,14 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method(&mut methods_code, method, trait_path, bridge_cfg, type_paths);
+        gen_visitor_method(
+            &mut methods_code,
+            method,
+            trait_path,
+            bridge_cfg,
+            type_paths,
+            &result_metadata,
+        );
     }
 
     let mut out = String::with_capacity(4096);
@@ -489,6 +498,7 @@ fn gen_visitor_method(
     _trait_path: &str,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
+    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) {
     use crate::core::ir::TypeRef;
 
@@ -527,6 +537,16 @@ fn gen_visitor_method(
             method_name => name,
             sig => sig,
             ret_ty => ret_ty,
+            default_result_expr => crate::codegen::visitor_result::default_result_expr(&ret_ty, result_metadata),
+            unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+                &ret_ty,
+                result_metadata,
+                "s",
+            ),
+            unit_result_variants => crate::codegen::visitor_result::variant_contexts(&result_metadata.unit_variants),
+            payload_result_variants => crate::codegen::visitor_result::variant_contexts(
+                &result_metadata.string_payload_variants,
+            ),
             py_call => py_call,
         },
     );

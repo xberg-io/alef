@@ -17,6 +17,7 @@
 //! Until a language migrates, it continues using the legacy monolithic renderer —
 //! both can coexist behind the per-language [`E2eCodegen::generate`] entry.
 
+pub mod assertion_recipes;
 pub mod brew;
 pub mod c;
 pub mod client;

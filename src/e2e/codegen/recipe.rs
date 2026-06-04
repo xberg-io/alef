@@ -261,6 +261,7 @@ mod tests {
             mock_response: None,
             visitor: None,
             args: Vec::new(),
+            assertion_recipes: Vec::new(),
             assertions: Vec::new(),
             source: "fixture.json".to_string(),
             http: None,

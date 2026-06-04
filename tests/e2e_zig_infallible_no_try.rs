@@ -24,6 +24,7 @@ fn make_fixture(id: &str) -> Fixture {
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,
@@ -154,6 +155,7 @@ args = [{ name = "name", field = "language", type = "string" }]
         mock_response: None,
         visitor: None,
         args: Vec::new(),
+        assertion_recipes: Vec::new(),
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,

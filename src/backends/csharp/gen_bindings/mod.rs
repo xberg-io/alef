@@ -327,9 +327,9 @@ impl Backend for CsharpBackend {
                 .collect();
             let visitor_trait = visitor_bridge_cfg.and_then(|b| trait_map.get(b.trait_name.as_str()).copied());
 
-            if let Some(trait_def) = visitor_trait {
+            if let (Some(bridge_cfg), Some(trait_def)) = (visitor_bridge_cfg, visitor_trait) {
                 for (filename, content) in
-                    crate::backends::csharp::gen_visitor::gen_visitor_files(&namespace, trait_def)
+                    crate::backends::csharp::gen_visitor::gen_visitor_files(&namespace, api, bridge_cfg, trait_def)
                 {
                     files.push(GeneratedFile {
                         path: base_path.join(filename),
@@ -338,39 +338,10 @@ impl Backend for CsharpBackend {
                     });
                 }
             } else {
-                // Trait not in IR (e.g. parsed separately); fall back to a minimal placeholder.
-                let placeholder = crate::core::ir::TypeDef {
-                    name: String::new(),
-                    rust_path: String::new(),
-                    original_rust_path: String::new(),
-                    fields: vec![],
-                    methods: vec![],
-                    is_opaque: false,
-                    is_clone: false,
-                    is_copy: false,
-                    is_trait: true,
-                    has_default: false,
-                    has_stripped_cfg_fields: false,
-                    is_return_type: false,
-                    serde_rename_all: None,
-                    has_serde: false,
-                    super_traits: vec![],
-                    doc: String::new(),
-                    cfg: None,
-                    binding_excluded: false,
-                    binding_exclusion_reason: None,
-                    is_variant_wrapper: false,
-                    has_lifetime_params: false,
-                };
-                for (filename, content) in
-                    crate::backends::csharp::gen_visitor::gen_visitor_files(&namespace, &placeholder)
-                {
-                    files.push(GeneratedFile {
-                        path: base_path.join(filename),
-                        content: strip_trailing_whitespace(&content),
-                        generated_header: true,
-                    });
-                }
+                eprintln!(
+                    "[alef] gen_visitor(csharp): skip visitor support files — configured trait `{}` is absent from IR",
+                    visitor_bridge_cfg.map_or("<unknown>", |bridge| bridge.trait_name.as_str())
+                );
             }
             // IVisitor.cs and VisitorCallbacks.cs were removed from gen_visitor_files() in favour
             // of the configured bridge path in TraitBridges.cs. Delete any stale copies left
@@ -400,7 +371,7 @@ impl Backend for CsharpBackend {
             if !bridges.is_empty() {
                 // Collect visible type names (non-trait types that have C# bindings).
                 // Includes both `api.types` and `api.enums` so trait-bridge method signatures
-                // can reference enum types (e.g. `VisitResult`) without falling back to `string`.
+                // can reference visitor result enum types without falling back to `string`.
                 let visible_type_names: HashSet<&str> = api
                     .types
                     .iter()

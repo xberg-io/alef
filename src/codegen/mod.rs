@@ -15,3 +15,4 @@ pub mod keywords;
 pub mod naming;
 pub mod shared;
 pub mod type_mapper;
+pub(crate) mod visitor_result;
