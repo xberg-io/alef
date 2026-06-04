@@ -289,6 +289,14 @@ fn emit_lib_rs(
     // conversion idiom: `T::from(val)` for enums, `T(val)` for struct newtypes.
     let enum_names: HashSet<&str> = visible_enums.iter().map(|e| e.name.as_str()).collect();
 
+    // Set of UNIT enum names (variants with no fields). Only these implement From<String>;
+    // tagged enums (variants with fields) must use serde_json::from_str instead.
+    let unit_enum_names: HashSet<&str> = visible_enums
+        .iter()
+        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
+
     // Union of all visible type names (structs + enums) that have swift-bridge wrapper newtypes
     // in the generated lib.rs. Used by trait bridge trampolines to decide whether a Named
     // return type should be wrapped (it has a newtype) or JSON-serialised (excluded/foreign type).
@@ -335,7 +343,7 @@ fn emit_lib_rs(
         .filter(|f| {
             shims::is_bridgeable_fn(
                 f,
-                &enum_names,
+                &unit_enum_names,
                 &type_paths,
                 &no_serde_names,
                 &no_serde_enum_names,
@@ -676,7 +684,7 @@ fn emit_lib_rs(
             f,
             &source_crate,
             &type_paths,
-            &enum_names,
+            &unit_enum_names,
             &no_serde_names,
             &handle_returned_types,
         ));
@@ -686,7 +694,7 @@ fn emit_lib_rs(
         out.push_str(&trait_bridge::emit_trait_bridge_wrapper(
             trait_def,
             &source_crate,
-            &enum_names,
+            &unit_enum_names,
             &visible_type_names,
             &type_paths,
         ));

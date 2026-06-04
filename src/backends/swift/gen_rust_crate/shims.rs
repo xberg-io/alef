@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 /// parameter is a Result type (Result types cannot be represented across the C FFI).
 pub(crate) fn is_bridgeable_fn(
     f: &FunctionDef,
-    enum_names: &std::collections::HashSet<&str>,
+    unit_enum_names: &std::collections::HashSet<&str>,
     type_paths: &HashMap<String, String>,
     no_serde_names: &std::collections::HashSet<&str>,
     no_serde_enum_names: &std::collections::HashSet<&str>,
@@ -37,13 +37,13 @@ pub(crate) fn is_bridgeable_fn(
         }
         match &p.ty {
             TypeRef::Named(n)
-                if enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) =>
+                if unit_enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) =>
             {
                 return false;
             }
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(n) = inner.as_ref() {
-                    if enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) {
+                    if unit_enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) {
                         return false;
                     }
                 }
@@ -98,7 +98,7 @@ pub(crate) fn is_bridgeable_fn(
 /// so accessing the inner source type requires `.0` indirection.
 pub(crate) fn swift_call_arg(
     p: &crate::core::ir::ParamDef,
-    enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
     type_paths: &HashMap<String, String>,
 ) -> String {
     let name = p.name.to_snake_case();
@@ -140,12 +140,12 @@ pub(crate) fn swift_call_arg(
     };
 
     if let TypeRef::Named(n) = &p.ty {
-        if enum_names.contains(n.as_str()) {
+        if unit_enum_names.contains(n.as_str()) {
             let native_ty = source_type(n);
-            // Swift bridges enum values as plain wire strings (e.g. "person"), not as
+            // Swift bridges unit enum values as plain wire strings (e.g. "person"), not as
             // JSON-encoded strings (e.g. "\"person\"").  Using serde_json::from_str on
-            // an unquoted string fails.  Use `From<String>` instead, which every alef
-            // unit enum is required to implement.
+            // an unquoted string fails.  Use `From<String>` instead, which alef unit enums
+            // implement. Tagged enums (with variants containing fields) must use JSON deserialization.
             let from_expr = format!("<{native_ty} as ::std::convert::From<String>>::from({name})");
             if p.optional {
                 return format!("{name}.map(|s| <{native_ty} as ::std::convert::From<String>>::from(s))");
@@ -156,9 +156,9 @@ pub(crate) fn swift_call_arg(
 
     if let TypeRef::Vec(inner) = &p.ty {
         if let TypeRef::Named(n) = inner.as_ref() {
-            if enum_names.contains(n.as_str()) {
+            if unit_enum_names.contains(n.as_str()) {
                 let native_ty = source_type(n);
-                // Same rationale: Swift delivers plain wire strings; convert each via
+                // Same rationale: Swift delivers plain wire strings for unit enums; convert each via
                 // `From<String>`.  The resulting `Vec<EnumType>` is then passed as a
                 // slice reference (`&converted`) when `is_ref` is true.
                 let map_expr = format!(
@@ -231,7 +231,7 @@ pub(crate) fn swift_call_arg(
         // Enums are guarded by is_bridgeable_fn to prevent them from being
         // bridged as function parameters (no reverse From impl).
         // If an enum reaches here, it's a logic error in the guard.
-        if enum_names.contains(type_name.as_str()) {
+        if unit_enum_names.contains(type_name.as_str()) {
             // Enums cannot be reversed via From<BridgeEnum> for SourceEnum,
             // and they fall here because enum params are marked is_ref/optional false,
             // missing the JSON-bridge path above. This is guarded at is_bridgeable_fn level.
@@ -312,7 +312,7 @@ pub(crate) fn emit_function_shim(
     f: &FunctionDef,
     source_crate: &str,
     type_paths: &HashMap<String, String>,
-    enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     handle_returned_types: &HashSet<String>,
 ) -> String {
@@ -322,7 +322,7 @@ pub(crate) fn emit_function_shim(
         .params
         .iter()
         .map(|p| {
-            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, unit_enum_names);
             let bridge_ty = if p.optional {
                 format!("Option<{bridge_ty}>")
             } else {
@@ -337,7 +337,7 @@ pub(crate) fn emit_function_shim(
             let needs_mut = p.is_ref
                 && p.is_mut
                 && !p.optional
-                && matches!(&p.ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()));
+                && matches!(&p.ty, TypeRef::Named(n) if !unit_enum_names.contains(n.as_str()));
             if needs_mut {
                 format!("mut {name}: {bridge_ty}")
             } else {
@@ -383,7 +383,7 @@ pub(crate) fn emit_function_shim(
                     ));
                 }
             }
-            swift_call_arg(p, enum_names, type_paths)
+            swift_call_arg(p, unit_enum_names, type_paths)
         })
         .collect();
     let call_args_str = call_args.join(", ");
