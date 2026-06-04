@@ -63,12 +63,12 @@ internal extension ProcessingResult {
 // First-class struct types (Codable) use JSONDecoder directly.
 // Opaque RustBridge types forward to RustBridge.
 
-public func ocrConfigFromJson(_ json: String) throws -> ImageConfig {
+public func imageConfigFromJson(_ json: String) throws -> ImageConfig {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(ImageConfig.self, from: data)
 }
 
-public func extractionResultFromJson(_ json: String) throws -> ProcessingResult {
+public func processingResultFromJson(_ json: String) throws -> ProcessingResult {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(ProcessingResult.self, from: data)
 }

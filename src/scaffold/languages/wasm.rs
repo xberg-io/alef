@@ -18,7 +18,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let wasm_pkg_name = config.wasm_package_name();
 
     // wasm-pack converts hyphens to underscores in the generated filenames
-    // (Rust convention), so `sample-markdown` becomes `sample_markdown`
+    // (Rust convention), so `demo-markup` becomes `demo_markup`.
     let core_crate_file = core_crate_dir.replace('-', "_");
     let repository_block = meta
         .configured_repository

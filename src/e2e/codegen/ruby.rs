@@ -1205,7 +1205,7 @@ fn http_method_class(method: &str) -> String {
 /// Render an RSpec example for a `chat_stream` fixture.
 ///
 /// The Ruby binding's `chat_stream` is block-yielding: each yielded value is a
-/// `SampleLlm::ChatCompletionChunk`. The codegen builds local aggregator vars
+/// generated stream chunk. The codegen builds local aggregator vars
 /// (`chunks`, `stream_content`, `stream_complete`, plus optional
 /// `last_finish_reason`, `tool_calls_json`, `total_tokens`) inside the block and
 /// then emits assertions on those locals — never on response pseudo-fields.

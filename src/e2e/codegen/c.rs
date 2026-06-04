@@ -1306,7 +1306,7 @@ fn render_test_function(
 
     let prefix_upper = prefix.to_uppercase();
 
-    // Engine-factory pattern: used when c_engine_factory is configured (e.g. sample-crawler).
+    // Engine-factory pattern: used when c_engine_factory is configured.
     // Creates a config handle from JSON, builds an engine, calls {prefix}_{function}(engine, url),
     // frees result and engine.
     if let Some(config_type) = c_engine_factory {

@@ -1557,6 +1557,7 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
 fn opaque_method_vec_string_param_with_is_ref_bridges_to_str_slice() {
     let mut names_param = make_param("names", TypeRef::Vec(Box::new(TypeRef::String)));
     names_param.is_ref = true;
+    names_param.vec_inner_is_ref = true;
 
     let ensure = make_method("ensure_languages", vec![names_param], TypeRef::Unit, false);
     let mut ensure_with_error = ensure;

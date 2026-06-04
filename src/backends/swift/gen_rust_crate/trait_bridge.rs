@@ -155,8 +155,7 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
 
     for method in &trait_def.methods {
         // Skip methods with a default impl — the Rust trait's default is used automatically.
-        // Methods whose return type involves a trait object (e.g. as_sync_extractor returning
-        // Option<&dyn SyncExtractor>) cannot be expressed in Swift or serialised via JSON,
+        // Methods whose return type involves a trait object cannot be expressed in Swift or serialised via JSON,
         // so they must rely on the default impl rather than being bridged.
         if method.has_default_impl {
             continue;

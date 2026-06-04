@@ -60,9 +60,8 @@ impl super::E2eCodegen for PythonE2eCodegen {
         // Marking `test_apps/python/` as a Python package interferes with
         // `uv sync` installing the published wheel — the editable install of
         // the e2e project picks up the root `__init__.py` and pytest then
-        // resolves `import sample_llm` against an empty local namespace,
-        // missing the actual `sample_llm/__init__.py` shipped in the wheel
-        // (`ImportError: cannot import name 'create_client' from 'sample_llm'`).
+        // resolves the generated package import against an empty local namespace,
+        // missing the actual package `__init__.py` shipped in the wheel.
         // The conftest + tests/ subdirectory are sufficient for pytest.
         files.push(GeneratedFile {
             path: output_base.join("tests").join("__init__.py"),

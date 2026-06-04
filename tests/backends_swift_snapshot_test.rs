@@ -640,9 +640,9 @@ sources = ["src/lib.rs"]
 [[crates.trait_bridges]]
 trait_name = "ImageProcessor"
 super_trait = "demo::plugins::Plugin"
-registry_getter = "demo::plugins::registry::get_ocr_backend_registry"
-register_fn = "register_ocr_backend"
-unregister_fn = "unregister_ocr_backend"
+registry_getter = "demo::plugins::registry::get_image_processor_registry"
+register_fn = "register_image_processor"
+unregister_fn = "unregister_image_processor"
 "#;
     let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
     let config = cfg.resolve().expect("test config must resolve").remove(0);
@@ -1003,14 +1003,14 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 methods: vec![make_method(
                     "visit_node",
                     vec![make_param("tag", TypeRef::String)],
-                    TypeRef::Unit,
+                    TypeRef::Named("FlowDecision".to_string()),
                     false,
                     false,
                 )],
                 is_opaque: false,
                 is_clone: false,
                 is_copy: false,
-                doc: "Visitor trait for HTML nodes.".to_string(),
+                doc: "Visitor trait for markup nodes.".to_string(),
                 cfg: None,
                 is_trait: true,
                 has_default: false,
@@ -1026,7 +1026,45 @@ fn snapshot_trait_bridge_inbound_options_field() {
             },
         ],
         functions: vec![],
-        enums: vec![],
+        enums: vec![EnumDef {
+            name: "FlowDecision".to_string(),
+            rust_path: "demo::visitor::FlowDecision".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Accept".to_string(),
+                    fields: vec![],
+                    doc: "Accept the event.".to_string(),
+                    is_default: true,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                },
+                EnumVariant {
+                    name: "Stop".to_string(),
+                    fields: vec![],
+                    doc: "Stop processing.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                },
+            ],
+            doc: "Decision returned by a visitor callback.".to_string(),
+            cfg: None,
+            is_copy: true,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1048,6 +1086,7 @@ type_alias = "CallbackHandle"
 param_name = "visitor"
 bind_via = "options_field"
 options_type = "RenderOptions"
+result_type = "FlowDecision"
 "#;
     let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
     let config = cfg.resolve().expect("test config must resolve").remove(0);

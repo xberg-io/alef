@@ -360,7 +360,7 @@ impl StreamingFieldResolver {
             // Streaming union event-variant predicates.
             //
             // Each chunk is a tagged union whose concrete type name is given by
-            // `item_type` (e.g. `"CrawlEvent"` for sample-crawler). The accessor
+            // `item_type`. The accessor
             // returns a language-native boolean expression that is `true` iff
             // any chunk in the collected list matches the named variant.
             //
@@ -851,8 +851,7 @@ impl EventVariant {
         }
     }
 
-    /// Upper-camel variant name as used in most language bindings
-    /// (e.g. `CrawlEvent_Page`, `CrawlEventPage`, `CrawlEvent.Page`).
+    /// Upper-camel variant name as used in most language bindings.
     fn upper_camel(self) -> &'static str {
         match self {
             EventVariant::Page => "Page",

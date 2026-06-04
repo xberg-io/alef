@@ -53,30 +53,30 @@ mod ffi {
     extern "Rust" {
         type MarkupVisitorBox;
         fn alef_phantom_vec_markup_visitor() -> Vec<MarkupVisitorBox>;
-        fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> ();
+        fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> FlowDecision;
     }
 
     extern "Swift" {
         type SwiftMarkupVisitorBox;
-        fn alef_visit_node(&self, tag: String) -> ();
+        fn alef_visit_node(&self, tag: String) -> String;
     }
 
     extern "Rust" {
 
-         #[swift_bridge(swift_name = "makeMarkupCallbackHandle")]
-         fn make_markup_callback_handle(swift_box: SwiftMarkupVisitorBox) -> CallbackHandle;
+         #[swift_bridge(swift_name = "makeMarkupVisitorHandle")]
+         fn make_markup_visitor_handle(swift_box: SwiftMarkupVisitorBox) -> CallbackHandle;
 
     }
 
     extern "Rust" {
 
-         #[swift_bridge(swift_name = "conversionOptionsFromJsonWithVisitor")]
+         #[swift_bridge(swift_name = "renderOptionsFromJsonWithVisitor")]
          fn render_options_from_json_with_visitor(json: String, visitor: Option<CallbackHandle>) -> Result<RenderOptions, String>;
 
     }
 
     extern "Rust" {
-        #[swift_bridge(swift_name = "conversionOptionsFromJson")]
+        #[swift_bridge(swift_name = "renderOptionsFromJson")]
         fn render_options_from_json(json: String) -> Result<RenderOptions, String>;
     }
 }
@@ -96,11 +96,34 @@ impl RenderOptions {
     }
 }
 
+pub enum FlowDecision {
+    Accept,
+    Stop,
+}
+
+impl From<demo::visitor::FlowDecision> for FlowDecision {
+    fn from(val: demo::visitor::FlowDecision) -> Self {
+        match val {
+            demo::visitor::FlowDecision::Accept => Self::Accept,
+            demo::visitor::FlowDecision::Stop => Self::Stop,
+        }
+    }
+}
+
+impl FlowDecision {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Accept => "Accept".to_string(),
+            Self::Stop => "Stop".to_string(),
+        }
+    }
+}
+
 pub struct MarkupVisitorBox(pub Box<dyn demo::visitor::MarkupVisitor + Send + Sync>);
 #[doc(hidden)]
 pub fn alef_phantom_vec_markup_visitor() -> Vec<MarkupVisitorBox> { Vec::new() }
-pub fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> () {
-    this.0.visit_node(tag)
+pub fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> FlowDecision {
+    FlowDecision::from(this.0.visit_node(tag))
 }
 
 /// Convert a stringified Swift error into the configured source-crate error type.
@@ -147,8 +170,9 @@ impl SwiftMarkupVisitorWrapper {
     }
 }
 impl demo::visitor::MarkupVisitor for SwiftMarkupVisitorWrapper {
-    fn visit_node(&self, tag: str) -> () {
-        self.inner.alef_visit_node(tag);
+    fn visit_node(&self, tag: str) -> demo::visitor::FlowDecision {
+        let json = self.inner.alef_visit_node(tag);
+        ::serde_json::from_str::<demo::visitor::FlowDecision>(&json).expect("swift markup_visitor.visit_node returned invalid JSON")
     }
 
 }
@@ -165,9 +189,9 @@ impl From<demo::options::RenderOptions> for RenderOptions {
 }
 
 /// Construct a `CallbackHandle` from a Swift `SwiftMarkupVisitorBox` handle.
-/// Called by Swift e2e tests via `makeMarkupCallbackHandle(...)` to build a
+/// Called by Swift e2e tests via `makeMarkupVisitorHandle(...)` to build a
 /// `CallbackHandle` that can be passed to the options-with-visitor helper.
-pub fn make_markup_callback_handle(swift_box: ffi::SwiftMarkupVisitorBox) -> CallbackHandle {
+pub fn make_markup_visitor_handle(swift_box: ffi::SwiftMarkupVisitorBox) -> CallbackHandle {
     let __wrapper = SwiftMarkupVisitorWrapper::new(swift_box);
     let __inner: demo::visitor::CallbackHandle = ::std::sync::Arc::new(::std::sync::Mutex::new(__wrapper));
     CallbackHandle::from(__inner)

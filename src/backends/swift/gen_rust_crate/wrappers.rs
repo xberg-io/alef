@@ -751,7 +751,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
 /// constructor shim for an opaque type that exposes methods.
 ///
 /// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
-/// This mirrors the `sample_llm::DefaultClient::new` pattern.
+/// This mirrors the common stateful-client constructor pattern.
 ///
 /// When the source crate's constructor signature differs
 /// `DefaultClient::new(ClientConfig, Option<&str>)`), the caller can supply a
@@ -804,7 +804,7 @@ pub(crate) fn emit_type_method_shims(
 
     // Bring trait providers into scope so trait methods on `client.0` resolve.
     // Methods from inherent impls have `trait_source: None`; methods from trait
-    // impls record the fully qualified trait path (e.g. `sample_llm::client::LlmClient`).
+    // impls record the fully qualified trait path.
     // Without these `use` statements rustc emits `no method named X found` for every
     // trait-provided method.
     let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

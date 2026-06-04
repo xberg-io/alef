@@ -3340,11 +3340,10 @@ fn emit_swift_bridge_files(
 /// For each such bridge this produces:
 ///
 /// 1. `public protocol {Trait}Protocol: AnyObject` — user-facing protocol with `String`-typed
-///    params and `VisitResult` return.  A default extension returns the result enum's first
-///    unit variant (e.g. `` .`continue` ``) for all methods, so conformers only override callbacks
-///    they care about.
+///    params. When the bridge config declares `result_type`, methods return that enum and the
+///    default extension returns the enum's first unit variant; otherwise methods are `Void`.
 /// 2. A private adapter class `_{Trait}ProtocolAdapter` that wraps the user protocol and
-///    translates RustString params → String, serializes `VisitResult` → JSON String.
+///    translates RustString params → String, then serializes configured result enums to JSON.
 ///    This implements the internal `Swift{Trait}BoxDelegate` protocol defined in RustBridge.
 /// 3. A `public func make{TraitCamel}Handle(...)` factory that creates the opaque handle.
 ///
@@ -3374,7 +3373,8 @@ fn emit_inbound_protocols(
         let Some(field) = bridge_cfg.resolved_options_field() else {
             continue;
         };
-        let result_type_name = bridge_cfg.result_type.as_deref().unwrap_or("VisitResult");
+        let result_type_name = bridge_cfg.result_type.as_deref();
+        let protocol_return_type = result_type_name.unwrap_or("Void");
 
         // Locate trait def in the API surface.
         let Some(trait_def) = api.types.iter().find(|t| t.is_trait && t.name == *trait_name) else {
@@ -3382,7 +3382,7 @@ fn emit_inbound_protocols(
         };
 
         // Locate the result enum in the API surface for JSON serialization codegen.
-        let result_enum = api.enums.iter().find(|e| e.name == result_type_name);
+        let result_enum = result_type_name.and_then(|name| api.enums.iter().find(|e| e.name == name));
 
         let box_name = format!("Swift{trait_name}Box");
         let adapter_name = format!("_{trait_name}ProtocolAdapter");
@@ -3393,17 +3393,17 @@ fn emit_inbound_protocols(
         let delegate_protocol_name = format!("_Swift{trait_name}BoxDelegate");
         let factory_fn = format!("make{}Handle", trait_name.to_upper_camel_case());
 
-        // --- 1. Protocol definition (user-facing, String params, VisitResult return) ---
+        // --- 1. Protocol definition (user-facing, String params, configured return) ---
         out.push_str(&format!(
             "/// Swift protocol that Swift classes implement to provide visitor callbacks.\n\
-             /// Conform to this protocol to intercept HTML\u{2192}Markdown conversion events.\n\
+             /// Conform to this protocol to intercept configured Rust trait bridge events.\n\
              public protocol {protocol_name}: AnyObject {{\n"
         ));
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
             let params = swift_protocol_params(method, exclude_types);
-            out.push_str(&format!("    func {method_camel}({params}) -> {result_type_name}\n"));
+            out.push_str(&format!("    func {method_camel}({params}) -> {protocol_return_type}\n"));
         }
         out.push_str("}\n\n");
 
@@ -3412,25 +3412,33 @@ fn emit_inbound_protocols(
         // unit (no-field) variant, emitted with backtick-escaped Swift case
         // ident to match the enum's actual `case` declaration (see `emit_enum`
         // / `emit_variant_with_data`, both of which use `swift_case_ident`).
-        // Falls back to a backtick-escaped `continue` literal if the result
-        // enum isn't in the API surface — preserving the historical behaviour
-        // for the canonical `VisitResult::Continue` shape.
         let default_case = result_enum
             .and_then(|en| en.variants.iter().find(|v| v.fields.is_empty()))
-            .map(|v| swift_case_ident(&v.name.to_lower_camel_case()))
-            .unwrap_or_else(|| swift_case_ident("continue"));
-        out.push_str(&format!(
-            "/// Default implementation: every method returns `.{default_case}` so conforming\n\
-             /// types only need to implement the callbacks they care about.\n\
-             public extension {protocol_name} {{\n"
-        ));
+            .map(|v| swift_case_ident(&v.name.to_lower_camel_case()));
+        if let Some(default_case) = &default_case {
+            out.push_str(&format!(
+                "/// Default implementation: every method returns `.{default_case}` so conforming\n\
+                 /// types only need to implement the callbacks they care about.\n\
+                 public extension {protocol_name} {{\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "/// Default implementation: conforming types only need to implement\n\
+                 /// the callbacks they care about.\n\
+                 public extension {protocol_name} {{\n"
+            ));
+        }
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
             let underscore_params = swift_protocol_underscore_params(method, exclude_types);
-            out.push_str(&format!(
-                "    func {method_camel}({underscore_params}) -> {result_type_name} {{ return .{default_case} }}\n"
-            ));
+            if let Some(default_case) = &default_case {
+                out.push_str(&format!(
+                    "    func {method_camel}({underscore_params}) -> {protocol_return_type} {{ return .{default_case} }}\n"
+                ));
+            } else {
+                out.push_str(&format!("    func {method_camel}({underscore_params}) {{}}\n"));
+            }
         }
         out.push_str("}\n\n");
 
@@ -3440,7 +3448,7 @@ fn emit_inbound_protocols(
         out.push_str(&format!(
             "/// Internal adapter: wraps a `{protocol_name}` conformer as a `{delegate_protocol_name}`.\n\
              /// Converts swift-bridge raw types (RustString, UInt, etc.) to user-friendly Swift\n\
-             /// types before dispatching, and serialises the `{result_type_name}` return to JSON.\n\
+             /// types before dispatching, then serialises configured return values to JSON.\n\
              private final class {adapter_name}: {delegate_protocol_name} {{\n\
              \x20   private let inner: any {protocol_name}\n\
              \x20   init(_ inner: any {protocol_name}) {{ self.inner = inner }}\n"
@@ -3458,12 +3466,18 @@ fn emit_inbound_protocols(
             for line in &conversion_lines {
                 out.push_str(&format!("        {line}\n"));
             }
-            let result_json = if let Some(_en) = result_enum {
+            let result_json = if let Some(result_type_name) = result_type_name.filter(|_| result_enum.is_some()) {
                 format!(
                     "        return {}_toJson(inner.{method_camel}({call_args}))\n",
                     result_type_name.to_snake_case()
                 )
             } else {
+                let call = if call_args.is_empty() {
+                    format!("inner.{method_camel}()")
+                } else {
+                    format!("inner.{method_camel}({call_args})")
+                };
+                out.push_str(&format!("        {call}\n"));
                 "        return \"{}\"\n".to_string()
             };
             out.push_str(&result_json);
@@ -3473,6 +3487,7 @@ fn emit_inbound_protocols(
 
         // --- 4. JSON serialization helper for the result type ---
         if let Some(en) = result_enum {
+            let result_type_name = en.name.as_str();
             let fn_name = format!("{}_toJson", result_type_name.to_snake_case());
             out.push_str(&format!(
                 "/// Serialise a `{result_type_name}` to a JSON string matching Rust serde defaults.\n\
@@ -3537,8 +3552,8 @@ fn emit_inbound_protocols(
         // top-level forwarder in the user-facing module, e2e tests and end-users
         // would have to call `RustBridge.{options_fn}(...)` directly, which (a)
         // is unidiomatic and (b) drags in `import RustBridge` which collides
-        // with first-class Swift types (e.g. the `VisitResult` enum vs the
-        // opaque `RustBridge.VisitResult` class).
+        // with first-class Swift types when a bridge helper and public enum
+        // share a name across modules.
         out.push_str(&format!(
             "/// Decode `{options_type}` JSON and attach a `{type_alias}` visitor handle.\n\
              /// Forwards to the swift-bridge shim emitted in the `RustBridge` module —\n\
@@ -4471,7 +4486,7 @@ fn emit_inbound_box_files(
 
         // The box class name must remain `Swift{trait_name}Box` because swift-bridge's
         // `@_cdecl` shims reference it by exact name. The delegate protocol is named
-        // with a leading underscore (`_SwiftHtmlVisitorBoxDelegate`) to signal that
+        // with a leading underscore (`_Swift{Trait}BoxDelegate`) to signal that
         // it is an internal binding-detail surface even though Swift's access-control
         // rules force it to be `public` (it is implemented from a sibling SwiftPM target).
         let box_name = format!("Swift{trait_name}Box");

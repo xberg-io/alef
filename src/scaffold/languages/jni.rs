@@ -309,12 +309,12 @@ namespace = "dev.example.demo_render.android"
 languages = ["kotlin_android", "jni"]
 
 [[crates]]
-name = "sample_crawler"
+name = "sample_stream"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.sample_crate.sample_crawler"
-namespace = "dev.sample_crate.sample_crawler"
+package = "dev.example.sample_stream"
+namespace = "dev.example.sample_stream"
 "#,
         );
         let api = ApiSurface::default();

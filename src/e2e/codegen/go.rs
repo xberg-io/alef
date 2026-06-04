@@ -1423,7 +1423,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
         crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
 
     // Determine the streaming item type for this call (used when draining the channel).
-    // Find the first streaming adapter matching the function name (e.g., crawl_stream → CrawlEvent).
+    // Find the first streaming adapter matching the function name.
     // Match on snake_case adapter name vs. snake_case function name; e2e codegen sees
     // camelCase function names like `CrawlStream` but adapters declare `crawl_stream`.
     use heck::ToSnakeCase;
@@ -3818,7 +3818,7 @@ fn emit_go_visitor_method(
     import_alias: &str,
 ) {
     let camel_method = method_to_camel(method_name);
-    // Parameter signatures must exactly match the samplemarkdown.Visitor interface.
+    // Parameter signatures must exactly match the generated visitor interface.
     // Optional fields use pointer types (*string, *uint32, etc.) to indicate nil-ability.
     let params = match method_name {
         "visit_link" => format!("_ {import_alias}.NodeContext, href string, text string, title *string"),
@@ -4841,6 +4841,12 @@ mod tests {
                 result_var: "result".to_string(),
                 returns_result: true,
                 r#async: true,
+                streaming: Some(crate::core::config::e2e::StreamingConfig::Recipe(
+                    crate::core::config::e2e::StreamingRecipe {
+                        item_type: Some("StreamChunk".to_string()),
+                        ..Default::default()
+                    },
+                )),
                 ..CallConfig::default()
             },
             ..E2eConfig::default()
@@ -4873,9 +4879,8 @@ mod tests {
 
     #[test]
     fn test_streaming_with_client_factory_and_json_arg() {
-        // Mimics the real sample-llm setup: no returns_result on the call,
-        // json_object arg (binding_returns_error=true), and client_factory from
-        // the default Go call override.
+        // Covers no returns_result on the call, json_object args
+        // (binding_returns_error=true), and client_factory from the Go call override.
         use crate::core::config::e2e::{ArgMapping, CallOverride};
         let streaming_fixture_json = r#"{
             "id": "basic_stream_client",
@@ -4908,6 +4913,12 @@ mod tests {
                 result_var: "result".to_string(),
                 returns_result: false, // NOT true — like real sample-llm
                 r#async: true,
+                streaming: Some(crate::core::config::e2e::StreamingConfig::Recipe(
+                    crate::core::config::e2e::StreamingRecipe {
+                        item_type: Some("StreamChunk".to_string()),
+                        ..Default::default()
+                    },
+                )),
                 args: vec![ArgMapping {
                     name: "request".to_string(),
                     field: "input".to_string(),

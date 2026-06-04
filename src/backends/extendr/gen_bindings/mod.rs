@@ -1033,10 +1033,12 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
     code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
     code.push_str("    if let Some(names) = list.names() {\n");
-    code.push_str("        names\n");
-    code.push_str("            .zip(list.iter())\n");
-    code.push_str("            .find(|(name, _)| *name == key)\n");
-    code.push_str("            .map(|(_, val)| val)\n");
+    code.push_str("        for (name, val) in names.zip(list.iter()) {\n");
+    code.push_str("            if name == key {\n");
+    code.push_str("                return Some(val);\n");
+    code.push_str("            }\n");
+    code.push_str("        }\n");
+    code.push_str("        None\n");
     code.push_str("    } else {\n");
     code.push_str("        None\n");
     code.push_str("    }\n");
@@ -1385,13 +1387,26 @@ fn gen_field_decoder(
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
-            code.push_str("        opts.");
-            code.push_str(field_name);
-            code.push_str(" = ");
-            code.push_str(ty);
-            code.push_str("::try_from(&v).map_err(|e| format!(\"");
-            code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?;\n");
+            if field.optional {
+                code.push_str("        if !v.is_null() {\n");
+                code.push_str("            let f64_val = ");
+                code.push_str(ty);
+                code.push_str("::try_from(&v).map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?;\n");
+                code.push_str("            opts.");
+                code.push_str(field_name);
+                code.push_str(" = Some(f64_val);\n");
+                code.push_str("        }\n");
+            } else {
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = ");
+                code.push_str(ty);
+                code.push_str("::try_from(&v).map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?;\n");
+            }
             code.push_str("    }\n");
         }
         TypeRef::Vec(inner) => {

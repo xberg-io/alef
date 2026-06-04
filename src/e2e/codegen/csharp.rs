@@ -130,7 +130,7 @@ impl E2eCodegen for CSharpCodegen {
         // TestSetup.cs will spawn the mock-server via [ModuleInitializer]
         // before any test loads — mirroring the Ruby spec_helper / Python
         // conftest spawn pattern. Without this, every fixture-bound test
-        // failed with `SampleLlmException : builder error` because reqwest
+        // can fail with a client builder error because reqwest
         // rejected the relative URL when MOCK_SERVER_URL was unset.
         let needs_mock_server = groups
             .iter()

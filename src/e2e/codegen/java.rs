@@ -1832,9 +1832,8 @@ fn build_args_and_setup(
             //      fallback to the shared-route URL for fixtures without host-root
             //      routes.
             // Previous code skipped (1), so any fixture with per-fixture host-root
-            // routes (e.g. batch_crawl_basic) hit /fixtures/<id>/<path> on the shared
-            // host — which mock-server doesn't serve — and returned 404 for every
-            // batch URL. Surfaced as 7 BatchTest failures on sample-crawler's Java e2e.
+            // routes hit /fixtures/<id>/<path> on the shared host — which mock-server
+            // doesn't serve — and returned 404 for every batch URL.
             setup_lines.push(format!(
                 "String {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", (System.getProperty(\"mockServerUrl\") != null ? System.getProperty(\"mockServerUrl\") : (System.getenv(\"MOCK_SERVER_URL\") != null ? System.getenv(\"MOCK_SERVER_URL\") : \"http://localhost:8000\")) + \"/fixtures/{fixture_id}\"));"
             ));
@@ -3694,7 +3693,7 @@ mod tests {
             "batch_scrape".to_string(),
             CallConfig {
                 function: "batchScrape".to_string(),
-                module: "com.example.sample_crawler".to_string(),
+                module: "com.example.sample_stream".to_string(),
                 select_when: Some(SelectWhen {
                     input_has: Some("batch_urls".to_string()),
                     ..Default::default()
@@ -3706,7 +3705,7 @@ mod tests {
         let e2e_config = E2eConfig {
             call: CallConfig {
                 function: "scrape".to_string(),
-                module: "com.example.sample_crawler".to_string(),
+                module: "com.example.sample_stream".to_string(),
                 ..CallConfig::default()
             },
             calls,

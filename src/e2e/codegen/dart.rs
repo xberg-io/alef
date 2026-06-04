@@ -1041,7 +1041,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
 
     // Resolve client_factory early so the per-arg builders below can pick the
     // calling convention. When `client_factory` is set the test calls methods on
-    // an FRB-generated client instance (e.g. sample-llm's `retrieveFile`), and FRB
+    // an FRB-generated client instance, and FRB
     // emits every non-`config` parameter as a Dart named-required parameter. When
     // unset the call routes through a hand-written facade whose required args are
     // positional. See the `"string"` arg handler below.

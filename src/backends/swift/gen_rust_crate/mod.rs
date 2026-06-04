@@ -359,7 +359,7 @@ fn emit_lib_rs(
 
     // Collect result enum names from trait bridges — result-type enums must have
     // a private swift_name to avoid collision with the first-class Swift enums
-    // emitted in gen_bindings.rs (e.g. `VisitResult` enum).
+    // emitted in gen_bindings.rs.
     let result_type_enums: std::collections::HashSet<String> = active_bridges
         .iter()
         .filter_map(|(bridge_cfg, _)| bridge_cfg.result_type.as_deref().map(|s| s.to_string()))
@@ -381,9 +381,8 @@ fn emit_lib_rs(
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
             // Only emit the `create_<type>` constructor when the user provides an explicit
             // `client_constructor_body` override in alef.toml. The default
-            // `(api_key, base_url)` signature only fits sample_llm-style clients; for plugin
-            // types like `HwpxExtractor::new()` or utilities like
-            // `TessdataManager::new(Option<PathBuf>)` it produces calls that don't match
+            // `(api_key, base_url)` signature only fits one stateful-client shape; for plugin
+            // types or utilities it produces calls that don't match
             // the real Rust signature. Opaque types without an override are returned by
             // Rust APIs, not constructed in Swift.
             let has_ctor_override = config

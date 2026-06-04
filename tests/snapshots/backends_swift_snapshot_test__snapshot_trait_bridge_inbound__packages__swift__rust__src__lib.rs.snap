@@ -77,11 +77,11 @@ mod ffi {
     }
 
     extern "Rust" {
-        #[swift_bridge(swift_name = "ocrConfigFromJson")]
+        #[swift_bridge(swift_name = "imageConfigFromJson")]
         fn image_config_from_json(json: String) -> Result<ImageConfig, String>;
     }
     extern "Rust" {
-        #[swift_bridge(swift_name = "extractionResultFromJson")]
+        #[swift_bridge(swift_name = "processingResultFromJson")]
         fn processing_result_from_json(json: String) -> Result<ProcessingResult, String>;
     }
 }

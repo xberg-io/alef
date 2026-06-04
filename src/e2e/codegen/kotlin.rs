@@ -1391,7 +1391,7 @@ fn render_test_method(
     );
 
     // When client_factory is set, emit client-object instantiation + instance method call.
-    // The factory name is a function on the Kotlin facade object (e.g. `SampleLlm.createClient`)
+    // The factory name is a function on the Kotlin facade object
     // that constructs the coroutine-friendly Kotlin client wrapper from the
     // raw apiKey + baseUrl pair the test owns.
     if let Some(factory) = client_factory {
