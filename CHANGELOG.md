@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Guard direct generation helpers with central API validation, including service and handler-contract IR.
+- Remove FFI visitor fallback generation that guessed conversion-shaped names when no configured bridge function matched.
+- Neutralize remaining e2e mock-server fixture wording and wait for mock listeners before printing ready URLs.
+- Fix PHP `config.m4` to properly build and copy Rust FFI library for PIE (PHP Installer for Extensions). AC_CONFIG_COMMANDS now ensures cargo output is copied to modules/ so phpize can install the extension when pre-packaged binaries are unavailable.
+- Fix C FFI macOS dylib install-name packaging.
+
 ## [0.22.26] - 2026-06-04
 
 ### Fixed
