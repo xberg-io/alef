@@ -4231,3 +4231,86 @@ version = "3.1.0"
         "swift backend: path must be preserved alongside injected version; got:\n{rendered}"
     );
 }
+
+#[test]
+fn test_ruby_cargo_machete_rb_sys_only() {
+    // Regression test: v0.22.25 fixed the mingw sysroot bug via a cargo-dep pin on rb-sys.
+    // The NIF code now directly uses `tokio` and `async-trait` (not just transitively through
+    // the core crate), so they must NOT be in the cargo-machete ignored list. Only `rb-sys`
+    // should be ignored (it's pinned but used transitively through Magnus).
+    use crate::core::ir::*;
+
+    let config = test_config_from_toml(
+        r#"
+[crates.ruby]
+gem_name = "test_lib"
+"#,
+    );
+
+    // Minimal ApiSurface with no async/trait bridges to verify the baseline cargo-machete section
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let result = super::languages::scaffold_ruby_cargo(&api, &config);
+    assert!(result.is_ok(), "scaffold_ruby_cargo should succeed");
+
+    let files = result.unwrap();
+    let cargo_toml_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Cargo.toml"))
+        .expect("Should generate Cargo.toml");
+
+    let content = &cargo_toml_file.content;
+
+    // Verify the cargo-machete section exists and contains only rb-sys
+    assert!(
+        content.contains("[package.metadata.cargo-machete]"),
+        "Should contain [package.metadata.cargo-machete] section; got:\n{}",
+        content
+    );
+
+    assert!(
+        content.contains("ignored = [\"rb-sys\"]"),
+        "Should ignore only rb-sys (pinned for mingw sysroot bug but used transitively through Magnus); got:\n{}",
+        content
+    );
+
+    // Verify that the ignored list does NOT contain the conditional deps
+    // (tokio, async-trait, futures, ahash are now directly used by NIF code and should not be ignored)
+    let ignored_section = content
+        .split("[package.metadata.cargo-machete]")
+        .nth(1)
+        .and_then(|s| s.split("[lib]").next())
+        .unwrap_or("");
+
+    assert!(
+        !ignored_section.contains("\"tokio\""),
+        "tokio should not be in ignored list (now directly used by NIF code); got:\n{}",
+        ignored_section
+    );
+    assert!(
+        !ignored_section.contains("\"async-trait\""),
+        "async-trait should not be in ignored list (now directly used by NIF code); got:\n{}",
+        ignored_section
+    );
+    assert!(
+        !ignored_section.contains("\"futures\""),
+        "futures should not be in ignored list (now directly used by NIF code); got:\n{}",
+        ignored_section
+    );
+    assert!(
+        !ignored_section.contains("\"ahash\""),
+        "ahash should not be in ignored list (now directly used by NIF code); got:\n{}",
+        ignored_section
+    );
+}

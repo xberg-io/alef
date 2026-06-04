@@ -83,30 +83,12 @@ pub(crate) fn scaffold_ruby_cargo(
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 
-    // Build the cargo-machete ignored list. When `tokio` is included in
-    // dependencies (for async, trait bridges, or streaming), mark it as ignored
-    // since the Magnus wrapper may not directly reference it. Same for
-    // `async-trait` (included for trait bridges) and `futures` (included for
-    // streaming adapters). `ahash` is added when any function parameter uses
-    // AHashMap<Cow, _>, but the Magnus wrapper never directly uses ahash—it's
-    // used only in the Rust core for type field marshalling. `rb-sys` is always
-    // pinned (to work around the 0.9.128 mingw sysroot bug) even though Magnus
-    // normally brings it transitively—the explicit pin is intentional despite
-    // no direct usage by the wrapper.
-    let mut machete_ignored: Vec<&str> = Vec::new();
-    if has_async || has_trait_bridges {
-        machete_ignored.push("tokio");
-    }
-    if has_trait_bridges {
-        machete_ignored.push("async-trait");
-    }
-    if has_streaming_adapter {
-        machete_ignored.push("futures");
-    }
-    if needs_ahash {
-        machete_ignored.push("ahash");
-    }
-    machete_ignored.push("rb-sys");
+    // Build the cargo-machete ignored list. `rb-sys` is pinned via cargo
+    // (v0.22.25 workaround for mingw sysroot bug) but only used transitively
+    // through Magnus—cargo-machete sees it as unused at the leaf crate level.
+    // `tokio`, `async-trait`, `futures`, and `ahash` are now directly imported
+    // by the generated NIF code, so they should NOT be in the ignored list.
+    let machete_ignored = vec!["rb-sys"];
     // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
     // before `[lib]` / `[dependencies]`.
     let machete_section = if machete_ignored.is_empty() {
