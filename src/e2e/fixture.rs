@@ -123,11 +123,10 @@ pub struct Fixture {
     pub args: Vec<ArgMapping>,
     /// Assertion recipes this fixture opts into.
     ///
-    /// Built-in domain-shaped assertions such as embeddings, keyword extraction,
-    /// TODO(alef-generic-cleanup): Replace built-in domain-shaped assertion names with neutral fixture recipes.
+    /// Domain-shaped assertions such as embeddings, keyword extraction,
     /// tree-query helpers, and streaming pseudo-fields require an explicit
-    /// recipe so generic e2e fixtures don't silently inherit project-specific
-    /// assumptions.
+    /// recipe opt-in so generic e2e fixtures don't silently inherit
+    /// project-specific assumptions.
     #[serde(default)]
     pub assertion_recipes: Vec<String>,
     /// List of assertions to check.

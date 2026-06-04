@@ -46,9 +46,9 @@ pub struct RegistryConfig {
     /// GitHub repository URL for downloading prebuilt artifacts (e.g., FFI
     /// shared libraries) from GitHub Releases.
     ///
-    /// TODO(alef-generic-cleanup): make the synthetic repository fallback fixture/config-driven.
-    /// Falls back to `[scaffold] repository` when not set, then to
-    /// `https://github.com/sample_core-dev/{crate.name}`.
+    /// Falls back to `[scaffold] repository` when not set. Registry generators
+    /// that need a concrete release host should fail when no repository is
+    /// configured instead of inventing publishable metadata.
     #[serde(default)]
     pub github_repo: Option<String>,
     /// Per-language commands that install the published package into the
@@ -717,7 +717,6 @@ pub struct CallConfig {
     pub fields_c_types: HashMap<String, String>,
     /// Assertion recipes enabled for all fixtures routed to this call.
     ///
-    /// TODO(alef-generic-cleanup): move domain-shaped assertion recipes to fixture/config data.
     /// Recipes intentionally gate domain-shaped assertion shortcuts such as
     /// `embeddings_*`, `keywords`, tree parser helpers, and streaming
     /// pseudo-fields. Generic recursive field/text/JSON assertions do not
@@ -811,7 +810,6 @@ pub struct CallConfig {
     /// `Uint8Array` / `[]byte` / `byte[]`).
     #[serde(default)]
     pub result_is_bytes: bool,
-    /// TODO(alef-generic-cleanup): make streaming auto-detection fully fixture/config-driven.
     /// Three-valued opt-in/out for streaming-virtual-field auto-detection.
     ///
     /// - `Some(true)`: force streaming semantics regardless of fixture shape.
