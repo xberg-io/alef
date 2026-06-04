@@ -472,6 +472,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
         let mut start_params: Vec<String> = vec![format!("client: &{owner_type}")];
         for p in &adapter.params {
             // Adapter param types are stored as Rust path strings (e.g.
+            // TODO(alef-generic-cleanup): Replace sample_llm ChatCompletionRequest adapter-param example with a neutral fixture type.
             // `sample_llm::ChatCompletionRequest`). Strip any module prefix —
             // the swift-bridge extern sees only the simple wrapper-newtype name.
             let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);

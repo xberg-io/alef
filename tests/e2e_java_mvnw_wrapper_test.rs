@@ -6,6 +6,7 @@ use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::java::JavaCodegen;
 use alef::e2e::fixture::{Fixture, FixtureGroup};
 
+// TODO(alef-generic-cleanup): replace sample_crate/dev.sample_crate Java fixture names with neutral ones.
 const TOML: &str = r#"
 [workspace]
 languages = ["java"]

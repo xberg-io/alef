@@ -452,6 +452,7 @@ impl Backend for ExtendrBackend {
                     // in the binding config — the kwargs free-function constructor handles R
                     // object creation instead.
                     // Build from_json method body when the type has serde + has_default.
+                    // TODO(alef-generic-cleanup): replace ExtractionConfig examples with neutral fixture names.
                     // from_json lets R callers construct typed ExternalPtrs from JSON strings
                     // (e.g. ExtractionConfig$from_json(jsonlite::toJSON(list(...)))).
                     // Generate from_json only for input types (function/method parameters)
@@ -563,6 +564,7 @@ impl Backend for ExtendrBackend {
             // Round-trip-safe ones (e.g. OutputFormat with only String data) have a
             // From<BindingStruct> for CoreEnum impl generated and don't need skipping.
             from_binding_skip_types: &non_round_trip_flat_enums,
+            // TODO(alef-generic-cleanup): replace sample_core references with neutral fixture names.
             // The extendr binding crate doesn't carry sample_core feature flags into its
             // own Cargo.toml, so cfg-gated core fields are dropped from the binding struct
             // (see `gen_struct` skip rule).  Mirror that in conversions: skip cfg-gated
@@ -2310,6 +2312,7 @@ pub(crate) struct TraitBridgeFn {
 /// definition). Honours `exclude_languages` so excluded bridges don't shadow real
 /// free functions.
 ///
+/// TODO(alef-generic-cleanup): replace sample_core/TextBackend examples with neutral fixture names.
 /// Example: `clear_text_backends` is defined both as `pub fn` in
 /// `crates/sample_core/src/plugins/ocr.rs` (so it appears in `api.functions`) AND
 /// synthesised by the trait-bridge generator for the `TextBackend` trait. The
@@ -4270,6 +4273,7 @@ clear_fn = "clear_ocr_backends"
 
     #[test]
     fn extendr_module_registers_trait_bridge_register_unregister_clear() {
+        // TODO(alef-generic-cleanup): replace OcrBackend trait-bridge fixture names with neutral ones.
         // Regression: register_<trait> / unregister_<trait> / clear_<trait> are emitted
         // as `#[extendr]` functions by the trait-bridge generator but were missing from
         // the `extendr_module!` block, so the wrap__<symbol> entry points never reached
@@ -4293,6 +4297,7 @@ clear_fn = "clear_ocr_backends"
 
     #[test]
     fn extendr_wrappers_emits_trait_bridge_register_unregister_clear() {
+        // TODO(alef-generic-cleanup): replace register_ocr_backend/OcrBackend wrapper fixtures with neutral names.
         // Regression: extendr-wrappers.R only iterated `api.functions` and so omitted
         // the trait-bridge register/unregister/clear functions. R callers had no way to
         // invoke `wrap__register_text_backend` because no R wrapper existed.

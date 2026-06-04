@@ -28,6 +28,7 @@ pub struct FieldResolver {
     ///
     /// Keying by (type, field) — not bare field name — is required because two
     /// different types can declare the same field name with different scalarness
+    /// TODO(alef-generic-cleanup): Replace CrawlConfig/MarkdownResult field examples with neutral fixture names.
     /// (e.g. `CrawlConfig.content: ContentConfig` is non-scalar while
     /// `MarkdownResult.content: String` is scalar).
     php_getter_map: PhpGetterMap,
@@ -2830,6 +2831,7 @@ mod tests {
 
     // Regression: bare-name HashSet classification produced false getters when two
     // types shared a field name with different scalarness (`content`
+    // TODO(alef-generic-cleanup): Replace CrawlConfig/MarkdownResult collision example with neutral fixture names.
     // collision between CrawlConfig.content: ContentConfig and MarkdownResult.content: String).
     #[test]
     fn render_php_with_getters_distinguishes_same_field_name_on_different_types() {

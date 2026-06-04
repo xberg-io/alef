@@ -539,6 +539,8 @@ fn json_to_minijinja_value(json: &serde_json::Value) -> Value {
 // Hardcoded fallback generator (original implementation)
 // ---------------------------------------------------------------------------
 
+// TODO(alef-generic-cleanup): Replace this hardcoded README fallback with fully
+// template/config-driven generation so consumer-shaped defaults do not leak.
 fn generate_readme_hardcoded(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -1031,6 +1033,8 @@ repository = "https://github.com/test/my-lib"
         assert_eq!(files.len(), 0);
     }
 
+    // TODO(alef-generic-cleanup): These fallback tests lock in hardcoded package
+    // paths and install examples; migrate them to generic template fixtures.
     // --- hardcoded fallback: remaining language variants ---
 
     #[test]

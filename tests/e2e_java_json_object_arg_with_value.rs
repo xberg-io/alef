@@ -51,6 +51,8 @@ fn make_extract_fixture() -> Fixture {
     }
 }
 
+/// TODO(alef-generic-cleanup): replace sample_crate/dev.sample_crate/ExtractionConfig fixture names
+/// with neutral ones.
 /// Alef config with a json_object arg (config) that doesn't have an explicit
 /// Java options_type but DOES have a C# options_type that Java should inherit.
 const TOML: &str = r#"

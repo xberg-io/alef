@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use crate::core::config::e2e::CallConfig;
+use crate::core::config::e2e::{CallConfig, E2eConfig};
 use crate::e2e::fixture::{Assertion, Fixture};
 
 // TODO(alef-generic-cleanup): move these domain-shaped assertion recipe names to fixture/config data.
@@ -100,6 +100,10 @@ pub(crate) fn enabled_recipes<'a>(
     if let Some(override_config) = call_config.overrides.get(language) {
         recipes.extend(override_config.assertion_recipes.iter().map(String::as_str));
     }
+    // Implicitly enable streaming recipe when the call is marked as streaming.
+    if call_config.streaming_enabled().unwrap_or(false) {
+        recipes.insert(STREAMING_RECIPE);
+    }
     recipes
 }
 
@@ -107,13 +111,15 @@ pub(crate) fn missing_recipe_for_language(
     fixture: &Fixture,
     call_config: &CallConfig,
     language: &str,
+    e2e_config: &E2eConfig,
 ) -> Option<MissingAssertionRecipe> {
     let enabled = enabled_recipes(fixture, call_config, language);
+    let result_fields = e2e_config.effective_result_fields(call_config);
     fixture.assertions.iter().find_map(|assertion| {
         if assertion
             .field
             .as_deref()
-            .is_some_and(|field| field_is_explicit_result_mapping(field, call_config))
+            .is_some_and(|field| field_is_explicit_result_mapping(field, result_fields))
         {
             return None;
         }
@@ -141,9 +147,9 @@ fn starts_with_recipe_root(field: &str, roots: &[&str]) -> bool {
     })
 }
 
-fn field_is_explicit_result_mapping(field: &str, call_config: &CallConfig) -> bool {
+fn field_is_explicit_result_mapping(field: &str, result_fields: &HashSet<String>) -> bool {
     let root = field.split_once(['.', '[']).map(|(root, _)| root).unwrap_or(field);
-    call_config.result_fields.contains(root)
+    result_fields.contains(root)
 }
 
 #[cfg(test)]
@@ -272,8 +278,24 @@ mod tests {
         }]);
         let mut call_config = CallConfig::default();
         call_config.result_fields.insert("usage".to_string());
+        let e2e_config = E2eConfig::default();
 
-        assert!(missing_recipe_for_language(&fixture, &call_config, "rust").is_none());
+        assert!(missing_recipe_for_language(&fixture, &call_config, "rust", &e2e_config).is_none());
+    }
+
+    #[test]
+    fn global_result_fields_allow_domain_shaped_field_without_per_call_override() {
+        let fixture = fixture(vec![Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("usage.total_tokens".to_string()),
+            value: Some(serde_json::json!(42)),
+            ..Default::default()
+        }]);
+        let call_config = CallConfig::default();
+        let mut e2e_config = E2eConfig::default();
+        e2e_config.result_fields.insert("usage".to_string());
+
+        assert!(missing_recipe_for_language(&fixture, &call_config, "rust", &e2e_config).is_none());
     }
 
     #[test]
@@ -287,14 +309,31 @@ mod tests {
         let mut override_config = CallOverride::default();
         override_config.assertion_recipes.insert(CHUNKS_RECIPE.to_string());
         call_config.overrides.insert("python".to_string(), override_config);
+        let e2e_config = E2eConfig::default();
 
-        assert!(missing_recipe_for_language(&fixture, &call_config, "python").is_none());
+        assert!(missing_recipe_for_language(&fixture, &call_config, "python", &e2e_config).is_none());
         assert_eq!(
-            missing_recipe_for_language(&fixture, &call_config, "rust"),
+            missing_recipe_for_language(&fixture, &call_config, "rust", &e2e_config),
             Some(MissingAssertionRecipe {
                 field: "chunks_have_embeddings".to_string(),
                 recipe: CHUNKS_RECIPE,
             })
         );
+    }
+
+    #[test]
+    fn streaming_enabled_implicitly_enables_streaming_recipe() {
+        let fixture = fixture(vec![Assertion {
+            assertion_type: "is_true".to_string(),
+            field: Some("stream.has_page_event".to_string()),
+            ..Default::default()
+        }]);
+        let mut call_config = CallConfig::default();
+        call_config.streaming = Some(crate::core::config::e2e::StreamingConfig::Enabled(true));
+        let e2e_config = E2eConfig::default();
+
+        // When streaming is enabled on the call, the streaming recipe should be
+        // implicitly available without being listed in assertion_recipes.
+        assert!(missing_recipe_for_language(&fixture, &call_config, "rust", &e2e_config).is_none());
     }
 }

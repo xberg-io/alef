@@ -196,6 +196,7 @@ fn make_basic_api() -> ApiSurface {
 }
 
 fn make_basic_config() -> ResolvedCrateConfig {
+    // TODO(alef-generic-cleanup): Replace dev.sample_crate package paths with neutral snapshot fixture packages.
     resolved_one(
         r#"
 [workspace]

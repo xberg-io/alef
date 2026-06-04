@@ -859,6 +859,7 @@ fn _to_json_string(_obj: &dyn std::any::Any) -> String {
 mod tests {
     use super::*;
 
+    // TODO(alef-generic-cleanup): replace sample_crate/SampleCrate/TextBackend fixtures with neutral names.
     fn make_trait_def(name: &str) -> TypeDef {
         TypeDef {
             name: name.to_string(),
@@ -1278,6 +1279,7 @@ mod tests {
     /// using .ToFfiJson() extension method.
     #[test]
     fn test_trait_method_enum_return_uses_toffijson_serialization() {
+        // TODO(alef-generic-cleanup): replace PostProcessor trait-bridge fixtures with neutral names.
         let mut trait_def = make_trait_def("PostProcessor");
         trait_def.methods.push(crate::core::ir::MethodDef {
             name: "processing_stage".to_string(),

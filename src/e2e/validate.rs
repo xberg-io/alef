@@ -114,7 +114,7 @@ pub fn validate_fixtures_semantic(
         // Check 4: missing required input fields
         let call_config = e2e_config.resolve_call(fixture.call.as_deref());
         for language in languages {
-            if let Some(missing) = assertion_recipes::missing_recipe_for_language(fixture, call_config, language) {
+            if let Some(missing) = assertion_recipes::missing_recipe_for_language(fixture, call_config, language, e2e_config) {
                 errors.push(ValidationError {
                     file: fixture.source.clone(),
                     message: format!(

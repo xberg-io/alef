@@ -51,6 +51,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     };
 
     let base_features = config.features_for_language(Language::Swift);
+    // TODO(alef-generic-cleanup): Replace hardcoded ocr/full/ocr-wasm feature coupling with generic feature metadata.
     // The IR may record a broad feature condition for a re-exported type whose concrete
     // module requires a narrower companion feature. Include the companion feature when
     // the broader feature set is active so the bridge compiles correctly.
@@ -192,6 +193,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
 /// Check whether the umbrella source crate exposes the given feature name in its
 /// on-disk Cargo.toml. Used to gate auto-injection of optional features like
 /// `ocr-wasm` that some crates expose and others do not.
+// TODO(alef-generic-cleanup): Generalize this Swift feature probe beyond the ocr-wasm consumer convention.
 fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_dir: &str, feature: &str) -> bool {
     let root = match config.workspace_root.as_deref() {
         Some(p) => p.to_path_buf(),
@@ -887,6 +889,8 @@ fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool
         return true; // no condition → always visible
     };
 
+    // TODO(alef-generic-cleanup): Replace hardcoded full-as-aggregate semantics with
+    // configuration-derived feature groups.
     // `full` is the all-inclusive aggregate feature: every sub-feature is transitively
     // enabled when `full` is configured. Skip the cfg check entirely in that case.
     if configured_features.contains("full") {

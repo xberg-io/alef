@@ -58,6 +58,7 @@ const TOML: &str = r#"
 languages = ["java"]
 
 [[crates]]
+# TODO(alef-generic-cleanup): genericize ChatCompletionRequest/SampleLlm package fixtures.
 name = "demo-client"
 sources = ["src/lib.rs"]
 
@@ -118,6 +119,7 @@ fn from_json_arg_emits_json_util_from_json() {
         "must use JsonUtil.fromJson(...) for deserialization. Rendered:\n{rendered}"
     );
     // The per-DTO static form uses a capital type name directly (e.g. `ChatCompletionRequest.fromJson`).
+    // TODO(alef-generic-cleanup): replace ChatCompletionRequest with a neutral DTO fixture.
     // JsonUtil.fromJson is the correct centralized form — it must NOT appear as `TypeName.fromJson`.
     assert!(
         !rendered.contains("ChatCompletionRequest.fromJson("),

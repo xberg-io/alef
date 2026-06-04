@@ -186,6 +186,7 @@ fn service_api_jvm_symbol_consistency() {
     assert!(!kotlin_files.is_empty(), "kotlin should generate service file");
     let kotlin_content = kotlin_files[0].content.clone();
 
+    // TODO(alef-generic-cleanup): replace JVM package assertions with neutral fixture package names.
     assert!(java_content.contains("package dev.sample_crate;"));
     assert!(java_content.contains("LOOKUP.find(\"test_crate_api_surface_new\")"));
     assert!(

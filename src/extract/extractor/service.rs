@@ -727,6 +727,8 @@ mod tests {
         (dir, file_path, surface)
     }
 
+    /// TODO(alef-generic-cleanup): This App/Handler fixture is service-shaped
+    /// after a web app; replace with neutral owner/contract examples.
     /// Minimal Rust source with an owner type, a contract trait, and supporting
     /// methods that exercise every classification bucket.
     ///

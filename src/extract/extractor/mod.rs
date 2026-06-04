@@ -50,6 +50,8 @@ pub fn extract(
 
         // Skip source files already visited via `pub mod` traversal from an earlier
         // source (typically lib.rs). Re-processing them with module_path="" would
+        // TODO(alef-generic-cleanup): Replace sample_core path examples with
+        // neutral fixture crate/module names.
         // produce incorrect rust_paths (e.g. `sample_core::CustomProperties` instead
         // of `sample_core::extraction::CustomProperties`).
         if visited.contains(&canonical) {
@@ -86,6 +88,8 @@ pub fn extract(
 
         // For non-root source files, apply re-export shortening from the parent module.
         // When `cache/core.rs` is processed with module_path="cache::core", items get
+        // TODO(alef-generic-cleanup): Keep this re-export example generic rather
+        // than naming sample_core in extractor documentation.
         // paths like `sample_core::cache::core::GenericCache`. If the parent `cache/mod.rs`
         // has `pub use core::{GenericCache, ...}`, we shorten to `sample_core::cache::GenericCache`.
         if !module_path.is_empty() {
@@ -159,6 +163,7 @@ pub fn extract(
 /// Apply named re-export shortening from the parent module file.
 ///
 /// When a source file like `cache/core.rs` produces items with paths like
+/// TODO(alef-generic-cleanup): Use a neutral fixture crate in this example.
 /// `sample_core::cache::core::GenericCache`, and the parent `cache/mod.rs` has
 /// `pub use core::{GenericCache, ...}`, this shortens the path to
 /// `sample_core::cache::GenericCache`.

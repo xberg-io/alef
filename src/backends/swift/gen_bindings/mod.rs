@@ -4020,6 +4020,7 @@ fn return_uses_json_bridge(ty: &TypeRef) -> bool {
 /// forwarder must JSON-decode rather than apply a chained `?.toString()` — the
 /// latter is a type error against the non-optional `RustString`.
 ///
+/// TODO(alef-generic-cleanup): Replace sample_core parser-pack examples with neutral fixture names.
 /// Covers `Option<String>` (sample_core parser-pack `detect_language_from_extension`)
 /// and `Option<Primitive>` (sample app `completion_cost` returning
 /// `Option<f64>`). Other shapes (`Option<Named>`, `Option<Vec<…>>`) hit the
@@ -4049,6 +4050,7 @@ struct ForwarderArg {
 /// produce the (optional) conversion line + call argument used to pass it to the
 /// swift-bridge runtime.
 ///
+/// TODO(alef-generic-cleanup): Replace sample_core-specific forwarder examples with neutral fixture names.
 /// The pairings are intentionally narrow: only conversions used by sample_core's
 /// public free functions are materialised. Anything not handled defaults to
 /// passing the Swift value through unchanged (sufficient for `String`,
@@ -4357,6 +4359,7 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::String => String::new(),
             _ => String::new(),
         },
+        // TODO(alef-generic-cleanup): Replace sample_core-shaped DTO forwarder rationale with neutral fixture coverage.
         // Bare Named DTO return is currently emitted via DTO-aware free-function
         // bodies; the generic forwarder doesn't have a chainable suffix that can
         // wrap a bare class value into `try {Name}(value)` because there's no `.map`

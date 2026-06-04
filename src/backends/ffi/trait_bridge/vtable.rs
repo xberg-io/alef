@@ -500,6 +500,7 @@ mod tests {
     /// When the FFI config provides an explicit `plugin_error_constructor`
     /// expression, the plugin shim emits that verbatim instead of the
     /// `From<String>` fallback. This is the sample_core compatibility path —
+    /// TODO(alef-generic-cleanup): Replace sample_core compatibility docs with neutral fixture compatibility language.
     /// sample_core's `SampleCrateError::Plugin` is a struct variant with two
     /// fields and cannot be constructed via `From<String>`.
     #[test]

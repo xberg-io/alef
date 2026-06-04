@@ -133,6 +133,7 @@ fn test_basic_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
+        // TODO(alef-generic-cleanup): Replace extraction/OCR enum fixture names with neutral examples.
         enums: vec![EnumDef {
             name: "Backend".to_string(),
             rust_path: "test_lib::Backend".to_string(),
@@ -1371,6 +1372,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_emits_struct_when_register_fn_configured() {
+        // TODO(alef-generic-cleanup): Replace sample_crate/OcrBackend plugin fixtures with neutral examples.
         let trait_def = make_trait_def(
             "OcrBackend",
             vec![make_method("recognize", TypeRef::String, true, false)],
@@ -1426,6 +1428,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_emits_plugin_impl() {
+        // TODO(alef-generic-cleanup): Replace PostProcessor plugin fixtures with neutral examples.
         let trait_def = make_trait_def(
             "PostProcessor",
             vec![make_method("process", TypeRef::String, true, false)],

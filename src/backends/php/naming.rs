@@ -76,6 +76,7 @@ sources = ["src/lib.rs"]
 
     #[test]
     fn php_autoload_namespace_explicit_extension_name() {
+        // TODO(alef-generic-cleanup): Replace sample_markdown extension-name example with a neutral fixture package.
         let r = resolved_one(
             r#"
 [workspace]
@@ -96,6 +97,7 @@ extension_name = "sample_markdown_rs"
 
     #[test]
     fn php_autoload_namespace_explicit_namespace_override() {
+        // TODO(alef-generic-cleanup): Replace sample-markdown namespace example with a neutral fixture package.
         let r = resolved_one(
             r#"
 [workspace]

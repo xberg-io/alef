@@ -59,6 +59,7 @@ fn make_fixture(id: &str, input: serde_json::Value) -> Fixture {
 
 #[test]
 fn elixir_stub_emits_super_trait_name_and_initialize() {
+    // TODO(alef-generic-cleanup): Replace DocumentExtractor plugin stub fixtures with neutral examples.
     let bridge = make_trait_bridge("DocumentExtractor", Some("Plugin"));
     let extract_method = make_method("extract_bytes", TypeRef::Named("ProcessingResult".to_string()), false);
     let methods = vec![&extract_method];
@@ -118,6 +119,7 @@ fn elixir_stub_emits_integer_methods_as_one() {
 
 #[test]
 fn elixir_stub_emits_all_required_trait_methods() {
+    // TODO(alef-generic-cleanup): Replace OcrResult plugin stub fixtures with neutral examples.
     let bridge = make_trait_bridge("ImageBackend", Some("Plugin"));
     let process_image = make_method("process_image", TypeRef::Named("OcrResult".to_string()), false);
     let supports_language = make_method("supports_language", TypeRef::Primitive(PrimitiveType::Bool), false);

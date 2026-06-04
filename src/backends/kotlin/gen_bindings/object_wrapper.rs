@@ -1939,6 +1939,8 @@ mod tests {
     /// type to the nested variant class (which causes self-recursion /
     /// StackOverflowError in Jackson).
     ///
+    /// TODO(alef-generic-cleanup): replace dev.sample_core/dev.sample_crate samplellm Android examples
+    /// with neutral fixture package names.
     /// Example: `ContentPart::ImageUrl { image_url: ImageUrl }` — inside
     /// `ContentPart`, `ImageUrl` refers to the nested `data class ImageUrl` unless
     /// the field type is explicitly qualified as `dev.sample_core.samplellm.android.ImageUrl`.

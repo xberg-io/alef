@@ -12,6 +12,7 @@ fn resolved_one(toml: &str) -> ResolvedCrateConfig {
 }
 
 fn make_config() -> ResolvedCrateConfig {
+    // TODO(alef-generic-cleanup): Replace dev.sample_crate packages with neutral Kotlin fixture packages.
     resolved_one(
         r#"
 [workspace]

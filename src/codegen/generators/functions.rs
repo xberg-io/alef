@@ -287,6 +287,7 @@ pub fn gen_function_with_mutex(
                 }
             }
         } else if func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
+            // TODO(alef-generic-cleanup): replace generated not implemented fallback with real async delegation.
             // Async function that can't be auto-delegated — wrap unimplemented body in future_into_py
             let suppress = if func.params.is_empty() {
                 String::new()

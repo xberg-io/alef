@@ -7,6 +7,7 @@ use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, Pa
 #[test]
 fn test_visitor_file_emits_prefixed_struct() {
     // Minimal trait def with one method to exercise the generator.
+    // TODO(alef-generic-cleanup): Replace sample_crate visitor fixture paths with neutral examples.
     let trait_def = alef::core::ir::TypeDef {
         name: "SyntaxWalker".to_string(),
         rust_path: "sample_crate::visitor::SyntaxWalker".to_string(),
@@ -93,6 +94,7 @@ fn test_visitor_file_emits_prefixed_struct() {
 
 #[test]
 fn test_visitor_file_uses_configured_function_options_field_and_result() {
+    // TODO(alef-generic-cleanup): Replace Renderer visitor fixtures with neutral trait examples.
     let trait_def = alef::core::ir::TypeDef {
         name: "Renderer".to_string(),
         rust_path: "sample::Renderer".to_string(),

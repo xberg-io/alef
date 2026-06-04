@@ -104,6 +104,7 @@ exclude_types = ["HiddenConfig"]
 
 #[test]
 fn php_native_and_facade_allow_null_default_config_param() {
+    // TODO(alef-generic-cleanup): Replace ExtractionConfig fixture names with neutral DTO examples.
     let backend = PhpBackend;
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -278,6 +279,7 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
 
 #[test]
 fn test_basic_generation() {
+    // TODO(alef-generic-cleanup): Replace OCR enum fixture names with neutral enum examples.
     let backend = PhpBackend;
 
     // Create test API surface
@@ -3156,6 +3158,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
                     is_tuple: false,
                     originally_had_data_fields: false,
                 },
+                // TODO(alef-generic-cleanup): Replace Markdown output-format fixture names with neutral variants.
                 EnumVariant {
                     name: "Markdown".to_string(),
                     fields: vec![],
@@ -3574,6 +3577,7 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
     use alef::codegen::generators::{AsyncPattern, RustBindingConfig, gen_struct_with_per_field_attrs};
     use alef::core::ir::FieldDef;
 
+    // TODO(alef-generic-cleanup): Replace CrawlConfig defaulting fixture names with neutral DTO examples.
     let typ = TypeDef {
         name: "CrawlConfig".to_string(),
         rust_path: "test_lib::CrawlConfig".to_string(),

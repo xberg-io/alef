@@ -125,6 +125,7 @@ fn make_fallible_function(name: &str, params: Vec<ParamDef>, return_type: TypeRe
     }
 }
 
+/// TODO(alef-generic-cleanup): replace dev.sample_crate.demo native fixture names with neutral ones.
 /// Build a native-target config with a known FFI prefix.
 fn make_native_config(crate_name: &str) -> ResolvedCrateConfig {
     resolved_one(&format!(

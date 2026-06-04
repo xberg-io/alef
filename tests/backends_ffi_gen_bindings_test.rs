@@ -169,6 +169,7 @@ fn make_api() -> ApiSurface {
 
 #[test]
 fn test_gen_trait_bridge_vtable_is_repr_c() {
+    // TODO(alef-generic-cleanup): Replace OcrBackend trait bridge fixtures with neutral trait examples.
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = make_bridge_cfg("OcrBackend");
     let api = make_api();
@@ -319,6 +320,7 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
 
 #[test]
 fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pattern() {
+    // TODO(alef-generic-cleanup): Replace register_ocr_backend bridge fixtures with neutral registry examples.
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),

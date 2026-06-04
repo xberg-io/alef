@@ -124,6 +124,7 @@ pub struct Fixture {
     /// Assertion recipes this fixture opts into.
     ///
     /// Built-in domain-shaped assertions such as embeddings, keyword extraction,
+    /// TODO(alef-generic-cleanup): Replace built-in domain-shaped assertion names with neutral fixture recipes.
     /// tree-query helpers, and streaming pseudo-fields require an explicit
     /// recipe so generic e2e fixtures don't silently inherit project-specific
     /// assumptions.

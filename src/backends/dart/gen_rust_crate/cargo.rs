@@ -143,6 +143,7 @@ pub(crate) fn emit_cargo_toml(
     };
 
     // When the Rust ident form of the umbrella crate name (`core_dep_key`,
+    // TODO(alef-generic-cleanup): Replace sample_llm/sample-markdown package examples with neutral fixtures.
     // e.g. `sample_llm`) differs from the actual cargo package name in the
     // umbrella Cargo.toml (`crate_name`, e.g. `sample-llm`), cargo will not
     // resolve the path dependency unless we add an explicit `package = "..."`
@@ -172,6 +173,7 @@ pub(crate) fn emit_cargo_toml(
 
     // Merge [crate.extra_dependencies] from alef.toml — required for multi-crate
     // workspaces where the bindings codegen emits qualified paths from sibling
+    // TODO(alef-generic-cleanup): Replace QueryOnlyConfig sibling-crate example with a neutral fixture type.
     // crates (e.g. mylib_extra::QueryOnlyConfig). The umbrella crate is
     // already listed above; these are the additional sibling crates.
     let workspace_extra = config.extra_deps_for_language(crate::core::config::extras::Language::Dart);

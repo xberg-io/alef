@@ -101,6 +101,7 @@ field = "input.config"
 type = "json_object"
 "#;
 
+/// TODO(alef-generic-cleanup): Keep parser/config examples neutral; avoid ExtractionConfig-style fixture names.
 /// When `options_type = "ProcessConfig"` is set in CallOverride.swift, the codegen
 /// must emit `processConfigFromJson(...)` instead of hardcoded `extractionConfigFromJson(...)`.
 #[test]

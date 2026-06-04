@@ -390,6 +390,8 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
 }
 
 /// Extract the fully qualified Rust path for a field's type when it uses a multi-segment
+/// TODO(alef-generic-cleanup): Replace sample_core in these path examples with
+/// neutral fixture crate names.
 /// path (e.g., `crate::types::OutputFormat` → `sample_core::types::OutputFormat`).
 /// Returns `None` for simple single-segment types like `OutputFormat` or primitives.
 ///

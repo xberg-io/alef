@@ -92,6 +92,7 @@ const TOML_WITH_JAVA_CLIENT_FACTORY: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
+# TODO(alef-generic-cleanup): genericize dev.sample_crate.democlient.android fixture packages.
 name = "demo-client"
 sources = ["src/lib.rs"]
 

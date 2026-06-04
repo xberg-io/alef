@@ -5,6 +5,8 @@
 //! - The **FFI layer**: raw `RustString`, `RustVec<UInt8>`, primitive types (FFI types)
 //! - The **user-facing bridge protocol**: typed Swift structs (Codable), String, Data, [String], enums, etc.
 //!
+//! TODO(alef-generic-cleanup): Replace fixed TextBackend/EmbeddingBackend/DocumentExtractor
+//! examples with neutral fixtures.
 //! The helpers cover all TypeRef variants that appear in plugin trait methods (TextBackend,
 //! PostProcessor, Validator, EmbeddingBackend, DocumentExtractor, Renderer).
 

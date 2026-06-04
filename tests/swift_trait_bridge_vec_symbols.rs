@@ -5,6 +5,7 @@ use alef::core::ir::{MethodDef, TypeDef, TypeRef};
 use std::collections::HashSet;
 
 fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    // TODO(alef-generic-cleanup): Replace sample_crate rust paths with neutral trait bridge fixture paths.
     TypeDef {
         name: name.to_string(),
         rust_path: format!("sample_crate::{}", name),
@@ -53,6 +54,7 @@ fn make_method(name: &str, return_type: TypeRef, is_async: bool) -> MethodDef {
 
 #[test]
 fn test_swift_trait_bridge_vec_phantom_symbols() {
+    // TODO(alef-generic-cleanup): Rename DocumentExtractor/TextBackend traits to neutral generated trait fixtures.
     let trait_names = vec!["DocumentExtractor", "TextBackend", "PostProcessor", "Renderer"];
 
     for trait_name in trait_names {
@@ -115,6 +117,7 @@ fn test_swift_trait_bridge_vec_phantom_symbols() {
 
 #[test]
 fn test_swift_renderer_trait_bridge_vec_symbols_specifically() {
+    // TODO(alef-generic-cleanup): Remove sample_crate-specific regression wording once covered by neutral fixtures.
     // Specific regression test for sample_crate Renderer trait bridge
     // (reported as sample_crate v5.0.0-rc.3 CI failure: missing Vec_RendererBox symbols)
 

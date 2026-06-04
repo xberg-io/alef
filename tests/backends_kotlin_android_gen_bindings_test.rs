@@ -22,6 +22,7 @@ license = "MIT"
 }
 
 fn make_streaming_config() -> ResolvedCrateConfig {
+    // TODO(alef-generic-cleanup): Replace dev.sample_crate packages with neutral Kotlin Android fixture packages.
     resolved_one(
         r#"
 [workspace]
@@ -1255,6 +1256,7 @@ fn sealed_variant_tuple_params_use_payload_derived_names() {
 // ---------------------------------------------------------------------------
 
 fn make_tuple_error_api() -> ApiSurface {
+    // TODO(alef-generic-cleanup): Replace HTML parser error naming with neutral tuple-error fixture text.
     use alef::core::ir::{ErrorDef, ErrorVariant, FieldDef};
     ApiSurface {
         crate_name: "demo".into(),
@@ -1433,6 +1435,7 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
 // ---------------------------------------------------------------------------
 
 fn make_convert_api() -> ApiSurface {
+    // TODO(alef-generic-cleanup): Replace parser/HTML convert fixtures with neutral DTO conversion examples.
     // Simulate a parser crate's convert(html: String, options: Option<ParseOptions>) ->
     // ParseOutput shape where ParseOptions and ParseOutput are
     // non-opaque named types (DTOs).
@@ -1617,6 +1620,7 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
 // ---------------------------------------------------------------------------
 
 fn make_batch_function_api() -> ApiSurface {
+    // TODO(alef-generic-cleanup): Replace sample_crate extraction batch names with neutral batch DTO fixtures.
     // Simulate sample_crate's batch_extract_files and batch_extract_bytes:
     //   batch_extract_files(items: Vec<BatchFileItem>) -> Result<Vec<ParseResult>, _>
     //   batch_extract_bytes(items: Vec<BatchBytesItem>) -> Result<Vec<ParseResult>, _>
@@ -2644,6 +2648,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
 // ---------------------------------------------------------------------------
 
 fn make_long_signature_api() -> ApiSurface {
+    // TODO(alef-generic-cleanup): Rename DocumentExtractor/ExtractionConfig cluster to neutral long-signature fixtures.
     // Create a trait with methods that have long signatures (>=115 chars) to
     // trigger the AGP 8.13.0 + Kotlin 2.3.21 parser cascade on single-line form.
     let extract_method = MethodDef {

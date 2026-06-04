@@ -667,6 +667,7 @@ fn unwrap_return_expr(
             // crates/alef-backend-ffi/src/gen_bindings/functions.rs).  Avoids a
             // NUL-scan and removes the dependency on the sentinel terminator.
             //
+            // TODO(alef-generic-cleanup): replace sample_core_last_error_code example with a neutral prefix.
             // Defensive null check: the error-code probe above gates on the FFI
             // `_<fn>` setting `sample_core_last_error_code()`, but the matching
             // `_<fn>_len()` companion calls `clear_last_error()` on entry and
@@ -693,6 +694,7 @@ fn unwrap_return_expr(
             s
         }
         TypeRef::Named(name) if struct_names.contains(name) => {
+            // TODO(alef-generic-cleanup): replace SAMPLE_CRATEFoo example with a neutral fixture name.
             // The C function returned an opaque handle (*SAMPLE_CRATEFoo). Serialize
             // it to JSON via the FFI `<prefix>_<snake>_to_json` helper, copy the
             // JSON string into a Zig-owned buffer, then free both the JSON string

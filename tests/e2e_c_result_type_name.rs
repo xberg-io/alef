@@ -24,6 +24,7 @@ fn resolve_one(
 }
 
 fn build_c_config_with_prefix_override() -> NewAlefConfig {
+    // TODO(alef-generic-cleanup): Replace parser/HTML-shaped fixture names with neutral C result examples.
     let toml_src = r#"
 [workspace]
 languages = ["ffi"]

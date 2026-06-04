@@ -56,6 +56,7 @@ const TOML: &str = r#"
 languages = ["java"]
 
 [[crates]]
+# TODO(alef-generic-cleanup): replace sample_crate Java fixture names with neutral generated-package names.
 name = "sample_crate"
 sources = ["src/lib.rs"]
 
@@ -132,6 +133,7 @@ fn enum_serde_default_builder_not_null() {
     );
 
     // The config should be passed to the extraction function
+    // TODO(alef-generic-cleanup): genericize ExtractionConfig/extractFileSync fixture assertions.
     assert!(
         rendered.contains(".extractFileSync(java.nio.file.Path.of(\"pdf/fake_memo.pdf\"), null, config)"),
         "must pass config to extraction function. Rendered:\n{rendered}"

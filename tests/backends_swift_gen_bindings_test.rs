@@ -504,6 +504,7 @@ fn data_bearing_enum_emits_associated_values() {
 
 #[test]
 fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
+    // TODO(alef-generic-cleanup): Replace this downstream-shaped Html fixture with a neutral enum case cluster.
     // Reproduces the HtmlTheme regression in the sample_crate Swift binding:
     // the `Default` variant must emit as `case `default`` (backtick-escaped),
     // not `case default_` (trailing-underscore). Non-keyword variants are
@@ -2819,6 +2820,7 @@ fn make_serde_type(name: &str) -> TypeDef {
 
 #[test]
 fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
+    // TODO(alef-generic-cleanup): Rename ExtractionConfig/Batch* fixtures to neutral config/result examples.
     // These names used to trigger hardcoded Swift e2e convenience wrappers. They
     // should now flow through the generic from-json forwarder path only.
     let mut embed_fn = make_sync_fn(

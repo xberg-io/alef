@@ -23,6 +23,7 @@ use super::trait_types::{
 /// 3. `impl {Trait} for {Trait}DartImpl` — delegates each method to its closure.
 /// 4. `pub fn create_{trait_snake}_dart_impl(...)` — factory function.
 ///
+/// TODO(alef-generic-cleanup): Replace MyOcrBackend/OcrBackend wiring examples with neutral fixture names.
 /// Dart-side wiring (`class MyOcrBackend implements OcrBackend { ... }`) is
 /// post-FRB-codegen-runtime work and is NOT generated here.
 pub(crate) fn emit_trait_bridge(
@@ -80,6 +81,7 @@ pub(crate) fn emit_trait_bridge(
     //   - The factory returns the already-emitted local `type_alias` opaque wrapper
     //     (e.g. `VisitorHandle { inner: Arc<Mutex<...>> }`) which IS exposed to FRB.
     //
+    // TODO(alef-generic-cleanup): Replace plugin/ocr bridge-shape terminology with generic registry metadata.
     // Bridge configs WITHOUT `type_alias` (the plugin/ocr pattern) keep the legacy
     // factory shape: a `#[frb(opaque)] pub struct TraitDartImpl { Box<dyn Fn(...)> }`
     // exposed directly to FRB and handed to a `register_*` forwarder. Those callsites
@@ -227,6 +229,7 @@ pub(crate) fn emit_trait_bridge(
     //
     // The trait name inside `Arc<dyn …>` is emitted UNQUALIFIED. FRB v2 strips
     // `dyn` and the qualified path when copying the inner type into the generated
+    // TODO(alef-generic-cleanup): Replace DocumentExtractor FRB examples with neutral fixture names.
     // `frb_generated.rs` (it writes `Arc<DocumentExtractor + Send + Sync>` not
     // `Arc<dyn example_crate::plugins::DocumentExtractor + …>`). `frb_generated.rs`
     // imports `use crate::*;` at its top, so a sibling `pub use {trait_path};`
@@ -266,6 +269,7 @@ pub(crate) fn emit_trait_bridge(
     //     function type for each closure parameter (whereas closure FIELDS on opaque
     //     structs render as uninstantiable opaque types in FRB v2).
     //
+    // TODO(alef-generic-cleanup): Replace plugin/ocr factory-shape terminology with neutral registry fixtures.
     // (B) `type_alias` is unset (plugin/ocr pattern): legacy factory shape — takes
     //     `Box<dyn Fn(...) -> DartFnFuture<R> + Send + Sync>` and returns the opaque
     //     bridge struct directly. The Dart-side wiring goes through `register_*` /
@@ -429,6 +433,7 @@ pub(crate) fn emit_trait_bridge(
     // --- 5. register_*/unregister_*/clear_* forwarder functions ---
     // Emitted only when the bridge config sets `register_fn` (and optionally `unregister_fn`
     // / `clear_fn`). FRB auto-bridges these `pub fn` items so Dart sees them as:
+    // TODO(alef-generic-cleanup): Replace registerOcrBackend examples with neutral registration names.
     //   Future<void> registerOcrBackend(...)
     //   Future<void> unregisterOcrBackend(...)
     //   Future<void> clearOcrBackends()
@@ -443,6 +448,7 @@ pub(crate) fn emit_trait_bridge(
 /// it directly via the configured `registry_getter` (mirroring the PyO3/NAPI
 /// approach). Going through the registry handle — rather than the host crate's
 /// `register_*` free function — sidesteps the host's `pub(crate)` / `#[cfg(test)]`
+/// TODO(alef-generic-cleanup): Replace EmbeddingBackend wrapper example with neutral fixture names.
 /// restrictions on those wrappers (notably for `EmbeddingBackend`).
 ///
 /// The forwarder returns `Result<(), String>` because FRB requires owned, FFI-
@@ -595,6 +601,7 @@ fn substitute_excluded_carriers_in_rust_type(
 /// type so FRB generates a constructible Dart object without exposing the internal
 /// Rust struct as a public DTO.
 ///
+/// TODO(alef-generic-cleanup): Replace OcrConfig/HiddenDocumentBridge callback example with neutral fixture types.
 /// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<HiddenDocumentBridge> + Send + Sync>`
 fn dart_fn_future_callback_type(
     method: &MethodDef,
@@ -615,6 +622,7 @@ fn dart_fn_future_callback_type(
 /// stay `Box<dyn Fn(...)>` (see `dart_fn_future_callback_type`); the factory
 /// boxes each `impl Fn` argument as it stores it.
 ///
+/// TODO(alef-generic-cleanup): Replace OcrConfig/HiddenDocumentBridge factory example with neutral fixture types.
 /// Example: `impl Fn(Vec<u8>, OcrConfig) -> DartFnFuture<HiddenDocumentBridge> + Send + Sync + 'static`
 fn dart_fn_future_factory_param_type(
     method: &MethodDef,
@@ -1072,6 +1080,7 @@ fn excluded_type_core_path(
 /// The `excluded_trait_names` lookup is necessary because traits annotated with
 /// `#[cfg_attr(alef, alef(skip))]` (e.g. `SyncExtractor`) are stripped from `api.types`
 /// before codegen, but their NAME may still appear in surviving trait method return
+/// TODO(alef-generic-cleanup): Replace DocumentExtractor/SyncExtractor examples with neutral fixture names.
 /// signatures (e.g. `DocumentExtractor::as_sync_extractor() -> Option<&dyn SyncExtractor>`).
 /// Without this fallback, the bridge struct would emit a closure field with the trait
 /// path used as a TYPE (`Option<sample_core::extractors::SyncExtractor>`), producing

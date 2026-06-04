@@ -76,6 +76,8 @@ pub enum ExportValidation {
 ///
 /// This catches two bug classes:
 /// - **C1** -- the declared `module` does not match the actual export path (e.g., the
+///   TODO(alef-generic-cleanup): Rewrite these docs around neutral fixture names
+///   instead of `sample_core`/`render_page` examples inherited from consumers.
 ///   function is defined at `sample_core::rendering::render_page` but `alef.toml` uses
 ///   `module = "sample_core"`, and `render_page` is NOT re-exported at the crate root).
 /// - **C2** -- multiple definitions exist; the one with the wrong `rust_path` was kept
@@ -323,6 +325,8 @@ mod tests {
 
     #[test]
     fn return_type_fields_returns_struct_fields() {
+        // TODO(alef-generic-cleanup): Replace ExtractionResult-style examples
+        // with neutral DTO fixtures that do not mirror a specific extraction app.
         let mut surface = empty_surface();
         surface.functions.push(make_fn(
             "extract_doc",
@@ -384,6 +388,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let lib_rs = dir.path().join("lib.rs");
         std::fs::write(&lib_rs, lib_rs_source).expect("write lib.rs");
+        // TODO(alef-generic-cleanup): Use a neutral crate fixture name instead
+        // of `sample_crate` throughout this test cluster.
         crate::extract::extractor::extract(&[lib_rs.as_path()], "sample_crate", "0.0.0", None).expect("extract failed")
     }
 

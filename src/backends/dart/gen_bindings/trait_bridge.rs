@@ -16,6 +16,7 @@ use heck::ToLowerCamelCase;
 /// - Forward to the Rust-generated `pub fn` items via FRB's free-function mechanism
 /// - Return `Future<void>` for async trait bridge operations
 ///
+/// TODO(alef-generic-cleanup): replace OcrBackend generated API examples with neutral fixture names.
 /// The Rust side generates:
 /// - `pub fn register_ocr_backend(impl: OcrBackendDartImpl) -> Result<(), String>`
 /// - `pub fn unregister_ocr_backend(name: String) -> Result<(), String>`
@@ -66,6 +67,7 @@ pub(super) fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mu
 mod tests {
     use super::*;
 
+    // TODO(alef-generic-cleanup): replace OcrBackend/PostProcessor bridge examples with neutral names.
     #[test]
     fn test_emit_trait_bridge_methods_register_only() {
         let cfg = TraitBridgeConfig {

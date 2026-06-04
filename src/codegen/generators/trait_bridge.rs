@@ -52,6 +52,7 @@ impl<'a> TraitBridgeSpec<'a> {
         self.error_constructor.replace("{msg}", msg_expr)
     }
 
+    /// TODO(alef-generic-cleanup): Replace OcrBackend wrapper examples with neutral fixture names.
     /// Wrapper struct name: `{prefix}{TraitName}Bridge` (e.g., `PythonOcrBackendBridge`).
     pub fn wrapper_name(&self) -> String {
         bridge_wrapper_name(self.wrapper_prefix, self.bridge_config)
@@ -62,6 +63,7 @@ impl<'a> TraitBridgeSpec<'a> {
         self.trait_def.name.to_snake_case()
     }
 
+    /// TODO(alef-generic-cleanup): Replace sample_core/OcrBackend path examples with neutral fixture names.
     /// Full Rust path to the trait (e.g., `sample_core::OcrBackend`).
     pub fn trait_path(&self) -> String {
         self.trait_def.rust_path.replace('-', "_")
@@ -515,6 +517,7 @@ pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGe
 /// `sample_core::plugins::ocr::unregister_ocr_backend`) given the bridge's
 /// `registry_getter` path. The convention used by host crates is:
 ///
+/// TODO(alef-generic-cleanup): Replace sample_core/plugins/ocr registry convention examples with generic metadata.
 /// - `registry_getter = "sample_core::plugins::registry::get_ocr_backend_registry"`
 /// - top-level fn      = `sample_core::plugins::ocr::unregister_ocr_backend`
 ///

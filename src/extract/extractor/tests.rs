@@ -3635,6 +3635,8 @@ fn test_trait_impl_method_on_generic_impl_is_recorded_as_unsupported() {
 
 #[test]
 fn wrapper_struct_alongside_per_element_struct_is_extracted() {
+    // TODO(alef-generic-cleanup): Replace this sample_crawler-shaped regression
+    // fixture with neutral batch/result names while preserving the coverage.
     // Regression for sample_crawler's BatchScrapeResults: a wrapper struct
     // declared in the same module as the per-element struct and the
     // function returning it must appear in surface.types so codegen
