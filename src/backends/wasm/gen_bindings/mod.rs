@@ -203,6 +203,19 @@ impl Backend for WasmBackend {
         let wasm_config = config.wasm.as_ref();
         let mut exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let mut exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
+        // Declared opaque types from `[workspace.opaque_types]` are external host-runtime
+        // references. When their `rust_path` carries generic parameters (e.g. `Arc<Mutex<dyn T>>`),
+        // the injected IR cannot model them, so wasm-bindgen can't wrap them — exclude those.
+        // Simple newtype opaques (no generics in the path) DO wrap as `#[wasm_bindgen]` classes
+        // fine; leave them in so consumers with simple external handle types get a
+        // `WasmLanguage` wrapper struct emitted.
+        exclude_types.extend(
+            config
+                .opaque_types
+                .iter()
+                .filter(|(_, path)| path.contains('<'))
+                .map(|(name, _)| name.clone()),
+        );
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();

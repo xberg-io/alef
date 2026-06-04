@@ -974,6 +974,148 @@ fn test_opaque_type_configured_in_config() {
 }
 
 #[test]
+fn test_opaque_type_filter_simple_newtype_not_excluded() {
+    let backend = WasmBackend;
+
+    // Regression test: Simple newtype opaque (no generic params) should NOT be excluded
+    // from WASM binding generation, so wasm-bindgen can emit a wrapper struct.
+    // This is the tree-sitter-language-pack::Language case.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Language".to_string(),
+            rust_path: "test_lib::Language".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Simple opaque language type".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![FunctionDef {
+            name: "get_language".to_string(),
+            rust_path: "test_lib::get_language".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Named("Language".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: "Get default language".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let mut config = make_config();
+    // Declare Language as an opaque type with NO generic params in the path
+    config
+        .opaque_types
+        .insert("Language".to_string(), "test_lib::Language".to_string());
+
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed for simple newtype opaque");
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // Simple newtype opaques should have wrapper struct emitted
+    assert!(
+        content.contains("pub struct WasmLanguage"),
+        "WasmLanguage wrapper struct must be emitted for simple newtype opaque (no generics in path)"
+    );
+}
+
+#[test]
+fn test_opaque_type_filter_generic_path_excluded() {
+    let backend = WasmBackend;
+
+    // Regression test: Opaque with generic params in path should be EXCLUDED
+    // because wasm-bindgen cannot wrap generic types. This is the kreuzberg
+    // Arc<Mutex<dyn Trait>> case.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Handler".to_string(),
+            rust_path: "test_lib::Handler".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Generic opaque handler".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let mut config = make_config();
+    // Declare Handler with generic params in the path (like Arc<Mutex<dyn Trait>>)
+    config.opaque_types.insert(
+        "Handler".to_string(),
+        "std::sync::Arc<std::sync::Mutex<dyn test_lib::Handler>>".to_string(),
+    );
+
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // Generic-path opaques should NOT have wrapper struct (excluded)
+    assert!(
+        !content.contains("pub struct WasmHandler"),
+        "WasmHandler wrapper struct must NOT be emitted for generic-path opaque (contains '<')"
+    );
+}
+
+#[test]
 fn test_exclude_functions() {
     let backend = WasmBackend;
 
@@ -1275,13 +1417,81 @@ fn make_async_method_wasm(name: &str, return_type: TypeRef) -> MethodDef {
     }
 }
 
+fn make_node_context_wasm() -> TypeDef {
+    TypeDef {
+        name: "NodeContext".to_string(),
+        rust_path: "my_lib::NodeContext".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("node_id", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    }
+}
+
+fn make_visit_result_wasm() -> EnumDef {
+    EnumDef {
+        name: "VisitResult".to_string(),
+        rust_path: "my_lib::VisitResult".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Continue".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            },
+            EnumVariant {
+                name: "Stop".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: Some("snake_case".to_string()),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+    }
+}
+
 fn make_api_wasm() -> ApiSurface {
     ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
-        types: vec![],
+        types: vec![make_node_context_wasm()],
         functions: vec![],
-        enums: vec![],
+        enums: vec![make_visit_result_wasm()],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1330,8 +1540,8 @@ fn make_visitor_bridge_cfg_wasm(trait_name: &str, type_alias: &str) -> alef::cor
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        context_type: None,
-        result_type: None,
+        context_type: Some("NodeContext".to_string()),
+        result_type: Some("VisitResult".to_string()),
     }
 }
 

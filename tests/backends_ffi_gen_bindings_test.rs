@@ -1183,3 +1183,141 @@ ffi = "crates/mylib-ffi/src/"
         "opaque type Language must emit ml_language_free() for cgo compatibility; got:\n{code}"
     );
 }
+
+#[test]
+fn test_opaque_type_filter_simple_newtype_not_excluded() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+opaque_types = { Language = "mylib::Language" }
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    // Simple newtype opaque (no generics) should have free function emitted
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Language".to_string(),
+            rust_path: "mylib::Language".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Simple opaque language type".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    // Simple newtype opaques should have free function emitted
+    assert!(
+        code.contains("pub unsafe extern \"C\" fn ml_language_free("),
+        "opaque type Language must emit ml_language_free() for simple newtype opaque (no generics in path)"
+    );
+}
+
+#[test]
+fn test_opaque_type_filter_generic_path_excluded() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+opaque_types = { Handler = "std::sync::Arc<std::sync::Mutex<dyn mylib::Handler>>" }
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    // Generic-path opaque should be excluded from FFI emission
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Handler".to_string(),
+            rust_path: "mylib::Handler".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Generic opaque handler type".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    // Generic-path opaques should NOT have free function (excluded)
+    assert!(
+        !code.contains("pub unsafe extern \"C\" fn ml_handler_free("),
+        "opaque type Handler must NOT emit ml_handler_free() for generic-path opaque (contains '<')"
+    );
+}
