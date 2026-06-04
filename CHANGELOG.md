@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(swift): allow `unreachable_patterns` in generated `kreuzcrawl-swift` Rust crate. The swift backend emits a defensive `_ => unreachable!(...)` arm at the end of every `From<core::Enum> for shim::Enum` impl to guard against non-exhaustive upstream enums, but when the upstream enum is already exhaustive (no `#[non_exhaustive]`), `-D warnings` rejects the now-redundant arm. The fix extends the existing `#![allow(unused_variables, unreachable_code)]` blanket attribute at the top of `packages/swift/rust/src/lib.rs` and `src/extern_callbacks.rs` to also allow `unreachable_patterns`. (`src/backends/swift/gen_rust_crate/mod.rs`)
+
 ## [0.23.0] - 2026-06-04
 
 ### Fixed
