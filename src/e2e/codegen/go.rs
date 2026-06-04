@@ -440,6 +440,10 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out);
         let _ = writeln!(out, "\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")");
         let _ = writeln!(out, "\tcmd := exec.Command(mockBin, fixturesDir)");
+        let _ = writeln!(
+            out,
+            "\tcmd.Env = append(os.Environ(), \"MOCK_SERVER_NO_STDIN_WATCH=1\")"
+        );
         let _ = writeln!(out, "\tstdout, err := cmd.StdoutPipe()");
         let _ = writeln!(out, "\tif err != nil {{ panic(err) }}");
         let _ = writeln!(out, "\tcmd.Stderr = os.Stderr");
@@ -5183,6 +5187,23 @@ mod tests {
         assert!(
             !out.contains("\t\"io\""),
             "main_test.go (mock-server bootstrap path) must NOT import io; got:\n{out}"
+        );
+    }
+
+    /// The generated TestMain must set `MOCK_SERVER_NO_STDIN_WATCH=1` on the
+    /// mock-server subprocess so the server does not treat stdin EOF (from
+    /// Go's exec.Command defaulting Stdin to /dev/null) as a shutdown signal.
+    #[test]
+    fn main_test_go_sets_mock_server_no_stdin_watch_env() {
+        let out = render_main_test_go("testing_data", true, false);
+        assert!(
+            out.contains("MOCK_SERVER_NO_STDIN_WATCH=1"),
+            "main_test.go must set MOCK_SERVER_NO_STDIN_WATCH=1 on the mock-server subprocess; got:\n{out}"
+        );
+        // Must appear as cmd.Env assignment, not as a stray string in a comment.
+        assert!(
+            out.contains("cmd.Env = append(os.Environ(),"),
+            "main_test.go must use cmd.Env = append(os.Environ(), ...) form; got:\n{out}"
         );
     }
 }
