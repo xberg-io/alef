@@ -402,11 +402,12 @@ pub(crate) fn trait_call_arg(
         return format!("{name}.0");
     }
 
-    // Primitives and String.
+    // Primitives, String, and Vec.
     if p.is_ref {
         match &p.ty {
             TypeRef::Bytes | TypeRef::String | TypeRef::Char => return format!("&{name}"),
             TypeRef::Vec(_) if p.optional => return format!("{name}.as_deref()"),
+            TypeRef::Vec(_) => return format!("{name}.as_slice()"),
             _ => return format!("&{name}"),
         }
     }

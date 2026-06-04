@@ -794,8 +794,9 @@ pub(crate) fn emit_type_constructor_shim(
 pub(crate) fn emit_type_method_shims(
     ty: &TypeDef,
     _source_crate: &str,
-    _type_paths: &HashMap<String, String>,
+    type_paths: &HashMap<String, String>,
     handle_returned_types: &std::collections::HashSet<String>,
+    enum_names: &HashSet<&str>,
 ) -> String {
     let type_snake = ty.name.to_snake_case();
     let type_name = &ty.name;
@@ -850,7 +851,7 @@ pub(crate) fn emit_type_method_shims(
         };
         let mut params_vec: Vec<String> = vec![client_receiver];
         for p in &method.params {
-            let bridge_ty = bridge_type(&p.ty);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
             let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
                 format!("Option<{bridge_ty}>")
             } else {
@@ -880,13 +881,14 @@ pub(crate) fn emit_type_method_shims(
 
         // Build call args for each method param (excluding the receiver).
         //
-        // - Named newtype  → `arg.0` (unwrap to inner source-crate type)
-        // - Optional<Named> → `arg.map(|v| v.0)` (preserve None, unwrap Some)
+        // - Enum             → deserialize from String (bridged as String)
+        // - Named newtype    → `arg.0` (unwrap to inner source-crate type)
+        // - Optional<Named>  → `arg.map(|v| v.0)` (preserve None, unwrap Some) [for structs only]
         // - String           → `&arg` (the underlying trait method usually takes `&str`)
         // - Path             → `PathBuf::from(arg)` (bridge delivers String; core takes PathBuf)
         // - Bytes+is_ref     → `&arg` (bridge delivers Vec<u8>; core takes &[u8])
         // - Vec<String>+is_ref → `&arg.iter().map(|s| s.as_str()).collect::<Vec<_>>()` (→ &[&str])
-        // - Named+is_ref     → `&arg.0` (borrow the unwrapped inner value)
+        // - Named+is_ref     → `&arg.0` (borrow the unwrapped inner value) [for structs only]
         // - JSON-bridged     → deserialize from the bridge String
         // - Other primitives → pass through verbatim
         let call_args: Vec<String> = method
@@ -900,6 +902,24 @@ pub(crate) fn emit_type_method_shims(
                     return format!(
                         "serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or(serde_json::Value::Null)"
                     );
+                }
+                // Enum parameters: bridged as String, must be JSON-deserialized.
+                // Check if the Named type is an enum before trying to access .0.
+                if let TypeRef::Named(n) = &p.ty {
+                    if enum_names.contains(n.as_str()) {
+                        // Enum parameter comes in as String; deserialize back to source enum.
+                        // The bridge enum wrapper defines From<SourceEnum> for BridgeEnum,
+                        // so we deserialize to SourceEnum and convert via From.
+                        let source_enum_ty = type_paths
+                            .get(n.as_str())
+                            .map(|p| p.replace('-', "_"))
+                            .unwrap_or_else(|| n.clone());
+                        let deser = format!("::serde_json::from_str::<{source_enum_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+                        if p.optional {
+                            return format!("{name}.map(|json| ::serde_json::from_str::<{source_enum_ty}>(&json).expect(\"valid JSON for {name}\"))");
+                        }
+                        return deser;
+                    }
                 }
                 if needs_json_bridge(&p.ty) {
                     let native_ty = swift_bridge_rust_type(&p.ty);

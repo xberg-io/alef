@@ -4,7 +4,7 @@
 //! Trait bridge extern blocks live in `trait_bridge.rs`.
 
 use crate::backends::swift::gen_rust_crate::type_bridge::{
-    bridge_type, bridge_type_enum_aware, bridge_type_with_handles, is_vec_of_enum, needs_json_bridge,
+    bridge_type, bridge_type_enum_aware, bridge_type_enum_aware_ref, bridge_type_with_handles, is_vec_of_enum, needs_json_bridge,
 };
 use crate::backends::swift::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use crate::core::config::AdapterConfig;
@@ -234,6 +234,7 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
 pub(crate) fn emit_extern_block_for_type_methods(
     ty: &TypeDef,
     handle_returned_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<&str>,
 ) -> Option<String> {
     // Static / associated functions (e.g. `T::default()`) can't be bridged via
     // `client: &T` shims — see the matching filter in `wrappers::emit_type_method_shims`.
@@ -260,7 +261,7 @@ pub(crate) fn emit_extern_block_for_type_methods(
         };
         let mut params: Vec<String> = vec![client_receiver];
         for p in &method.params {
-            let bridge_ty = bridge_type(&p.ty);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
             let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
                 format!("Option<{bridge_ty}>")
             } else {

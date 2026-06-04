@@ -3403,7 +3403,9 @@ fn emit_inbound_protocols(
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
             let params = swift_protocol_params(method, exclude_types);
-            out.push_str(&format!("    func {method_camel}({params}) -> {protocol_return_type}\n"));
+            out.push_str(&format!(
+                "    func {method_camel}({params}) -> {protocol_return_type}\n"
+            ));
         }
         out.push_str("}\n\n");
 

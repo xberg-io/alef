@@ -392,7 +392,7 @@ fn emit_lib_rs(
             if has_ctor_override && let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
                 extern_blocks.push(ctor_block);
             }
-            if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty, &handle_returned_types) {
+            if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty, &handle_returned_types, &enum_names) {
                 extern_blocks.push(method_block);
             }
         }
@@ -660,6 +660,7 @@ fn emit_lib_rs(
                 &source_crate,
                 &type_paths,
                 &handle_returned_types,
+                &enum_names,
             ));
             out.push('\n');
         }

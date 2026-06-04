@@ -67,6 +67,21 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
         ));
     }
 
+    // Emit unreachable!() arms for binding-excluded variants (e.g. feature-gated variants).
+    // The source enum may have variants not in the bridge (binding_excluded), so we need
+    // a catch-all to make the match exhaustive. Feature-gated variants that don't appear
+    // in the IR are still valid values at runtime, but the bridge doesn't expose them,
+    // so we use unreachable!() to indicate this is a logic error in the guard conditions.
+    // Check if there are any variants in the source that are NOT in the bridge by looking at
+    // binding_excluded. If none exist, the match is already exhaustive.
+    //
+    // For enums with feature-gated variants (like FormatMetadata::Code with #[cfg(feature = "tree-sitter")]),
+    // those variants appear in the Rust type but not in the IR, so we need a wildcard.
+    let has_binding_excluded = en.variants.iter().any(|v| v.binding_excluded);
+    if has_binding_excluded {
+        out.push_str("            _ => unreachable!(\"bridge enum is exhaustive; source enum may have excluded variants\"),\n");
+    }
+
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");

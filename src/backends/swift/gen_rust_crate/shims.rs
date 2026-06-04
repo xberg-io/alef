@@ -212,12 +212,21 @@ pub(crate) fn swift_call_arg(
     }
 
     // Named types: unwrap the swift-bridge wrapper newtype with `.0`.
-    // Enum wrappers do not have a `.0` field — they are plain enums. When a
-    // function parameter is a Named enum wrapper, we cannot reverse-convert
-    // it to the underlying source enum (no From<BridgeEnum> for SourceEnum).
-    // The whole shim will be guarded at the emit_function_shim level; here we
-    // still emit a `.0` access so the function body is structurally valid.
-    if matches!(p.ty, TypeRef::Named(_)) {
+    // EXCEPTION: Enum wrappers do not have a `.0` field — they are plain enums.
+    // For enums, the parameter is already the correct type (the bridge deserialized it
+    // via the JSON-bridge path above at lines 142-152). Just use it directly.
+    if let TypeRef::Named(name) = &p.ty {
+        // Enums are guarded by is_bridgeable_fn to prevent them from being
+        // bridged as function parameters (no reverse From impl).
+        // If an enum reaches here, it's a logic error in the guard.
+        if enum_names.contains(name.as_str()) {
+            // Enums cannot be reversed via From<BridgeEnum> for SourceEnum,
+            // and they fall here because enum params are marked is_ref/optional false,
+            // missing the JSON-bridge path above. This is guarded at is_bridgeable_fn level.
+            // For now, return name directly; the is_bridgeable_fn guard should prevent this.
+            return name.clone();
+        }
+        // Struct wrappers have .0; access it with appropriate reference/mutability.
         if p.optional {
             if p.is_ref {
                 return format!("{name}.as_ref().map(|w| &w.0)");
@@ -232,6 +241,8 @@ pub(crate) fn swift_call_arg(
 
     // Vec<Named>: elements are bridge wrapper newtypes; unwrap each with `.0`.
     // Vec<Named> is NOT json-bridged (Named is a bridge leaf), so it falls here.
+    // Note: enums in Vec are guarded by is_bridgeable_fn, so only struct wrappers
+    // should reach here.
     if let TypeRef::Vec(inner) = &p.ty {
         if let TypeRef::Named(_) = inner.as_ref() {
             if p.optional {
