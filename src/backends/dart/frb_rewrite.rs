@@ -424,48 +424,71 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
 /// in a non-async context.
 fn ensure_handler_closures_are_async(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();
-    let mut result = String::new();
+
+    // First pass: identify which lines need `async` injected. For each line that
+    // starts a function or closure, check if any of the next ~30 lines contain
+    // `await handler`. If so, mark the closing brace line for mutation.
+    let mut lines_to_fix: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
 
-        // Check if the next few lines (up to a limit) contain `await handler`
-        // This helps identify closures/functions that need to be made async.
+        // Skip comments and lines that already have async
+        if line.trim().starts_with("//") || line.contains("async") {
+            i += 1;
+            continue;
+        }
+
+        // Check if any of the next ~30 lines contain `await handler`
         let contains_await_handler =
-            (i..std::cmp::min(i + 10, lines.len())).any(|j| lines[j].contains("await handler("));
+            (i..std::cmp::min(i + 30, lines.len())).any(|j| lines[j].contains("await handler("));
 
         if contains_await_handler {
-            // Only insert `async` on a line whose `(` and `)` are balanced —
-            // otherwise this is the OPENING of a multi-line named-parameter
-            // block (`methodName({` … `}) async {` several lines down) and the
-            // closing `}) async {` farther on is the real body-opener, which
-            // already carries `async`. Mutating the opening line produces the
-            // malformed `methodName( async {` that fails to parse.
             let parens_balanced =
                 line.chars().filter(|c| *c == '(').count() == line.chars().filter(|c| *c == ')').count();
-            if parens_balanced && line.contains('{') && !line.trim().starts_with("//") && !line.contains("async") {
-                let fixed = if line.contains(") {") {
-                    line.replace(") {", ") async {")
-                } else if line.ends_with("{")
-                    && line.contains('(')
-                    && line.contains(')')
-                    && !line.trim().starts_with("}")
-                {
-                    format!("{} async {{", line.trim_end_matches('{').trim_end())
+
+            // Case 1: Single-line signature with balanced parens and opening brace
+            if parens_balanced && line.contains('{') {
+                lines_to_fix.insert(i);
+            }
+            // Case 2: Multi-line signature (unbalanced parens) — find the closing brace line
+            else if !parens_balanced {
+                for j in (i + 1)..std::cmp::min(i + 30, lines.len()) {
+                    let check_line = lines[j];
+                    // Look for a line that has `)` (closing paren) and `{` (opening brace).
+                    // This is typically the closing line of a multi-line function signature.
+                    if check_line.contains(')') && check_line.contains('{') && !check_line.trim().starts_with("//") {
+                        lines_to_fix.insert(j);
+                        break;
+                    }
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    // Second pass: apply the fixes
+    let mut result = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        if lines_to_fix.contains(&i) {
+            let fixed = if line.contains(") {") {
+                line.replace(") {", ") async {")
+            } else {
+                // Insert `async` before `{`
+                let trimmed = line.trim_end();
+                if trimmed.ends_with("{") {
+                    format!("{} async {{", trimmed.trim_end_matches('{').trim_end())
                 } else {
                     line.to_string()
-                };
-                result.push_str(&fixed);
-            } else {
-                result.push_str(line);
-            }
+                }
+            };
+            result.push_str(&fixed);
         } else {
             result.push_str(line);
         }
-
         result.push('\n');
-        i += 1;
     }
 
     // Remove the extra trailing newline if the original didn't have it
