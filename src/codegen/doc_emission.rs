@@ -3313,4 +3313,31 @@ mod tests {
         let result = example_for_target(example, "php");
         assert!(result.is_some(), "python fence must be preserved for PHP target");
     }
+
+    #[test]
+    fn emit_csharp_doc_multi_paragraph_with_intra_doc_link() {
+        let input = "Stream a single-URL crawl, yielding [`CrawlEvent`]s as pages are processed.\n\nReturns an async stream that emits one event per crawled page, plus a\nterminal `Complete` event.";
+        let mut out = String::new();
+        emit_csharp_doc(&mut out, input, "    ", "TestException");
+
+        // Check that the output has all expected parts
+        assert!(out.contains("<summary>"), "summary tag present: {out}");
+        assert!(out.contains("</summary>"), "closing summary tag present: {out}");
+
+        // Check that both paragraphs are present
+        assert!(out.contains("Stream a single-URL crawl"), "first paragraph present: {out}");
+        assert!(out.contains("Returns an async stream"), "second paragraph present: {out}");
+
+        // Check that the intra-doc link is converted (backticks preserved, square brackets gone)
+        assert!(out.contains("`CrawlEvent`"), "intra-doc link converted to code span: {out}");
+        assert!(!out.contains("[`CrawlEvent`]"), "square brackets removed from intra-doc link: {out}");
+
+        // Check that all lines have the /// prefix (including the blank line separating paragraphs)
+        let lines: Vec<&str> = out.lines().collect();
+        for line in lines {
+            if !line.trim().is_empty() {
+                assert!(line.contains("///"), "every non-empty line has /// prefix: {}", line);
+            }
+        }
+    }
 }

@@ -41,15 +41,10 @@ fn sanitize_doc_for_csharp(doc: &str) -> String {
             if line.trim().starts_with("use ") && line.contains("::") {
                 return None;
             }
-            let line = line.replace("`", "");
-            let line = line.replace(".unwrap()", "");
-            let line = line.replace("```rust", "").replace("```", "");
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
+            // Preserve the line as-is — don't strip backticks or blank lines.
+            // The emit_csharp_doc function will handle proper sanitization
+            // of Rust idioms, intra-doc links, and XML escaping.
+            Some(line.to_string())
         })
         .collect::<Vec<_>>()
         .join("\n")
