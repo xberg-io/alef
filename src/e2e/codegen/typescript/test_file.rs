@@ -1920,11 +1920,27 @@ fn synthesize_multipart_body_from_schema(schema: &Option<serde_json::Value>) -> 
     parts.push("--alef-boundary".to_string());
 
     if let Some(props) = schema_val.get("properties").and_then(|p| p.as_object()) {
-        for (key, _prop_schema) in props {
-            parts.push(format!(
-                "Content-Disposition: form-data; name=\"{}\"\r\n\r\ntest_value\r\n--alef-boundary",
-                escape_js(key)
-            ));
+        for (key, prop_schema) in props {
+            // Check if this is a binary/file field
+            let is_binary = prop_schema
+                .get("format")
+                .and_then(|f| f.as_str())
+                .map(|f| f == "binary")
+                .unwrap_or(false);
+
+            let disposition = if is_binary {
+                format!(
+                    "Content-Disposition: form-data; name=\"{}\"; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n<file content>",
+                    escape_js(key), escape_js(key)
+                )
+            } else {
+                format!(
+                    "Content-Disposition: form-data; name=\"{}\"\r\n\r\ntest_value",
+                    escape_js(key)
+                )
+            };
+
+            parts.push(format!("{}\r\n--alef-boundary", disposition));
         }
     }
 
