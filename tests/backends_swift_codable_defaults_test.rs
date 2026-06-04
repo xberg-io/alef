@@ -89,7 +89,7 @@ fn api_with_type(ty: TypeDef) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────

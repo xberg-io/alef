@@ -1753,14 +1753,12 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
     // The build action outputs `{ArtifactName}.artifactbundle.zip` there.
     let bundle_dir = std::path::Path::new("dist/swift-artifactbundle");
     let existing_zip = if bundle_dir.exists() {
-        std::fs::read_dir(bundle_dir)
-            .ok()
-            .and_then(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
-            })
+        std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
+        })
     } else {
         None
     };
@@ -1773,9 +1771,7 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
         None => {
             // No pre-built zip found — attempt to build.
             info!("Building swift artifactbundle for `{swift_crate}`…");
-            let build_cmd = format!(
-                "cargo build -p {swift_crate} --release --target aarch64-apple-darwin"
-            );
+            let build_cmd = format!("cargo build -p {swift_crate} --release --target aarch64-apple-darwin");
             match run_command_captured(&build_cmd) {
                 Ok(_) => {}
                 Err(e) => {
@@ -1788,14 +1784,12 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
             }
             // After cargo build, look again.
             std::fs::create_dir_all(bundle_dir).ok();
-            match std::fs::read_dir(bundle_dir)
-                .ok()
-                .and_then(|entries| {
-                    entries
-                        .filter_map(|e| e.ok())
-                        .map(|e| e.path())
-                        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
-                }) {
+            match std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
+            }) {
                 Some(p) => p,
                 None => {
                     warn!(
@@ -1810,17 +1804,13 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
 
     // Compute checksum: prefer `swift package compute-checksum` (canonical tool),
     // fall back to an in-process SHA-256.
-    let checksum_cmd = format!(
-        "swift package compute-checksum {}",
-        zip_path.display()
-    );
+    let checksum_cmd = format!("swift package compute-checksum {}", zip_path.display());
     let checksum = match run_command_captured(&checksum_cmd) {
         Ok((stdout, _)) => stdout.trim().to_string(),
         Err(_) => {
             // Fallback: compute SHA-256 in-process.
             info!("`swift` not found — computing SHA-256 in-process");
-            let bytes = std::fs::read(&zip_path)
-                .with_context(|| format!("failed to read {}", zip_path.display()))?;
+            let bytes = std::fs::read(&zip_path).with_context(|| format!("failed to read {}", zip_path.display()))?;
             compute_sha256_hex(&bytes)
         }
     };
@@ -1837,8 +1827,7 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
 
     // Write sidecar so publish.yaml can reuse the hash without rebuilding.
     std::fs::create_dir_all("target").ok();
-    std::fs::write("target/alef-swift-checksum.txt", &checksum)
-        .context("writing target/alef-swift-checksum.txt")?;
+    std::fs::write("target/alef-swift-checksum.txt", &checksum).context("writing target/alef-swift-checksum.txt")?;
 
     Ok(Some(checksum))
 }
@@ -1853,30 +1842,26 @@ fn compute_sha256_hex(bytes: &[u8]) -> String {
 
     // SHA-256 round constants K.
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
-        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
-        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
-        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
-        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
+        0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+        0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8,
+        0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
+        0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+        0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
 
     // Initial hash values H.
     let mut h: [Wrapping<u32>; 8] = [
-        Wrapping(0x6a09e667), Wrapping(0xbb67ae85),
-        Wrapping(0x3c6ef372), Wrapping(0xa54ff53a),
-        Wrapping(0x510e527f), Wrapping(0x9b05688c),
-        Wrapping(0x1f83d9ab), Wrapping(0x5be0cd19),
+        Wrapping(0x6a09e667),
+        Wrapping(0xbb67ae85),
+        Wrapping(0x3c6ef372),
+        Wrapping(0xa54ff53a),
+        Wrapping(0x510e527f),
+        Wrapping(0x9b05688c),
+        Wrapping(0x1f83d9ab),
+        Wrapping(0x5be0cd19),
     ];
 
     // Pre-processing: add padding.
@@ -1893,7 +1878,10 @@ fn compute_sha256_hex(bytes: &[u8]) -> String {
         let mut w = [Wrapping(0u32); 64];
         for i in 0..16 {
             w[i] = Wrapping(u32::from_be_bytes([
-                chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3],
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
             ]));
         }
         for i in 16..64 {
@@ -1918,8 +1906,14 @@ fn compute_sha256_hex(bytes: &[u8]) -> String {
             b = a;
             a = temp1 + temp2;
         }
-        h[0] += a; h[1] += b; h[2] += c; h[3] += d;
-        h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+        h[4] += e;
+        h[5] += f;
+        h[6] += g;
+        h[7] += hh;
     }
 
     format!(
@@ -5249,7 +5243,7 @@ packages:
     fn compute_sha256_hex_abc() {
         let hex = compute_sha256_hex(b"abc");
         assert_eq!(
-            hex, "ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469f26f5816a7fef1500",
+            hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
             "SHA-256 of 'abc' must match reference"
         );
     }
@@ -5303,8 +5297,7 @@ packages:
         let bundle_dir = root.join("dist/swift-artifactbundle");
         std::fs::create_dir_all(&bundle_dir).expect("mkdir bundle dir");
         let zip_content = b"fake-artifactbundle-zip-content-for-testing";
-        std::fs::write(bundle_dir.join("TestLib-rs.artifactbundle.zip"), zip_content)
-            .expect("write fake zip");
+        std::fs::write(bundle_dir.join("TestLib-rs.artifactbundle.zip"), zip_content).expect("write fake zip");
 
         // Compute the expected checksum in-process.
         let expected_checksum = compute_sha256_hex(zip_content);
@@ -5347,8 +5340,8 @@ packages:
         );
 
         // Sidecar file must be written.
-        let sidecar = std::fs::read_to_string(root.join("target/alef-swift-checksum.txt"))
-            .expect("sidecar file must exist");
+        let sidecar =
+            std::fs::read_to_string(root.join("target/alef-swift-checksum.txt")).expect("sidecar file must exist");
         assert_eq!(
             sidecar.trim(),
             expected_checksum,
@@ -5416,10 +5409,7 @@ packages:
             "precompute_swift_checksum must not propagate build errors, got: {:?}",
             result
         );
-        assert!(
-            result.unwrap().is_none(),
-            "must return None when build fails"
-        );
+        assert!(result.unwrap().is_none(), "must return None when build fails");
 
         // Package.swift must still have the placeholder.
         let pkg_result = std::fs::read_to_string(root.join("Package.swift")).expect("read");

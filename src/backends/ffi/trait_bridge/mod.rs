@@ -225,12 +225,21 @@ pub fn gen_trait_bridge(
     };
 
     let wrapper_prefix = to_class_name(prefix);
+    // Re-derive lifetime_type_names for the shared spec (the generator holds its own copy,
+    // but TraitBridgeSpec also needs it so gen_bridge_trait_impl can emit `<'_>` in sigs).
+    let spec_lifetime_type_names: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.has_lifetime_params)
+        .map(|t| t.name.clone())
+        .collect();
     let spec = TraitBridgeSpec {
         trait_def: trait_type,
         bridge_config: bridge_cfg,
         core_import,
         wrapper_prefix: &wrapper_prefix,
         type_paths,
+        lifetime_type_names: spec_lifetime_type_names,
         error_type: error_type.to_string(),
         error_constructor: error_constructor.to_string(),
     };
@@ -436,8 +445,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     fn sample_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
@@ -1039,8 +1048,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
 
         let code = gen_trait_bridge(
             &trait_def,
@@ -1103,6 +1112,7 @@ mod tests {
             core_import: "my_lib",
             wrapper_prefix: "Ml",
             type_paths: ::std::collections::HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
             error_type: "MyError".to_string(),
             error_constructor: "MyError::from({msg})".to_string(),
         };
@@ -1373,8 +1383,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
 
         let code = gen_trait_bridge(
             &trait_def,
@@ -1592,8 +1602,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
 
         let code = gen_trait_bridge(
             &trait_def,

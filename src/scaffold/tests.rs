@@ -61,7 +61,7 @@ fn test_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 /// Filter out project-level scaffold files (like .pre-commit-config.yaml)
@@ -2347,7 +2347,9 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         .expect("Elixir scaffold must produce a trait bridge .ex file");
 
     assert!(
-        bridge_file.content.contains("defmodule DemoMarkupHtmlVisitorBridge do"),
+        bridge_file
+            .content
+            .contains("defmodule SampleMarkdownHtmlVisitorBridge do"),
         "trait bridge module name must be PascalCase for hyphenated crate names; got:\n{}",
         bridge_file.content
     );
@@ -4259,7 +4261,7 @@ gem_name = "test_lib"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let result = super::languages::scaffold_ruby_cargo(&api, &config);
     assert!(result.is_ok(), "scaffold_ruby_cargo should succeed");

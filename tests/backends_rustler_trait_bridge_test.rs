@@ -19,7 +19,7 @@ fn make_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
@@ -146,7 +146,8 @@ fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
 fn test_plugin_bridge_generates_wrapper_struct() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let cfg = make_plugin_bridge_cfg("OcrBackend");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("pub struct RustlerOcrBackendBridge"),
@@ -170,7 +171,8 @@ fn test_plugin_bridge_generates_wrapper_struct() {
 fn test_plugin_bridge_generates_trait_impl() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let cfg = make_plugin_bridge_cfg("OcrBackend");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code
@@ -191,7 +193,8 @@ fn test_plugin_bridge_generates_trait_impl() {
 fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
     let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
     let cfg = make_plugin_bridge_cfg("Analyzer");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("\"analyze\""),
@@ -211,7 +214,8 @@ fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
 fn test_plugin_bridge_async_method_uses_spawn_blocking() {
     let trait_def = make_trait_def("Processor", vec![make_async_method("run")]);
     let cfg = make_plugin_bridge_cfg("Processor");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("spawn_blocking"),
@@ -231,7 +235,8 @@ fn test_plugin_bridge_async_method_uses_spawn_blocking() {
 fn test_plugin_bridge_generates_registration_fn() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let cfg = make_plugin_bridge_cfg("OcrBackend");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("pub fn register_ocrbackend("),
@@ -276,7 +281,8 @@ fn test_plugin_bridge_registration_validates_required_methods() {
         ],
     );
     let cfg = make_plugin_bridge_cfg("Transform");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("\"transform\""),
@@ -292,7 +298,8 @@ fn test_plugin_bridge_registration_validates_required_methods() {
 fn test_plugin_bridge_constructor_caches_name() {
     let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
     let cfg = make_plugin_bridge_cfg("Worker");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("cached_name"),
@@ -331,7 +338,8 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         context_type: None,
         result_type: None,
     };
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("impl my_lib::Plugin for RustlerOcrBackendBridge"),
@@ -372,7 +380,8 @@ fn test_visitor_bridge_generates_elixir_bridge_struct() {
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
     );
     let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("pub struct ElixirHtmlVisitorBridge"),
@@ -387,7 +396,8 @@ fn test_visitor_bridge_does_not_generate_registration_fn() {
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
     );
     let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     // Visitor bridges do not generate a register_{trait} function, but may
     // emit helper NIFs (e.g. visitor_reply). Verify no registration fn exists.
@@ -404,7 +414,8 @@ fn test_visitor_bridge_generates_trait_impl() {
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
     );
     let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code
@@ -420,7 +431,8 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
     );
     let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("rustler::OwnedEnv"),
@@ -440,7 +452,8 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
 fn test_plugin_bridge_struct_does_not_hold_owned_env() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let cfg = make_plugin_bridge_cfg("OcrBackend");
-    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     // The struct definition should NOT contain an 'env:' field that holds OwnedEnv.
     // Only 'inner: SavedTerm' and 'cached_name: String', both of which are Send + Sync.
@@ -464,7 +477,8 @@ fn test_plugin_bridge_struct_does_not_hold_owned_env() {
 fn test_plugin_bridge_sync_method_creates_owned_env_locally() {
     let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
     let cfg = make_plugin_bridge_cfg("Analyzer");
-    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
 
     // Sync method body should create a fresh OwnedEnv locally, not access self.env.
     let method_impl = output.code.split("fn analyze(").nth(1).unwrap_or("");

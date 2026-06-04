@@ -157,7 +157,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -248,7 +248,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -339,7 +339,7 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -403,7 +403,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -488,7 +488,7 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -551,7 +551,7 @@ fn test_async_function_with_error() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -642,7 +642,7 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -732,7 +732,7 @@ fn test_async_methods() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -794,7 +794,7 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -849,7 +849,7 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -918,7 +918,7 @@ fn test_exclude_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     // Create config with exclude_functions set
     let mut config = make_config();
@@ -1006,7 +1006,7 @@ fn test_exclude_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     // Create config with exclude_types set
     let mut config = make_config();
@@ -1070,7 +1070,7 @@ fn test_exclude_fields_removes_wasm_struct_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let mut config = make_config();
     if let Some(wasm_cfg) = &mut config.wasm {
@@ -1179,7 +1179,7 @@ fn make_api_wasm() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 fn make_plugin_bridge_cfg_wasm(trait_name: &str) -> alef::core::config::TraitBridgeConfig {
@@ -1241,7 +1241,8 @@ fn test_wasm_visitor_bridge_produces_visitor_struct() {
     let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("WasmHtmlVisitorBridge"),
@@ -1264,7 +1265,8 @@ fn test_wasm_visitor_bridge_has_js_obj_field() {
     let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("js_obj: wasm_bindgen::JsValue"),
@@ -1283,7 +1285,8 @@ fn test_wasm_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("pub struct WasmOcrBackendBridge"),
@@ -1310,7 +1313,8 @@ fn test_wasm_plugin_bridge_generates_super_trait_impl() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("impl my_lib::Plugin for WasmOcrBackendBridge"),
@@ -1338,7 +1342,8 @@ fn test_wasm_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("impl my_lib::OcrBackend for WasmOcrBackendBridge"),
@@ -1361,7 +1366,8 @@ fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("#[wasm_bindgen"),
@@ -1406,7 +1412,8 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
     };
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     // Registration fn must check for the required camelCase method "analyze"
     assert!(
@@ -1423,7 +1430,8 @@ fn test_wasm_sync_method_body_uses_js_sys_reflect() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Scanner");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("js_sys::Reflect"),
@@ -1439,7 +1447,8 @@ fn test_wasm_async_method_body_uses_box_pin() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     // Plugin bridges use #[async_trait] which wraps in Box::pin automatically, so the method body
     // should NOT contain Box::pin(async move { ... }) — that would cause double-boxing.
@@ -1475,7 +1484,7 @@ fn test_generate_bindings_cargo_toml_includes_js_sys() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
 
     let files = backend
@@ -1581,7 +1590,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
@@ -1671,7 +1680,7 @@ fn test_vec_string_is_ref_serde_path_emits_refs_binding() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -1758,7 +1767,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -1884,7 +1893,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -1926,7 +1935,7 @@ fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let mut config = make_config();
     config.name = "mylib".to_string();
     let mut crate_extras = std::collections::HashMap::new();
@@ -2104,7 +2113,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -2184,7 +2193,8 @@ fn test_wasm_bridge_constructor_reads_js_name_property() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     // The constructor must read the JS object's "name" property using Reflect::get
     assert!(
@@ -2251,7 +2261,8 @@ fn test_wasm_bridge_bytes_param_generates_uint8array() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     // The generated code must convert bytes to Uint8Array
     assert!(
@@ -2274,7 +2285,8 @@ fn test_wasm_bridge_async_method_awaits_promise() {
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
     let api = make_api_wasm();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
+        .expect("trait bridge generation should succeed");
 
     // The generated async method must await the JS Promise using JsFuture
     assert!(
@@ -2382,7 +2394,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -2477,7 +2489,7 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -2587,7 +2599,7 @@ fn test_optional_enum_getter_returns_option_string() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -2656,7 +2668,7 @@ fn test_optional_vec_of_struct_getter_returns_js_array() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -2803,7 +2815,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -2982,7 +2994,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend
@@ -3133,7 +3145,7 @@ fn test_constructor_params_camel_case() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -3201,7 +3213,7 @@ fn test_wasm_js_name_on_non_opaque_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3279,7 +3291,7 @@ fn test_wasm_js_name_on_opaque_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3355,7 +3367,7 @@ fn test_wasm_js_name_on_unit_enum() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3428,7 +3440,7 @@ fn test_constructor_camel_case_param_sync_with_snake_case_field_init() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3492,7 +3504,7 @@ fn test_constructor_camel_case_required_multi_word_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3555,7 +3567,7 @@ fn test_from_impl_uses_snake_case_field_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3718,8 +3730,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
         enums: vec![node_content_enum],
         functions: vec![visit_fn],
         ..Default::default()
-unsupported_public_items: Vec::new(),
-};
+    };
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "generate_bindings should not fail: {:?}", result.err());
@@ -3836,7 +3847,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {

@@ -667,7 +667,6 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
-}
     }
 
     fn make_test_config() -> ResolvedCrateConfig {

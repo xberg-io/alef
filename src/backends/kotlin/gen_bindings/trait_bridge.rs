@@ -195,6 +195,7 @@ mod tests {
             core_import: "demo",
             wrapper_prefix: "Kotlin",
             type_paths: std::collections::HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
             error_type: "DemoError".to_string(),
             error_constructor: "DemoError::from({msg})".to_string(),
         }

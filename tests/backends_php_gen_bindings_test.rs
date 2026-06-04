@@ -174,7 +174,7 @@ fn php_native_and_facade_allow_null_default_config_param() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let lib = files
         .iter()
@@ -234,7 +234,7 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
             has_lifetime_params: false,
         }],
         ..ApiSurface::default()
-};
+    };
 
     let root = tempfile::tempdir().expect("tempdir");
     let output_dir = root.path().join("crates/test-lib-php/src");
@@ -404,7 +404,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -524,7 +524,7 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let content = backend
         .generate_type_stubs(&api, &make_config_with_php_excludes())
@@ -589,7 +589,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -682,7 +682,7 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -719,7 +719,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -841,7 +841,7 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -931,7 +931,7 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1025,7 +1025,7 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1120,7 +1120,7 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1194,7 +1194,7 @@ fn test_default_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1363,7 +1363,7 @@ fn test_multiple_types_with_shared_error() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1467,7 +1467,7 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_type_stubs(&api, &config).unwrap();
@@ -1548,7 +1548,7 @@ fn test_generate_public_api_delegates_to_api_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -1671,7 +1671,7 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -1778,7 +1778,7 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1911,7 +1911,7 @@ fn make_api_php() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef::core::config::TraitBridgeConfig {
@@ -2126,8 +2126,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
             vec![make_method_php("process", TypeRef::String, true, false)],
         )],
         ..make_api_php()
-unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files
@@ -2339,7 +2338,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -2517,7 +2516,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -2646,7 +2645,7 @@ fn test_stubs_non_void_methods_have_return_statements() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_type_stubs(&api, &config).unwrap();
@@ -2766,7 +2765,7 @@ fn test_static_stubs_promote_parameters_after_first_optional() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_type_stubs(&api, &config).unwrap();
@@ -2851,7 +2850,7 @@ fn test_vec_named_struct_parameter() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -2939,7 +2938,7 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_type_stubs(&api, &config).unwrap();
@@ -3022,7 +3021,7 @@ fn test_dto_properties_use_camel_case_php_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let stubs_result = backend.generate_type_stubs(&api, &config);
@@ -3126,7 +3125,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let stubs_result = backend.generate_type_stubs(&api, &config);
@@ -3235,7 +3234,7 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_type_stubs(&api, &config).unwrap();
@@ -3308,7 +3307,7 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_type_stubs(&api, &config).unwrap();
@@ -3453,7 +3452,7 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -3781,7 +3780,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 

@@ -838,6 +838,10 @@ mod alef_json_str_opt {
         // by the service extraction pass: they are emitted by generate_service_api,
         // not the generic struct/trait codegen, so skip them in the generic loop too.
         py_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+        // Declared opaque types are external host-runtime references — they cannot be
+        // wrapped as #[pyclass] because their actual Rust path carries generic params
+        // that the injected IR cannot model.
+        py_exclude_types.extend(config.opaque_types.keys().cloned());
         // Types listed in capsule_types bypass #[pyclass] generation entirely — they are
         // passed through as raw PyCapsule handles or Python-side-constructed objects.
         let capsule_types = config

@@ -1152,7 +1152,6 @@ mod tests {
             handler_contracts: vec![handler_contract],
             ..ApiSurface::default()
         }
-}
     }
 
     #[test]
@@ -1372,7 +1371,6 @@ mod tests {
             handler_contracts: vec![handler_contract],
             ..ApiSurface::default()
         }
-}
     }
 
     #[test]
@@ -1555,7 +1553,7 @@ mod tests {
             }],
             handler_contracts: vec![handler_contract],
             ..ApiSurface::default()
-};
+        };
 
         let config = ResolvedCrateConfig {
             name: "my_crate".to_owned(),

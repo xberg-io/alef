@@ -1313,7 +1313,6 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
-}
     }
 
     /// `gen_service_py` emits a class named after the service owner.

@@ -406,7 +406,10 @@ fn gen_result_decode_arms(
     let mut arms = String::new();
     for variant in &result_metadata.unit_variants {
         if seen_codes.insert(variant.code) {
-            arms.push_str(&format!("        {} => VisitResult::{},\n", variant.code, variant.name));
+            arms.push_str(&format!(
+                "        {} => VisitorResult::{},\n",
+                variant.code, variant.name
+            ));
         }
     }
     for variant in &result_metadata.string_payload_variants {
@@ -420,7 +423,7 @@ fn gen_result_decode_arms(
                 let cstr = unsafe {{ std::ffi::CString::from_raw(custom_ptr) }};
                 cstr.to_string_lossy().into_owned()
             }};
-            VisitResult::{}(msg)
+            VisitorResult::{}(msg)
         }},
 "#,
                 variant.code, variant.name
@@ -752,7 +755,7 @@ unsafe fn decode_visit_result(
     code: i32,
     custom_ptr: *mut std::ffi::c_char,
 ) -> {result_path} {{
-    use {result_path} as VisitResult;
+    use {result_path} as VisitorResult;
     match code {{
 {result_decode_arms}
     }}
@@ -1406,7 +1409,8 @@ mod tests {
             excluded_trait_names: Default::default(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     #[test]
@@ -1489,7 +1493,7 @@ mod tests {
 
         assert!(code.contains("ctx: &my_lib::visitor::RenderContext"));
         assert!(code.contains(") -> my_lib::visitor::RenderDecision"));
-        assert!(code.contains("use my_lib::visitor::RenderDecision as VisitResult"));
+        assert!(code.contains("use my_lib::visitor::RenderDecision as VisitorResult"));
         assert!(code.contains("return my_lib::visitor::RenderDecision::Continue"));
         assert!(!code.contains("ctx: &my_lib::visitor::NodeContext"));
         assert!(!code.contains(") -> my_lib::visitor::VisitResult"));
@@ -1567,8 +1571,8 @@ mod tests {
             excluded_trait_names: Default::default(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-};
+            unsupported_public_items: Vec::new(),
+        };
 
         let code =
             gen_visitor_bindings_with_api("doc", "my_lib", false, &trait_def, Some(&bridge_cfg), None, Some(&api));

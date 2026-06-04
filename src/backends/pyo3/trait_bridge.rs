@@ -10,7 +10,7 @@ use crate::codegen::generators::trait_bridge::{
 };
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Compute the Python-visible symbol name for a generated `#[pyfunction]`.
 ///
@@ -413,12 +413,19 @@ pub fn gen_trait_bridge(
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
         };
+        let lifetime_type_names: HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_lifetime_params)
+            .map(|t| t.name.clone())
+            .collect();
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
             bridge_config: bridge_cfg,
             core_import,
             wrapper_prefix: "Py",
             type_paths,
+            lifetime_type_names,
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };

@@ -165,7 +165,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -271,7 +271,7 @@ fn bytes_params_are_pinned_before_c_calls() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = GoBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = files
@@ -411,7 +411,7 @@ module = "github.com/test/test-lib"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
     let binding_go = files.iter().find(|file| file.path.ends_with("binding.go")).unwrap();
@@ -465,7 +465,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -568,7 +568,7 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -615,7 +615,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -745,7 +745,7 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -832,7 +832,7 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -902,7 +902,7 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -959,7 +959,7 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1049,7 +1049,7 @@ fn test_default_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
 
@@ -1144,7 +1144,7 @@ fn test_optional_primitive_uses_cgo_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config).unwrap();
@@ -1223,7 +1223,7 @@ fn test_optional_return_type_no_double_pointer() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config).unwrap();
@@ -1351,7 +1351,7 @@ fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-}
+    }
 }
 
 #[test]
@@ -1484,7 +1484,7 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let files = GoBackend.generate_bindings(&api, &config).unwrap();
     let binding = files
@@ -2123,7 +2123,7 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let result = backend.generate_bindings(&api, &config);
@@ -2232,7 +2232,7 @@ fn test_opaque_error_type_uses_value_semantics() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
@@ -2337,7 +2337,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
@@ -2819,7 +2819,7 @@ module = "github.com/example/mylib"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let backend = GoBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
     let binding_go = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();

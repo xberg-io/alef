@@ -139,7 +139,6 @@ fn make_test_surface() -> ApiSurface {
         ..ApiSurface::default()
     }
 }
-}
 
 /// Make a test config with explicit Java and Kotlin JVM packages.
 fn make_test_config() -> ResolvedCrateConfig {

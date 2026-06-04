@@ -1976,8 +1976,8 @@ app_name = "my_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-                unsupported_public_items: Vec::new(),
-}
+            unsupported_public_items: Vec::new(),
+        }
     }
 
     /// The generated lib.rs must be placed in `{name}_nif/src/lib.rs` by default —

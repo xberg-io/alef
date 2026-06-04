@@ -395,12 +395,19 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             enum_names,
         };
+        let lifetime_type_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_lifetime_params)
+            .map(|t| t.name.clone())
+            .collect();
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
             bridge_config: bridge_cfg,
             core_import,
             wrapper_prefix: "Wasm",
             type_paths,
+            lifetime_type_names,
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };

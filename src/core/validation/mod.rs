@@ -200,22 +200,16 @@ pub struct ValidatedApiSurface<'a> {
 impl<'a> ValidatedApiSurface<'a> {
     pub fn new(api: &'a ApiSurface, suppress_codes: &[String]) -> Result<Self, ValidationReport> {
         let report = validate_api_surface(api);
-        let fatal = report
-            .errors()
-            .any(|diagnostic| is_critical_unsuppressible(diagnostic.code)
-                || !suppress_codes
-                    .iter()
-                    .any(|code| code == &diagnostic.code.to_string()));
-        if fatal {
-            Err(report)
-        } else {
-            Ok(Self { api })
-        }
+        let fatal = report.errors().any(|diagnostic| {
+            is_critical_unsuppressible(diagnostic.code)
+                || !suppress_codes.iter().any(|code| code == &diagnostic.code.to_string())
+        });
+        if fatal { Err(report) } else { Ok(Self { api }) }
     }
 
     pub fn api(&self) -> &'a ApiSurface {
         self.api
-}
+    }
 }
 
 /// Validate the extracted public API surface before backend generation.
@@ -235,7 +229,10 @@ pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
             ValidationCode::UnsupportedGenericItem,
             api.crate_name.clone(),
             Some(item.item_path.clone()),
-            format!("{} `{}` is unsupported: {}", item.item_kind, item.item_path, item.reason),
+            format!(
+                "{} `{}` is unsupported: {}",
+                item.item_kind, item.item_path, item.reason
+            ),
             item.suggested_fix.clone(),
         )
     }));
@@ -245,6 +242,11 @@ pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
 
 fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> {
     let known_names = known_type_names(api);
+    // Trait method signatures may reference per-language-excluded types because backend
+    // `trait_bridge.rs` substitutes them with a JSON opaque carrier at code-emit. Free
+    // functions, fields, and inherent-method signatures don't get that substitution.
+    let mut trait_known_names = known_names.clone();
+    trait_known_names.extend(substitutable_type_names(api));
     let opaque_names = opaque_type_names(api);
     let mut diagnostics = Vec::new();
 
@@ -260,6 +262,7 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
         if typ.binding_excluded {
             continue;
         }
+        let method_known_names = if typ.is_trait { &trait_known_names } else { &known_names };
         for method in &typ.methods {
             if method.binding_excluded {
                 continue;
@@ -267,7 +270,7 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
             let item_path = format!("method {}.{}", typ.name, method.name);
             collect_method_diagnostics(
                 api,
-                &known_names,
+                method_known_names,
                 &opaque_names,
                 &item_path,
                 method,
@@ -361,6 +364,20 @@ fn known_type_names(api: &ApiSurface) -> AHashSet<&str> {
         .map(|typ| typ.name.as_str())
         .chain(api.enums.iter().map(|item| item.name.as_str()))
         .chain(api.errors.iter().map(|item| item.name.as_str()))
+        .collect()
+}
+
+/// Names of types that backends are expected to substitute at trait-bridge code-emit
+/// time. Trait methods are allowed to reference these even though they no longer appear
+/// in `api.types`, because the per-backend `trait_bridge.rs` swaps the reference for an
+/// opaque JSON carrier (e.g. `json.RawMessage` in Go, `serde_json::Value` in Rust shims).
+/// Free functions and fields can't be substituted that way, so they still hit
+/// `unknown_named_type`.
+fn substitutable_type_names(api: &ApiSurface) -> AHashSet<&str> {
+    api.excluded_type_paths
+        .keys()
+        .map(String::as_str)
+        .chain(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()))
         .collect()
 }
 
@@ -780,7 +797,7 @@ mod tests {
                 ..TypeDef::default()
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -840,7 +857,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -892,7 +909,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-};
+        };
         api.excluded_type_paths.insert(
             "HiddenPayload".to_string(),
             "sample_lib::internal::HiddenPayload".to_string(),
@@ -922,7 +939,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -948,7 +965,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -974,7 +991,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -995,7 +1012,7 @@ mod tests {
                 ..function_def("render", vec![], TypeRef::String)
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1029,7 +1046,7 @@ mod tests {
                 TypeRef::Named("Session".to_string()),
             )],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1072,7 +1089,7 @@ mod tests {
                 },
             ],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1107,7 +1124,7 @@ mod tests {
                 },
             ],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1152,7 +1169,7 @@ mod tests {
                 )
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1185,7 +1202,7 @@ mod tests {
                 ..TypeDef::default()
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1223,7 +1240,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1273,7 +1290,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1336,7 +1353,7 @@ mod tests {
                 ..TypeDef::default()
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 
@@ -1383,7 +1400,7 @@ mod tests {
                 doc: String::new(),
             }],
             ..ApiSurface::default()
-};
+        };
 
         let report = validate_api_surface(&api);
 

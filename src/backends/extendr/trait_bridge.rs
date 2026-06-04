@@ -367,6 +367,7 @@ pub fn gen_trait_bridge(
             core_import,
             wrapper_prefix: "R",
             type_paths,
+            lifetime_type_names: std::collections::HashSet::new(),
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };

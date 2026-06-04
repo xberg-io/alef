@@ -293,6 +293,7 @@ mod tests {
             core_import: "my_lib",
             wrapper_prefix: "Ml",
             type_paths: HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
             error_type: "MyError".to_string(),
             error_constructor: "MyError::from({msg})".to_string(),
         }

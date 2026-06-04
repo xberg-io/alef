@@ -67,15 +67,14 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
         ));
     }
 
-    // Emit unreachable!() arms for binding-excluded variants (e.g. feature-gated variants).
-    // The source enum may have variants not in the bridge (binding_excluded or feature-gated),
-    // so we need a catch-all to make the match exhaustive. Feature-gated variants that don't
-    // appear in the IR are still valid values at runtime, but the bridge doesn't expose them,
-    // so we use unreachable!() to indicate this is a logic error in the guard conditions.
-    // Always emit a wildcard arm to handle variants excluded from the binding generation
-    // (even if not explicitly marked as binding_excluded in the IR, they may exist at runtime
-    // when different feature combinations are used).
-    out.push_str("            _ => unreachable!(\"bridge enum variant not exposed in binding\"),\n");
+    // Emit a wildcard unreachable!() arm only when there are binding-excluded variants.
+    // If all variants are exposed in the bridge, the match is already exhaustive and a
+    // wildcard arm would trigger an `unreachable_patterns` compile error.
+    if !en.excluded_variants.is_empty() {
+        out.push_str(
+            "            _ => unreachable!(\"bridge enum variant not exposed in binding\"),\n",
+        );
+    }
 
     out.push_str("        }\n");
     out.push_str("    }\n");
