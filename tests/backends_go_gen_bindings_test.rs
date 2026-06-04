@@ -106,6 +106,8 @@ fn test_basic_generation() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -250,6 +252,8 @@ fn bytes_params_are_pinned_before_c_calls() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::Unit,
             is_async: false,
@@ -703,6 +707,8 @@ fn test_methods_generation() {
                         map_is_ahash: false,
                         map_key_is_cow: false,
                         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                     }],
                     return_type: TypeRef::Unit,
                     is_async: false,
@@ -881,6 +887,8 @@ fn test_async_function() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::String,
             is_async: true,
@@ -1110,6 +1118,8 @@ fn test_optional_primitive_uses_cgo_types() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     let api = ApiSurface {
@@ -1202,6 +1212,8 @@ fn test_optional_return_type_no_double_pointer() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::Optional(Box::new(TypeRef::String)),
             is_async: false,
@@ -1313,6 +1325,8 @@ fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }
 }
 

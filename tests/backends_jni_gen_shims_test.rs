@@ -50,6 +50,8 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }
 }
 
@@ -739,6 +741,8 @@ fn real_ir_shape_optional_ref_result_async() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "base_url".to_string(),
@@ -754,6 +758,8 @@ fn real_ir_shape_optional_ref_result_async() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "timeout_secs".to_string(),
@@ -769,6 +775,8 @@ fn real_ir_shape_optional_ref_result_async() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
         ],
         return_type: TypeRef::Named("DemoClient".to_string()),
@@ -804,6 +812,8 @@ fn real_ir_shape_optional_ref_result_async() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Primitive(PrimitiveType::Bool),
         is_async: false,
@@ -1085,6 +1095,8 @@ fn method_slice_u8_param_receives_jbytearray() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Optional(Box::new(TypeRef::Named("Tree".to_string()))),
         is_async: false,
@@ -1175,6 +1187,8 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
     let upload_method = MethodDef {
         name: "upload".to_string(),
@@ -1274,6 +1288,8 @@ fn method_pathbuf_param_receives_raw_string() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -1374,6 +1390,8 @@ fn method_slice_str_param_coerces_to_str_refs() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
         is_async: false,

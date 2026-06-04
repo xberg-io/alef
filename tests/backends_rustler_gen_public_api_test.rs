@@ -174,6 +174,8 @@ fn test_generate_public_api_creates_all_files() {
                     map_is_ahash: false,
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                 },
                 ParamDef {
                     name: "options".to_string(),
@@ -189,6 +191,8 @@ fn test_generate_public_api_creates_all_files() {
                     map_is_ahash: false,
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                 },
             ],
             return_type: TypeRef::String,
@@ -338,6 +342,8 @@ fn test_native_ex_has_all_nif_stubs() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -880,6 +886,8 @@ fn test_generate_bindings_nif_init_uses_native_module() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -1158,6 +1166,8 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }
     }
 
@@ -1755,6 +1765,8 @@ fn opaque_static_constructor_wraps_return_in_struct() {
                     map_is_ahash: false,
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                 }],
                 return_type: TypeRef::Named("RouteBuilder".to_string()),
                 is_async: false,

@@ -151,6 +151,8 @@ fn simple_function_def() -> FunctionDef {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
         is_async: false,
@@ -409,6 +411,8 @@ fn test_gen_static_method_without_receiver() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -516,6 +520,8 @@ fn test_gen_method_with_multiple_params() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "b".to_string(),
@@ -531,6 +537,8 @@ fn test_gen_method_with_multiple_params() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "label".to_string(),
@@ -546,6 +554,8 @@ fn test_gen_method_with_multiple_params() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
         ],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
@@ -710,6 +720,8 @@ fn test_gen_method_with_optional_param() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -935,6 +947,8 @@ fn test_gen_call_args_string_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -958,6 +972,8 @@ fn test_gen_call_args_primitive_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -983,6 +999,8 @@ fn test_gen_call_args_opaque_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -1006,6 +1024,8 @@ fn test_gen_call_args_non_opaque_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -1031,6 +1051,8 @@ fn test_gen_call_args_optional_non_opaque_ref_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -1053,6 +1075,8 @@ fn test_gen_call_args_path_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -1076,6 +1100,8 @@ fn test_gen_call_args_duration_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -1101,6 +1127,8 @@ fn test_gen_call_args_multiple_params() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         },
         ParamDef {
             name: "count".to_string(),
@@ -1116,6 +1144,8 @@ fn test_gen_call_args_multiple_params() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         },
     ];
 
@@ -1141,6 +1171,8 @@ fn test_gen_call_args_with_let_bindings_opaque() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1164,6 +1196,8 @@ fn test_gen_call_args_with_let_bindings_non_opaque() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1196,6 +1230,8 @@ fn test_gen_named_let_bindings_non_opaque_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -1221,6 +1257,8 @@ fn test_gen_named_let_bindings_optional_ref_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -1248,6 +1286,8 @@ fn test_gen_call_args_with_let_bindings_optional_ref_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1275,6 +1315,8 @@ fn test_gen_call_args_with_let_bindings_optional_ref_vec_named() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
@@ -1300,6 +1342,8 @@ fn test_gen_named_let_bindings_opaque_skipped() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -1323,6 +1367,8 @@ fn test_has_named_params_returns_true() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     assert!(binding_helpers::has_named_params(&params, &opaque_types));
@@ -1346,6 +1392,8 @@ fn test_has_named_params_returns_false() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     assert!(!binding_helpers::has_named_params(&params, &opaque_types));
@@ -1459,6 +1507,8 @@ fn test_gen_unimplemented_body_with_error() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let empty_opaque = AHashSet::new();
@@ -1794,6 +1844,8 @@ fn test_gen_method_builder_pattern_opaque() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -1865,6 +1917,8 @@ fn test_gen_method_builder_pattern_non_opaque() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -1932,6 +1986,8 @@ fn test_gen_method_functional_ref_mut_unit_return() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -2005,6 +2061,8 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -2073,6 +2131,8 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
         is_async: false,
@@ -2993,6 +3053,8 @@ fn test_gen_function_named_ref_param_uses_from_conversion() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "config".to_string(),
@@ -3008,6 +3070,8 @@ fn test_gen_function_named_ref_param_uses_from_conversion() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
         ],
         return_type: TypeRef::Named("ProcessResult".to_string()),
@@ -3093,6 +3157,8 @@ fn test_gen_function_with_optional_param_wraps_in_option() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "limit".to_string(),
@@ -3108,6 +3174,8 @@ fn test_gen_function_with_optional_param_wraps_in_option() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
         ],
         return_type: TypeRef::Vec(Box::new(TypeRef::String)),
@@ -3348,6 +3416,8 @@ fn simple_trait_def() -> TypeDef {
                     map_is_ahash: false,
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                 }],
                 return_type: TypeRef::Primitive(PrimitiveType::U32),
                 is_async: false,
@@ -3755,6 +3825,8 @@ fn test_format_param_type_string_with_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&str");
@@ -3777,6 +3849,8 @@ fn test_format_param_type_bytes_with_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&[u8]");
@@ -3799,6 +3873,8 @@ fn test_format_param_type_path_with_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&std::path::Path");
@@ -3821,6 +3897,8 @@ fn test_format_param_type_vec_with_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&[u32]");
@@ -3845,6 +3923,8 @@ fn test_format_param_type_named_with_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(format_param_type(&param, &type_paths), "&my_crate::Config");
@@ -3868,6 +3948,8 @@ fn test_format_param_type_primitive_with_is_ref_passes_by_value() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(
@@ -3894,6 +3976,8 @@ fn test_format_param_type_without_is_ref_passes_by_value() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     };
 
     assert_eq!(
@@ -4148,6 +4232,8 @@ fn test_gen_method_trait_method_name_suppresses_clippy_lint() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -4301,6 +4387,8 @@ fn test_gen_method_opaque_delegation_returns_opaque_self() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -4458,6 +4546,8 @@ fn test_gen_static_method_with_error_type_generates_result() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
         is_async: false,
@@ -4637,6 +4727,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "b".to_string(),
@@ -4652,6 +4744,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "c".to_string(),
@@ -4667,6 +4761,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "d".to_string(),
@@ -4682,6 +4778,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "e".to_string(),
@@ -4697,6 +4795,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "f".to_string(),
@@ -4712,6 +4812,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "g".to_string(),
@@ -4727,6 +4829,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
             ParamDef {
                 name: "h".to_string(),
@@ -4742,6 +4846,8 @@ fn test_gen_method_too_many_arguments_gets_clippy_allow() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             },
         ],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
@@ -5566,6 +5672,8 @@ fn test_gen_call_args_json_param() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5592,6 +5700,8 @@ fn test_gen_call_args_json_param_optional() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5618,6 +5728,8 @@ fn test_gen_call_args_bytes_param_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5641,6 +5753,8 @@ fn test_gen_call_args_bytes_param_owned() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5664,6 +5778,8 @@ fn test_gen_call_args_bytes_optional_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5687,6 +5803,8 @@ fn test_gen_call_args_duration_optional() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5713,6 +5831,8 @@ fn test_gen_call_args_path_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5739,6 +5859,8 @@ fn test_gen_call_args_path_optional_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5765,6 +5887,8 @@ fn test_gen_call_args_path_optional_not_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5791,6 +5915,8 @@ fn test_gen_call_args_string_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5814,6 +5940,8 @@ fn test_gen_call_args_string_optional_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5840,6 +5968,8 @@ fn test_gen_call_args_vec_mut_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let opaque_types = AHashSet::new();
 
@@ -5865,6 +5995,8 @@ fn test_gen_call_args_opaque_optional() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -5891,6 +6023,8 @@ fn test_gen_call_args_non_opaque_optional() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
@@ -5917,6 +6051,8 @@ fn test_gen_named_let_bindings_no_promote_non_opaque() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_no_promote(&params, &opaque_types, "my_crate");
@@ -5943,6 +6079,8 @@ fn test_gen_named_let_bindings_optional_without_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -5969,6 +6107,8 @@ fn test_gen_named_let_bindings_vec_named_non_opaque() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -5996,6 +6136,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -6026,6 +6168,8 @@ fn test_gen_named_let_bindings_vec_string_is_ref_optional() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
@@ -6054,6 +6198,8 @@ fn test_gen_serde_let_bindings_non_opaque_named_required() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -6087,6 +6233,8 @@ fn test_gen_serde_let_bindings_non_opaque_named_optional() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -6117,6 +6265,8 @@ fn test_gen_serde_let_bindings_vec_named() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -6151,6 +6301,8 @@ fn test_gen_serde_let_bindings_opaque_type_skipped() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
     let err_conv = ".map_err(|e| e.to_string())";
     let indent = "        ";
@@ -6496,6 +6648,8 @@ fn test_gen_unimplemented_body_multiple_params_suppressed() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         },
         ParamDef {
             name: "b".to_string(),
@@ -6511,6 +6665,8 @@ fn test_gen_unimplemented_body_multiple_params_suppressed() {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
         },
     ];
     let empty_opaque = AHashSet::new();
@@ -7062,6 +7218,8 @@ fn test_has_named_params_vec_string_with_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     assert!(
@@ -7088,6 +7246,8 @@ fn test_has_named_params_vec_string_without_is_ref() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     assert!(
@@ -7114,6 +7274,8 @@ fn test_has_named_params_vec_named_always_requires_binding() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     assert!(
@@ -7141,6 +7303,8 @@ fn test_has_named_params_vec_opaque_named_no_binding_needed() {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }];
 
     assert!(
@@ -7192,6 +7356,8 @@ fn simple_param(name: &str, ty: TypeRef) -> ParamDef {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }
 }
 

@@ -28,6 +28,8 @@ fn test_visitor_file_emits_prefixed_struct() {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
             return_type: alef::core::ir::TypeRef::Named("WalkDecision".to_string()),
             is_async: false,
@@ -559,5 +561,7 @@ fn param(name: &str, ty: TypeRef, optional: bool) -> ParamDef {
         map_is_ahash: false,
         map_key_is_cow: false,
         vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
     }
 }

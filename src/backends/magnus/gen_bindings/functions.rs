@@ -1019,7 +1019,7 @@ pub(super) fn gen_module_init(
         // so consumer code can reference the class and dynamically attach methods
         // at runtime.
         let class_used = typ.is_opaque
-            || (!typ.is_opaque && !typ.fields.is_empty())
+            || !typ.fields.is_empty()
             || typ.methods.iter().any(|m| !m.is_static)
             || has_variant_wrapper_ctor;
         let binding = if class_used { "class" } else { "_class" };
@@ -1357,6 +1357,8 @@ gem_name = "test_lib"
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -1478,6 +1480,8 @@ gem_name = "test_lib"
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
         };
         let optional = ParamDef {
             optional: true,

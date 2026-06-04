@@ -618,6 +618,17 @@ pub struct ParamDef {
     /// not `&[&T]`).
     #[serde(default)]
     pub vec_inner_is_ref: bool,
+    /// True when the original Rust map container was `BTreeMap` rather than `HashMap`.
+    /// Codegen uses this to convert the binding-layer `HashMap` into `BTreeMap` at the
+    /// call site, since the two types are not directly interchangeable.
+    #[serde(default)]
+    pub map_is_btree: bool,
+    /// Core wrapper on this parameter (Cow, Arc, etc.). Affects call-site codegen.
+    /// When `CoreWrapper::Cow`, the binding layer passes `String`/`Option<String>` but the
+    /// core function expects `Cow<'_, str>`/`Option<Cow<'_, str>>`. Codegen must insert
+    /// `.into()` / `.map(std::borrow::Cow::Owned)` at the call site.
+    #[serde(default)]
+    pub core_wrapper: CoreWrapper,
 }
 
 impl Default for ParamDef {
@@ -636,6 +647,8 @@ impl Default for ParamDef {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+            map_is_btree: false,
+            core_wrapper: CoreWrapper::None,
         }
     }
 }

@@ -714,6 +714,17 @@ pub(crate) fn php_wrap_return(
                 )
             }
         },
+        TypeRef::Map(_, _) => {
+            // The PHP binding layer uses `HashMap<K, V>` for Map returns. When the core
+            // returns a reference (`returns_ref=true`), the type is `&BTreeMap` (or `&HashMap`).
+            // Iterate over the map and collect into `HashMap` to satisfy the PHP return type.
+            if returns_ref {
+                format!("{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()")
+            } else {
+                // Owned map: collect into HashMap (works for BTreeMap and AHashMap via IntoIterator).
+                format!("{expr}.into_iter().collect::<std::collections::HashMap<_, _>>()")
+            }
+        }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(p) if needs_i64_cast(p) => {
                 format!("{expr}.into_iter().map(|v| v as i64).collect()")
@@ -1050,6 +1061,22 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+
+    // Types with lifetime parameters (e.g. NodeContext<'a>) have private fields that
+    // forbid struct-literal construction AND require `<'_>` in the impl header.
+    // Delegate to gen_from_lifetime_type_constructor which locates the correct static
+    // constructor (with_owned_*, etc.) and emits a well-formed From impl.
+    if typ.has_lifetime_params {
+        if let Some(code) = crate::codegen::conversions::gen_from_lifetime_type_constructor(
+            typ,
+            &core_path,
+            &typ.name,
+            config,
+        ) {
+            return code;
+        }
+    }
+
     let mut out = String::with_capacity(512);
     out.push_str(&crate::backends::php::template_env::render(
         "php_impl_from_begin.jinja",

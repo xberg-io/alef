@@ -112,6 +112,8 @@ fn test_generated_code_example() {
                     map_is_ahash: false,
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                 },
                 ParamDef {
                     name: "config".to_string(),
@@ -127,6 +129,8 @@ fn test_generated_code_example() {
                     map_is_ahash: false,
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
                 },
             ],
             return_type: TypeRef::String,

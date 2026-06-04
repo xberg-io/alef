@@ -656,22 +656,24 @@ pub(crate) fn detect_receiver(
     (None, true)
 }
 
-/// Returns `(map_is_ahash, map_key_is_cow)` for a parameter type.
+/// Returns `(map_is_ahash, map_key_is_cow, map_is_btree)` for a parameter type.
 ///
 /// Inspects the raw `syn::Type` to detect:
 /// - `map_is_ahash`: the outermost (possibly Option-wrapped, possibly &-wrapped) map container
 ///   is `AHashMap` rather than `HashMap`/`BTreeMap`/etc.
 /// - `map_key_is_cow`: the map's first generic argument is `Cow<'_, str>` (or `Cow<'static, str>`).
+/// - `map_is_btree`: the outermost map container is `BTreeMap`.
 ///
-/// Both flags default to `false` for non-map types.
-fn detect_map_metadata(ty: &syn::Type) -> (bool, bool) {
+/// All flags default to `false` for non-map types.
+fn detect_map_metadata(ty: &syn::Type) -> (bool, bool, bool) {
     // Peel Option<...> and &... wrappers to get to the map segment.
     let map_seg = find_map_segment(ty);
     let Some(seg) = map_seg else {
-        return (false, false);
+        return (false, false, false);
     };
     let ident = seg.ident.to_string();
     let map_is_ahash = ident == "AHashMap";
+    let map_is_btree = ident == "BTreeMap";
 
     // Check whether the key generic arg is `Cow<...>`.
     let map_key_is_cow = if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
@@ -689,7 +691,56 @@ fn detect_map_metadata(ty: &syn::Type) -> (bool, bool) {
         false
     };
 
-    (map_is_ahash, map_key_is_cow)
+    (map_is_ahash, map_key_is_cow, map_is_btree)
+}
+
+/// Returns `true` when the parameter type (after peeling Option/& wrappers) is `Cow<'_, str>`.
+///
+/// Used to set `ParamDef::core_wrapper = CoreWrapper::Cow` so call-site codegen can insert
+/// `.into()` / `.map(std::borrow::Cow::Owned)` when passing `String` to a `Cow<str>` parameter.
+fn param_is_cow_str(ty: &syn::Type) -> bool {
+    // Peel Option<...> and &... wrappers.
+    let inner = peel_option_and_ref(ty);
+    if let syn::Type::Path(tp) = inner {
+        if let Some(seg) = tp.path.segments.last() {
+            if seg.ident != "Cow" {
+                return false;
+            }
+            // Check that the type arg (after the lifetime) is `str`.
+            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                return args.args.iter().any(|a| {
+                    if let syn::GenericArgument::Type(syn::Type::Path(p)) = a {
+                        p.path.segments.last().map(|s| s.ident == "str").unwrap_or(false)
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+    }
+    false
+}
+
+/// Peel one level of `Option<...>` or `&...` from a `syn::Type`.
+fn peel_option_and_ref(ty: &syn::Type) -> &syn::Type {
+    match ty {
+        syn::Type::Reference(r) => r.elem.as_ref(),
+        syn::Type::Path(tp) => {
+            if let Some(seg) = tp.path.segments.last() {
+                if seg.ident == "Option" {
+                    if let syn::PathArguments::AngleBracketed(ab) = &seg.arguments {
+                        for arg in &ab.args {
+                            if let syn::GenericArgument::Type(inner) = arg {
+                                return inner;
+                            }
+                        }
+                    }
+                }
+            }
+            ty
+        }
+        _ => ty,
+    }
 }
 
 /// Recursively peel `Option<...>`, `&...`, and `Box<...>` wrappers until we reach a
@@ -839,8 +890,16 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                 let is_mut = is_mut_ref(&pat_type.ty);
                 let resolved = type_resolver::resolve_type(&pat_type.ty);
 
-                // Detect AHashMap container and Cow key before type erasure.
-                let (map_is_ahash, map_key_is_cow) = detect_map_metadata(&pat_type.ty);
+                // Detect AHashMap/BTreeMap container and Cow key before type erasure.
+                let (map_is_ahash, map_key_is_cow, map_is_btree) = detect_map_metadata(&pat_type.ty);
+
+                // Detect Cow<str> parameters — the extractor resolves them to TypeRef::String
+                // but call-site codegen must insert `.into()` / `.map(Cow::Owned)`.
+                let core_wrapper = if param_is_cow_str(&pat_type.ty) {
+                    crate::core::ir::CoreWrapper::Cow
+                } else {
+                    crate::core::ir::CoreWrapper::None
+                };
 
                 // Check if the resolved type (before unwrapping optional) is a tuple type
                 let sanitized = is_tuple_type(&resolved);
@@ -867,6 +926,8 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     map_is_ahash,
                     map_key_is_cow,
                     vec_inner_is_ref: vec_inner_is_ref(&pat_type.ty),
+                    map_is_btree,
+                    core_wrapper,
                 })
             } else {
                 None // Skip self receiver

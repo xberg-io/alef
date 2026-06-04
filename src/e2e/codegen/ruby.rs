@@ -2843,6 +2843,8 @@ mod trait_bridge_tests {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
         }
     }
 

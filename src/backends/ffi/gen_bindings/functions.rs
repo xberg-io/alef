@@ -1,7 +1,7 @@
 use crate::codegen::conversions::core_type_path;
 use crate::codegen::doc_emission::emit_c_doxygen;
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
-use crate::core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
@@ -607,8 +607,16 @@ pub(super) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::String | TypeRef::Char if !p.optional => {
-                    // Pass &str when is_ref=true, otherwise pass owned String
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    // Pass &str when is_ref=true, otherwise pass owned String.
+                    // When core_wrapper=Cow, the core function expects `Cow<'_, str>`:
+                    // String implements Into<Cow<str>>, so `.into()` performs the coercion.
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else if p.core_wrapper == CoreWrapper::Cow {
+                        format!("{rs}.into()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Bytes if !p.optional => {
                     // Pass &[u8] when is_ref=true (function takes &[u8]),
@@ -617,8 +625,16 @@ pub(super) fn gen_method_wrapper(
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     // Only convert to &str slice when the core param is a reference (&str).
-                    // When is_ref=false, the core takes Option<String> — pass owned.
-                    if p.is_ref { format!("{rs}.as_deref()") } else { rs }
+                    // When is_ref=false and core_wrapper=Cow, the core takes Option<Cow<str>>:
+                    // convert via `.map(std::borrow::Cow::Owned)`.
+                    // Otherwise when is_ref=false, the core takes Option<String> — pass owned.
+                    if p.is_ref {
+                        format!("{rs}.as_deref()")
+                    } else if p.core_wrapper == CoreWrapper::Cow {
+                        format!("{rs}.map(std::borrow::Cow::Owned)")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Path if p.optional => {
                     // Optional Path: rs is Option<String> when is_ref=true, Option<PathBuf> when is_ref=false (from param conversion)
@@ -667,10 +683,17 @@ pub(super) fn gen_method_wrapper(
                 TypeRef::Map(_, _) if !p.optional => {
                     // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
                     // Otherwise pass the map owned.
+                    // When map_is_btree=true, the core expects BTreeMap but the local `rs` is a
+                    // HashMap (from JSON deserialization). Convert inline: the temporary BTreeMap
+                    // lives for the duration of the function call statement (Rust temp extension).
                     if p.is_mut {
                         format!("&mut {rs}")
+                    } else if p.is_ref && p.map_is_btree {
+                        format!("&{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
                     } else if p.is_ref {
                         format!("&{rs}")
+                    } else if p.map_is_btree {
+                        format!("{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
                     } else {
                         rs
                     }
@@ -1021,8 +1044,16 @@ pub(super) fn gen_free_function(
                     if p.is_ref { format!("{rs}.as_path()") } else { rs }
                 }
                 TypeRef::String | TypeRef::Char if !p.optional => {
-                    // Pass &str when is_ref=true, otherwise pass owned String
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    // Pass &str when is_ref=true, otherwise pass owned String.
+                    // When core_wrapper=Cow, the core function expects `Cow<'_, str>`:
+                    // String implements Into<Cow<str>>, so `.into()` performs the coercion.
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else if p.core_wrapper == CoreWrapper::Cow {
+                        format!("{rs}.into()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Bytes if !p.optional => {
                     // Pass &[u8] when is_ref=true (function takes &[u8]),
@@ -1037,8 +1068,16 @@ pub(super) fn gen_free_function(
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     // Only convert to &str slice when the core param is a reference (&str).
-                    // When is_ref=false, the core takes Option<String> — pass owned.
-                    if p.is_ref { format!("{rs}.as_deref()") } else { rs }
+                    // When is_ref=false and core_wrapper=Cow, the core takes Option<Cow<str>>:
+                    // convert via `.map(std::borrow::Cow::Owned)`.
+                    // Otherwise when is_ref=false, the core takes Option<String> — pass owned.
+                    if p.is_ref {
+                        format!("{rs}.as_deref()")
+                    } else if p.core_wrapper == CoreWrapper::Cow {
+                        format!("{rs}.map(std::borrow::Cow::Owned)")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Path if p.optional => {
                     // Optional Path: rs is Option<String> when is_ref=true, Option<PathBuf> when is_ref=false (from param conversion)
@@ -1087,10 +1126,17 @@ pub(super) fn gen_free_function(
                 TypeRef::Map(_, _) if !p.optional => {
                     // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
                     // Otherwise pass the map owned.
+                    // When map_is_btree=true, the core expects BTreeMap but the local `rs` is a
+                    // HashMap (from JSON deserialization). Convert inline: the temporary BTreeMap
+                    // lives for the duration of the function call statement (Rust temp extension).
                     if p.is_mut {
                         format!("&mut {rs}")
+                    } else if p.is_ref && p.map_is_btree {
+                        format!("&{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
                     } else if p.is_ref {
                         format!("&{rs}")
+                    } else if p.map_is_btree {
+                        format!("{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
                     } else {
                         rs
                     }
@@ -1694,6 +1740,8 @@ mod tests {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
         };
         let rs = format!("{}_rs", p.name);
         // Simulate the call-site arm for Named non-optional with is_mut
@@ -1737,6 +1785,8 @@ mod tests {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
         };
 
         // Run the real conversion generator.

@@ -329,8 +329,10 @@ mod tests {
             field: Some("stream.has_page_event".to_string()),
             ..Default::default()
         }]);
-        let mut call_config = CallConfig::default();
-        call_config.streaming = Some(crate::core::config::e2e::StreamingConfig::Enabled(true));
+        let call_config = CallConfig {
+            streaming: Some(crate::core::config::e2e::StreamingConfig::Enabled(true)),
+            ..Default::default()
+        };
         let e2e_config = E2eConfig::default();
 
         // When streaming is enabled on the call, the streaming recipe should be

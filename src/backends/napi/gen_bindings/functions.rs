@@ -4,7 +4,7 @@ use crate::codegen::generators::{self, RustBindingConfig};
 use crate::codegen::naming::to_node_name;
 use crate::codegen::shared::function_params;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FunctionDef, ParamDef, TypeRef};
 use ahash::AHashSet;
 use heck::{ToPascalCase, ToSnakeCase};
 
@@ -443,11 +443,17 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                     if p.optional {
                         if p.is_ref {
                             format!("{}.as_deref()", p.name)
+                        } else if p.core_wrapper == CoreWrapper::Cow {
+                            // Core takes Option<Cow<str>>: convert via .map(Cow::Owned).
+                            format!("{}.map(std::borrow::Cow::Owned)", p.name)
                         } else {
                             p.name.clone()
                         }
                     } else if p.is_ref {
                         format!("&{}", p.name)
+                    } else if p.core_wrapper == CoreWrapper::Cow {
+                        // Core takes Cow<str>: String implements Into<Cow<str>>.
+                        format!("{}.into()", p.name)
                     } else {
                         p.name.clone()
                     }
@@ -500,14 +506,32 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                     }
                 }
                 TypeRef::Map(_, _) => {
+                    // When map_is_btree=true, the core expects BTreeMap but the NAPI binding
+                    // receives HashMap. Convert inline — the temporary BTreeMap lives for
+                    // the duration of the function call statement (Rust temp extension).
                     if p.optional {
                         if p.is_ref {
                             format!("{}.as_ref()", p.name)
+                        } else if p.map_is_btree {
+                            format!(
+                                "{}.map(|m| m.into_iter().collect::<std::collections::BTreeMap<_, _>>())",
+                                p.name
+                            )
                         } else {
                             p.name.clone()
                         }
+                    } else if p.is_ref && p.map_is_btree {
+                        format!(
+                            "&{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+                            p.name
+                        )
                     } else if p.is_ref {
                         format!("&{}", p.name)
+                    } else if p.map_is_btree {
+                        format!(
+                            "{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+                            p.name
+                        )
                     } else {
                         p.name.clone()
                     }

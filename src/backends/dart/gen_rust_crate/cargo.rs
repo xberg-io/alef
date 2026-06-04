@@ -491,11 +491,19 @@ fn patch_published_loader() {{
             println!("cargo:warning=failed to write published-loader patch: {{err}}");
             return;
         }}
-        match std::process::Command::new("dart").args(["format", FRB_GENERATED_DART]).status() {{
+        match std::process::Command::new("dart")
+            .args(["format", FRB_GENERATED_DART])
+            .status()
+        {{
             Ok(s) if s.success() => {{}}
-            Ok(s) => println!("cargo:warning=dart format on {{}} exited {{}}", FRB_GENERATED_DART, s),
+            Ok(s) => println!(
+                "cargo:warning=dart format on {{}} exited {{}}",
+                FRB_GENERATED_DART, s
+            ),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {{
-                println!("cargo:warning=dart not on PATH — skipping post-patch format. Install Dart SDK to keep generated FRB Dart sources fmt-clean.");
+                println!(
+                    "cargo:warning=dart not on PATH — skipping post-patch format. Install Dart SDK to keep generated FRB Dart sources fmt-clean."
+                );
             }}
             Err(err) => println!("cargo:warning=failed to spawn dart format: {{err}}"),
         }}
@@ -536,10 +544,13 @@ fn fix_handler_executor_calls() {{
     // class RustLibApiImpl implements RustLibApi async {{ ... becomes class RustLibApiImpl implements RustLibApi {{ ...
     fixed = fixed.replace(" implements RustLibApi async {{", " implements RustLibApi {{");
 
-    if fixed != source {{
-        if let Err(err) = std::fs::write(path, &fixed) {{
-            println!("cargo:warning=failed to fix handler executor calls in {{}}: {{err}}", FRB_GENERATED_DART);
-        }}
+    if fixed != source
+        && let Err(err) = std::fs::write(path, &fixed)
+    {{
+        println!(
+            "cargo:warning=failed to fix handler executor calls in {{}}: {{err}}",
+            FRB_GENERATED_DART
+        );
     }}
 }}"##
     )
@@ -707,9 +718,25 @@ mod build_rs_tests {
             "sample_router_dart",
         );
         assert!(
-            file.content
-                .contains(r#"Command::new("dart").args(["format", FRB_GENERATED_DART])"#),
+            file.content.contains("Command::new(\"dart\")") && file.content.contains("\"format\"")
+                && file.content.contains("FRB_GENERATED_DART"),
             "build.rs must run `dart format` on the patched frb_generated.dart"
+        );
+    }
+
+    #[test]
+    fn emitted_build_rs_uses_let_chain_for_file_write_error() {
+        let file = emit_build_rs(
+            "packages/dart/rust",
+            "sample_router",
+            "sample_router",
+            "sample_router_dart",
+        );
+        // Verify the generated code uses let-chain syntax which rustfmt 1.9.0+ accepts
+        // in 2024 edition, with the opening brace on its own line (the canonical rustfmt layout).
+        assert!(
+            file.content.contains("if fixed != source\n        && let Err(err) = std::fs::write(path, &fixed)\n    {"),
+            "emitted build.rs must use let-chain syntax with opening brace on its own line for rustfmt compatibility"
         );
     }
 }

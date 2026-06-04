@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart backend**: emit `build.rs` with rustfmt-canonical let-chain layout so CI's `cargo fmt --check` passes without manual fixup. When a file write error occurs in `fix_handler_executor_calls()` / `patch_published_loader()`, convert nested `if let Err(...) { ... }` into a let-chain with the opening brace on its own line (`if X && let Err(...)\n{`), matching rustfmt 1.9.0+ output for Rust 2024 edition. (`src/backends/dart/gen_rust_crate/cargo.rs:540-548`)
+
 - **e2e/swift**: replace the read-only `ProcessInfo.processInfo.environment["SUT_URL"] = "…"` assignment in the generated harness with a nested `withCString { … setenv(key, url, 1) }` block. The swift compiler rejects subscript-assignment on `ProcessInfo`'s read-only dictionary; the C `setenv` actually mutates the process environment so subsequent `getenv("SUT_URL")` / `ProcessInfo` lookups see the URL. (`src/e2e/codegen/swift.rs:677-682`)
 
 - **extract/functions**: skip private functions at the extraction boundary. Previously `extract_function()` only checked visibility at the call site, so private helpers could slip into the IR in edge cases where the call-site filter didn't fire — and once in the IR, any backend (FFI, Go, Python, …) would emit wrappers / C-header declarations for symbols that don't exist in the consumer's compiled crate, producing `undefined symbol` link errors. Now `extract_function` defensively returns `None` whenever `!is_pub(item.vis)`, ensuring private items can never be associated with any type or emitted by any backend. (`src/extract/extractor/functions.rs:50`)

@@ -1105,7 +1105,7 @@ pub fn apply_core_wrapper_to_core(
 /// `Default::default()` for any extra params not present in the binding struct.
 ///
 /// Returns `None` when no suitable constructor is found.
-fn gen_from_lifetime_type_constructor(
+pub fn gen_from_lifetime_type_constructor(
     typ: &TypeDef,
     core_path: &str,
     binding_name: &str,
@@ -1170,7 +1170,17 @@ fn gen_from_lifetime_type_constructor(
                         format!("val.{binding_field}.into()")
                     }
                 }
-                TypeRef::Primitive(_) | TypeRef::String | TypeRef::Unit => {
+                TypeRef::Primitive(p) => {
+                    // When cast_large_ints_to_i64 is active (NAPI/PHP), the binding field
+                    // stores the value as i64. Cast back to the core type (e.g. usize).
+                    if config.cast_large_ints_to_i64 && super::helpers::needs_i64_cast(p) {
+                        let core_ty = super::helpers::core_prim_str(p);
+                        format!("val.{binding_field} as {core_ty}")
+                    } else {
+                        format!("val.{binding_field}")
+                    }
+                }
+                TypeRef::String | TypeRef::Unit => {
                     format!("val.{binding_field}")
                 }
                 TypeRef::Optional(_) => format!("val.{binding_field}.map(Into::into)"),
