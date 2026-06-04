@@ -18,6 +18,8 @@ pub fn generate(
     languages: &[Language],
     clean: bool,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    validate_generation_api(api, config)?;
+
     // Validate that Go/Java/C# have FFI in the languages list
     let has_ffi = languages.contains(&Language::Ffi);
     for &lang in languages {
@@ -74,6 +76,8 @@ pub fn generate_stubs(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    validate_generation_api(api, config)?;
+
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
         .map(|&lang| {
@@ -96,6 +100,8 @@ pub fn generate_service_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    validate_generation_api(api, config)?;
+
     if api.services.is_empty() {
         return Ok(vec![]);
     }
@@ -132,6 +138,8 @@ pub fn generate_public_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
+    validate_generation_api(api, config)?;
+
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
         .map(|&lang| {
@@ -144,6 +152,39 @@ pub fn generate_public_api(
         .filter(|(_, files)| !files.is_empty())
         .collect();
     Ok(results)
+}
+
+fn validate_generation_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<()> {
+    let validation_report = crate::core::validation::validate_api_surface(api);
+    for diagnostic in validation_report.warnings() {
+        tracing::warn!("{diagnostic}");
+    }
+    let fatal: Vec<_> = validation_report
+        .errors()
+        .filter(|diagnostic| {
+            !config
+                .suppress_validation_codes
+                .iter()
+                .any(|code| code == &diagnostic.code.to_string())
+        })
+        .collect();
+    for diagnostic in validation_report.errors().filter(|diagnostic| {
+        config
+            .suppress_validation_codes
+            .iter()
+            .any(|code| code == &diagnostic.code.to_string())
+    }) {
+        tracing::warn!("[suppressed] {diagnostic}");
+    }
+    if !fatal.is_empty() {
+        let formatted = fatal
+            .iter()
+            .map(|diagnostic| format!("- [{}] {}", diagnostic.code, diagnostic.reason))
+            .collect::<Vec<_>>()
+            .join("\n");
+        anyhow::bail!("{formatted}");
+    }
+    Ok(())
 }
 
 /// Apply `0o755` permissions to a file whose content begins with a shebang line.
@@ -369,7 +410,7 @@ pub fn normalize_content(path: &Path, content: &str) -> String {
 /// trailing newline.
 ///
 /// Markdown files get an aggressive 1-blank-line cap because the canonical
-/// sample-markdown/sample_core-dev pre-commit pipeline runs `rumdl-fmt` after every commit,
+/// downstream pre-commit pipeline runs `rumdl-fmt` after every commit,
 /// and rumdl's MD012 rule collapses any multi-blank run to a single blank.
 /// Without the matching cap inside alef, `alef all` output (which goes
 /// through pre-commit `rumdl-fmt` before being committed) diverges from the
@@ -932,8 +973,7 @@ mod write_scaffold_normalize_tests {
 
     /// Regression: a file that contains loose "auto-generated" or "DO NOT EDIT"
     /// markers but lacks the `alef:hash:` line must NOT be deleted by
-    /// `sweep_orphans`. This protects consumer-vendored files such as
-    /// sample-crawler's `packages/go/include/sample-crawler.h` cgo header.
+    /// `sweep_orphans`. This protects consumer-vendored files such as cgo headers.
     #[test]
     fn sweep_orphans_preserves_loose_marker_file_without_hash() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1143,7 +1183,7 @@ mod write_scaffold_normalize_tests {
     /// preserved, while `alef readme` (which always uses `overwrite=true`) writes
     /// fresh compact content.  The two commands then produce different bytes for
     /// the same README — the root cause of the `alef generate`/`alef readme`
-    /// divergence surfaced on sample-markdown regen.
+    /// divergence surfaced during downstream regeneration.
     #[test]
     fn readme_overwrite_false_preserves_existing_content_producing_divergence() {
         let dir = tempfile::tempdir().expect("tempdir");

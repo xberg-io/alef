@@ -6,7 +6,7 @@
 //! structured reports here.
 
 use crate::core::config::Language;
-use crate::core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
+use crate::core::ir::{ApiSurface, FunctionDef, HandlerContractDef, MethodDef, ServiceDef, TypeRef};
 use crate::extract::validation::sanitized_public_api_diagnostics;
 use ahash::AHashSet;
 use std::fmt;
@@ -272,6 +272,12 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
             }
         }
     }
+    for service in &api.services {
+        collect_service_diagnostics(api, &known_names, service, &mut diagnostics);
+    }
+    for contract in &api.handler_contracts {
+        collect_handler_contract_diagnostics(api, &known_names, contract, &mut diagnostics);
+    }
 
     diagnostics
 }
@@ -342,6 +348,121 @@ fn collect_method_diagnostics(
     collect_type_ref_diagnostics(api, known_names, item_path, &method.return_type, diagnostics);
 }
 
+fn collect_service_diagnostics(
+    api: &ApiSurface,
+    known_names: &AHashSet<&str>,
+    service: &ServiceDef,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    collect_method_diagnostics(
+        api,
+        known_names,
+        &format!("service {} constructor", service.name),
+        &service.constructor,
+        diagnostics,
+    );
+    for configurator in &service.configurators {
+        collect_method_diagnostics(
+            api,
+            known_names,
+            &format!("service {} configurator {}", service.name, configurator.name),
+            configurator,
+            diagnostics,
+        );
+    }
+    for registration in &service.registrations {
+        let item_path = format!("service {} registration {}", service.name, registration.method);
+        for param in &registration.metadata_params {
+            collect_type_ref_diagnostics(
+                api,
+                known_names,
+                &format!("{item_path} metadata param {}", param.name),
+                &param.ty,
+                diagnostics,
+            );
+        }
+        collect_type_ref_diagnostics(api, known_names, &item_path, &registration.return_type, diagnostics);
+        for variant in &registration.variants {
+            for param in &variant.signature_params {
+                collect_type_ref_diagnostics(
+                    api,
+                    known_names,
+                    &format!("{item_path} variant {} param {}", variant.name, param.name),
+                    &param.ty,
+                    diagnostics,
+                );
+            }
+            if let Some(wrapper_call) = &variant.wrapper_call {
+                for arg in &wrapper_call.args {
+                    if let crate::core::ir::WrapperConstructorArg::Free { param } = arg {
+                        collect_type_ref_diagnostics(
+                            api,
+                            known_names,
+                            &format!("{item_path} variant {} wrapper param {}", variant.name, param.name),
+                            &param.ty,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    for entrypoint in &service.entrypoints {
+        let item_path = format!("service {} entrypoint {}", service.name, entrypoint.method);
+        for param in &entrypoint.params {
+            collect_type_ref_diagnostics(
+                api,
+                known_names,
+                &format!("{item_path} param {}", param.name),
+                &param.ty,
+                diagnostics,
+            );
+        }
+        collect_type_ref_diagnostics(api, known_names, &item_path, &entrypoint.return_type, diagnostics);
+    }
+}
+
+fn collect_handler_contract_diagnostics(
+    api: &ApiSurface,
+    known_names: &AHashSet<&str>,
+    contract: &HandlerContractDef,
+    diagnostics: &mut Vec<ValidationDiagnostic>,
+) {
+    collect_method_diagnostics(
+        api,
+        known_names,
+        &format!("handler contract {} dispatch", contract.trait_name),
+        &contract.dispatch,
+        diagnostics,
+    );
+    for method in &contract.optional_methods {
+        collect_method_diagnostics(
+            api,
+            known_names,
+            &format!(
+                "handler contract {} optional method {}",
+                contract.trait_name, method.name
+            ),
+            method,
+            diagnostics,
+        );
+    }
+    for (label, maybe_type) in [
+        ("wire request", contract.wire_request_type.as_deref()),
+        ("wire response", contract.wire_response_type.as_deref()),
+    ] {
+        if let Some(type_name) = maybe_type {
+            collect_type_ref_diagnostics(
+                api,
+                known_names,
+                &format!("handler contract {} {label}", contract.trait_name),
+                &TypeRef::Named(type_name.to_string()),
+                diagnostics,
+            );
+        }
+    }
+}
+
 fn collect_type_ref_diagnostics(
     api: &ApiSurface,
     known_names: &AHashSet<&str>,
@@ -383,8 +504,8 @@ fn collect_type_ref_diagnostics(
 mod tests {
     use super::*;
     use crate::core::ir::{
-        ApiSurface, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, TypeDef,
-        TypeRef,
+        ApiSurface, EntrypointDef, EntrypointKind, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
+        HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeDef, TypeRef,
     };
 
     fn function_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> FunctionDef {
@@ -800,5 +921,127 @@ mod tests {
             !report.has_errors(),
             "excluded variant fields must not block generation: {report:?}"
         );
+    }
+
+    #[test]
+    fn api_surface_validation_checks_service_ir_types() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            services: vec![ServiceDef {
+                name: "App".to_string(),
+                rust_path: "sample_lib::App".to_string(),
+                constructor: method_def("new", vec![], TypeRef::Named("App".to_string())),
+                configurators: vec![method_def(
+                    "with_state",
+                    vec![ParamDef {
+                        name: "state".to_string(),
+                        ty: TypeRef::Named("MissingState".to_string()),
+                        ..ParamDef::default()
+                    }],
+                    TypeRef::Named("App".to_string()),
+                )],
+                registrations: vec![RegistrationDef {
+                    method: "route".to_string(),
+                    callback_param: "handler".to_string(),
+                    callback_contract: "Handler".to_string(),
+                    metadata_params: vec![ParamDef {
+                        name: "metadata".to_string(),
+                        ty: TypeRef::Named("Value".to_string()),
+                        ..ParamDef::default()
+                    }],
+                    receiver: None,
+                    return_type: TypeRef::Named("App".to_string()),
+                    error_type: None,
+                    doc: String::new(),
+                    variants: vec![],
+                }],
+                entrypoints: vec![EntrypointDef {
+                    method: "run".to_string(),
+                    kind: EntrypointKind::Run,
+                    is_async: true,
+                    params: vec![ParamDef {
+                        name: "addr".to_string(),
+                        ty: TypeRef::Named("SocketAddr".to_string()),
+                        ..ParamDef::default()
+                    }],
+                    return_type: TypeRef::Unit,
+                    error_type: None,
+                    doc: String::new(),
+                }],
+                doc: String::new(),
+                cfg: None,
+            }],
+            types: vec![TypeDef {
+                name: "App".to_string(),
+                ..TypeDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ValidationCode::UnknownNamedType
+                && diagnostic.item_path.as_deref() == Some("service App configurator with_state param state")
+                && diagnostic.reason.contains("MissingState")
+        }));
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ValidationCode::JsonValueResolutionAmbiguous
+                && diagnostic.item_path.as_deref() == Some("service App registration route metadata param metadata")
+        }));
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ValidationCode::UnknownNamedType
+                && diagnostic.item_path.as_deref() == Some("service App entrypoint run param addr")
+                && diagnostic.reason.contains("SocketAddr")
+        }));
+    }
+
+    #[test]
+    fn api_surface_validation_checks_handler_contract_ir_types() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            handler_contracts: vec![HandlerContractDef {
+                trait_name: "Handler".to_string(),
+                rust_path: "sample_lib::Handler".to_string(),
+                dispatch: method_def(
+                    "handle",
+                    vec![ParamDef {
+                        name: "request".to_string(),
+                        ty: TypeRef::Named("MissingRequest".to_string()),
+                        ..ParamDef::default()
+                    }],
+                    TypeRef::Named("MissingResponse".to_string()),
+                ),
+                optional_methods: vec![method_def("metadata", vec![], TypeRef::Named("JsonValue".to_string()))],
+                wire_request_type: Some("WireRequest".to_string()),
+                wire_response_type: Some("WireResponse".to_string()),
+                dispatch_extra_params: vec![],
+                wire_param_name: None,
+                dispatch_return_type: None,
+                response_adapter: None,
+                doc: String::new(),
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        for expected in [
+            "handler contract Handler dispatch param request",
+            "handler contract Handler dispatch",
+            "handler contract Handler optional method metadata",
+            "handler contract Handler wire request",
+            "handler contract Handler wire response",
+        ] {
+            assert!(
+                report
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.item_path.as_deref() == Some(expected)),
+                "missing diagnostic for {expected}: {report:?}"
+            );
+        }
     }
 }

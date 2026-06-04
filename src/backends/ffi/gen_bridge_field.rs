@@ -34,12 +34,12 @@ use crate::core::ir::{MethodDef, ReceiverKind};
 ///
 /// # Parameters
 ///
-/// - `prefix`: the FFI symbol prefix (e.g. `"htm"`).
-/// - `core_import`: the Rust crate name for the core library (e.g. `"sample_markdown_rs"`).
+/// - `prefix`: the FFI symbol prefix.
+/// - `core_import`: the Rust crate name for the core library.
 /// - `trait_def`: the IR definition of the trait whose bridge is being attached.
-/// - `trait_name`: the Rust trait name (e.g. `"HtmlVisitor"`).
-/// - `field_name`: the field on the options struct (e.g. `"visitor"`).
-/// - `options_type_name`: the IR type name of the options struct (e.g. `"ConversionOptions"`).
+/// - `trait_name`: the Rust trait name.
+/// - `field_name`: the field on the options struct.
+/// - `options_type_name`: the IR type name of the options struct.
 /// - `type_paths`: map of IR type name → fully-qualified Rust path for signature generation.
 pub fn gen_options_set_bridge(
     prefix: &str,
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn {fn_name}(
     impl {trait_path} for VtableRef {{
 {delegation_methods}    }}
 
-    // SAFETY: visitor is non-null; Arc<Mutex<_>> satisfies VisitorHandle = Arc<Mutex<dyn HtmlVisitor + Send>>.
+    // SAFETY: visitor is non-null; Arc<Mutex<_>> satisfies the configured bridge handle type.
     opts.{field_name} = Some(std::sync::Arc::new(std::sync::Mutex::new(VtableRef(visitor))));
 }}"#,
         prefix = prefix,

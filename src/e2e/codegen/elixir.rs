@@ -3329,7 +3329,7 @@ mod mix_exs_tests {
     #[test]
     fn mix_exs_includes_finch_when_mock_server_tests_are_present() {
         let output = render_mix_exs(
-            "liter_llm",
+            "sample_service",
             "1.4.0-rc.55",
             DependencyMode::Registry,
             false, // has_http_tests
@@ -3356,7 +3356,7 @@ mod mix_exs_tests {
     #[test]
     fn mix_exs_omits_finch_when_no_http_or_mock_server_tests() {
         let output = render_mix_exs(
-            "liter_llm",
+            "sample_service",
             "../../packages/elixir",
             DependencyMode::Local,
             false, // has_http_tests

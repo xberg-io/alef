@@ -35,7 +35,14 @@ pub(super) fn gen_input_dto_for_type(
 ) -> (String, String) {
     // Legacy signature without feature gating info — used by tests and legacy callers.
     // For actual WASM backend generation, use gen_input_dto_for_type_with_cfg.
-    gen_input_dto_for_type_with_cfg(type_name, core_import, type_def, &[], &[], &std::collections::HashSet::new())
+    gen_input_dto_for_type_with_cfg(
+        type_name,
+        core_import,
+        type_def,
+        &[],
+        &[],
+        &std::collections::HashSet::new(),
+    )
 }
 
 /// Generate an Input DTO struct with feature-gate awareness.

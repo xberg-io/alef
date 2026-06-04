@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fix Zig e2e codegen to emit multi-target lazy dependencies (Zig 0.13+) instead of a single generic tarball URL. The generated `build.zig.zon` now declares five platform-specific dependencies (linux-x86_64, linux-aarch64, macos-arm64, macos-x86_64, windows-x86_64) with `.lazy = true` so Zig only fetches the one matching the consumer's target triple. The build script selects the right dependency via `b.lazyDependency(name, .{})` based on the target OS and architecture, resolving the 404 error when using registry-published platform-specific Zig FFI tarballs. (`src/e2e/codegen/zig.rs`)
 - Guard direct generation helpers with central API validation, including service and handler-contract IR.
 - Remove FFI visitor fallback generation that guessed conversion-shaped names when no configured bridge function matched.
 - Neutralize remaining e2e mock-server fixture wording and wait for mock listeners before printing ready URLs.
