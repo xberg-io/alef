@@ -142,16 +142,35 @@ pub fn render_app_harness(
             // Convert the fixture to JSON for the harness to load.
             // We only need the http field, handler, request, and expected_response.
             let http_data = &fixture.http.as_ref().unwrap();
+            let mut handler_obj = serde_json::json!({
+                "route": &http_data.handler.route,
+                "method": &http_data.handler.method,
+                "body_schema": http_data.handler.body_schema.clone(),
+            });
+            // Include middleware if present for CORS preflight registration
+            if let Some(middleware) = &http_data.handler.middleware {
+                if let serde_json::Value::Object(ref obj) = handler_obj {
+                    let mut handler_map = obj.clone();
+                    let middleware_value = serde_json::to_value(middleware).unwrap_or(serde_json::Value::Null);
+                    handler_map.insert("middleware".to_string(), middleware_value);
+                    handler_obj = serde_json::Value::Object(handler_map);
+                }
+            }
+            let mut request_obj = serde_json::json!({
+                "path": &http_data.request.path,
+            });
+            // Include content_type if present for multipart/form-encoded detection
+            if let Some(ct) = &http_data.request.content_type {
+                if let serde_json::Value::Object(ref obj) = request_obj {
+                    let mut request_map = obj.clone();
+                    request_map.insert("content_type".to_string(), serde_json::Value::String(ct.clone()));
+                    request_obj = serde_json::Value::Object(request_map);
+                }
+            }
             let fixture_json = serde_json::json!({
                 "http": {
-                    "handler": {
-                        "route": &http_data.handler.route,
-                        "method": &http_data.handler.method,
-                        "body_schema": http_data.handler.body_schema.clone(),
-                    },
-                    "request": {
-                        "path": &http_data.request.path,
-                    },
+                    "handler": handler_obj,
+                    "request": request_obj,
                     "expected_response": {
                         "status_code": http_data.expected_response.status_code,
                         "body": &http_data.expected_response.body,
