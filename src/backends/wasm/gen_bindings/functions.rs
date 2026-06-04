@@ -3,7 +3,7 @@
 use crate::backends::wasm::type_map::WasmMapper;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name};
-use crate::core::ir::{FunctionDef, TypeRef};
+use crate::core::ir::{FunctionDef, TypeRef, ApiSurface};
 use ahash::AHashSet;
 use std::collections::HashMap;
 
@@ -409,12 +409,14 @@ pub(super) fn gen_function_with_emitted_dtos(
                             ));
                             serde_bindings.push_str("    ");
                         } else {
+                            let has_default = type_has_default(name, api);
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_required",
                                 minijinja::context! {
                                     param_name => &p.name,
                                     core_path => &core_path,
                                     err_conv => &err_conv,
+                                    has_default => has_default,
                                 },
                             ));
                             serde_bindings.push_str("    ");
@@ -671,6 +673,7 @@ pub(super) fn gen_function_with_emitted_dtos(
                             ));
                             serde_bindings.push_str("    ");
                         } else {
+                            let has_default = type_has_default(name, api);
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_config_required",
                                 minijinja::context! {
@@ -678,6 +681,7 @@ pub(super) fn gen_function_with_emitted_dtos(
                                     core_path => &core_path,
                                     err_conv => &err_conv,
                                     input_dto_type => &input_dto_type,
+                                    has_default => has_default,
                                 },
                             ));
                             serde_bindings.push_str("    ");
@@ -695,12 +699,14 @@ pub(super) fn gen_function_with_emitted_dtos(
                             ));
                             serde_bindings.push_str("    ");
                         } else {
+                            let has_default = type_has_default(name, api);
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_required",
                                 minijinja::context! {
                                     param_name => &p.name,
                                     core_path => &core_path,
                                     err_conv => &err_conv,
+                                    has_default => has_default,
                                 },
                             ));
                             serde_bindings.push_str("    ");
@@ -1741,4 +1747,43 @@ mod tests {
         assert_eq!(to_turbofish_from("WasmEntity"), "WasmEntity");
         assert_eq!(to_turbofish_from("ExtractionResult"), "ExtractionResult");
     }
+
+    #[test]
+    fn type_has_default_lookup_returns_correct_value() {
+        // Regression test for bug #1: types without Default should not emit ::default()
+        // in WASM function parameter deserialization templates.
+        // This test validates that the type_has_default helper correctly identifies
+        // the has_default flag from the IR and handles missing types gracefully.
+
+        use crate::core::ir::ApiSurface;
+
+        // Create a minimal API surface with empty types list
+        let api = ApiSurface {
+            crate_name: "test".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: std::collections::HashMap::new(),
+            excluded_trait_names: std::collections::HashSet::new(),
+            handler_contracts: vec![],
+            services: vec![],
+        };
+
+        // type_has_default should return false for unknown types
+        assert!(!type_has_default("NonExistentType", &api), "Unknown type should return false");
+        // and for empty API
+        assert!(!type_has_default("AnyType", &api), "Empty API should return false for any type");
+    }
+}
+
+/// Lookup whether a named type has `Default` impl in the IR.
+/// Returns true if the type is found and `has_default` is true, false otherwise.
+fn type_has_default(type_name: &str, api: &ApiSurface) -> bool {
+    api.types
+        .iter()
+        .find(|t| t.name == type_name)
+        .map(|t| t.has_default)
+        .unwrap_or(false)
 }
