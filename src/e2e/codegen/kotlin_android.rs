@@ -481,7 +481,10 @@ tasks.withType<Test> {{
     );
 
     format!(
-        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+        r#"import java.net.HttpURLConnection
+import java.net.URL
+import java.util.zip.ZipFile
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
     id("com.android.library") version "{android_gradle_plugin}"
