@@ -839,7 +839,7 @@ pub(super) fn gen_function_with_emitted_dtos(
             }
         }
 
-        let call_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
+        let call_args = wasm_serde_recovery_call_args(&func.params, opaque_types);
         let core_call = format!("{core_fn_path}({call_args})");
         let wrap = wasm_wrap_return_fn(
             "result",
@@ -876,6 +876,21 @@ pub(super) fn gen_function_with_emitted_dtos(
         );
         format!("{input_dtos}{fn_code}")
     }
+}
+
+fn wasm_serde_recovery_call_args(params: &[crate::core::ir::ParamDef], opaque_types: &AHashSet<String>) -> String {
+    params
+        .iter()
+        .map(|p| match &p.ty {
+            TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && !p.optional =>
+            {
+                format!("&{}_refs", p.name)
+            }
+            _ => generators::gen_call_args_with_let_bindings(std::slice::from_ref(p), opaque_types),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Generate WASM environment shims for wide-character C functions used by external scanners.

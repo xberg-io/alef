@@ -1016,13 +1016,10 @@ fn gen_named_let_bindings_inner(
                 bindings.push_str(&binding);
                 bindings.push_str("\n    ");
             }
-            // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects &[&str].
+            // Vec<String> with is_ref=true: create a refs binding for call sites that
+            // need `&[&str]`; callers that only need `&[String]` may ignore it.
             // Convert Vec<String> to Vec<&str> via intermediate binding.
-            // When vec_inner_is_ref=false the core expects &[String] which Vec<String> already
-            // satisfies via &[..] coercion — no intermediate binding needed.
-            TypeRef::Vec(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref =>
-            {
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_optional.jinja",
@@ -1164,9 +1161,7 @@ fn gen_named_let_bindings_inner_augmented(
                 bindings.push_str(&binding);
                 bindings.push_str("\n    ");
             }
-            TypeRef::Vec(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref =>
-            {
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_optional.jinja",
