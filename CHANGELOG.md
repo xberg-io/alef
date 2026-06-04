@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-06-04
+
 ### Fixed
 
 - fix(swift): hoist Vec-of-enum conversion to a temporary-extending reference expression and stop emitting an unnecessary `Vec<String> -> Vec<&str>` conversion for `&[String]` params. Three related bugs in the swift rust-crate codegen: (1) the inline block `{ let __converted = ...; __converted.as_slice() }` returned a slice borrowed from a `__converted` Vec that was dropped at end-of-block, producing `__converted does not live long enough`; replaced with `&...collect::<Vec<_>>()` so the temporary lives for the enclosing call statement. (2) single-enum params with `is_ref=true` (e.g. `&PiiCategory`) emitted the owned `<Enum as From<String>>::from(name)` expression in a position that expected `&Enum`; now wrapped in `&` to borrow the temporary. (3) `Vec<String>` params with `is_ref=true` but `vec_inner_is_ref=false` (i.e. core takes `&[String]`, not `&[&str]`) were forced through `&name.iter().map(|s| s.as_str()).collect::<Vec<_>>()`, producing `&Vec<&str>` where `&[String]` was expected; the `.iter().map(.as_str()).collect()` path now only fires when `vec_inner_is_ref=true`. Affects every alef consumer with `&[String]`, `&PiiCategory`, or `&[EntityCategory]`-shaped params on client trait methods (e.g. kreuzberg's `LlmBackend.detect_with_custom`, `TokenCounter.next_token`). (`src/backends/swift/gen_rust_crate/{shims,wrappers}.rs`)
