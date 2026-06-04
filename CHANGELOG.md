@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-06-04
+
 ### Fixed
 
 - fix(wasm): use target-inferred collection conversion for input DTO sequence fields. WASM input DTOs deserialize sequence-shaped fields as `Vec<T>`, but the core struct field can be a set-like collection such as `HashSet<T>`, `AHashSet<T>`, or `BTreeSet<T>`. The generated conversion now leaves `collect()` target-inferred from the core field instead of forcing `Vec<T>`, so Vec-backed and Set-backed fields compile through the same DTO path. (`src/backends/wasm/gen_bindings/functions.rs`)
