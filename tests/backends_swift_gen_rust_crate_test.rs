@@ -1011,7 +1011,7 @@ fn inbound_plugin_impl_uses_qualified_super_trait_config_path() {
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
-        types: vec![make_trait_type("OcrBackend", "demo::plugins::OcrBackend", vec![])],
+        types: vec![make_trait_type("TextBackend", "demo::plugins::TextBackend", vec![])],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1021,20 +1021,20 @@ fn inbound_plugin_impl_uses_qualified_super_trait_config_path() {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     };
-    let cfg = config_with_plugin_bridge("OcrBackend", "demo::plugin_api::Plugin");
+    let cfg = config_with_plugin_bridge("TextBackend", "demo::plugin_api::Plugin");
 
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
     assert!(
         lib.content
-            .contains("impl demo::plugin_api::Plugin for SwiftOcrBackendWrapper"),
+            .contains("impl demo::plugin_api::Plugin for SwiftTextBackendWrapper"),
         "inbound plugin impl must use the configured super_trait path; got:\n{}",
         lib.content
     );
     assert!(
         !lib.content
-            .contains("impl demo_crate::plugins::Plugin for SwiftOcrBackendWrapper"),
+            .contains("impl demo_crate::plugins::Plugin for SwiftTextBackendWrapper"),
         "inbound plugin impl must not assume a plugins module convention; got:\n{}",
         lib.content
     );
@@ -1045,7 +1045,7 @@ fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
-        types: vec![make_trait_type("OcrBackend", "demo::plugins::OcrBackend", vec![])],
+        types: vec![make_trait_type("TextBackend", "demo::plugins::TextBackend", vec![])],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1055,7 +1055,7 @@ fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     };
-    let cfg = config_with_plugin_bridge("OcrBackend", "Plugin");
+    let cfg = config_with_plugin_bridge("TextBackend", "Plugin");
 
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1067,7 +1067,7 @@ fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
     );
     assert!(
         !lib.content
-            .contains("impl demo_crate::plugins::Plugin for SwiftOcrBackendWrapper"),
+            .contains("impl demo_crate::plugins::Plugin for SwiftTextBackendWrapper"),
         "inbound plugin impl must not fall back to demo_crate::plugins::Plugin; got:\n{}",
         lib.content
     );

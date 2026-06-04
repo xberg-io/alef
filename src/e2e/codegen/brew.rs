@@ -939,14 +939,12 @@ fn json_value_to_shell_string(value: &serde_json::Value) -> String {
 }
 
 /// Emit a brew test backend stub.
-///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
 pub fn emit_test_backend(
     _trait_bridge: &crate::core::config::TraitBridgeConfig,
     _methods: &[&crate::core::ir::MethodDef],
     _fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("brew test_backend emission not yet implemented")
+    super::TestBackendEmission::unimplemented("brew")
 }
 
 #[cfg(test)]
@@ -954,10 +952,9 @@ mod tests {
     use super::*;
 
     /// Every leading-whitespace prefix in an emitted shell line must be a
-    /// multiple of 2 spaces. shfmt's default indent step (and the `shfmt -i 2`
-    /// pre-commit hook used downstream by `demo-crawler`) rewrites any other
+    /// multiple of 2 spaces. shfmt's default indent step rewrites any other
     /// indent step, which then causes the alef-emitted scripts to be rewritten
-    /// by pre-commit hooks on every consumer run.
+    /// by pre-commit hooks on every project run.
     fn assert_shfmt_canonical_indent(script: &str, context: &str) {
         for (lineno, line) in script.lines().enumerate() {
             let leading_spaces = line.chars().take_while(|c| *c == ' ').count();

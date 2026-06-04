@@ -5,7 +5,7 @@ use crate::core::config::ResolvedCrateConfig;
 /// Get the PHP Composer autoload namespace.
 ///
 /// If `[crates.php] namespace` is configured, uses that verbatim.
-/// Otherwise, derives the namespace from the extension name (e.g. `sample_markdown_rs` → `Html\\To\\Markdown\\Rs`).
+/// Otherwise, derives the namespace from the extension name (e.g. `sample_crate` -> `Sample\\Crate`).
 pub fn php_autoload_namespace(config: &ResolvedCrateConfig) -> String {
     use heck::ToPascalCase;
 
@@ -89,7 +89,7 @@ sources = ["src/lib.rs"]
 extension_name = "sample_markdown_rs"
 "#,
         );
-        // `sample_markdown_rs` → split on `_` → ["sample","markdown","rs"] →
+        // `sample_crate` -> split on `_` -> ["sample","crate"] ->
         // PascalCase each → `Sample\Markdown\Rs`.
         assert_eq!(php_autoload_namespace(&r), "Sample\\Markdown\\Rs");
     }

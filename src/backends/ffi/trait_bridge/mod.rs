@@ -53,7 +53,7 @@ pub struct FfiBridgeGenerator {
     /// variant shape.
     pub plugin_error_constructor: Option<String>,
     /// Set of type names (from `TypeDef.has_lifetime_params`) that carry a
-    /// lifetime parameter in their Rust definition (e.g. `NodeContext<'a>`).
+    /// lifetime parameter in their Rust definition (e.g. `SyntaxContext<'a>`).
     /// When a trait method parameter references one of these types with `is_ref=true`,
     /// the generated trait impl signature emits `&Type<'_>` so it matches the
     /// trait definition exactly.
@@ -1525,10 +1525,10 @@ mod tests {
         );
     }
 
-    /// Named types with `has_lifetime_params = true` (e.g. `NodeContext<'a>`) must be
+    /// Named types with `has_lifetime_params = true` (e.g. `SyntaxContext<'a>`) must be
     /// emitted as `&Type<'_>` in the FFI trait impl method signature so it matches the
     /// trait definition exactly. Without `<'_>`, rustc rejects the impl because the
-    /// concrete struct is `NodeContext<'_>` but the generated method omits the lifetime.
+    /// concrete struct is `SyntaxContext<'_>` but the generated method omits the lifetime.
     #[test]
     fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
         use crate::core::ir::{ParamDef, TypeDef};
@@ -1568,7 +1568,7 @@ mod tests {
         let trait_def = make_trait_def("HtmlVisitor", vec![method]);
         let bridge_cfg = sample_bridge_cfg("HtmlVisitor");
 
-        // Include NodeContext as a type with lifetime params.
+        // Include the context type as a type with lifetime params.
         let api = ApiSurface {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
@@ -1616,7 +1616,7 @@ mod tests {
             &api,
         );
 
-        // The trait impl method signature must use &my_lib::NodeContext<'_>, not bare &NodeContext.
+        // The trait impl method signature must include a lifetime placeholder, not a bare type.
         assert!(
             code.contains("context: &my_lib::NodeContext<'_>"),
             "lifetime-parameterized Named type must be &Type<'_> in trait impl signature;\n\

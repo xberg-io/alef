@@ -128,14 +128,14 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
         }],
         enums: vec![EnumDef {
-            name: "OcrBackend".to_string(),
-            rust_path: "sample_crate::OcrBackend".to_string(),
+            name: "TextBackend".to_string(),
+            rust_path: "sample_crate::TextBackend".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
-                    name: "Tesseract".to_string(),
+                    name: "PlainText".to_string(),
                     fields: vec![],
-                    doc: "Tesseract OCR".to_string(),
+                    doc: "Plain text parser".to_string(),
                     is_default: false,
                     serde_rename: None,
                     binding_excluded: false,
@@ -144,9 +144,9 @@ fn test_basic_generation() {
                     originally_had_data_fields: false,
                 },
                 EnumVariant {
-                    name: "PaddleOcr".to_string(),
+                    name: "RichText".to_string(),
                     fields: vec![],
-                    doc: "PaddleOCR backend".to_string(),
+                    doc: "Rich text parser".to_string(),
                     is_default: false,
                     serde_rename: None,
                     binding_excluded: false,
@@ -155,7 +155,7 @@ fn test_basic_generation() {
                     originally_had_data_fields: false,
                 },
             ],
-            doc: "Available OCR backends".to_string(),
+            doc: "Available text backends".to_string(),
             cfg: None,
             is_copy: false,
             has_serde: false,
@@ -205,8 +205,8 @@ fn test_basic_generation() {
         "Should generate Config type"
     );
     assert!(
-        file_names.iter().any(|f| f.contains("OcrBackend.cs")),
-        "Should generate OcrBackend enum"
+        file_names.iter().any(|f| f.contains("TextBackend.cs")),
+        "Should generate TextBackend enum"
     );
 
     // Verify content of a generated file
@@ -248,11 +248,11 @@ fn test_basic_generation() {
 
     let enum_type = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("OcrBackend.cs"))
+        .find(|f| f.path.to_string_lossy().contains("TextBackend.cs"))
         .unwrap();
     assert!(
-        enum_type.content.contains("public enum OcrBackend"),
-        "Should define OcrBackend enum"
+        enum_type.content.contains("public enum TextBackend"),
+        "Should define TextBackend enum"
     );
     // Sanity-check the XML doc summary renders across separate /// lines for
     // both the enum class and its variants — regression guard for the issue
@@ -260,14 +260,14 @@ fn test_basic_generation() {
     assert!(
         enum_type
             .content
-            .contains("/// <summary>\n/// Available OCR backends\n/// </summary>"),
+            .contains("/// <summary>\n/// Available text backends\n/// </summary>"),
         "Enum class doc summary should be on separate /// lines:\n{}",
         enum_type.content
     );
     assert!(
         enum_type
             .content
-            .contains("    /// <summary>\n    /// Tesseract OCR\n    /// </summary>"),
+            .contains("    /// <summary>\n    /// Plain text parser\n    /// </summary>"),
         "Enum variant doc summary should be on separate /// lines:\n{}",
         enum_type.content
     );
@@ -2985,8 +2985,8 @@ fn test_record_method_bool_param_passes_bool_directly() {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
-            name: "PaddleOcrConfig".to_string(),
-            rust_path: "test::PaddleOcrConfig".to_string(),
+            name: "TableParserConfig".to_string(),
+            rust_path: "test::TableParserConfig".to_string(),
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
@@ -3006,7 +3006,7 @@ fn test_record_method_bool_param_passes_bool_directly() {
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
                 }],
-                return_type: TypeRef::Named("PaddleOcrConfig".to_string()),
+                return_type: TypeRef::Named("TableParserConfig".to_string()),
                 is_async: false,
                 is_static: false,
                 error_type: None,
@@ -3052,8 +3052,8 @@ fn test_record_method_bool_param_passes_bool_directly() {
 
     let config_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("PaddleOcrConfig.cs"))
-        .expect("PaddleOcrConfig.cs should be generated");
+        .find(|f| f.path.to_string_lossy().contains("TableParserConfig.cs"))
+        .expect("TableParserConfig.cs should be generated");
 
     let native_file = files
         .iter()
@@ -3248,8 +3248,8 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
         version: "0.1.0".to_string(),
         types: vec![
             TypeDef {
-                name: "OcrExtractionResult".to_string(),
-                rust_path: "test::OcrExtractionResult".to_string(),
+                name: "TextParseResult".to_string(),
+                rust_path: "test::TextParseResult".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -3271,15 +3271,15 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "ExtractionResult".to_string(),
-                rust_path: "test::ExtractionResult".to_string(),
+                name: "ParseResult".to_string(),
+                rust_path: "test::ParseResult".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![MethodDef {
-                    name: "from_ocr".to_string(),
+                    name: "from_text".to_string(),
                     params: vec![ParamDef {
-                        name: "ocr".to_string(),
-                        ty: TypeRef::Named("OcrExtractionResult".to_string()),
+                        name: "text_result".to_string(),
+                        ty: TypeRef::Named("TextParseResult".to_string()),
                         optional: false,
                         default: None,
                         sanitized: false,
@@ -3292,11 +3292,11 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
                         map_key_is_cow: false,
                         vec_inner_is_ref: false,
                     }],
-                    return_type: TypeRef::Named("ExtractionResult".to_string()),
+                    return_type: TypeRef::Named("ParseResult".to_string()),
                     is_async: false,
                     is_static: true,
                     error_type: None,
-                    doc: "Create from OCR result.".to_string(),
+                    doc: "Create from text parse result.".to_string(),
                     receiver: None,
                     sanitized: false,
                     returns_ref: false,
@@ -3337,14 +3337,14 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
 
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // Find the ExtractionResult file (not OcrExtractionResult)
+    // Find the ParseResult file (not TextParseResult)
     let result_file = files
         .iter()
         .find(|f| {
             let fname = f.path.to_string_lossy().to_string();
-            fname.contains("ExtractionResult.cs") && !fname.contains("OcrExtractionResult.cs")
+            fname.contains("ParseResult.cs") && !fname.contains("TextParseResult.cs")
         })
-        .expect("ExtractionResult.cs should be generated");
+        .expect("ParseResult.cs should be generated");
 
     // Should contain FromJson handle creation for the Named param
     assert!(
@@ -3362,7 +3362,7 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
 
     // Should contain Free call for the Named param handle
     assert!(
-        result_file.content.contains("OcrExtractionResultFree"),
+        result_file.content.contains("TextParseResultFree"),
         "Should free Named param handle: {}",
         result_file.content
     );
@@ -3385,8 +3385,8 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
-            name: "PaddleOcrConfig".to_string(),
-            rust_path: "test::PaddleOcrConfig".to_string(),
+            name: "TableParserConfig".to_string(),
+            rust_path: "test::TableParserConfig".to_string(),
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
@@ -3406,7 +3406,7 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
                     map_key_is_cow: false,
                     vec_inner_is_ref: false,
                 }],
-                return_type: TypeRef::Named("PaddleOcrConfig".to_string()),
+                return_type: TypeRef::Named("TableParserConfig".to_string()),
                 is_async: false,
                 is_static: false,
                 error_type: None,
@@ -3501,12 +3501,12 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
     // Add trait bridges with clear_fn configured to test the method naming
     config.trait_bridges = vec![
         alef::core::config::TraitBridgeConfig {
-            trait_name: "OcrBackend".to_string(),
+            trait_name: "TextBackend".to_string(),
             super_trait: None,
             registry_getter: None,
-            register_fn: Some("register_ocr_backend".to_string()),
-            unregister_fn: Some("unregister_ocr_backend".to_string()),
-            clear_fn: Some("clear_ocr_backends".to_string()),
+            register_fn: Some("register_text_backend".to_string()),
+            unregister_fn: Some("unregister_text_backend".to_string()),
+            clear_fn: Some("clear_text_backends".to_string()),
             type_alias: None,
             param_name: None,
             register_extra_args: None,
@@ -3574,11 +3574,11 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
 
     let content = &wrapper_file.content;
 
-    // Verify that the method names are ClearOcrBackends and ClearPostProcessors (plural, from clear_fn)
-    // NOT ClearOcrBackend and ClearPostProcessor (singular, from trait name)
+    // Verify that the method names are ClearTextBackends and ClearPostProcessors (plural, from clear_fn)
+    // NOT ClearTextBackend and ClearPostProcessor (singular, from trait name)
     assert!(
-        content.contains("public static void ClearOcrBackends()"),
-        "Expected method ClearOcrBackends (from clear_ocr_backends), but not found.\n\
+        content.contains("public static void ClearTextBackends()"),
+        "Expected method ClearTextBackends (from clear_text_backends), but not found.\n\
          Check that method naming derives from clear_fn, not trait name.\nContent:\n{}",
         content
     );
@@ -3592,9 +3592,9 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
 
     // Verify that singular names are NOT present (these would be the wrong names)
     assert!(
-        !content.contains("public static void ClearOcrBackend()"),
-        "Found incorrect method ClearOcrBackend (singular). \
-         Method name must derive from clear_fn (clear_ocr_backends → ClearOcrBackends), not trait name."
+        !content.contains("public static void ClearTextBackend()"),
+        "Found incorrect method ClearTextBackend (singular). \
+         Method name must derive from clear_fn (clear_text_backends → ClearTextBackends), not trait name."
     );
 
     assert!(

@@ -1,7 +1,7 @@
 pub(crate) fn type_sort_key(name: &str) -> (u8, &str) {
     match name {
-        "ConversionOptions" => (0, name),
-        "ConversionResult" => (1, name),
+        "ParseOptions" => (0, name),
+        "ParseOutput" => (1, name),
         _ => (2, name),
     }
 }
@@ -16,13 +16,13 @@ mod tests {
 
     #[test]
     fn test_is_update_type() {
-        assert!(is_update_type("ConversionOptionsUpdate"));
-        assert!(!is_update_type("ConversionOptions"));
+        assert!(is_update_type("ParseOptionsUpdate"));
+        assert!(!is_update_type("ParseOptions"));
     }
 
     #[test]
     fn test_type_sort_key_ordering() {
-        assert!(type_sort_key("ConversionOptions") < type_sort_key("ConversionResult"));
-        assert!(type_sort_key("ConversionResult") < type_sort_key("SomeOtherType"));
+        assert!(type_sort_key("ParseOptions") < type_sort_key("ParseOutput"));
+        assert!(type_sort_key("ParseOutput") < type_sort_key("SomeOtherType"));
     }
 }

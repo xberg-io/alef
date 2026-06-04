@@ -3,7 +3,7 @@
 //! `mime_type` string arg was emitted as a Dart named argument (`mimeType:`),
 //! but the generated `SampleCrateBridge` facade declares it as a required
 //! positional parameter — `extractBytesSync(Uint8List content, String mimeType,
-//! [ExtractionConfig? config])` — producing either a "too few positional
+//! [Config? config])` — producing either a "too few positional
 //! arguments" error or invalid `named-then-positional` Dart syntax.
 
 use alef::core::config::NewAlefConfig;

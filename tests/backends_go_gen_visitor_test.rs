@@ -8,15 +8,15 @@ use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, Pa
 fn test_visitor_file_emits_prefixed_struct() {
     // Minimal trait def with one method to exercise the generator.
     let trait_def = alef::core::ir::TypeDef {
-        name: "HtmlVisitor".to_string(),
-        rust_path: "sample_markdown_rs::visitor::HtmlVisitor".to_string(),
+        name: "SyntaxWalker".to_string(),
+        rust_path: "sample_crate::visitor::SyntaxWalker".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![alef::core::ir::MethodDef {
             name: "visit_text".to_string(),
             params: vec![alef::core::ir::ParamDef {
                 name: "_ctx".to_string(),
-                ty: alef::core::ir::TypeRef::Named("NodeContext".to_string()),
+                ty: alef::core::ir::TypeRef::Named("SyntaxContext".to_string()),
                 optional: false,
                 default: None,
                 sanitized: false,
@@ -29,7 +29,7 @@ fn test_visitor_file_emits_prefixed_struct() {
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
             }],
-            return_type: alef::core::ir::TypeRef::Named("VisitResult".to_string()),
+            return_type: alef::core::ir::TypeRef::Named("WalkDecision".to_string()),
             is_async: false,
             is_static: false,
             error_type: None,
@@ -63,24 +63,24 @@ fn test_visitor_file_emits_prefixed_struct() {
     };
 
     let output = gen_visitor_file(
-        &visitor_metadata_api("NodeContext", "VisitResult", "Continue"),
+        &visitor_metadata_api("SyntaxContext", "WalkDecision", "Continue"),
         "mypkg",
         "htm",
         "my_lib.h",
         "../ffi",
         "..",
-        "HtmlVisitor",
+        "SyntaxWalker",
         "visitor",
         &trait_def,
         &bridge_config(
-            "HtmlVisitor",
-            "ConversionOptions",
+            "SyntaxWalker",
+            "ParseOptions",
             "visitor",
             "VisitorHandle",
-            Some("NodeContext"),
-            Some("VisitResult"),
+            Some("SyntaxContext"),
+            Some("WalkDecision"),
         ),
-        &bridge_function("convert", "html", "options", "ConversionOptions", "ConversionResult"),
+        &bridge_function("convert", "html", "options", "ParseOptions", "ParseOutput"),
     );
     // The cbindgen-derived C type embeds `{PREFIX}{PascalPrefix}{TraitName}VTable`.
     assert!(
@@ -101,10 +101,10 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
         methods: vec![alef::core::ir::MethodDef {
             name: "visit_text".to_string(),
             params: vec![
-                param("_ctx", TypeRef::Named("NodeContext".to_string()), false),
+                param("_ctx", TypeRef::Named("SyntaxContext".to_string()), false),
                 param("_text", TypeRef::String, false),
             ],
-            return_type: TypeRef::Named("VisitResult".to_string()),
+            return_type: TypeRef::Named("WalkDecision".to_string()),
             is_async: false,
             is_static: false,
             error_type: None,
@@ -138,7 +138,7 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
     };
 
     let output = gen_visitor_file(
-        &visitor_metadata_api("NodeContext", "VisitResult", "Continue"),
+        &visitor_metadata_api("SyntaxContext", "WalkDecision", "Continue"),
         "mypkg",
         "krz",
         "my_lib.h",
@@ -152,8 +152,8 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
             "RenderOptions",
             "renderer",
             "RendererHandle",
-            Some("NodeContext"),
-            Some("VisitResult"),
+            Some("SyntaxContext"),
+            Some("WalkDecision"),
         ),
         &bridge_function("render", "document", "settings", "RenderOptions", "RenderOutput"),
     );
@@ -228,8 +228,8 @@ fn test_generic_trait_without_compat_callback_types_does_not_emit_fixed_helpers(
     );
 
     assert!(output.is_empty());
-    assert!(!output.contains("type NodeContext struct"));
-    assert!(!output.contains("type VisitResult struct"));
+    assert!(!output.contains("type SyntaxContext struct"));
+    assert!(!output.contains("type WalkDecision struct"));
 }
 
 #[test]
@@ -302,8 +302,8 @@ fn test_visitor_file_uses_ir_context_fields_and_result_enum_wire_names() {
     assert!(output.contains("jsonStr = `\"stop_here\"`"));
     assert!(output.contains("jsonStr = `{\"replace_with\":` + string(b) + `}`"));
     assert!(!output.contains("PreserveHTML"));
-    assert!(!output.contains("type NodeContext struct"));
-    assert!(!output.contains("type VisitResult struct"));
+    assert!(!output.contains("type SyntaxContext struct"));
+    assert!(!output.contains("type WalkDecision struct"));
 }
 
 #[test]

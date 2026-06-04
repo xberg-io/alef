@@ -82,7 +82,7 @@ impl Backend for RustlerBackend {
         // bindings because VisitorHandle (Rc<RefCell<dyn Trait>>) cannot implement
         // Rustler's Encoder/Decoder or Send+Sync traits.
         // Build a map: type_name -> set of field names to exclude.
-        // We also cover update structs (e.g. ConversionOptionsUpdate) by scanning all IR types
+        // We also cover update structs (e.g. ParseOptionsUpdate) by scanning all IR types
         // for the same field name with a type matching the bridge trait alias.
         let mut bridge_excluded_fields: std::collections::HashMap<String, AHashSet<String>> =
             std::collections::HashMap::new();
@@ -406,7 +406,7 @@ impl Backend for RustlerBackend {
                 .filter(|m| !streaming_method_keys.contains(&format!("{}.{}", typ.name, m.name)))
                 .filter(|m| {
                     // Skip methods whose return type references an excluded type.
-                    // E.g. ConversionOptions::builder() returns ConversionOptionsBuilder which
+                    // E.g. ParseOptions::builder() returns ParseOptionsBuilder which
                     // is excluded because it holds !Send + !Sync core types.
                     !crate::codegen::conversions::field_references_excluded_type(
                         &m.return_type,
@@ -1824,7 +1824,7 @@ fn gen_nif_init(
         .unwrap_or_else(|| "Elixir.NativeModule.Native".to_string());
     // Check if any opaque types need Resource registration via on_load
     // Exclude trait types (they shouldn't be registered as Rustler resources)
-    // Also exclude types in exclude_types (e.g. VisitorHandle, ConversionOptionsBuilder)
+    // Also exclude types in exclude_types (e.g. VisitorHandle, ParseOptionsBuilder)
     // which are omitted from the binding layer because they hold !Send+!Sync core types.
     let opaque_types: Vec<&str> = api
         .types

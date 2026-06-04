@@ -46,7 +46,7 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
 /// Run a best-effort TOML normalization pass on the rust e2e crate's
 /// `Cargo.toml` after the language formatter has finished.
 ///
-/// Runs `pnpm dlx oxfmt Cargo.toml` so that downstream `prek` setups that
+/// Runs `pnpm dlx oxfmt Cargo.toml` so that project `prek` setups that
 /// include the shared oxfmt hook produce no further changes after `alef e2e generate`. Without
 /// this pass, prek would rewrite the manifest (array wrapping, indentation)
 /// after `finalize_hashes` has captured the pre-prek content, causing
@@ -58,7 +58,7 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
 /// the 10-line detection window used by `crate::core::hash::{extract_hash,
 /// inject_hash_line}`. The result is silently broken verification (no hash
 /// found, file treated as fresh) — strictly worse than the prek-rewrite the
-/// invocation was meant to prevent. Consumers whose CI runs `cargo-sort`
+/// invocation was meant to prevent. Projects whose CI runs `cargo-sort`
 /// must either exclude `e2e/**/Cargo.toml` from the hook or place the alef
 /// header inside a `[package.metadata.alef]` section that cargo-sort
 /// preserves.
@@ -121,7 +121,7 @@ pub fn run_formatters(files: &[GeneratedFile], e2e_config: &E2eConfig) {
         }
 
         // Rust-only TOML normalization pass: run oxfmt on the e2e crate's
-        // Cargo.toml so that downstream prek hooks that include oxfmt produce
+        // Cargo.toml so that project prek hooks that include oxfmt produce
         // no further changes after generation. The user's
         // `e2e_config.format[rust]` override (if any) typically only covers
         // cargo fmt — which leaves `Cargo.toml` array wrapping at its raw

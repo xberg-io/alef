@@ -377,7 +377,7 @@ fn options_decoder_uses_configured_type_and_ir_shapes() {
     assert!(content.contains("decode_nested_preset(v)?"));
     assert!(!content.contains("PreprocessingOptions"));
     assert!(!content.contains("PreprocessingPreset"));
-    assert!(!content.contains("ConversionOptions"));
+    assert!(!content.contains("ParseOptions"));
 }
 
 #[test]
@@ -908,7 +908,7 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
 
 #[test]
 fn test_opaque_type_generates_inner_field_and_delegates() {
-    // Regression: opaque types (e.g. ConversionOptionsBuilder) must generate
+    // Regression: opaque types (e.g. ParseOptionsBuilder) must generate
     // `inner: Arc<CoreType>` and delegate methods — not emit empty structs with todo!() stubs.
     let backend = ExtendrBackend;
 
@@ -1038,8 +1038,8 @@ mod trait_bridge {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
             types: vec![TypeDef {
-                name: "NodeContext".to_string(),
-                rust_path: "my_lib::NodeContext".to_string(),
+                name: "SyntaxContext".to_string(),
+                rust_path: "my_lib::SyntaxContext".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -1061,7 +1061,7 @@ mod trait_bridge {
                 has_lifetime_params: false,
             }],
             functions: vec![],
-            enums: vec![make_unit_enum("VisitResult", &["Continue"])],
+            enums: vec![make_unit_enum("WalkDecision", &["Continue"])],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1102,7 +1102,7 @@ mod trait_bridge {
             name: name.to_string(),
             params: vec![ParamDef {
                 name: "ctx".to_string(),
-                ty: TypeRef::Named("NodeContext".to_string()),
+                ty: TypeRef::Named("SyntaxContext".to_string()),
                 optional: false,
                 default: None,
                 sanitized: false,
@@ -1196,8 +1196,8 @@ mod trait_bridge {
             bind_via: alef::core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            context_type: Some("NodeContext".to_string()),
-            result_type: Some("VisitResult".to_string()),
+            context_type: Some("SyntaxContext".to_string()),
+            result_type: Some("WalkDecision".to_string()),
         }
     }
 
@@ -1205,14 +1205,17 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_generates_wrapper_struct() {
-        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
-        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let trait_def = make_trait_def(
+            "TextBackend",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("TextBackend");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("pub struct ROcrBackendBridge"),
-            "plugin bridge must generate ROcrBackendBridge wrapper struct"
+            code.code.contains("pub struct RTextBackendBridge"),
+            "plugin bridge must generate RTextBackendBridge wrapper struct"
         );
         assert!(
             code.code.contains("inner: extendr_api::Robj"),
@@ -1228,13 +1231,16 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_generates_trait_impl() {
-        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
-        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let trait_def = make_trait_def(
+            "TextBackend",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("TextBackend");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("impl my_lib::OcrBackend for ROcrBackendBridge"),
+            code.code.contains("impl my_lib::TextBackend for RTextBackendBridge"),
             "plugin bridge must implement the trait for the wrapper"
         );
         assert!(
@@ -1281,13 +1287,16 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_generates_registration_fn() {
-        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
-        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let trait_def = make_trait_def(
+            "TextBackend",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("TextBackend");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("pub fn register_ocrbackend("),
+            code.code.contains("pub fn register_textbackend("),
             "registration fn must be generated with the configured name"
         );
         assert!(
@@ -1348,12 +1357,15 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
-        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
+        let trait_def = make_trait_def(
+            "TextBackend",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
         let cfg = TraitBridgeConfig {
-            trait_name: "OcrBackend".to_string(),
+            trait_name: "TextBackend".to_string(),
             super_trait: Some("Plugin".to_string()),
             registry_getter: Some("my_lib::get_registry".to_string()),
-            register_fn: Some("register_ocr_backend".to_string()),
+            register_fn: Some("register_text_backend".to_string()),
 
             unregister_fn: None,
 
@@ -1373,7 +1385,7 @@ mod trait_bridge {
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("impl my_lib::Plugin for ROcrBackendBridge"),
+            code.code.contains("impl my_lib::Plugin for RTextBackendBridge"),
             "must generate Plugin impl for bridge struct"
         );
         assert!(code.code.contains("fn name(&self)"), "Plugin impl must include name()");
@@ -1392,36 +1404,36 @@ mod trait_bridge {
     #[test]
     fn test_visitor_bridge_generates_r_bridge_struct() {
         let trait_def = make_trait_def(
-            "HtmlVisitor",
+            "SyntaxWalker",
             vec![make_method(
                 "visit_node",
-                TypeRef::Named("VisitResult".to_string()),
+                TypeRef::Named("WalkDecision".to_string()),
                 false,
                 true,
             )],
         );
-        let cfg = make_visitor_bridge_cfg("HtmlVisitor");
+        let cfg = make_visitor_bridge_cfg("SyntaxWalker");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("pub struct RHtmlVisitorBridge"),
-            "visitor bridge must produce RHtmlVisitorBridge struct"
+            code.code.contains("pub struct RSyntaxWalkerBridge"),
+            "visitor bridge must produce RSyntaxWalkerBridge struct"
         );
     }
 
     #[test]
     fn test_visitor_bridge_does_not_generate_registration_fn() {
         let trait_def = make_trait_def(
-            "HtmlVisitor",
+            "SyntaxWalker",
             vec![make_method(
                 "visit_node",
-                TypeRef::Named("VisitResult".to_string()),
+                TypeRef::Named("WalkDecision".to_string()),
                 false,
                 true,
             )],
         );
-        let cfg = make_visitor_bridge_cfg("HtmlVisitor");
+        let cfg = make_visitor_bridge_cfg("SyntaxWalker");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
@@ -1434,48 +1446,48 @@ mod trait_bridge {
     #[test]
     fn test_visitor_bridge_generates_trait_impl() {
         let trait_def = make_trait_def(
-            "HtmlVisitor",
+            "SyntaxWalker",
             vec![make_method(
                 "visit_node",
-                TypeRef::Named("VisitResult".to_string()),
+                TypeRef::Named("WalkDecision".to_string()),
                 false,
                 true,
             )],
         );
-        let cfg = make_visitor_bridge_cfg("HtmlVisitor");
+        let cfg = make_visitor_bridge_cfg("SyntaxWalker");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("impl my_lib::HtmlVisitor for RHtmlVisitorBridge"),
+            code.code.contains("impl my_lib::SyntaxWalker for RSyntaxWalkerBridge"),
             "visitor bridge must implement the trait"
         );
     }
 
     #[test]
     fn test_visitor_bridge_generates_unsafe_send_sync_impls() {
-        // VisitorHandle = Arc<Mutex<dyn HtmlVisitor + Send>> requires the bridge to be Send.
+        // VisitorHandle = Arc<Mutex<dyn SyntaxWalker + Send>> requires the bridge to be Send.
         // Robj wraps a raw SEXP (!Send), so the bridge needs unsafe impl Send + Sync.
         // R is single-threaded, so callers must not actually move the bridge across threads.
         let trait_def = make_trait_def(
-            "HtmlVisitor",
+            "SyntaxWalker",
             vec![make_method(
                 "visit_node",
-                TypeRef::Named("VisitResult".to_string()),
+                TypeRef::Named("WalkDecision".to_string()),
                 false,
                 true,
             )],
         );
-        let cfg = make_visitor_bridge_cfg("HtmlVisitor");
+        let cfg = make_visitor_bridge_cfg("SyntaxWalker");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
             .expect("trait bridge generation should succeed");
 
         assert!(
-            code.code.contains("unsafe impl Send for RHtmlVisitorBridge {}"),
+            code.code.contains("unsafe impl Send for RSyntaxWalkerBridge {}"),
             "visitor bridge must produce unsafe impl Send"
         );
         assert!(
-            code.code.contains("unsafe impl Sync for RHtmlVisitorBridge {}"),
+            code.code.contains("unsafe impl Sync for RSyntaxWalkerBridge {}"),
             "visitor bridge must produce unsafe impl Sync"
         );
     }

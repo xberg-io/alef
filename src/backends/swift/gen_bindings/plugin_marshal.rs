@@ -5,7 +5,7 @@
 //! - The **FFI layer**: raw `RustString`, `RustVec<UInt8>`, primitive types (FFI types)
 //! - The **user-facing bridge protocol**: typed Swift structs (Codable), String, Data, [String], enums, etc.
 //!
-//! The helpers cover all TypeRef variants that appear in plugin trait methods (OcrBackend,
+//! The helpers cover all TypeRef variants that appear in plugin trait methods (TextBackend,
 //! PostProcessor, Validator, EmbeddingBackend, DocumentExtractor, Renderer).
 
 use crate::core::ir::{MethodDef, PrimitiveType, TypeRef};
@@ -139,7 +139,7 @@ pub fn swift_shim_param_decode(
             }
         }
         // Named types (Codable structs, enums): JSON-decode from RustString — UNLESS the type
-        // is excluded from the binding surface (e.g. InternalDocument, ExtractionResult). In that
+        // is excluded from the binding surface (e.g. PrivatePayload, ParseResult). In that
         // case the bridge protocol exposes it as `String` and the Box just passes the RustString
         // through as a Swift String — no JSON decode.
         TypeRef::Named(type_name) => {
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn test_shim_param_ffi_type_named() {
         assert_eq!(
-            swift_shim_param_ffi_type(&TypeRef::Named("OcrConfig".to_string()), false),
+            swift_shim_param_ffi_type(&TypeRef::Named("ParseConfig".to_string()), false),
             "RustString"
         );
     }
@@ -492,13 +492,13 @@ mod tests {
     fn test_param_decode_named_codable() {
         let decode = swift_shim_param_decode(
             "cfg",
-            &TypeRef::Named("OcrConfig".to_string()),
+            &TypeRef::Named("ParseConfig".to_string()),
             false,
             &std::collections::HashSet::new(),
         );
         assert!(!decode.setup.is_empty());
         assert!(decode.setup[0].contains("JSONDecoder"));
-        assert!(decode.setup[0].contains("OcrConfig"));
+        assert!(decode.setup[0].contains("ParseConfig"));
         assert_eq!(decode.expr, "cfg_decoded");
         assert!(decode.is_throwing);
     }
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn test_return_ffi_type_non_throwing_named() {
         // Complex types without error always return envelope
-        let method = make_method("process", vec![], TypeRef::Named("ExtractionResult".to_string()), None);
+        let method = make_method("process", vec![], TypeRef::Named("ParseResult".to_string()), None);
         assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
     }
 
@@ -628,7 +628,7 @@ mod tests {
         let method = make_method(
             "backend_type",
             vec![],
-            TypeRef::Named("OcrBackendType".to_string()),
+            TypeRef::Named("TextBackendType".to_string()),
             None,
         );
         let lines = swift_shim_return_marshal(&method, "bridge.backendType()");

@@ -14,10 +14,7 @@ use anyhow::{Context, Result};
 
 use crate::extract::type_resolver;
 
-use self::functions::{
-    detect_receiver, extract_function, extract_impl_block, extract_params, resolve_return_type,
-    try_extract_asref_monomorphized,
-};
+use self::functions::{detect_receiver, extract_function, extract_impl_block, extract_params, resolve_return_type};
 use self::helpers::{
     build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments, is_pub,
     is_thiserror_enum,
@@ -676,14 +673,6 @@ fn extract_items(
                 // "public but not part of the supported API surface"; never
                 // emit bindings or docs for them.
                 if has_non_lifetime_generics(&item_fn.sig.generics) {
-                    // Special case: a single `AsRef<str/Path/[u8]>` generic can be
-                    // monomorphized to its concrete slice-element equivalent so the
-                    // canonical ergonomic pattern `fn foo<S: AsRef<str>>(names: &[S])`
-                    // is accepted without hand-annotation.
-                    if let Some(fd) = try_extract_asref_monomorphized(item_fn, crate_name, module_path) {
-                        surface.functions.push(fd);
-                        continue;
-                    }
                     if extract_binding_exclusion_reason(&item_fn.attrs).is_none() {
                         surface.unsupported_public_items.push(unsupported_public_item(
                             "function",

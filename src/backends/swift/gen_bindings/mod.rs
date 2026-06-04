@@ -3309,7 +3309,7 @@ fn emit_swift_bridge_files(
 
     let sources_rust_bridge = package_root.join("Sources").join("RustBridge");
     let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
-    // Use crate_name (e.g. "sample-llm") for the filename, not binding_crate_name.
+    // Use crate_name (e.g. "sample-app") for the filename, not binding_crate_name.
     // swift-bridge names the sub-directory after the binding crate, but the output
     // Swift file is conventionally named after the crate being bridged.
     let _ = crate_name; // used via binding_crate_name for path, crate_name kept for clarity
@@ -4018,7 +4018,7 @@ fn return_uses_json_bridge(ty: &TypeRef) -> bool {
 /// latter is a type error against the non-optional `RustString`.
 ///
 /// Covers `Option<String>` (sample_core parser-pack `detect_language_from_extension`)
-/// and `Option<Primitive>` (sample-llm `completion_cost` returning
+/// and `Option<Primitive>` (sample app `completion_cost` returning
 /// `Option<f64>`). Other shapes (`Option<Named>`, `Option<Vec<…>>`) hit the
 /// same bridge but the JSON payload decodes to a Codable target — extend the
 /// match arms as new shapes surface.

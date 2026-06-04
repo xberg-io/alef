@@ -304,7 +304,7 @@ fn mpp_dtos_only_in_common_main() {
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
-            "ConversionOptions",
+            "ParseOptions",
             vec![make_field("max_width", TypeRef::Primitive(PrimitiveType::U32), false)],
         )],
         functions: vec![],
@@ -333,17 +333,17 @@ fn mpp_dtos_only_in_common_main() {
         .expect("nativeMain file missing");
 
     assert!(
-        common.content.contains("data class ConversionOptions("),
+        common.content.contains("data class ParseOptions("),
         "DTO missing from commonMain: {}",
         common.content
     );
     assert!(
-        !jvm.content.contains("data class ConversionOptions"),
+        !jvm.content.contains("data class ParseOptions"),
         "DTO must not be duplicated in jvmMain: {}",
         jvm.content
     );
     assert!(
-        !native.content.contains("data class ConversionOptions"),
+        !native.content.contains("data class ParseOptions"),
         "DTO must not be duplicated in nativeMain: {}",
         native.content
     );

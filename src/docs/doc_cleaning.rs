@@ -370,7 +370,7 @@ pub(crate) fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
             continue;
         }
         // Replace `Foo::bar` patterns in prose
-        // Common Rust-isms: Default::default(), ConversionOptions::default(), ConversionOptions::builder()
+        // Common Rust-isms: Default::default(), ParseOptions::default(), ParseOptions::builder()
         let line = line
             .replace("Default::default()", "the default constructor")
             .replace("::", sep);
@@ -638,9 +638,9 @@ mod tests {
 
     #[test]
     fn test_clean_doc_bare_rust_links() {
-        let doc = "See [`ConversionOptions`] for details.";
+        let doc = "See [`ParseOptions`] for details.";
         let cleaned = clean_doc(doc, Language::Python);
-        assert_eq!(cleaned, "See `ConversionOptions` for details.");
+        assert_eq!(cleaned, "See `ParseOptions` for details.");
     }
 
     #[test]

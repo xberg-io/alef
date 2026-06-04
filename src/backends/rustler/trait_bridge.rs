@@ -924,7 +924,7 @@ pub fn gen_bridge_field_function(
     let options_type = &bridge_match.options_type;
     let core_options_type = format!("{core_import}::options::{options_type}");
 
-    // Whether the core function expects Option<ConversionOptions> (optional=true).
+    // Whether the core function expects Option<ParseOptions> (optional=true).
     let options_param_is_optional = func
         .params
         .iter()

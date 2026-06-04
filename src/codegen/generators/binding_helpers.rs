@@ -1862,23 +1862,18 @@ pub fn gen_async_body(
     }
 }
 
-/// Generate a compilable body for functions that can't be auto-delegated.
-/// Returns a default value or error instead of a runtime panic placeholder.
+/// Generate a compile-time diagnostic for functions that can't be auto-delegated.
 ///
-/// `opaque_types` is the set of opaque type names (Arc-wrapped). Opaque types do not
-/// implement `Default`, so returning `Default::default()` for their Named return types
-/// would fail to compile. Central validation rejects non-delegatable opaque return
-/// paths before generation; this fallback emits a compile-time diagnostic if it is
-/// still reached.
+/// Unsupported production bindings must be excluded or backed by an adapter instead
+/// of returning placeholder values at runtime.
 pub fn gen_unimplemented_body(
-    return_type: &TypeRef,
+    _return_type: &TypeRef,
     fn_name: &str,
-    has_error: bool,
+    _has_error: bool,
     cfg: &RustBindingConfig,
     params: &[ParamDef],
-    opaque_types: &AHashSet<String>,
+    _opaque_types: &AHashSet<String>,
 ) -> String {
-    // Suppress unused_variables by binding all params to `_`
     let suppress = if params.is_empty() {
         String::new()
     } else {
@@ -1889,57 +1884,11 @@ pub fn gen_unimplemented_body(
             format!("let _ = ({});\n        ", names.join(", "))
         }
     };
-    let err_msg = format!("Not implemented: {fn_name}");
-    let body = if has_error {
-        // Backend-specific error return
-        match cfg.async_pattern {
-            AsyncPattern::Pyo3FutureIntoPy => {
-                format!("Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
-            }
-            AsyncPattern::NapiNativeAsync => {
-                format!("Err(napi::Error::new(napi::Status::GenericFailure, \"{err_msg}\"))")
-            }
-            AsyncPattern::WasmNativeAsync => {
-                format!("Err(JsValue::from_str(\"{err_msg}\"))")
-            }
-            // extendr uses `Result<T, extendr_api::Error>`; cast_uints_to_i32 is a flag
-            // unique to the extendr backend, so use it as a sentinel for the Err wrapping.
-            _ if cfg.cast_uints_to_i32 => {
-                format!("Err(extendr_api::Error::Other(\"{err_msg}\".to_string()))")
-            }
-            _ => format!("Err(\"{err_msg}\".to_string())"),
-        }
+    let config_hint = if cfg.type_name_prefix.is_empty() {
+        "configure an adapter body or exclude this item from the backend"
     } else {
-        // Return type-appropriate default
-        match return_type {
-            TypeRef::Unit => "()".to_string(),
-            TypeRef::String | TypeRef::Char | TypeRef::Path => format!("String::from(\"[unimplemented: {fn_name}]\")"),
-            TypeRef::Bytes => "Vec::new()".to_string(),
-            TypeRef::Primitive(p) => match p {
-                crate::core::ir::PrimitiveType::Bool => "false".to_string(),
-                crate::core::ir::PrimitiveType::F32 => "0.0f32".to_string(),
-                crate::core::ir::PrimitiveType::F64 => "0.0f64".to_string(),
-                _ => "0".to_string(),
-            },
-            TypeRef::Optional(_) => "None".to_string(),
-            TypeRef::Vec(_) => "Vec::new()".to_string(),
-            TypeRef::Map(_, _) => "Default::default()".to_string(),
-            TypeRef::Duration => "0".to_string(),
-            TypeRef::Named(name) => {
-                if opaque_types.contains(name.as_str()) {
-                    format!(
-                        "compile_error!(\"non-delegatable function `{fn_name}` returns opaque type `{name}`; \
-                         run `alef build` validation and configure an adapter body or exclude this item\")"
-                    )
-                } else {
-                    "Default::default()".to_string()
-                }
-            }
-            TypeRef::Json => {
-                // Json return without error type: return Default::default()
-                "Default::default()".to_string()
-            }
-        }
+        "configure an adapter body or add this item to the backend exclude list"
     };
+    let body = format!("compile_error!(\"alef cannot auto-delegate `{fn_name}`; {config_hint}\")");
     format!("{suppress}{body}")
 }

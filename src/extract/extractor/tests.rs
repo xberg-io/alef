@@ -3759,14 +3759,10 @@ fn test_extract_excludes_dyn_trait_object_fields() {
     );
 }
 
-// --- AsRef<T> single-generic monomorphization ---
+// --- Generic public functions ---
 
 #[test]
-fn test_asref_str_slice_param_monomorphizes_to_vec_str() {
-    // The canonical ergonomic pattern used by string-list APIs:
-    //   pub fn download<S: AsRef<str>>(names: &[S]) -> Result<usize, Error>
-    // must extract as a function with a `&[&str]` parameter (Vec<String> in IR
-    // with is_ref=true and vec_inner_is_ref=true), not as an unsupported generic.
+fn test_asref_str_slice_param_is_unsupported_without_monomorphization_config() {
     let source = r#"
         pub fn download<S: AsRef<str>>(names: &[S]) -> Result<usize, Error> {
             unimplemented!()
@@ -3774,34 +3770,16 @@ fn test_asref_str_slice_param_monomorphizes_to_vec_str() {
     "#;
 
     let surface = extract_from_source(source);
-    assert_eq!(
-        surface.unsupported_public_items.len(),
-        0,
-        "download must not be recorded as unsupported"
-    );
-    assert_eq!(surface.functions.len(), 1, "download must be extracted as a function");
-
-    let fd = &surface.functions[0];
-    assert_eq!(fd.name, "download");
-    assert_eq!(fd.params.len(), 1);
-
-    let names_param = &fd.params[0];
-    assert_eq!(names_param.name, "names");
-    assert_eq!(
-        names_param.ty,
-        TypeRef::Vec(Box::new(TypeRef::String)),
-        "names must resolve to Vec<String>"
-    );
-    assert!(names_param.is_ref, "names must have is_ref=true (it is a &[...]");
-    assert!(
-        names_param.vec_inner_is_ref,
-        "names must have vec_inner_is_ref=true (&[&str])"
-    );
+    assert_eq!(surface.functions.len(), 0, "generic function must not be extracted");
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    let item = &surface.unsupported_public_items[0];
+    assert_eq!(item.item_kind, "function");
+    assert!(item.item_path.ends_with("download"));
+    assert!(item.reason.contains("public generic functions"));
 }
 
 #[test]
-fn test_asref_str_where_clause_monomorphizes() {
-    // Same pattern but with the bound in a where clause instead of inline.
+fn test_asref_str_where_clause_is_unsupported_without_monomorphization_config() {
     let source = r#"
         pub fn load<S>(names: &[S]) -> usize
         where
@@ -3812,51 +3790,9 @@ fn test_asref_str_where_clause_monomorphizes() {
     "#;
 
     let surface = extract_from_source(source);
-    assert_eq!(surface.unsupported_public_items.len(), 0);
-    assert_eq!(surface.functions.len(), 1);
-
-    let fd = &surface.functions[0];
-    assert_eq!(fd.name, "load");
-    let param = &fd.params[0];
-    assert_eq!(param.ty, TypeRef::Vec(Box::new(TypeRef::String)));
-    assert!(param.is_ref);
-    assert!(param.vec_inner_is_ref);
-}
-
-#[test]
-fn test_asref_path_slice_param_monomorphizes_to_vec_path() {
-    let source = r#"
-        pub fn read_files<P: AsRef<std::path::Path>>(paths: &[P]) -> usize {
-            unimplemented!()
-        }
-    "#;
-
-    let surface = extract_from_source(source);
-    assert_eq!(surface.unsupported_public_items.len(), 0);
-    assert_eq!(surface.functions.len(), 1);
-
-    let param = &surface.functions[0].params[0];
-    assert_eq!(param.ty, TypeRef::Vec(Box::new(TypeRef::Path)));
-    assert!(param.is_ref);
-    assert!(param.vec_inner_is_ref);
-}
-
-#[test]
-fn test_asref_bytes_slice_param_monomorphizes_to_vec_bytes() {
-    let source = r#"
-        pub fn hash_many<B: AsRef<[u8]>>(blobs: &[B]) -> Vec<u64> {
-            unimplemented!()
-        }
-    "#;
-
-    let surface = extract_from_source(source);
-    assert_eq!(surface.unsupported_public_items.len(), 0);
-    assert_eq!(surface.functions.len(), 1);
-
-    let param = &surface.functions[0].params[0];
-    assert_eq!(param.ty, TypeRef::Vec(Box::new(TypeRef::Bytes)));
-    assert!(param.is_ref);
-    assert!(param.vec_inner_is_ref);
+    assert_eq!(surface.functions.len(), 0);
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    assert!(surface.unsupported_public_items[0].item_path.ends_with("load"));
 }
 
 #[test]
@@ -3889,30 +3825,4 @@ fn test_asref_with_extra_bound_still_unsupported() {
     let surface = extract_from_source(source);
     assert_eq!(surface.functions.len(), 0);
     assert_eq!(surface.unsupported_public_items.len(), 1);
-}
-
-#[test]
-fn test_asref_mixed_params_non_generic_pass_through() {
-    // The non-generic param (timeout: u64) must pass through normally alongside
-    // the monomorphized &[S] param.
-    let source = r#"
-        pub fn fetch<S: AsRef<str>>(names: &[S], timeout: u64) -> usize {
-            unimplemented!()
-        }
-    "#;
-
-    let surface = extract_from_source(source);
-    assert_eq!(surface.unsupported_public_items.len(), 0);
-    assert_eq!(surface.functions.len(), 1);
-
-    let fd = &surface.functions[0];
-    assert_eq!(fd.params.len(), 2);
-
-    let names = &fd.params[0];
-    assert_eq!(names.name, "names");
-    assert_eq!(names.ty, TypeRef::Vec(Box::new(TypeRef::String)));
-
-    let timeout = &fd.params[1];
-    assert_eq!(timeout.name, "timeout");
-    assert_eq!(timeout.ty, TypeRef::Primitive(PrimitiveType::U64));
 }

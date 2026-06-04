@@ -51,16 +51,13 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     };
 
     let base_features = config.features_for_language(Language::Swift);
-    // The IR records `any(feature = "ocr", feature = "ocr-wasm")` as the cfg condition for
-    // TesseractWasmBackend (inherited from `pub mod ocr` in lib.rs). The concrete type,
-    // however, lives in `sample_core::ocr::TesseractWasmBackend` which requires `ocr-wasm`.
-    // `ocr` is transitively enabled by `full`; ensure `ocr-wasm` is also included whenever
-    // the OCR module would be active so the bridge compiles correctly.
+    // The IR may record a broad feature condition for a re-exported type whose concrete
+    // module requires a narrower companion feature. Include the companion feature when
+    // the broader feature set is active so the bridge compiles correctly.
     //
     // Only do this when the source crate actually exposes an `ocr-wasm` feature — otherwise
-    // we would inject an unknown feature into Cargo.toml for crates that have no OCR module
-    // at all (e.g. sample-llm). We probe by reading the on-disk Cargo.toml of the umbrella
-    // crate.
+    // we would inject an unknown feature into Cargo.toml for crates without that module.
+    // We probe by reading the on-disk Cargo.toml of the umbrella crate.
     let mut features_owned: Vec<String>;
     let ocr_active = base_features.iter().any(|f| f == "ocr" || f == "full");
     let ocr_wasm_present = base_features.iter().any(|f| f == "ocr-wasm");
@@ -307,8 +304,8 @@ fn emit_lib_rs(
         .collect();
 
     // Set of type names that do NOT implement serde (Serialize + Deserialize).
-    // These cannot be JSON-bridged and must use unimplemented!() when they appear
-    // as inner Named types in Optional/Vec fields or return types.
+    // These cannot be JSON-bridged when they appear as inner Named types in
+    // Optional/Vec fields or return types.
     let no_serde_names: HashSet<&str> = api
         .types
         .iter()
@@ -329,7 +326,7 @@ fn emit_lib_rs(
     // alef-backend-csharp's errors.rs.
     let handle_returned_types: HashSet<String> = type_bridge::compute_handle_returned_types(api);
 
-    // Filter to only functions that can be fully bridged without emitting unimplemented!().
+    // Filter to only functions that can be fully bridged.
     // Unbridgeable functions (enum params, Vec<u8> tuple params, non-serde return types)
     // are silently excluded from both the extern block and the shim impl — callers in Swift
     // simply won't see these functions rather than panicking at runtime.
@@ -925,7 +922,7 @@ fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool
 
 /// Collect serde-enabled, non-opaque types from `visible_types` that appear as
 /// parameters in either free functions or type methods, excluding those already
-/// covered by the static sample_core e2e shims (`already_covered`).
+/// covered by static e2e shims (`already_covered`).
 ///
 /// These types need `{type_snake}_from_json` shims so Swift e2e tests can
 /// deserialise fixture JSON into the strongly-typed request objects required by

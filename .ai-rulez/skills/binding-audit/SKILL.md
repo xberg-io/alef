@@ -28,7 +28,7 @@ Verify that every public Rust item has a corresponding binding in all target lan
 1. **No guessing about intentional removals.** Config (`alef.toml`) and attributes (`#[alef::skip]`, `#[alef::exclude]`, `#[alef::opaque]`) are canonical. Only flag items not covered by them.
 2. **Every gap is triaged.** Never report a missing binding without identifying the root cause (alef codegen bug, action script error, or config oversight).
 3. **All findings update `CHANGELOG.md`** — each upstream fix gets an `[Unreleased]` entry.
-4. **Commit SHAs and workflow URLs** are recorded so downstream consumers can pin the exact fix.
+4. **Commit SHAs and workflow URLs** are recorded so consumer repos can pin the exact fix.
 
 ## Procedure
 
@@ -185,7 +185,7 @@ For each upstream fix:
 2. Commit the fix (codegen or action change) with a conventional commit message.
 3. If the fix is in an Alef-owned workflow/action repository, follow that repository's documented retag procedure.
 4. For alef fixes, follow the normal `release-procedure` skill.
-5. Record the commit SHA and workflow URL in downstream consumer issues so they can pin the fix.
+5. Record the commit SHA and workflow URL in consumer issues so they can pin the fix.
 
 ## Anti-patterns
 

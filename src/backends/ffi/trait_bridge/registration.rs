@@ -212,7 +212,7 @@ impl FfiBridgeGenerator {
             // Build params (excluding self), respecting is_ref/is_mut so that
             // &[u8], &str, &Path, and excluded named types are emitted correctly.
             // Use the lifetime-aware variant so that Named types with `has_lifetime_params`
-            // (e.g. `NodeContext<'a>`) are emitted as `&Type<'_>` to match the trait def.
+            // (e.g. `SyntaxContext<'a>`) are emitted as `&Type<'_>` to match the trait def.
             let params: Vec<String> = method
                 .params
                 .iter()

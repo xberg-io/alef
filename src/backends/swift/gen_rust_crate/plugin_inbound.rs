@@ -14,8 +14,8 @@
 //! 2. A `pub struct Swift{Trait}Wrapper` newtype holding the Swift handle plus a
 //!    `OnceLock<String>` cache for `Plugin::name()` (the trait returns `&str`, so the
 //!    owned name fetched from Swift must outlive the call). `unsafe impl Send + Sync`
-//!    is justified by the sample_core `Plugin` super-trait's documented thread-safety
-//!    requirement and ARC's safe shareability.
+//!    is justified by the configured super-trait's thread-safety requirement and
+//!    ARC's safe shareability.
 //! 3. `impl Plugin for Swift{Trait}Wrapper` forwarding `name`/`version`/`initialize`/
 //!    `shutdown` to the Swift box; errors use the configured error constructor.
 //! 4. `#[async_trait] impl {Trait} for Swift{Trait}Wrapper` forwarding each method,
@@ -646,7 +646,7 @@ fn inbound_param_to_bridge(p: &ParamDef) -> Option<String> {
     let name = p.name.to_snake_case();
 
     if needs_inbound_json_bridge(&p.ty) {
-        // Named types may arrive as `&sample_core::OcrConfig` (is_ref) — serde::Serialize
+        // Named types may arrive by reference; serde::Serialize handles both owned and
         // is implemented for the type and `&T: Serialize when T: Serialize`, so a single
         // `to_string(&name)` call handles both owned and borrowed forms.
         if p.optional {

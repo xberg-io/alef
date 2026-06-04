@@ -205,7 +205,7 @@ fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool, optional
         // Char: binding uses String, core uses char — take the first character.
         TypeRef::Char => "Into::into(v.chars().next().unwrap_or('\\0'))".to_string(),
         TypeRef::String if sanitized => {
-            // Sanitized String field: the core type is a structured type (e.g., ConversionOptions)
+            // Sanitized String field: the core type is a structured type (e.g., ParseOptions)
             // serialized as JSON. Deserialize instead of using .into().
             "serde_json::from_str(&v).unwrap_or_default()".to_string()
         }
@@ -1004,7 +1004,7 @@ pub(super) fn gen_env_shims(shim_names: &[String]) -> String {
     out.trim_end_matches('\n').to_string()
 }
 
-/// Generate a type-appropriate unimplemented body for WASM (no todo!()).
+/// Generate a type-appropriate unsupported body for WASM.
 pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
@@ -1022,7 +1022,10 @@ pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, 
             TypeRef::Vec(_) => "Vec::new()".to_string(),
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0u64".to_string(),
-            TypeRef::Named(_) | TypeRef::Json => format!("panic!(\"alef: {fn_name} not auto-delegatable\")"),
+            TypeRef::Named(_) | TypeRef::Json => format!(
+                "compile_error!(\"alef cannot generate WASM binding for {fn_name}; \
+                 configure wasm.exclude_functions or make the return type fallible\")"
+            ),
         }
     }
 }
@@ -1574,7 +1577,7 @@ mod tests {
 
     #[test]
     fn sanitized_string_field_uses_json_deserialize() {
-        // Bug fix: when a field is sanitized to Option<String> (e.g., ConversionOptions,
+        // Bug fix: when a field is sanitized to Option<String> (e.g., ParseOptions,
         // ConcurrencyConfig, CancellationToken), the From impl must JSON-deserialize
         // instead of using .into() (which has no impl for these structured types).
         let ty_string = TypeRef::String;

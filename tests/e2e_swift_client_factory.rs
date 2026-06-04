@@ -1,6 +1,6 @@
 //! Verifies the Swift e2e codegen emits client-object instantiation when
 //! `CallOverride.client_factory` is set, and falls back to free-function calls
-//! when it is absent (sample_crate flat-function style unchanged).
+//! when it is absent.
 //!
 //! Also verifies that `render_package_swift` always emits `.iOS(...)` alongside
 //! `.macOS(...)`, regardless of `client_factory` presence.
@@ -214,8 +214,7 @@ options_via = "from_json"
 /// the dep (both at directories named `swift/`), the e2e package is emitted
 /// under `swift_e2e/`, and the dep is referenced by `.package(path:)` (no
 /// `name:`) with `.product(package: "<basename>")`. Regression test for the
-/// sample_crate `packages/swift` case where consumer at `e2e/swift/` previously
-/// collided with the dep at `packages/swift/`.
+/// fixture case where the e2e package path previously collided with the dep path.
 #[test]
 fn package_swift_uses_path_basename_for_product_package_ref() {
     let toml = format!(

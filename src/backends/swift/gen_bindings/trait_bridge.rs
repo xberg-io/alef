@@ -643,26 +643,30 @@ mod tests {
 
     #[test]
     fn test_trait_bridge_protocol_generated() {
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend");
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend");
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
         let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
-        // Should emit SwiftPluginBridge.swift first, then SwiftOcrBackendBridge.swift
+        // Should emit SwiftPluginBridge.swift first, then SwiftTextBackendBridge.swift
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].0, "SwiftPluginBridge.swift");
         assert!(files[0].1.contains("protocol SwiftPluginBridge: AnyObject"));
-        assert_eq!(files[1].0, "SwiftOcrBackendBridge.swift");
-        assert!(files[1].1.contains("protocol SwiftOcrBackendBridge: SwiftPluginBridge"));
+        assert_eq!(files[1].0, "SwiftTextBackendBridge.swift");
+        assert!(
+            files[1]
+                .1
+                .contains("protocol SwiftTextBackendBridge: SwiftPluginBridge")
+        );
     }
 
     #[test]
     fn test_trait_bridge_excludes_swift_language() {
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend");
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend");
         bridge_cfg.exclude_languages = vec!["swift".to_string()];
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
         let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
@@ -671,10 +675,10 @@ mod tests {
 
     #[test]
     fn test_trait_bridge_skips_non_function_param() {
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend");
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend");
         bridge_cfg.bind_via = BridgeBinding::OptionsField;
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
         let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
@@ -939,7 +943,7 @@ mod tests {
     #[test]
     fn test_pascal_case_conversion() {
         assert_eq!(trait_bridge_pascal_name("my_lib"), "MyLib");
-        assert_eq!(trait_bridge_pascal_name("ocr_backend"), "OcrBackend");
+        assert_eq!(trait_bridge_pascal_name("text_backend"), "TextBackend");
         assert_eq!(trait_bridge_pascal_name("test"), "Test");
         assert_eq!(trait_bridge_pascal_name("a"), "A");
     }

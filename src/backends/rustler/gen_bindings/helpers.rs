@@ -60,7 +60,7 @@ pub(super) fn emit_elixir_doc_attr(out: &mut String, attr: &str, doc: &str, inde
     out.push_str("\"\"\"\n");
 }
 
-/// Generate a type-appropriate unimplemented body for Rustler (no todo!()).
+/// Generate a type-appropriate unsupported body for Rustler.
 pub(super) fn gen_rustler_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
@@ -79,7 +79,10 @@ pub(super) fn gen_rustler_unimplemented_body(return_type: &TypeRef, fn_name: &st
             TypeRef::Vec(_) => "Vec::new()".to_string(),
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0u64".to_string(),
-            TypeRef::Named(_) | TypeRef::Json => format!("panic!(\"alef: {fn_name} not auto-delegatable\")"),
+            TypeRef::Named(_) | TypeRef::Json => format!(
+                "compile_error!(\"alef cannot generate Rustler binding for {fn_name}; \
+                 configure elixir.exclude_functions or make the return type fallible\")"
+            ),
         }
     }
 }

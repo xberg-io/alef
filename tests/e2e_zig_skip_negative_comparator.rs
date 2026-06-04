@@ -12,7 +12,7 @@
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::zig::ZigE2eCodegen;
-use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
+use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 use serde_json::json;
 
 fn config_toml() -> &'static str {
@@ -72,13 +72,18 @@ fn greater_than_negative_one_is_skipped() {
             "url": "http://example.com",
             "config": { "html": "<a href='/'>Home</a>" }
         }),
-        mock_response: Some(json!({
-            "object": {
-                "links": [
-                    { "text": "Home", "href": "/" }
-                ]
-            }
-        })),
+        mock_response: Some(MockResponse {
+            status: 200,
+            body: Some(json!({
+                "object": {
+                    "links": [
+                        { "text": "Home", "href": "/" }
+                    ]
+                }
+            })),
+            stream_chunks: None,
+            headers: Default::default(),
+        }),
         visitor: None,
         args: Vec::new(),
         assertion_recipes: Vec::new(),
@@ -123,9 +128,14 @@ fn greater_than_or_equal_negative_one_is_skipped() {
         input: json!({
             "url": "http://example.com"
         }),
-        mock_response: Some(json!({
-            "array": [1, 2, 3]
-        })),
+        mock_response: Some(MockResponse {
+            status: 200,
+            body: Some(json!({
+                "array": [1, 2, 3]
+            })),
+            stream_chunks: None,
+            headers: Default::default(),
+        }),
         visitor: None,
         args: Vec::new(),
         assertion_recipes: Vec::new(),
@@ -169,13 +179,18 @@ fn greater_than_positive_value_is_emitted() {
         input: json!({
             "url": "http://example.com"
         }),
-        mock_response: Some(json!({
-            "object": {
-                "links": [
-                    { "text": "Home", "href": "/" }
-                ]
-            }
-        })),
+        mock_response: Some(MockResponse {
+            status: 200,
+            body: Some(json!({
+                "object": {
+                    "links": [
+                        { "text": "Home", "href": "/" }
+                    ]
+                }
+            })),
+            stream_chunks: None,
+            headers: Default::default(),
+        }),
         visitor: None,
         args: Vec::new(),
         assertion_recipes: Vec::new(),
@@ -217,9 +232,14 @@ fn less_than_negative_value_is_emitted() {
         input: json!({
             "url": "http://example.com"
         }),
-        mock_response: Some(json!({
-            "count": -5
-        })),
+        mock_response: Some(MockResponse {
+            status: 200,
+            body: Some(json!({
+                "count": -5
+            })),
+            stream_chunks: None,
+            headers: Default::default(),
+        }),
         visitor: None,
         args: Vec::new(),
         assertion_recipes: Vec::new(),

@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 /// host crate's own re-exports of `register_*`/`unregister_*` symbols when
 /// the binding crate `use`s them via `*`. The Python-side name (set with
 /// `#[pyo3(name = "...")]`) keeps the bare function name so callers see
-/// `module.unregister_ocr_backend(name)`.
+/// `module.unregister_text_backend(name)`.
 fn exported_pyfunction_symbol(fn_name: &str) -> String {
     fn_name.to_string()
 }
@@ -776,7 +776,7 @@ pub fn gen_bridge_function(
     // the standard serde-based conversion code.
 
     // Build standard call args the same way gen_function does via serde path
-    // (since ConversionOptions has serde, and has_named_params will be true)
+    // (since ParseOptions has serde, and has_named_params will be true)
     let serde_err_conv = ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))";
 
     // Generate serde let-bindings for non-bridge Named params

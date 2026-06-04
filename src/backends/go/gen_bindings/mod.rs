@@ -584,7 +584,7 @@ fn gen_go_file(
     }
 
     // When a visitor bridge is active, visitor.go defines the bridge's associated types
-    // (e.g. NodeContext, VisitResult) with FFI-compatible fields. Skip them in binding.go
+    // (e.g. SyntaxContext, WalkDecision) with FFI-compatible fields. Skip them in binding.go
     // to avoid redeclarations.
     let bridge_associated_types = config.bridge_associated_types();
     let visitor_types: std::collections::HashSet<&str> = if !bridge_param_names.is_empty() {
@@ -717,7 +717,7 @@ fn gen_go_file(
             body.push_str("\n\n");
             // Generate functional options pattern only if type is in the functional_options allowlist.
             // By default, pure data DTOs use idiomatic struct literals instead of functional options.
-            // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
+            // Skip "Update" types (e.g., ParseOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             let empty_functional_options = vec![];

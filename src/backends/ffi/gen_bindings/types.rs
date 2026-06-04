@@ -5,7 +5,7 @@ use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
-use super::helpers::{gen_value_to_c, null_return_value};
+use super::helpers::{gen_ffi_unimplemented_body, gen_value_to_c, null_return_value};
 
 fn is_primitive_c_type_override(c_type: &str) -> bool {
     matches!(
@@ -649,9 +649,15 @@ pub(super) fn gen_opaque_static_constructor(
         out.push_str("    clear_last_error();\n");
     }
 
-    // Unimplemented stub if sanitized
+    // Unsupported stub if sanitized.
     if will_be_unimplemented {
-        out.push_str("    panic!(\"Sanitized method {type_name}::new cannot be called from C\");\n");
+        let unsupported_return = TypeRef::Named(type_name.to_string());
+        out.push_str(&gen_ffi_unimplemented_body(
+            &unsupported_return,
+            &format!("{type_name}::new"),
+            method.error_type.is_some(),
+        ));
+        out.push('\n');
         out.push_str("}\n");
         return out;
     }

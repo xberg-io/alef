@@ -1,9 +1,9 @@
 //! Regression test for kotlin_android e2e codegen bug:
 //!
-//! - Null cannot be a value of a non-null type 'ExtractionConfig':
-//!   kotlin_android binding signatures declare config: ExtractionConfig (non-nullable),
+//! - Null cannot be a value of a non-null config type:
+//!   kotlin_android binding signatures declare config as non-nullable,
 //!   but the e2e codegen was passing null when the fixture omitted the config arg.
-//!   The fix: emit a default constructor call `ExtractionConfig()` instead of `null`.
+//!   The fix: emit a default constructor call instead of `null`.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -119,14 +119,14 @@ fn render_kotlin_android_test(toml: &str, fixture: Fixture) -> String {
 }
 
 /// Regression: when a fixture omits the optional config argument, kotlin_android
-/// codegen must emit `ExtractionConfig()` (default constructor) instead of `null`,
-/// since the binding signature declares config: ExtractionConfig (non-nullable).
+/// codegen must emit the default constructor instead of `null`, since the binding
+/// signature declares config as non-nullable.
 #[test]
 fn kotlin_android_optional_config_arg_emits_default_constructor_not_null() {
     let fixture = make_extract_bytes_fixture("async_extract_bytes", false);
     let rendered = render_kotlin_android_test(TOML_EXTRACT_BYTES, fixture);
 
-    // Must emit ExtractionConfig() (default constructor), not null
+    // Must emit the configured type's default constructor, not null.
     assert!(
         rendered.contains("ExtractionConfig()"),
         "must emit ExtractionConfig() for optional config arg with no value; got:\n{rendered}"

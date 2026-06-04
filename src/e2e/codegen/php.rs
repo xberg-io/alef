@@ -216,8 +216,9 @@ impl E2eCodegen for PhpCodegen {
         // different scalarness (e.g. `CrawlConfig.content: ContentConfig` vs
         // `MarkdownResult.content: String`). A bare-name union would force every
         // `->content` access to `->getContent()` even on types where it is a scalar
-        // property — see demo-crawler regression where `MarkdownResult::getContent()`
-        // does not exist.
+        // property. This covers DTOs where `getContent()` is a true accessor
+        // without forcing getter syntax for scalar fields where the method does
+        // not exist.
         let php_enum_names: HashSet<String> = enums.iter().map(|e| e.name.clone()).collect();
 
         for group in groups {
@@ -2523,38 +2524,7 @@ fn build_php_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::e2e::f
 
 /// Emit a PHP visitor method for a callback action.
 fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
-    let params = match method_name {
-        "visit_link" => "$ctx, $href, $text, $title",
-        "visit_image" => "$ctx, $src, $alt, $title",
-        "visit_heading" => "$ctx, $level, $text, $id",
-        "visit_code_block" => "$ctx, $lang, $code",
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => "$ctx, $text",
-        "visit_text" => "$ctx, $text",
-        "visit_list_item" => "$ctx, $ordered, $marker, $text",
-        "visit_blockquote" => "$ctx, $content, $depth",
-        "visit_table_row" => "$ctx, $cells, $isHeader",
-        "visit_custom_element" => "$ctx, $tagName, $html",
-        "visit_form" => "$ctx, $actionUrl, $method",
-        "visit_input" => "$ctx, $input_type, $name, $value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "$ctx, $src",
-        "visit_details" => "$ctx, $isOpen",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "$ctx, $output",
-        "visit_list_start" => "$ctx, $ordered",
-        "visit_list_end" => "$ctx, $ordered, $output",
-        _ => "$ctx",
-    };
+    let params = "...$args";
 
     let (action_type, action_value, return_form) = match action {
         CallbackAction::Skip => ("skip", String::new(), "dict"),

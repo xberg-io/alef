@@ -1,1 +1,4 @@
-panic!("alef: {{ name }} not auto-delegatable")
+compile_error!(concat!(
+    "alef cannot generate Magnus binding for {{ name }}; ",
+    "configure ruby.exclude_functions or make the return type fallible",
+))

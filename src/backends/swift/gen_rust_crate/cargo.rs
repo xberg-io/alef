@@ -48,15 +48,13 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format_features_array(features)
     };
-    // When the Rust ident form of the umbrella crate name (`core_dep_key`,
-    // e.g. `sample_llm`) differs from the actual cargo package name in the
-    // umbrella Cargo.toml (`crate_name`, e.g. `sample-llm`), cargo will not
+    // When the Rust ident form of the umbrella crate name (`core_dep_key`)
+    // differs from the actual cargo package name in the umbrella Cargo.toml
+    // (`crate_name`), cargo will not
     // resolve the path dependency unless we add an explicit `package = "..."`
     // rename. Use `crate_name` (the [[crates]] `name` field, which is the
     // cargo package name) rather than `core_crate_dir` (the directory name)
-    // because the two can differ — e.g. `[[crates]] name = "sample-markdown-rs"`
-    // with sources under `crates/sample-markdown/` where the package on disk
-    // is `sample-markdown-rs` but the directory is `sample-markdown`.
+    // because the two can differ.
     let package_rename_block = if core_dep_key != crate_name {
         format!(", package = \"{crate_name}\"")
     } else {

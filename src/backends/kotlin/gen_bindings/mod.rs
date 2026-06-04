@@ -565,7 +565,7 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
 /// Used by `emit_jvm_client_class_with_package` to derive explicit per-type
 /// Kotlin imports for the Java DTO package when the emitted Kotlin file
 /// lives in a different (typically sub-) package (e.g. `dev.sample_core.kt`
-/// or `dev.sample_core.sample-crawler.android`).
+/// or `dev.sample_core.sample_worker.android`).
 fn collect_user_types(ty: &TypeRef, out: &mut BTreeSet<String>) {
     match ty {
         TypeRef::Named(name) => {

@@ -10,9 +10,7 @@ use crate::core::template_versions as tv;
 use crate::core::version::to_rubygems_prerelease;
 use crate::e2e::codegen::resolve_field;
 use crate::e2e::config::E2eConfig;
-use crate::e2e::escape::{
-    escape_ruby_single, ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident,
-};
+use crate::e2e::escape::{escape_ruby_single, ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{
     Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm, ValidationErrorExpectation,
@@ -1818,7 +1816,7 @@ fn build_args_and_setup(
                         // Emit `<module>.<unregister_fn>('<name>')` after the call so
                         // RSpec's single-process registry state is restored between
                         // tests. Without this, the next trait-using fixture fails
-                        // because the downstream registry contains only the test
+                        // because the test registry contains only the test
                         // stub and the core's `ensure_*_initialized` self-heal only
                         // triggers when the registry is empty.
                         if let Some(unregister_fn) = trait_bridge.unregister_fn.as_deref() {
@@ -2179,7 +2177,7 @@ fn render_assertion(
     // are coerced to String via .to_s so `eq("stop")` matches `:stop`. Look up the
     // field in both the global `[crates.e2e] fields_enum` set AND the per-call
     // override `[crates.e2e.calls.<x>.overrides.<lang>] enum_fields = { ... }` —
-    // downstream config that already labels e.g. `status = "BatchStatus"` for the
+    // project config that already labels e.g. `status = "BatchStatus"` for the
     // Java/C#/Python sides should apply here too without a Ruby-only duplicate.
     let field_is_enum = assertion.field.as_deref().filter(|f| !f.is_empty()).is_some_and(|f| {
         let resolved = field_resolver.resolve(f);
@@ -2628,38 +2626,7 @@ fn build_ruby_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::e2e::
 
 /// Emit a Ruby visitor method for a callback action.
 fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
-    let params = match method_name {
-        "visit_link" => "ctx, href, text, title",
-        "visit_image" => "ctx, src, alt, title",
-        "visit_heading" => "ctx, level, text, id",
-        "visit_code_block" => "ctx, lang, code",
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => "ctx, text",
-        "visit_text" => "ctx, text",
-        "visit_list_item" => "ctx, ordered, marker, text",
-        "visit_blockquote" => "ctx, content, depth",
-        "visit_table_row" => "ctx, cells, is_header",
-        "visit_custom_element" => "ctx, tag_name, html",
-        "visit_form" => "ctx, action_url, method",
-        "visit_input" => "ctx, input_type, name, value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
-        "visit_details" => "ctx, is_open",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
-        "visit_list_start" => "ctx, ordered",
-        "visit_list_end" => "ctx, ordered, output",
-        _ => "ctx",
-    };
+    let params = "*args";
 
     // Pre-compute action type and values
     let (action_type, action_value, return_form) = match action {
@@ -2671,7 +2638,7 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
             ("custom", escaped, "dict")
         }
         CallbackAction::CustomTemplate { template, return_form } => {
-            let interpolated = ruby_template_to_interpolation(template);
+            let interpolated = template.replace('\\', "\\\\").replace('"', "\\\"");
             let form = match return_form {
                 TemplateReturnForm::Dict => "dict",
                 TemplateReturnForm::BareString => "bare_string",

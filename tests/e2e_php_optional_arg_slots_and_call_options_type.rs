@@ -10,10 +10,9 @@
 //!
 //! Bug 2 — call-level `options_type` ignored.
 //!   `[e2e.calls.<name>].options_type` declares the config parameter type
-//!   (e.g. `EmbeddingConfig`) once for every binding. Pre-fix, `CallConfig` had
+//!   once for every binding. Pre-fix, `CallConfig` had
 //!   no such field, so the value was silently dropped and PHP fell back to the
-//!   arg-name heuristic, constructing `ExtractionConfig` for an `EmbeddingConfig`
-//!   parameter.
+//!   arg-name heuristic, constructing the wrong config type for the parameter.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;

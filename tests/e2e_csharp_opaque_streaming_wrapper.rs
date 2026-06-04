@@ -1,9 +1,7 @@
 use alef::backends::csharp::CsharpBackend;
 use alef::core::backend::Backend;
-use alef::core::config::{NewAlefConfig, ResolvedCrateConfig, AdapterPattern, AdapterConfig};
-use alef::core::ir::{
-    ApiSurface, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
-};
+use alef::core::config::{AdapterConfig, AdapterPattern, ResolvedCrateConfig};
+use alef::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 
 /// Test that opaque types with streaming methods emit static wrapper methods in the main wrapper class.
 /// This ensures `gen_opaque_streaming_static_wrapper` is called during method emission.
@@ -13,12 +11,12 @@ fn test_opaque_streaming_static_wrapper() {
 
     // Create API with an opaque type and a streaming method
     let api = ApiSurface {
-        crate_name: "kreuzcrawl".to_string(),
+        crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
             TypeDef {
-                name: "CrawlEvent".to_string(),
-                rust_path: "kreuzcrawl::CrawlEvent".to_string(),
+                name: "StreamItem".to_string(),
+                rust_path: "sample_crate::StreamItem".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![FieldDef {
                     name: "url".to_string(),
@@ -59,28 +57,26 @@ fn test_opaque_streaming_static_wrapper() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "DefaultEngine".to_string(),
-                rust_path: "kreuzcrawl::DefaultEngine".to_string(),
+                name: "StreamEngine".to_string(),
+                rust_path: "sample_crate::StreamEngine".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
-                methods: vec![
-                    MethodDef {
-                        name: "crawl_stream".to_string(),
-                        doc: "Stream crawl results".to_string(),
-                        params: vec![
-                            ParamDef {
-                                name: "request".to_string(),
-                                ty: TypeRef::Named("CrawlRequest".to_string()),
-                                optional: false,
-                            },
-                        ],
-                        return_type: TypeRef::Vec(Box::new(TypeRef::Named("CrawlEvent".to_string()))),
-                        is_async: true,
-                        is_static: false,
-                        receiver: Some(ReceiverKind::Ref),
-                        error_type: None,
-                    },
-                ],
+                methods: vec![MethodDef {
+                    name: "stream_items".to_string(),
+                    doc: "Stream generated items".to_string(),
+                    params: vec![ParamDef {
+                        name: "request".to_string(),
+                        ty: TypeRef::Named("StreamRequest".to_string()),
+                        optional: false,
+                        ..Default::default()
+                    }],
+                    return_type: TypeRef::Vec(Box::new(TypeRef::Named("StreamItem".to_string()))),
+                    is_async: true,
+                    is_static: false,
+                    receiver: Some(ReceiverKind::Ref),
+                    error_type: None,
+                    ..Default::default()
+                }],
                 is_opaque: true,
                 is_clone: false,
                 is_copy: false,
@@ -91,7 +87,7 @@ fn test_opaque_streaming_static_wrapper() {
                 serde_rename_all: None,
                 has_serde: false,
                 super_traits: vec![],
-                doc: "Opaque crawler engine".to_string(),
+                doc: "Opaque stream engine".to_string(),
                 cfg: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
@@ -99,8 +95,8 @@ fn test_opaque_streaming_static_wrapper() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "CrawlRequest".to_string(),
-                rust_path: "kreuzcrawl::CrawlRequest".to_string(),
+                name: "StreamRequest".to_string(),
+                rust_path: "sample_crate::StreamRequest".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![FieldDef {
                     name: "url".to_string(),
@@ -145,37 +141,49 @@ fn test_opaque_streaming_static_wrapper() {
         functions: vec![],
         errors: vec![],
         excluded_type_paths: Default::default(),
+        ..Default::default()
     };
 
     // Minimal config with adapter for streaming
     let mut config = ResolvedCrateConfig {
-        name: "kreuzcrawl".to_string(),
+        name: "sample_crate".to_string(),
         ..Default::default()
     };
 
-    // Add streaming adapter that marks crawl_stream as streaming
+    // Add streaming adapter that marks stream_items as streaming
     config.adapters.push(AdapterConfig {
-        name: "crawl_stream".to_string(),
+        name: "stream_items".to_string(),
         pattern: AdapterPattern::Streaming,
-        owner_type: Some("DefaultEngine".to_string()),
-        item_type: Some("CrawlEvent".to_string()),
+        core_path: "sample_crate::StreamEngine::stream_items".to_string(),
+        owner_type: Some("StreamEngine".to_string()),
+        item_type: Some("StreamItem".to_string()),
         params: vec![],
+        returns: Some("StreamItem".to_string()),
+        error_type: None,
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: None,
+        skip_languages: Vec::new(),
     });
 
-    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
 
     // Find the wrapper class file
     let wrapper_file = files
         .iter()
-        .find(|f| f.path.ends_with("KreuzcrawlLib.cs"))
-        .expect("should generate KreuzcrawlLib.cs");
+        .find(|f| f.path.ends_with("SampleCrateLib.cs"))
+        .expect("should generate SampleCrateLib.cs");
 
     let content = &wrapper_file.content;
 
     // Verify that static wrapper method is emitted
     assert!(
-        content.contains("public static async IAsyncEnumerable<CrawlEvent> CrawlStreamAsync("),
-        "wrapper class should emit static CrawlStreamAsync method; content:\n{}",
+        content.contains("public static async IAsyncEnumerable<StreamItem> StreamItemsAsync("),
+        "wrapper class should emit static StreamItemsAsync method; content:\n{}",
         content
     );
 

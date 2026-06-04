@@ -1113,7 +1113,7 @@ fn test_go_numeric_params() {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-adapter regression tests (sample_crawler).
+// Multi-adapter regression tests.
 //
 // Two streaming adapters sharing one owner_type and item_type must produce
 // distinct iterator/handle struct bodies under per-adapter lookup keys; the
@@ -1234,7 +1234,7 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
     );
 
     // Each body must reference its own request type for the `From` conversion
-    // (sample_crawler::CrawlStreamRequest vs sample_crawler::BatchCrawlStreamRequest).
+    // Each adapter has a distinct request type.
     assert!(
         struct_crawl.contains("CrawlStreamRequest") && !struct_crawl.contains("BatchCrawlStreamRequest"),
         "crawl_stream must use its own request type, not the second adapter's. Got: {struct_crawl}"

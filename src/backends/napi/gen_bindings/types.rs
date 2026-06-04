@@ -820,7 +820,8 @@ pub(super) fn gen_dto_method_fns(
                 body_parts
             } else {
                 format!(
-                    "    todo!(\"wither {} requires serde to round-trip through JSON\")",
+                    "    Err(napi::Error::new(napi::Status::GenericFailure, \
+                     \"wither {} requires serde to round-trip through JSON\"))",
                     method.name
                 )
             }

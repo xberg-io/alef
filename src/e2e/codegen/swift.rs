@@ -1146,7 +1146,8 @@ fn render_test_method(
     // visitor protocol and wrap it via the generated visitor handle factory.
     let mut visitor_setup_lines: Vec<String> = Vec::new();
     let visitor_handle_expr: Option<String> = fixture.visitor.as_ref().map(|spec| {
-        let visitor_config = super::swift_visitors::resolve_swift_visitor_config(call_overrides, type_defs, spec);
+        let visitor_config =
+            super::swift_visitors::resolve_swift_visitor_config(config, call_overrides, type_defs, spec);
         super::swift_visitors::build_swift_visitor(&mut visitor_setup_lines, spec, &fixture.id, &visitor_config)
     });
 

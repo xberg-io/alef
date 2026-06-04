@@ -2,7 +2,8 @@
 //!
 //! Most fixture assertions are generic field/text/JSON checks and should work
 //! without configuration. The names below are synthetic shortcuts tied to
-//! domain-specific result shapes, so they require an explicit recipe opt-in.
+//! domain-specific result shapes or streaming pseudo-fields, so they require
+//! an explicit recipe opt-in.
 
 use std::collections::HashSet;
 
@@ -12,6 +13,7 @@ use crate::e2e::fixture::{Assertion, Fixture};
 pub(crate) const CHUNKS_RECIPE: &str = "chunks";
 pub(crate) const EMBEDDINGS_RECIPE: &str = "embeddings";
 pub(crate) const KEYWORDS_RECIPE: &str = "keywords";
+pub(crate) const STREAMING_RECIPE: &str = "streaming";
 pub(crate) const TREE_RECIPE: &str = "tree";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +31,21 @@ pub(crate) fn required_recipe(assertion: &Assertion) -> Option<&'static str> {
 
 pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
     match field {
-        "chunks"
-        | "chunks_content"
+        "stream.items"
+        | "stream.items.length"
+        | "chunks"
+        | "chunks.length"
+        | "stream_content"
+        | "stream_complete"
+        | "no_chunks_after_done"
+        | "tool_calls"
+        | "finish_reason"
+        | "usage"
+        | "stream.has_page_event"
+        | "stream.has_error_event"
+        | "stream.has_complete_event"
+        | "stream.event_count_min" => Some(STREAMING_RECIPE),
+        "chunks_content"
         | "chunks_have_content"
         | "chunks_have_heading_context"
         | "chunks_heading_context"
@@ -53,6 +68,7 @@ pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
         | "tree_error_count"
         | "tree_not_null"
         | "tree_to_sexp" => Some(TREE_RECIPE),
+        _ if starts_with_recipe_root(field, &["tool_calls", "finish_reason", "usage"]) => Some(STREAMING_RECIPE),
         _ => None,
     }
 }
@@ -93,6 +109,13 @@ pub(crate) fn missing_recipe_for_language(
 ) -> Option<MissingAssertionRecipe> {
     let enabled = enabled_recipes(fixture, call_config, language);
     fixture.assertions.iter().find_map(|assertion| {
+        if assertion
+            .field
+            .as_deref()
+            .is_some_and(|field| field_is_explicit_result_mapping(field, call_config))
+        {
+            return None;
+        }
         let recipe = required_recipe(assertion)?;
         if enabled.contains(recipe) {
             return None;
@@ -104,6 +127,22 @@ pub(crate) fn missing_recipe_for_language(
             .unwrap_or_else(|| "<unknown>".to_string());
         Some(MissingAssertionRecipe { field, recipe })
     })
+}
+
+fn starts_with_recipe_root(field: &str, roots: &[&str]) -> bool {
+    roots.iter().any(|root| {
+        field.len() > root.len()
+            && field.starts_with(root)
+            && field[root.len()..]
+                .chars()
+                .next()
+                .is_some_and(|separator| separator == '.' || separator == '[')
+    })
+}
+
+fn field_is_explicit_result_mapping(field: &str, call_config: &CallConfig) -> bool {
+    let root = field.split_once(['.', '[']).map(|(root, _)| root).unwrap_or(field);
+    call_config.result_fields.contains(root)
 }
 
 #[cfg(test)]
@@ -162,6 +201,26 @@ mod tests {
     }
 
     #[test]
+    fn streaming_virtual_fields_require_streaming_recipe() {
+        for field in [
+            "stream.items",
+            "stream.items.length",
+            "stream_content",
+            "stream_complete",
+            "tool_calls[0].function.name",
+            "usage.total_tokens",
+        ] {
+            let assertion = Assertion {
+                assertion_type: "not_empty".to_string(),
+                field: Some(field.to_string()),
+                ..Default::default()
+            };
+
+            assert_eq!(required_recipe(&assertion), Some(STREAMING_RECIPE), "field: {field}");
+        }
+    }
+
+    #[test]
     fn tree_fields_and_methods_require_tree_recipe() {
         for field in [
             "root_child_count",
@@ -200,6 +259,20 @@ mod tests {
         };
 
         assert_eq!(required_recipe(&assertion), None);
+    }
+
+    #[test]
+    fn explicit_result_mapping_allows_domain_shaped_field_without_recipe() {
+        let fixture = fixture(vec![Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("usage.total_tokens".to_string()),
+            value: Some(serde_json::json!(42)),
+            ..Default::default()
+        }]);
+        let mut call_config = CallConfig::default();
+        call_config.result_fields.insert("usage".to_string());
+
+        assert!(missing_recipe_for_language(&fixture, &call_config, "rust").is_none());
     }
 
     #[test]

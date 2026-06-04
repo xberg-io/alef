@@ -1500,9 +1500,9 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
     }
 }
 
-/// Regression test for sample_crate-dev/alef#1 / sample_crate-dev/sample-markdown#310.
+/// Regression test for sample_crate-dev/alef#1 / sample_crate-dev/sample_crate#310.
 ///
-/// A type with both `has_default = true` AND `is_return_type = true` (e.g. `ConversionResult`)
+/// A type with both `has_default = true` AND `is_return_type = true` (e.g. `ParseOutput`)
 /// must be re-exported in `__init__.py` from the native Rust module, NOT from `options.py`.
 /// `options.py` must NOT emit a `@dataclass` shadow class for such types; the authoritative
 /// definition lives in the native module as a `#[pyclass]` struct. The shadow class caused
@@ -1512,11 +1512,11 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
 fn test_return_type_exported_from_native_module_not_options() {
     let backend = Pyo3Backend;
 
-    // ConversionResult: has_default=true (implements Default), is_return_type=true (returned by convert())
-    // ConversionOptions: has_default=true, is_return_type=false (input/config type)
+    // ParseOutput: has_default=true (implements Default), is_return_type=true (returned by convert())
+    // ParseOptions: has_default=true, is_return_type=false (input/config type)
     let conversion_result = TypeDef {
-        name: "ConversionResult".to_string(),
-        rust_path: "my_lib::ConversionResult".to_string(),
+        name: "ParseOutput".to_string(),
+        rust_path: "my_lib::ParseOutput".to_string(),
         original_rust_path: String::new(),
         fields: vec![
             make_field("content", TypeRef::String, false),
@@ -1542,8 +1542,8 @@ fn test_return_type_exported_from_native_module_not_options() {
     };
 
     let conversion_options = TypeDef {
-        name: "ConversionOptions".to_string(),
-        rust_path: "my_lib::ConversionOptions".to_string(),
+        name: "ParseOptions".to_string(),
+        rust_path: "my_lib::ParseOptions".to_string(),
         original_rust_path: String::new(),
         fields: vec![make_field("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
         methods: vec![],
@@ -1588,7 +1588,7 @@ fn test_return_type_exported_from_native_module_not_options() {
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
             }],
-            return_type: TypeRef::Named("ConversionResult".to_string()),
+            return_type: TypeRef::Named("ParseOutput".to_string()),
             is_async: false,
             error_type: None,
             doc: "Convert input to markdown.".to_string(),
@@ -1648,60 +1648,60 @@ fn test_return_type_exported_from_native_module_not_options() {
         .find(|f| f.path.ends_with("options.py"))
         .expect("options.py not generated");
 
-    // ConversionResult (return type) must be imported from the native module.
+    // ParseOutput (return type) must be imported from the native module.
     let native_import_line = init_py
         .content
         .lines()
         .find(|l| l.contains("from ._my_lib import"))
         .unwrap_or("");
     assert!(
-        native_import_line.contains("ConversionResult"),
-        "__init__.py must import ConversionResult from the native module, got:\n{}",
+        native_import_line.contains("ParseOutput"),
+        "__init__.py must import ParseOutput from the native module, got:\n{}",
         init_py.content
     );
 
-    // ConversionResult must NOT appear in the .options import.
+    // ParseOutput must NOT appear in the .options import.
     let options_import_line = init_py
         .content
         .lines()
         .find(|l| l.contains("from .options import"))
         .unwrap_or("");
     assert!(
-        !options_import_line.contains("ConversionResult"),
-        "__init__.py must not import ConversionResult from .options, got:\n{}",
+        !options_import_line.contains("ParseOutput"),
+        "__init__.py must not import ParseOutput from .options, got:\n{}",
         init_py.content
     );
 
-    // ConversionOptions (config/input type) must still be imported from .options.
+    // ParseOptions (config/input type) must still be imported from .options.
     assert!(
-        options_import_line.contains("ConversionOptions"),
-        "__init__.py must import ConversionOptions from .options, got:\n{}",
+        options_import_line.contains("ParseOptions"),
+        "__init__.py must import ParseOptions from .options, got:\n{}",
         init_py.content
     );
 
     // Both names must appear in __all__.
     assert!(
-        init_py.content.contains("\"ConversionResult\""),
-        "__init__.py __all__ must include ConversionResult, got:\n{}",
+        init_py.content.contains("\"ParseOutput\""),
+        "__init__.py __all__ must include ParseOutput, got:\n{}",
         init_py.content
     );
     assert!(
-        init_py.content.contains("\"ConversionOptions\""),
-        "__init__.py __all__ must include ConversionOptions, got:\n{}",
+        init_py.content.contains("\"ParseOptions\""),
+        "__init__.py __all__ must include ParseOptions, got:\n{}",
         init_py.content
     );
 
-    // options.py must NOT define a @dataclass shadow for ConversionResult.
+    // options.py must NOT define a @dataclass shadow for ParseOutput.
     assert!(
-        !options_py.content.contains("class ConversionResult"),
-        "options.py must not define a ConversionResult shadow class, got:\n{}",
+        !options_py.content.contains("class ParseOutput"),
+        "options.py must not define a ParseOutput shadow class, got:\n{}",
         options_py.content
     );
 
-    // options.py MUST still define ConversionOptions (the input/config type).
+    // options.py MUST still define ParseOptions (the input/config type).
     assert!(
-        options_py.content.contains("class ConversionOptions"),
-        "options.py must still define ConversionOptions dataclass, got:\n{}",
+        options_py.content.contains("class ParseOptions"),
+        "options.py must still define ParseOptions dataclass, got:\n{}",
         options_py.content
     );
 }
@@ -1715,10 +1715,10 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
     // self-builders out of the options classification.
     let backend = Pyo3Backend;
 
-    // ConversionResult: return type of free function `convert` — stays on ._native.
+    // ParseOutput: return type of free function `convert` — stays on ._native.
     let conversion_result = TypeDef {
-        name: "ConversionResult".to_string(),
-        rust_path: "my_lib::ConversionResult".to_string(),
+        name: "ParseOutput".to_string(),
+        rust_path: "my_lib::ParseOutput".to_string(),
         original_rust_path: String::new(),
         fields: vec![make_field("content", TypeRef::String, false)],
         methods: vec![],
@@ -1740,7 +1740,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         has_lifetime_params: false,
     };
 
-    // ConversionOptions: input/config DTO with `Self`-returning builder methods.
+    // ParseOptions: input/config DTO with `Self`-returning builder methods.
     // This is the regression: before the fix, the method returns caused this type
     // to be excluded from options_type_names.
     let with_verbose = MethodDef {
@@ -1750,7 +1750,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
             TypeRef::Primitive(PrimitiveType::Bool),
             false,
         )],
-        return_type: TypeRef::Named("ConversionOptions".to_string()),
+        return_type: TypeRef::Named("ParseOptions".to_string()),
         is_async: false,
         is_static: false,
         error_type: None,
@@ -1768,7 +1768,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
     let default_method = MethodDef {
         name: "default".to_string(),
         params: vec![],
-        return_type: TypeRef::Named("ConversionOptions".to_string()),
+        return_type: TypeRef::Named("ParseOptions".to_string()),
         is_async: false,
         is_static: true,
         error_type: None,
@@ -1784,8 +1784,8 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         binding_exclusion_reason: None,
     };
     let conversion_options = TypeDef {
-        name: "ConversionOptions".to_string(),
-        rust_path: "my_lib::ConversionOptions".to_string(),
+        name: "ParseOptions".to_string(),
+        rust_path: "my_lib::ParseOptions".to_string(),
         original_rust_path: String::new(),
         fields: vec![make_field("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
         methods: vec![with_verbose, default_method],
@@ -1833,7 +1833,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
                 },
                 ParamDef {
                     name: "options".to_string(),
-                    ty: TypeRef::Named("ConversionOptions".to_string()),
+                    ty: TypeRef::Named("ParseOptions".to_string()),
                     optional: true,
                     default: None,
                     sanitized: false,
@@ -1847,7 +1847,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
                     vec_inner_is_ref: false,
                 },
             ],
-            return_type: TypeRef::Named("ConversionResult".to_string()),
+            return_type: TypeRef::Named("ParseOutput".to_string()),
             is_async: false,
             error_type: None,
             doc: String::new(),
@@ -1914,33 +1914,33 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         .find(|l| l.contains("from .options import"))
         .unwrap_or("");
 
-    // ConversionOptions has Self-returning methods, so the pre-fix code put it in
+    // ParseOptions has Self-returning methods, so the pre-fix code put it in
     // return_type_names and excluded it from options_type_names. Verify the fix.
     assert!(
-        options_import_line.contains("ConversionOptions"),
-        "api.py must import ConversionOptions from .options, got native={:?} options={:?}\n\nFull api.py:\n{}",
+        options_import_line.contains("ParseOptions"),
+        "api.py must import ParseOptions from .options, got native={:?} options={:?}\n\nFull api.py:\n{}",
         native_import_line,
         options_import_line,
         api_py.content
     );
     assert!(
-        !native_import_line.contains("ConversionOptions"),
-        "api.py must NOT import ConversionOptions from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
+        !native_import_line.contains("ParseOptions"),
+        "api.py must NOT import ParseOptions from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
         native_import_line,
         api_py.content
     );
 
-    // Regression boundary: ConversionResult IS a free-function return type, so it
+    // Regression boundary: ParseOutput IS a free-function return type, so it
     // must continue to come from the native module.
     assert!(
-        native_import_line.contains("ConversionResult"),
-        "api.py must import ConversionResult from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
+        native_import_line.contains("ParseOutput"),
+        "api.py must import ParseOutput from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
         native_import_line,
         api_py.content
     );
     assert!(
-        !options_import_line.contains("ConversionResult"),
-        "api.py must NOT import ConversionResult from .options, got options={:?}\n\nFull api.py:\n{}",
+        !options_import_line.contains("ParseOutput"),
+        "api.py must NOT import ParseOutput from .options, got options={:?}\n\nFull api.py:\n{}",
         options_import_line,
         api_py.content
     );
@@ -2460,17 +2460,17 @@ fn test_gen_registration_fn_calls_registry_getter() {
 fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
     let generator = make_bridge_generator("my_lib");
     let trait_def = make_trait_def(
-        "OcrBackend",
-        "my_lib::OcrBackend",
+        "TextBackend",
+        "my_lib::TextBackend",
         vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
     );
     let bridge_cfg = TraitBridgeConfig {
-        trait_name: "OcrBackend".to_string(),
+        trait_name: "TextBackend".to_string(),
         super_trait: None,
-        registry_getter: Some("my_lib::plugins::registry::get_ocr_backend_registry".to_string()),
-        register_fn: Some("register_ocr_backend".to_string()),
-        unregister_fn: Some("unregister_ocr_backend".to_string()),
-        clear_fn: Some("clear_ocr_backends".to_string()),
+        registry_getter: Some("my_lib::plugins::registry::get_text_backend_registry".to_string()),
+        register_fn: Some("register_text_backend".to_string()),
+        unregister_fn: Some("unregister_text_backend".to_string()),
+        clear_fn: Some("clear_text_backends".to_string()),
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -2497,14 +2497,14 @@ fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
     assert!(unreg.contains("#[pyfunction]"), "unreg must be a pyfunction: {unreg}");
     assert!(unreg.contains("name: String"), "unreg takes name as String: {unreg}");
     assert!(
-        unreg.contains("my_lib::plugins::ocr_backend::unregister_ocr_backend"),
+        unreg.contains("my_lib::plugins::text_backend::unregister_text_backend"),
         "unreg must call the host plugin module fn: {unreg}"
     );
 
     let clear = generator.gen_clear_fn(&spec);
     assert!(clear.contains("#[pyfunction]"), "clear must be a pyfunction: {clear}");
     assert!(
-        clear.contains("my_lib::plugins::ocr_backend::clear_ocr_backends"),
+        clear.contains("my_lib::plugins::text_backend::clear_text_backends"),
         "clear must call the host plugin module fn: {clear}"
     );
 }
@@ -2513,15 +2513,15 @@ fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
 fn test_gen_unregistration_fn_returns_empty_when_unset() {
     let generator = make_bridge_generator("my_lib");
     let trait_def = make_trait_def(
-        "OcrBackend",
-        "my_lib::OcrBackend",
+        "TextBackend",
+        "my_lib::TextBackend",
         vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
     );
     let bridge_cfg = TraitBridgeConfig {
-        trait_name: "OcrBackend".to_string(),
+        trait_name: "TextBackend".to_string(),
         super_trait: None,
         registry_getter: None,
-        register_fn: Some("register_ocr_backend".to_string()),
+        register_fn: Some("register_text_backend".to_string()),
         unregister_fn: None,
         clear_fn: None,
         type_alias: None,
@@ -2556,12 +2556,12 @@ fn test_gen_unregistration_fn_returns_empty_when_unset() {
 #[test]
 fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
     let method = make_method_def("process", vec![], TypeRef::String, false, true, false);
-    let trait_def = make_trait_def("OcrBackend", "my_lib::OcrBackend", vec![method]);
+    let trait_def = make_trait_def("TextBackend", "my_lib::TextBackend", vec![method]);
     let bridge_cfg = TraitBridgeConfig {
-        trait_name: "OcrBackend".to_string(),
+        trait_name: "TextBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
-        register_fn: Some("register_ocr_backend".to_string()),
+        register_fn: Some("register_text_backend".to_string()),
 
         unregister_fn: None,
 
@@ -2584,7 +2584,7 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
 
     assert!(!code.code.is_empty(), "gen_trait_bridge must produce non-empty output");
     assert!(
-        code.code.contains("PyOcrBackendBridge"),
+        code.code.contains("PyTextBackendBridge"),
         "output should define the bridge wrapper struct"
     );
     assert!(
@@ -2745,7 +2745,7 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
 ///
 /// Before the fix, `wrap_return_with_mutex` had a guard `if n == type_name { expr }` that
 /// silently skipped the conversion, producing code like:
-///   `fn default() -> ConversionOptions { core::ConversionOptions::default() }`
+///   `fn default() -> ParseOptions { core::ParseOptions::default() }`
 /// which fails to compile because the body returns the core type, not the binding wrapper.
 #[test]
 fn test_static_default_returns_binding_wrapper_not_core_type() {
@@ -2755,14 +2755,14 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "test_lib::options::ConversionOptions".to_string(),
+            name: "ParseOptions".to_string(),
+            rust_path: "test_lib::options::ParseOptions".to_string(),
             original_rust_path: String::new(),
             fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
             methods: vec![MethodDef {
                 name: "default".to_string(),
                 params: vec![],
-                return_type: TypeRef::Named("ConversionOptions".to_string()),
+                return_type: TypeRef::Named("ParseOptions".to_string()),
                 is_async: false,
                 is_static: true,
                 error_type: None,
@@ -2819,7 +2819,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
     // The body must call the core default() and convert with .into() so the
     // binding wrapper type is returned, not the bare inner core type.
     assert!(
-        content.contains("test_lib::options::ConversionOptions::default().into()"),
+        content.contains("test_lib::options::ParseOptions::default().into()"),
         "static default() must wrap core call with .into() to return binding wrapper;\n\
          actual content around fn default:\n{}",
         extract_fn_snippet(content, "fn default")
@@ -2838,15 +2838,15 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         version: "0.1.0".to_string(),
         types: vec![
             TypeDef {
-                name: "ConversionOptions".to_string(),
-                rust_path: "test_lib::options::ConversionOptions".to_string(),
+                name: "ParseOptions".to_string(),
+                rust_path: "test_lib::options::ParseOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
                 methods: vec![MethodDef {
                     name: "from_update".to_string(),
                     params: vec![ParamDef {
                         name: "update".to_string(),
-                        ty: TypeRef::Named("ConversionOptionsUpdate".to_string()),
+                        ty: TypeRef::Named("ParseOptionsUpdate".to_string()),
                         optional: false,
                         default: None,
                         sanitized: false,
@@ -2859,7 +2859,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                         map_key_is_cow: false,
                         vec_inner_is_ref: false,
                     }],
-                    return_type: TypeRef::Named("ConversionOptions".to_string()),
+                    return_type: TypeRef::Named("ParseOptions".to_string()),
                     is_async: false,
                     is_static: true,
                     error_type: None,
@@ -2892,8 +2892,8 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "ConversionOptionsUpdate".to_string(),
-                rust_path: "test_lib::ConversionOptionsUpdate".to_string(),
+                name: "ParseOptionsUpdate".to_string(),
+                rust_path: "test_lib::ParseOptionsUpdate".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field(
                     "enabled",
@@ -2943,7 +2943,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
 
     // The body must delegate to the core method and convert the result with .into().
     assert!(
-        content.contains("ConversionOptions::from_update(update_core).into()"),
+        content.contains("ParseOptions::from_update(update_core).into()"),
         "static from_update() must wrap core call with .into() to return binding wrapper;\n\
          actual content around fn from_update:\n{}",
         extract_fn_snippet(content, "fn from_update")
@@ -3334,10 +3334,10 @@ fn test_async_function_emits_async_def_and_await() {
 
 /// Item 5 — Trait-bridge `register_*` helpers must appear in `api.py` and `__init__.py` `__all__`.
 ///
-/// `register_embedding_backend` and `register_ocr_backend` are emitted as `#[pyfunction]`
+/// `register_embedding_backend` and `register_text_backend` are emitted as `#[pyfunction]`
 /// by trait_bridge codegen and added to the pyo3 module, but they are not in `api.functions`.
 /// They must be re-exported through `api.py` and listed in `__all__` so callers can use
-/// `sample_crate.register_ocr_backend(...)` instead of `sample_crate._sample_crate.register_ocr_backend(...)`.
+/// `sample_crate.register_text_backend(...)` instead of `sample_crate._sample_crate.register_text_backend(...)`.
 #[test]
 fn test_trait_bridge_register_fns_in_api_py_and_all() {
     let backend = Pyo3Backend;
@@ -3414,10 +3414,10 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
     // Configure two trait bridges with register_fn
     config.trait_bridges = vec![
         TraitBridgeConfig {
-            trait_name: "OcrBackend".to_string(),
+            trait_name: "TextBackend".to_string(),
             super_trait: None,
             registry_getter: Some("test_lib::get_ocr_registry".to_string()),
-            register_fn: Some("register_ocr_backend".to_string()),
+            register_fn: Some("register_text_backend".to_string()),
 
             unregister_fn: None,
 
@@ -3463,8 +3463,8 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
 
     // api.py must contain pass-through wrappers for both register_* functions
     assert!(
-        api_py.content.contains("def register_ocr_backend"),
-        "api.py must contain register_ocr_backend wrapper;\ncontent:\n{}",
+        api_py.content.contains("def register_text_backend"),
+        "api.py must contain register_text_backend wrapper;\ncontent:\n{}",
         api_py.content
     );
     assert!(
@@ -3475,8 +3475,8 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
 
     // __init__.py must re-export them from .api
     assert!(
-        init_py.content.contains("register_ocr_backend"),
-        "__init__.py must import register_ocr_backend from .api;\ncontent:\n{}",
+        init_py.content.contains("register_text_backend"),
+        "__init__.py must import register_text_backend from .api;\ncontent:\n{}",
         init_py.content
     );
     assert!(
@@ -3487,8 +3487,8 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
 
     // Both must appear in __all__
     assert!(
-        init_py.content.contains("\"register_ocr_backend\""),
-        "__init__.py __all__ must include register_ocr_backend;\ncontent:\n{}",
+        init_py.content.contains("\"register_text_backend\""),
+        "__init__.py __all__ must include register_text_backend;\ncontent:\n{}",
         init_py.content
     );
     assert!(
@@ -4244,8 +4244,8 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "test_lib::ConversionOptions".to_string(),
+            name: "ParseOptions".to_string(),
+            rust_path: "test_lib::ParseOptions".to_string(),
             original_rust_path: String::new(),
             fields: vec![make_field("status", TypeRef::Named("BatchStatus".to_string()), false)],
             methods: vec![],
@@ -4313,8 +4313,8 @@ fn test_options_py_escapes_python_keyword_variant_names() {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "test_lib::ConversionOptions".to_string(),
+            name: "ParseOptions".to_string(),
+            rust_path: "test_lib::ParseOptions".to_string(),
             original_rust_path: String::new(),
             fields: vec![make_field("heading", TypeRef::Named("HeadingStyle".to_string()), false)],
             methods: vec![],
@@ -5537,8 +5537,8 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
             },
             // Parent struct with has_default=true owning non-optional PreprocessingOptions
             TypeDef {
-                name: "ConversionOptions".to_string(),
-                rust_path: "test_lib::ConversionOptions".to_string(),
+                name: "ParseOptions".to_string(),
+                rust_path: "test_lib::ParseOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![
                     // This is the critical case: non-optional nested struct field on a has_default type
@@ -5586,7 +5586,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify that the ConversionOptions constructor parameter 'preprocessing' is Option<PreprocessingOptions>
+    // Verify that the ParseOptions constructor parameter 'preprocessing' is Option<PreprocessingOptions>
     // The parameter should be declared as Option<PreprocessingOptions>
     assert!(
         content.contains("preprocessing: Option<PreprocessingOptions>"),
@@ -5655,8 +5655,8 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "ConversionOptions".to_string(),
-                rust_path: "test_lib::ConversionOptions".to_string(),
+                name: "ParseOptions".to_string(),
+                rust_path: "test_lib::ParseOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field("format", TypeRef::String, false), visitor_field],
                 methods: vec![],
@@ -5690,7 +5690,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
-        trait_name: "HtmlVisitor".to_string(),
+        trait_name: "SyntaxWalker".to_string(),
         super_trait: None,
         registry_getter: None,
         register_fn: None,
@@ -5701,7 +5701,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
         register_extra_args: None,
         exclude_languages: vec![],
         bind_via: alef::core::config::BridgeBinding::OptionsField,
-        options_type: Some("ConversionOptions".to_string()),
+        options_type: Some("ParseOptions".to_string()),
         options_field: Some("visitor".to_string()),
         context_type: None,
         result_type: None,
@@ -5715,19 +5715,19 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
     let content = &files[0].content;
 
     let conversion_options_block = content
-        .split("impl ConversionOptions")
+        .split("impl ParseOptions")
         .nth(1)
-        .expect("ConversionOptions impl block must exist");
+        .expect("ParseOptions impl block must exist");
     let constructor_body = conversion_options_block
         .split("pub fn new(")
         .nth(1)
         .and_then(|s| s.split(") -> Self").next())
-        .expect("ConversionOptions::new param list must exist");
+        .expect("ParseOptions::new param list must exist");
 
     let visitor_param_count = constructor_body.matches("visitor:").count();
     assert_eq!(
         visitor_param_count, 1,
-        "ConversionOptions::new must declare `visitor:` exactly once, found {} in:\n{}",
+        "ParseOptions::new must declare `visitor:` exactly once, found {} in:\n{}",
         visitor_param_count, constructor_body
     );
 }

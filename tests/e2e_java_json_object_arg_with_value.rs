@@ -94,7 +94,7 @@ optional = true
 options_type = "ExtractionConfig"
 options_via = "from_json"
 
-# No explicit Java override — should inherit ExtractionConfig from C#
+# No explicit Java override — should inherit the options type from C#
 "#;
 
 fn render_java_test() -> String {

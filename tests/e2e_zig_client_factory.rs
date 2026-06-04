@@ -4,8 +4,7 @@
 //!
 //! The test mirrors the go codegen pattern: when `client_factory` is set, the
 //! generated test must create a client via the factory, call methods on it, and
-//! clean up. When absent, the module function is called directly — the sample_crate
-//! flat-function style must remain untouched.
+//! clean up. When absent, the module function is called directly.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;

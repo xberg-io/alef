@@ -47,6 +47,7 @@ DEFAULT_SKIP_PATH_PARTS = {
 POLICY_FILES = {
     "hooks/check_project_mentions.py",
     "tests/project_mentions_hook.rs",
+    "tests/cli_no_project_special_casing.rs",
 }
 
 PROJECT_NAMES = {
@@ -152,6 +153,7 @@ DOMAIN_TYPE_EMBEDDED_BEHAVIOR_MARKERS = (
     "private ",
     "internal ",
 )
+COMMENT_PREFIXES = ("//", "///", "//!", "#", "<!--", "*")
 SAMPLE_PROJECT_BEHAVIOR_MARKERS = (
     *DOMAIN_TYPE_SPECIAL_CASE_MARKERS,
     "push_str(",
@@ -176,7 +178,31 @@ def is_enforced_path(path: Path, *, strict: bool = False) -> bool:
         return False
     if ".ai-rulez" in path.parts:
         return True
-    return strict or path.suffix.lower() not in DOC_EXTENSIONS
+    if strict:
+        return is_strict_domain_surface_path(path) or is_production_generator_path(path)
+    return path.suffix.lower() not in DOC_EXTENSIONS
+
+
+def is_strict_domain_surface_path(path: Path) -> bool:
+    normalized = path.as_posix()
+    if normalized in {"AGENTS.md", ".github/copilot-instructions.md"}:
+        return True
+    if ".ai-rulez" in path.parts:
+        return True
+    if path.parts and path.parts[0] == "docs":
+        return True
+    if "snapshots" in path.parts:
+        return True
+    return any(
+        template_root in normalized
+        for template_root in (
+            "src/codegen/templates/",
+            "src/docs/templates/",
+            "src/e2e/templates/",
+            "src/readme/templates/",
+            "src/scaffold/templates/",
+        )
+    )
 
 
 def is_production_generator_path(path: Path) -> bool:
@@ -244,6 +270,13 @@ def is_sample_project_behavior_line(line: str) -> bool:
     if "assert" in stripped:
         return False
     return any(marker in stripped for marker in SAMPLE_PROJECT_BEHAVIOR_MARKERS)
+
+
+def is_strict_prose_line(path: Path, line: str) -> bool:
+    stripped = line.strip()
+    if is_strict_domain_surface_path(path):
+        return True
+    return stripped.startswith(COMMENT_PREFIXES)
 
 
 def update_rust_cfg_test_region(
@@ -316,9 +349,12 @@ def violations_for_file(path: Path, *, strict: bool = False) -> list[str]:
             pending_rust_cfg_test,
             rust_cfg_test_depth,
         )
-        violations.extend(project_violations_for_line(path, line_number, line))
-        if strict:
+        if not strict or is_strict_domain_surface_path(path) or is_sample_project_behavior_line(line):
+            violations.extend(project_violations_for_line(path, line_number, line))
+        if strict and is_strict_domain_surface_path(path):
             violations.extend(sample_project_violations_for_line(path, line_number, line))
+            if is_strict_prose_line(path, line):
+                violations.extend(domain_type_violations_for_line(path, line_number, line))
         if (
             is_production_generator_path(path)
             and not in_rust_cfg_test_region

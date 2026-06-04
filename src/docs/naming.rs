@@ -229,12 +229,12 @@ mod tests {
     #[test]
     fn test_type_name_ffi_uses_prefix() {
         assert_eq!(
-            type_name("ConversionOptions", Language::Ffi, "SampleCrate"),
-            "SampleCrateConversionOptions"
+            type_name("ParseOptions", Language::Ffi, "SampleCrate"),
+            "SampleCrateParseOptions"
         );
         assert_eq!(
-            type_name("ConversionResult", Language::Ffi, "SampleCrate"),
-            "SampleCrateConversionResult"
+            type_name("ParseOutput", Language::Ffi, "SampleCrate"),
+            "SampleCrateParseOutput"
         );
     }
 
@@ -270,14 +270,8 @@ mod tests {
 
     #[test]
     fn test_type_name_ffi_prefix() {
-        assert_eq!(
-            type_name("ConversionOptions", Language::Ffi, TEST_PREFIX),
-            "HtmConversionOptions"
-        );
-        assert_eq!(
-            type_name("ConversionResult", Language::Ffi, TEST_PREFIX),
-            "HtmConversionResult"
-        );
+        assert_eq!(type_name("ParseOptions", Language::Ffi, TEST_PREFIX), "HtmParseOptions");
+        assert_eq!(type_name("ParseOutput", Language::Ffi, TEST_PREFIX), "HtmParseOutput");
     }
 
     #[test]

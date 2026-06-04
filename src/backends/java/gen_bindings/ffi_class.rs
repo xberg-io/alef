@@ -33,7 +33,7 @@ pub(crate) fn gen_main_class(
         .collect();
 
     // Map a trait bridge's `clear_fn` (the core Rust function name, e.g.
-    // `clear_ocr_backends`) to the `NativeLib` handle constant emitted for it.
+    // `clear_text_backends`) to the `NativeLib` handle constant emitted for it.
     // The FFI layer exports the clear function as `{prefix}_clear_{trait_snake}`
     // (singular, derived from the trait name) and `NativeLib.java` declares the
     // matching handle constant as `{PREFIX}_CLEAR_{TRAIT_SNAKE}`. The free-function
@@ -293,7 +293,7 @@ fn gen_sync_function_method_with_visitor(
     // Most free functions map 1:1 onto an FFI export named `{prefix}_{func.name}`,
     // so the handle constant is `{PREFIX}_{FUNC_NAME}`. Trait-bridge `clear_fn`
     // functions are the exception: the core Rust function is plural
-    // (`clear_ocr_backends`) but the FFI export — and therefore the `NativeLib`
+    // (`clear_text_backends`) but the FFI export — and therefore the `NativeLib`
     // handle constant — is the singular trait-derived `{PREFIX}_CLEAR_{TRAIT_SNAKE}`.
     // Use the pre-computed mapping so this body agrees with `NativeLib.java`.
     let ffi_handle = match clear_fn_handles.get(&func.name) {
@@ -1451,7 +1451,7 @@ mod tests {
     #[test]
     fn clear_fn_body_references_singular_native_lib_handle() {
         // Regression: a trait-bridge `clear_fn` is the plural core Rust function
-        // name (`clear_ocr_backends`), but the FFI export and the `NativeLib`
+        // name, but the FFI export and the `NativeLib`
         // handle constant are the singular trait-derived form
         // (`KRZ_CLEAR_OCR_BACKEND`). The facade body must reference that exact
         // constant and invoke it with an out-error parameter and check the result

@@ -10,9 +10,8 @@ impl From<{{ binding_name }}> for {{ core_path }}{% if has_lifetime_params %}<'_
         {%- if is_newtype %}
         Self({{ newtype_inner_expr }})
         {%- elif has_explicit_static_new %}
-        // This type has private fields; construct via {{ core_path }}::new() directly.
         let _ = val;
-        ::std::todo!("Use {{ core_path }}::new() instead of From conversion")
+        compile_error!("alef cannot generate From<{{ binding_name }}> for {{ core_path }} because construction requires private or borrowed fields; expose a complete constructor, configure the item as opaque, or exclude it from this backend")
         {%- elif builder_mode %}
         let mut __result = {{ core_path }}::default();
         {%- for statement in statements %}
