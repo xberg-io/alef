@@ -49,6 +49,14 @@ pub(crate) fn scaffold_ruby_cargo(
             version,
         ),
         format!("magnus = \"{}\"", tv::cargo::MAGNUS),
+        // rb-sys 0.9.128 ships a mingw cross sysroot whose Ruby 4.0.2
+        // `<ruby/defines.h>` pulls `<sys/select.h>`, which clang cannot find
+        // under rb-sys-dock's x64-mingw-ucrt cross sysroot — every Ruby NIF
+        // windows-x64 build under 0.9.128 fails with
+        // `ClangDiagnostic("sys/select.h file not found")`. Pin the cargo dep
+        // explicitly so magnus' transitive `rb-sys` resolves to a working
+        // version. Cargo's comma-separated compound requirement is honoured.
+        "rb-sys = \">=0.9, <0.9.128\"".to_owned(),
         "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
         "serde_json = \"1\"".to_owned(),
     ];
@@ -63,9 +71,6 @@ pub(crate) fn scaffold_ruby_cargo(
     }
     if has_streaming_adapter && !dep_lines.iter().any(|l| l.starts_with("futures")) {
         dep_lines.push("futures = \"0.3\"".to_owned());
-    }
-    if has_services && !dep_lines.iter().any(|l| l.starts_with("rb-sys")) {
-        dep_lines.push("rb-sys = \"0.9\"".to_owned());
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
