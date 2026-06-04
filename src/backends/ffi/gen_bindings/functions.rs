@@ -772,10 +772,15 @@ pub(super) fn gen_method_wrapper(
                     // `char: Copy` — `.clone()` on `&char` triggers clippy::noop_method_call.
                     out.push_str("    let result = *result;\n");
                 }
-                TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                TypeRef::Vec(_) => {
                     // Return type may be `&[T]` (slice) — `.clone()` on a slice is a noop
                     // because `[T]: !Sized`. Use `.to_vec()` to produce an owned Vec.
                     out.push_str("    let result = result.to_vec();\n");
+                }
+                TypeRef::Map(_, _) => {
+                    // Return type is `&BTreeMap<K, V>` — `.to_vec()` does not exist on maps.
+                    // Use `.clone()` to get an owned `BTreeMap`.
+                    out.push_str("    let result = result.clone();\n");
                 }
                 TypeRef::Named(_) => {
                     out.push_str("    let result = result.clone();\n");
