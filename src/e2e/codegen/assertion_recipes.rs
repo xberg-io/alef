@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use crate::core::config::e2e::CallConfig;
 use crate::e2e::fixture::{Assertion, Fixture};
 
+// TODO(alef-generic-cleanup): move these domain-shaped assertion recipe names to fixture/config data.
 pub(crate) const CHUNKS_RECIPE: &str = "chunks";
 pub(crate) const EMBEDDINGS_RECIPE: &str = "embeddings";
 pub(crate) const KEYWORDS_RECIPE: &str = "keywords";

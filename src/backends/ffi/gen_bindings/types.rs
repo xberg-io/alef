@@ -130,6 +130,7 @@ pub(super) fn gen_field_accessor(
     // When the field has a specific type_rust_path, use it for Named types to avoid
     // ambiguity when multiple types share the same short name.
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
+        // TODO(alef-generic-cleanup): Replace concrete workspace-crate examples with neutral fixture paths.
         // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
         // or "sample_core::types::OutputFormat" (already fully qualified with crate prefix)
         // or "mylib_http::openapi::OpenApiConfig" (sibling workspace crate, common in
@@ -256,6 +257,7 @@ fn gen_field_access_body(
     let field_name = &field.name;
     let mut out = String::with_capacity(2048);
 
+    // TODO(alef-generic-cleanup): Replace downstream-shaped opaque-handle examples with neutral fixture names.
     // An opaque-handle override is a *fallback* for the genuinely impossible case:
     // a primitive field (e.g. `bool`) whose C type is overridden to a struct handle
     // (e.g. `CitationResult*`) — there is no value to box, so return null.

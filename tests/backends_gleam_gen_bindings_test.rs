@@ -556,6 +556,7 @@ fn make_config_with_bridges(bridges: Vec<TraitBridgeConfig>) -> ResolvedCrateCon
 
 #[test]
 fn trait_bridge_single_method_emits_register_and_support_nifs() {
+    // TODO(alef-generic-cleanup): Replace OCR-shaped trait bridge fixtures with neutral service names.
     let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 

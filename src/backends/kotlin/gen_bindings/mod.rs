@@ -261,6 +261,7 @@ pub fn emit_jvm_client_class_with_package(
     //   * AND it is not a trait (trait types are not emitted as concrete
     //     Java classes — referencing them would dangle),
     //   * AND it has at least one non-sanitized, non-static instance method.
+    // TODO(alef-generic-cleanup): Replace downstream-shaped type examples with neutral fixture names.
     // Non-opaque value types (e.g. sample_core `ExtractionConfig` with a
     // `default()` static) keep flowing through the Java typealias as before.
     let exclude_types = effective_kotlin_exclude_types(config, api);

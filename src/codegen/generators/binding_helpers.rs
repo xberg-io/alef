@@ -574,7 +574,11 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
         .enumerate()
         .map(|(idx, p)| {
             let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
-            let unwrap_suffix = if promoted {
+            // Only emit `.expect()` when the core param type is itself `Option<T>`
+            // (p.optional=true). A promoted non-optional param (e.g. `is_inline: bool` that
+            // follows an optional param) keeps its concrete type in the binding signature, so
+            // calling `.expect()` on it would be a type error.
+            let unwrap_suffix = if promoted && p.optional {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
                 String::new()
@@ -1633,6 +1637,7 @@ fn gen_lossy_binding_to_core_fields_inner(
                         )
                     }
                 }
+                // TODO(alef-generic-cleanup): Replace downstream-shaped type examples with neutral fixture names.
                 // Named values: each value needs Into conversion to bridge the binding wrapper
                 // type into the core type (e.g. PyExtractionPattern → ExtractionPattern).
                 TypeRef::Named(_) => {
@@ -1851,6 +1856,7 @@ pub fn gen_async_body(
             )
         }
         AsyncPattern::None => {
+            // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
             "compile_error!(\"async delegation is not supported by this backend; exclude the item or configure an adapter\")"
                 .to_string()
         }
@@ -1889,6 +1895,7 @@ pub fn gen_unimplemented_body(
     } else {
         "configure an adapter body or add this item to the backend exclude list"
     };
+    // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
     let body = format!("compile_error!(\"alef cannot auto-delegate `{fn_name}`; {config_hint}\")");
     format!("{suppress}{body}")
 }

@@ -92,6 +92,7 @@ pub(crate) fn is_bridgeable_fn(
 pub(crate) fn swift_call_arg(
     p: &crate::core::ir::ParamDef,
     unit_enum_names: &HashSet<&str>,
+    tagged_enum_names: &HashSet<&str>,
     type_paths: &HashMap<String, String>,
 ) -> String {
     let name = p.name.to_snake_case();
@@ -118,6 +119,7 @@ pub(crate) fn swift_call_arg(
             return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
+            // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
             return format!(
                 "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Swift; configure swift.exclude_functions for this item\") }}"
             );
@@ -165,6 +167,24 @@ pub(crate) fn swift_call_arg(
                 if p.is_ref && !p.optional {
                     // Core expects `&[EnumType]`; coerce `&Vec<T>` to `&[T]`. The temporary
                     // Vec lives for the enclosing call statement.
+                    return format!("&{{ let values = {name}; {map_expr} }}");
+                }
+                return converted;
+            }
+            // Tagged enums (variants with fields) are JSON-serialized by Swift and must be
+            // deserialized here. Swift bridges Vec<TaggedEnum> as Vec<String> (JSON-encoded).
+            if tagged_enum_names.contains(n.as_str()) {
+                let native_ty = source_type(n);
+                let map_expr = format!(
+                    "values.into_iter().map(|s| ::serde_json::from_str::<{native_ty}>(&s).expect(\"valid JSON for {name} element\")).collect::<Vec<_>>()"
+                );
+                let converted = if p.optional {
+                    format!("{name}.map(|values| {map_expr})")
+                } else {
+                    format!("{{ let values = {name}; {map_expr} }}")
+                };
+                if p.is_ref && !p.optional {
+                    // Core expects `&[EnumType]`; the temporary Vec lives for the enclosing call.
                     return format!("&{{ let values = {name}; {map_expr} }}");
                 }
                 return converted;
@@ -298,16 +318,26 @@ pub(crate) fn emit_function_shim(
     source_crate: &str,
     type_paths: &HashMap<String, String>,
     unit_enum_names: &HashSet<&str>,
+    tagged_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     handle_returned_types: &HashSet<String>,
 ) -> String {
     // Match the extern block's escaping so the wrapper fn matches the extern decl.
     let fn_name = swift_ident(&f.name.to_snake_case());
+
+    // Combine unit and tagged enum names for parameter type bridging.
+    // Both are serialized as String/Vec<String> at the Swift boundary.
+    let all_enum_names: HashSet<&str> = unit_enum_names
+        .iter()
+        .chain(tagged_enum_names.iter())
+        .copied()
+        .collect();
+
     let params: Vec<String> = f
         .params
         .iter()
         .map(|p| {
-            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, unit_enum_names);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, &all_enum_names);
             let bridge_ty = if p.optional {
                 format!("Option<{bridge_ty}>")
             } else {
@@ -368,7 +398,7 @@ pub(crate) fn emit_function_shim(
                     ));
                 }
             }
-            swift_call_arg(p, unit_enum_names, type_paths)
+            swift_call_arg(p, unit_enum_names, tagged_enum_names, type_paths)
         })
         .collect();
     let call_args_str = call_args.join(", ");
@@ -403,6 +433,7 @@ pub(crate) fn emit_function_shim(
                 let fn_name_snake = swift_ident(&f.name.to_snake_case());
                 return format!(
                     "// alef: skipped — return type `{inner_name}` is excluded from codegen (no serde derive)\n\
+                     // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.\n\
                      pub fn {fn_name_snake}({params_str}) -> {return_ty} {{\n    \
                      compile_error!(\"alef cannot bridge Swift return type {inner_name}; configure swift.exclude_functions for {fn_name_snake} or expose serde for the type\")\n\
                      }}\n"

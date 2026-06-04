@@ -80,6 +80,7 @@ pub(crate) fn bridge_type_with_handles(ty: &TypeRef, handle_types: &HashSet<Stri
 ///    fail with `Error("expected ','")`.
 ///
 /// 2. **Codegen todo** (`bridged_type.rs:1986`): `BuiltInResult::is_custom_result_type()`
+///    TODO(alef-generic-cleanup): Replace references to upstream todo fallback with validation diagnostics.
 ///    returns `true` when the ok type is a `StdLib` non-Vec type (e.g. `Option<T>`,
 ///    primitives). When true, the codegen calls `to_alpha_numeric_underscore_name` on the
 ///    ok type, but `StdLib::Option` and `StdLib::Vec` hit `_ => todo!()` there.
@@ -95,6 +96,7 @@ pub(crate) fn needs_json_bridge(ty: &TypeRef) -> bool {
         // Primitives, String, char, Named opaques, and Vec<u8> (Bytes) are all safe.
         // Anything else (Vec<Option<..>>, Vec<Vec<..>>, Vec<Map<..>>) triggers the parser bug.
         TypeRef::Vec(inner) => !is_bridge_leaf(inner),
+        // TODO(alef-generic-cleanup): Replace references to upstream todo fallback with validation diagnostics.
         // Option<T> as a Result ok-type causes is_custom_result_type()=true + todo!() in
         // to_alpha_numeric_underscore_name. JSON-bridge all Optional types to avoid this.
         TypeRef::Optional(_) => true,
@@ -168,6 +170,10 @@ pub(crate) fn bridge_type_enum_aware(ty: &TypeRef, enum_names: &HashSet<String>)
 
 /// Like `bridge_type_enum_aware` but accepts `HashSet<&str>` (cheaper at call sites that
 /// already hold the borrowed set).
+///
+/// Bridges both unit enums and tagged enums as String/Vec<String> for JSON serialization.
+/// This function is called with `unit_enum_names` OR `tagged_enum_names` as the set,
+/// depending on context (extern block vs. parameter handling).
 pub(crate) fn bridge_type_enum_aware_ref(ty: &TypeRef, enum_names: &HashSet<&str>) -> String {
     match ty {
         TypeRef::Named(n) if enum_names.contains(n.as_str()) => "String".to_string(),

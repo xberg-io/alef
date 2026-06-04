@@ -988,6 +988,7 @@ output = "packages/ruby/sig/"
 fn test_rbs_includes_trait_registry_functions() {
     let backend = MagnusBackend;
     let mut config = make_config_with_stubs();
+    // TODO(alef-generic-cleanup): Replace OCR-shaped registry fixture names with neutral trait names.
     config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         register_fn: Some("register_ocr_backend".to_string()),

@@ -46,6 +46,7 @@ pub struct RegistryConfig {
     /// GitHub repository URL for downloading prebuilt artifacts (e.g., FFI
     /// shared libraries) from GitHub Releases.
     ///
+    /// TODO(alef-generic-cleanup): make the synthetic repository fallback fixture/config-driven.
     /// Falls back to `[scaffold] repository` when not set, then to
     /// `https://github.com/sample_core-dev/{crate.name}`.
     #[serde(default)]
@@ -318,6 +319,7 @@ pub struct E2eConfig {
     /// Repo-root-relative directory holding binary file fixtures referenced by
     /// `file_path` / `bytes` fixture args (default: "test_documents").
     ///
+    /// TODO(alef-generic-cleanup): replace stale sample-domain examples with neutral fixture names.
     /// Backends that emit chdir / setup hooks for file-based fixtures resolve
     /// the relative path from the test-emission directory via
     /// [`E2eConfig::test_documents_relative_from`]. The default matches the
@@ -716,6 +718,7 @@ pub struct CallConfig {
     pub fields_c_types: HashMap<String, String>,
     /// Assertion recipes enabled for all fixtures routed to this call.
     ///
+    /// TODO(alef-generic-cleanup): move domain-shaped assertion recipes to fixture/config data.
     /// Recipes intentionally gate domain-shaped assertion shortcuts such as
     /// `embeddings_*`, `keywords`, tree parser helpers, and streaming
     /// pseudo-fields. Generic recursive field/text/JSON assertions do not
@@ -809,6 +812,7 @@ pub struct CallConfig {
     /// `Uint8Array` / `[]byte` / `byte[]`).
     #[serde(default)]
     pub result_is_bytes: bool,
+    /// TODO(alef-generic-cleanup): make streaming auto-detection fully fixture/config-driven.
     /// Three-valued opt-in/out for streaming-virtual-field auto-detection.
     ///
     /// - `Some(true)`: force streaming semantics regardless of fixture shape.
@@ -924,6 +928,7 @@ fn default_returns_result() -> bool {
 /// based on the fixture's id, category, tags, or input shape.  All set fields must
 /// match (logical AND); a condition with no fields set never matches.
 ///
+/// TODO(alef-generic-cleanup): replace stale domain-shaped routing examples with neutral fixtures.
 /// ```toml
 /// [e2e.calls.batch_scrape]
 /// select_when = { input_has = "batch_urls" }
@@ -1055,6 +1060,7 @@ pub struct ArgMapping {
     /// (e.g. `"f32"`, `"String"`) so the codegen emits `Vec<element_type>` annotation.
     #[serde(default)]
     pub element_type: Option<String>,
+    /// TODO(alef-generic-cleanup): replace stale sample-domain type examples with neutral names.
     /// Override the Go slice element type for `json_object` array args.
     ///
     /// When set, the Go e2e codegen uses this as the element type instead of the default
@@ -1588,6 +1594,7 @@ pub struct PackageRef {
     /// When present in registry mode, alef emits one lazy dependency per platform.
     #[serde(default)]
     pub platform_hashes: BTreeMap<String, String>,
+    /// TODO(alef-generic-cleanup): replace sample-domain Homebrew examples with neutral fixture names.
     /// Homebrew tap name (e.g., `"sample_core-dev/tap"`).
     ///
     /// Used by the `homebrew` test_app generator.

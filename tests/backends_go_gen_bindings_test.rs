@@ -1515,6 +1515,7 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
 
 #[test]
 fn test_gen_trait_bridges_file_produces_go_interface() {
+    // TODO(alef-generic-cleanup): Replace OCR-shaped trait bridge fixtures with neutral service names.
     let trait_type = make_trait_type(
         "OcrBackend",
         vec![make_trait_method("process", vec![], TypeRef::String, true)],
@@ -2601,6 +2602,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
 }
 
 // ---------------------------------------------------------------------------
+// TODO(alef-generic-cleanup): Replace sample_crate/InternalDocument leakage with neutral excluded-type names.
 // Excluded-type substitution (regression: sample_crate's InternalDocument)
 // ---------------------------------------------------------------------------
 

@@ -18,6 +18,7 @@ pub trait LanguageDefaults: Send + Sync {
     /// Returns a string that is a valid expression in the target language,
     /// constructing an empty or default instance of the type. For example:
     ///
+    /// TODO(alef-generic-cleanup): Replace downstream-shaped default examples with neutral fixture names.
     /// - Rust: `Default::default()`, `String::new()`, `Ok(Default::default())`
     /// - Python: `ExtractionResult()`, `[]`, `None`
     /// - TypeScript: `new ExtractionResult()`, `[]`, `null`

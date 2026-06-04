@@ -21,6 +21,7 @@
 //! - `stream.items`        → the collected list itself
 //! - `stream.items.length` → length/count of the collected list
 //!
+//! TODO(alef-generic-cleanup): make legacy streaming assertion aliases fixture/config-driven.
 //! Legacy fixture fields still handled for explicitly streaming calls:
 //! - `chunks`              → the collected list itself
 //! - `chunks.length`       → length/count of the collected list
@@ -104,6 +105,7 @@ fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// TODO(alef-generic-cleanup): make streaming auto-detection names fixture/config-driven.
 /// Field names that unambiguously imply a streaming test (no overlap with
 /// non-streaming response shapes). `usage`, `tool_calls`, and `finish_reason`
 /// are intentionally excluded — they exist on non-streaming responses too

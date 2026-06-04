@@ -125,6 +125,7 @@ fn test_generate_public_api_creates_all_files() {
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
+        // TODO(alef-generic-cleanup): Replace conversion-shaped option fixtures with neutral DTO names.
         types: vec![TypeDef {
             name: "ConversionOptions".to_string(),
             rust_path: "my_lib::ConversionOptions".to_string(),
@@ -650,6 +651,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config("my_lib");
+    // TODO(alef-generic-cleanup): Replace OCR-shaped bridge fixture names with neutral trait names.
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -1451,6 +1453,7 @@ fn test_native_ex_separates_consecutive_docced_stubs_with_blank_line() {
 fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
     let backend = RustlerBackend;
     // Two-line summary that wraps across physical lines (rustdoc convention).
+    // TODO(alef-generic-cleanup): Replace conversion-shaped doc fixture text with neutral terminology.
     let doc = "Convert markup conversion, returning\na ConversionResult.\n\n# Arguments\n\n* `html` - Input.";
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),

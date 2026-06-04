@@ -409,6 +409,7 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
 
 #[test]
 fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
+    // TODO(alef-generic-cleanup): Replace markdown visitor fixture names with neutral trait bridge examples.
     let trait_def = make_trait_def(
         "HtmlVisitor",
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
@@ -1024,6 +1025,7 @@ ffi = "crates/mylib-ffi/src/"
 "#,
     );
 
+    // TODO(alef-generic-cleanup): Replace sample-llm regression references with neutral fixture names.
     // `completion_cost(model: &str) -> Option<f64>` is the canonical example that
     // triggered clippy::manual_unwrap_or in sample-llm-ffi.
     let api = ApiSurface {

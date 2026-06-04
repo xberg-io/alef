@@ -1585,6 +1585,7 @@ fn test_map_types() {
 fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json() {
     let backend = NapiBackend;
 
+    // TODO(alef-generic-cleanup): Replace sample-llm fixture references with neutral enum examples.
     // Simulate the sample-llm `Message` enum pattern:
     // #[serde(tag = "role")]
     // enum Message {
@@ -1788,6 +1789,7 @@ fn make_api_napi() -> ApiSurface {
     ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
+        // TODO(alef-generic-cleanup): Replace markdown visitor DTO names with neutral fixture concepts.
         types: vec![TypeDef {
             name: "NodeContext".to_string(),
             rust_path: "my_lib::NodeContext".to_string(),
@@ -2140,6 +2142,7 @@ fn test_napi_async_method_body_uses_box_pin() {
 fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
     let backend = NapiBackend;
     let mut config = make_config();
+    // TODO(alef-generic-cleanup): Replace OCR/extraction-shaped bridge fixtures with neutral plugin names.
     config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),

@@ -777,6 +777,7 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
 /// A trait with an async method should still produce the same structure (async-to-sync via block_on).
 #[test]
 fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
+    // TODO(alef-generic-cleanup): Replace OCR-shaped bridge fixture names with neutral trait names.
     let trait_def = make_trait(
         "OcrBackend",
         "demo_crate::OcrBackend",

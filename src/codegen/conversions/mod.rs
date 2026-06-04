@@ -70,6 +70,7 @@ pub struct ConversionConfig<'a> {
     /// auto-converted via Into and are always handled by the bridge machinery instead.
     pub from_binding_skip_types: &'a [String],
     /// When `core_crate_override` is set for a language, the IR's `rust_path` values
+    /// TODO(alef-generic-cleanup): Replace concrete crate-remap examples with neutral fixture crate names.
     /// still contain the original source crate prefix (e.g. `mylib_core::Method`).
     /// This field remaps those paths: `(original_crate_name, override_crate_name)`.
     /// When set, any `rust_path` whose leading crate segment equals `original_crate_name`

@@ -313,7 +313,8 @@ pub(crate) fn emit_inbound_wrapper(
             ));
         } else {
             out.push_str(&format!(
-                "compile_error!(\"Swift inbound trait bridge for `{trait_name}` declares a Plugin super-trait, \
+                "// TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.\n\
+                 compile_error!(\"Swift inbound trait bridge for `{trait_name}` declares a Plugin super-trait, \
                  but Alef could not resolve its Rust path. Set `super_trait` to a fully-qualified Rust path \
                  such as `crate_name::Plugin`, or ensure the Plugin trait is present in the extracted IR.\");\n\n"
             ));

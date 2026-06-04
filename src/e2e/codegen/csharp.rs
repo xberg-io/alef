@@ -3920,6 +3920,7 @@ fn emit_csharp_stub_method(
 
 /// Emit a C# test backend stub.
 ///
+/// TODO(alef-generic-cleanup): update stub_methods docs so stubs do not imply unimplemented output.
 /// Generates a nested private class implementing the bridge interface
 /// (`I{TraitName}`) with minimal stub methods, then returns a
 /// `{TraitName}Bridge.Register(new TestStub_{fixture_id}())` expression

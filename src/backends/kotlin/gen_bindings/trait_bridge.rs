@@ -10,6 +10,7 @@
 //!
 //! Given a trait bridge configured as:
 //!
+//! TODO(alef-generic-cleanup): Replace fixed TextBackend/dev.sample_core examples with neutral fixture names.
 //! ```toml
 //! [[trait_bridges]]
 //! trait_name      = "TextBackend"
