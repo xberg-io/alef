@@ -72,7 +72,7 @@ fn snake_to_lower_camel(s: &str) -> String {
 /// expressions) from `TypeRef` + `optional` flag. Methods with unsupported parameter
 /// types are skipped with a warning.
 #[allow(dead_code)]
-pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<CallbackSpec> {
+pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef, context_type: &str) -> Vec<CallbackSpec> {
     use crate::codegen::naming::to_csharp_name;
     use crate::core::ir::{PrimitiveType, TypeRef};
 
@@ -93,8 +93,8 @@ pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) ->
         let mut has_is_header = false;
 
         for p in &m.params {
-            if matches!(&p.ty, TypeRef::Named(_)) {
-                // Context parameter — skip, handled separately
+            if matches!(&p.ty, TypeRef::Named(name) if name == context_type) {
+                // Configured context parameter — skip, handled separately.
                 continue;
             }
             let raw_name = p.name.trim_start_matches('_').to_string();

@@ -3,7 +3,7 @@ fn php_visit_result_with_template(val: &ext_php_rs::types::Zval, tmpl_vars: &[(&
 {%- for variant in payload_result_variants %}
         {{ result_type_path }}::{{ variant.name }}(mut value) => {
             for (name, replacement) in tmpl_vars {
-                value = value.replace(&format!("{% raw %}{{{name}}}{% endraw %}"), replacement);
+                value = value.replace(&format!("{% raw %}{{{}}}{% endraw %}", name), replacement);
             }
             {{ result_type_path }}::{{ variant.name }}(value)
         }

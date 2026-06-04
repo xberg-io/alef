@@ -80,12 +80,13 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // without this the cache would hand back stale IR and downstream stages
     // (notably READMEs) would render the previous version's badges/snippets.
     let version_for_hash = config.resolved_version().unwrap_or_default();
-    let cache_key = format!("{source_hash}:{version_for_hash}");
+    let config_hash = extraction_config_hash(config);
+    let cache_key = format!("{source_hash}:{version_for_hash}:{config_hash}");
 
     if !clean && cache::is_ir_cached(&config.name, &cache_key) {
         info!("Using cached IR");
         let api = cache::read_cached_ir(&config.name).context("failed to read cached IR")?;
-        validate_extracted_api(&api, &config.suppress_validation_codes)?;
+        validate_extracted_api(&api, config)?;
         return Ok(api);
     }
 
@@ -148,7 +149,7 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // the IR so adapter codegen can still look up parameter info.
     mark_adapter_handled_methods(&mut api, config);
 
-    validate_extracted_api(&api, &config.suppress_validation_codes)?;
+    validate_extracted_api(&api, config)?;
 
     cache::write_ir_cache(&config.name, &api, &cache_key).context("failed to write IR cache")?;
     info!(
@@ -161,14 +162,28 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     Ok(api)
 }
 
-fn validate_extracted_api(api: &ApiSurface, suppress_codes: &[String]) -> anyhow::Result<()> {
-    let validation_report = crate::core::validation::validate_api_surface(api);
+fn extraction_config_hash(config: &ResolvedCrateConfig) -> String {
+    let config_toml = toml::to_string(config).unwrap_or_default();
+    blake3::hash(config_toml.as_bytes()).to_hex().to_string()
+}
+
+fn validate_extracted_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<()> {
+    let bridged_trait_names: AHashSet<&str> = config
+        .trait_bridges
+        .iter()
+        .map(|bridge| bridge.trait_name.as_str())
+        .collect();
+    let validation_report =
+        crate::core::validation::validate_api_surface_with_bridged_traits(api, &bridged_trait_names);
     for diagnostic in validation_report.warnings() {
         tracing::warn!("{diagnostic}");
     }
     let (suppressed, fatal): (Vec<_>, Vec<_>) = validation_report.errors().partition(|d| {
         !crate::core::validation::is_critical_unsuppressible(d.code)
-            && suppress_codes.iter().any(|code| code == &d.code.to_string())
+            && config
+                .suppress_validation_codes
+                .iter()
+                .any(|code| code == &d.code.to_string())
     });
     for diagnostic in suppressed {
         tracing::warn!("[suppressed] {diagnostic}");
@@ -1049,15 +1064,29 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
     // Including types reachable from included functions is the conservative fix: the
     // user already opted into the function via `include.functions`, so its public
     // signature (return type + params) is implicitly part of the binding surface.
+    let mut expanded_include: Option<AHashSet<String>> = None;
     if !include.types.is_empty() {
         let expanded = expand_include_list(&api, &include.types, &include.functions);
         api.types.retain(|t| expanded.contains(&t.name));
         api.enums.retain(|e| expanded.contains(&e.name));
         // Errors are NOT filtered by include list — they're always extracted
         // when [generate] errors = true (controlled by the generation layer, not include)
+        expanded_include = Some(expanded);
     }
     if !include.functions.is_empty() {
         api.functions.retain(|f| include.functions.contains(&f.name));
+    }
+    if expanded_include.is_some() || !include.functions.is_empty() {
+        api.unsupported_public_items.retain(|item| {
+            let short_name = item.item_path.rsplit("::").next().unwrap_or(item.item_path.as_str());
+            let owner_name = short_name.split('.').next().unwrap_or(short_name);
+            let included_type = expanded_include
+                .as_ref()
+                .is_some_and(|expanded| expanded.contains(owner_name));
+            let included_function =
+                item.item_kind == "function" && include.functions.iter().any(|name| name == owner_name);
+            included_type || included_function
+        });
     }
 
     // Then apply excludes (blacklist).
@@ -1428,7 +1457,8 @@ mod tests {
             ..ApiSurface::default()
         };
 
-        let err = validate_extracted_api(&api, &["unknown_named_type".to_string()]).expect_err("must stay fatal");
+        let config = ResolvedCrateConfig::default();
+        let err = validate_extracted_api(&api, &config).expect_err("must stay fatal");
 
         assert!(
             err.to_string().contains("unknown_named_type"),

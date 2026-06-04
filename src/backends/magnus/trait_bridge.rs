@@ -110,13 +110,19 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
+        let lifetime_type_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|typ| typ.has_lifetime_params)
+            .map(|typ| typ.name.clone())
+            .collect();
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
             bridge_config: bridge_cfg,
             core_import,
             wrapper_prefix: "Rb",
             type_paths,
-            lifetime_type_names: std::collections::HashSet::new(),
+            lifetime_type_names,
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };

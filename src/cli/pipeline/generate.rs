@@ -163,7 +163,13 @@ fn validate_generation_api<'a>(
     api: &'a ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<ValidatedApiSurface<'a>> {
-    let validation_report = crate::core::validation::validate_api_surface(api);
+    let bridged_trait_names: ahash::AHashSet<&str> = config
+        .trait_bridges
+        .iter()
+        .map(|bridge| bridge.trait_name.as_str())
+        .collect();
+    let validation_report =
+        crate::core::validation::validate_api_surface_with_bridged_traits(api, &bridged_trait_names);
     for diagnostic in validation_report.warnings() {
         tracing::warn!("{diagnostic}");
     }
@@ -201,7 +207,7 @@ fn validate_generation_api<'a>(
             .join("\n");
         anyhow::bail!("{formatted}");
     }
-    ValidatedApiSurface::new(api, &config.suppress_validation_codes)
+    ValidatedApiSurface::new_with_bridged_traits(api, &config.suppress_validation_codes, &bridged_trait_names)
         .map_err(|report| anyhow::anyhow!(report.format_errors()))
 }
 

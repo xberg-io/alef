@@ -112,6 +112,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/return_named_json_block.jinja"),
     ),
     ("c_import.jinja", include_str!("templates/c_import.jinja")),
+    ("build_zig.jinja", include_str!("templates/build_zig.jinja")),
     (
         "helper_free_string_doc1.jinja",
         include_str!("templates/helper_free_string_doc1.jinja"),

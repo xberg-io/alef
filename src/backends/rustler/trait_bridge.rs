@@ -273,13 +273,19 @@ pub fn gen_trait_bridge(
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
         };
+        let lifetime_type_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|typ| typ.has_lifetime_params)
+            .map(|typ| typ.name.clone())
+            .collect();
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
             bridge_config: bridge_cfg,
             core_import,
             wrapper_prefix: "Rustler",
             type_paths,
-            lifetime_type_names: std::collections::HashSet::new(),
+            lifetime_type_names,
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };

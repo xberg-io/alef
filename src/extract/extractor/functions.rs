@@ -1,5 +1,5 @@
 use crate::core::ir::ApiSurface;
-use crate::core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef, UnsupportedPublicItem};
 use ahash::AHashMap;
 
 use crate::extract::type_resolver;
@@ -554,6 +554,14 @@ pub(crate) fn extract_impl_block(
                 if super::helpers::is_pub(&method.vis) {
                     // Skip generic methods — they can't be directly exposed to FFI
                     if !method.sig.generics.params.is_empty() {
+                        if extract_binding_exclusion_reason(&method.attrs).is_none() {
+                            surface.unsupported_public_items.push(UnsupportedPublicItem {
+                                item_kind: "method".to_string(),
+                                item_path: format!("{crate_name}::{type_name}.{}", method.sig.ident),
+                                reason: "public generic inherent methods cannot be represented without explicit monomorphization metadata".to_string(),
+                                suggested_fix: "exclude the method, configure an opaque/bridge policy, or provide explicit monomorphization metadata".to_string(),
+                            });
+                        }
                         return None;
                     }
                     let method_name = method.sig.ident.to_string();
@@ -766,6 +774,14 @@ pub(crate) fn extract_trait_impl_methods(
         if let syn::ImplItem::Fn(method) = impl_item {
             // Skip generic methods — they can't be directly exposed to FFI
             if !method.sig.generics.params.is_empty() {
+                if extract_binding_exclusion_reason(&method.attrs).is_none() {
+                    surface.unsupported_public_items.push(UnsupportedPublicItem {
+                        item_kind: "method".to_string(),
+                        item_path: format!("{crate_name}::{type_name}.{}", method.sig.ident),
+                        reason: "public generic trait implementation methods cannot be represented without explicit monomorphization metadata".to_string(),
+                        suggested_fix: "exclude the method, configure an opaque/bridge policy, or provide explicit monomorphization metadata".to_string(),
+                    });
+                }
                 continue;
             }
             let method_def = extract_method(

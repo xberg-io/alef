@@ -3,7 +3,6 @@ use crate::core::config::{Language, PrecommitConfig, ResolvedCrateConfig};
 use crate::core::template_versions as tv;
 use std::path::PathBuf;
 
-const DEFAULT_SHARED_HOOKS_REPO: &str = "https://example.invalid/pre-commit-hooks";
 const DEFAULT_ALEF_HOOKS_REPO: &str = "local";
 
 pub(crate) fn scaffold_pre_commit_config(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
@@ -20,6 +19,9 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
     let has = |lang: Language| languages.contains(&lang);
     let crate_dir = config.core_crate_dir();
     let precommit = config.scaffold.as_ref().and_then(|s| s.precommit.as_ref());
+    let include_shared_hooks = precommit_bool(precommit, |p| p.include_shared_hooks, false)
+        && precommit.and_then(|p| p.shared_hooks_repo.as_deref()).is_some()
+        && precommit.and_then(|p| p.shared_hooks_rev.as_deref()).is_some();
 
     // Build clippy --exclude args for binding crates that need special compilation
     // (native extensions with host-incompatible link flags). Wasm is NOT excluded
@@ -57,17 +59,9 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             cargo_machete => tv::precommit::CARGO_MACHETE_REV,
             cargo_deny => tv::precommit::CARGO_DENY_REV,
             rumdl => tv::precommit::RUMDL_REV,
-            include_shared_hooks => precommit_bool(precommit, |p| p.include_shared_hooks, false),
-            shared_hooks_repo => precommit_string(
-                precommit,
-                |p| p.shared_hooks_repo.as_deref(),
-                DEFAULT_SHARED_HOOKS_REPO,
-            ),
-            shared_hooks_rev => precommit_string(
-                precommit,
-                |p| p.shared_hooks_rev.as_deref(),
-                tv::precommit::SAMPLE_CRATE_PRECOMMIT_HOOKS_REV,
-            ),
+            include_shared_hooks => include_shared_hooks,
+            shared_hooks_repo => precommit.and_then(|p| p.shared_hooks_repo.as_deref()).unwrap_or(""),
+            shared_hooks_rev => precommit.and_then(|p| p.shared_hooks_rev.as_deref()).unwrap_or(""),
             include_alef_hooks => precommit_bool(precommit, |p| p.include_alef_hooks, true),
             alef_hooks_repo => precommit_string(precommit, |p| p.alef_hooks_repo.as_deref(), DEFAULT_ALEF_HOOKS_REPO),
             alef_hooks_rev => precommit_string(precommit, |p| p.alef_hooks_rev.as_deref(), tv::precommit::ALEF_REV),

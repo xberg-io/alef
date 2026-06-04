@@ -65,9 +65,8 @@ pub(super) fn emit_function(
         _ => None,
     });
 
-    // Build the dart wrapper parameter list. If the function has an optional config param
-    // with a synthesizable default, split into required params and then
-    // `[ConfigType? config]` optional positional.
+    // Build the dart wrapper parameter list. If the function has a config param
+    // with a synthesizable default, include it as a required positional parameter.
     //
     // For all other functions, emit required (non-optional) params as positional and
     // optional params inside a `{...}` named-parameter block. This matches the natural
@@ -80,11 +79,11 @@ pub(super) fn emit_function(
             .filter(|p| !is_optional_config_param(p, type_defs, enums))
             .map(|p| format_param(p, imports))
             .collect();
-        let optional_sig = format!("[{cfg_type}? config]");
+        let config_sig = format!("{cfg_type} config");
         if required_params.is_empty() {
-            optional_sig
+            config_sig
         } else {
-            format!("{}, {optional_sig}", required_params.join(", "))
+            format!("{}, {config_sig}", required_params.join(", "))
         }
     } else {
         let required: Vec<String> = f
@@ -109,8 +108,8 @@ pub(super) fn emit_function(
 
     // FRB bridge functions use Dart named parameters (required keyword).
     // Call them with `name: value` named-argument syntax.
-    // When config is optional, pass the default when the caller omits it.
-    let call_args_str = if let Some(cfg_type) = config_type {
+    // Config is now required, so pass it directly without fallback.
+    let call_args_str = if let Some(_cfg_type) = config_type {
         let non_config: Vec<String> = f
             .params
             .iter()
@@ -120,38 +119,7 @@ pub(super) fn emit_function(
                 format!("{ident}: {ident}")
             })
             .collect();
-        let default_expr =
-            default_expression_for_named_type(cfg_type, type_defs, enums).unwrap_or_else(|| format!("{cfg_type}()"));
-        // The default expression may embed typed-list constructors emitted by
-        // `empty_vec_literal` to match FRB's typed-list mapping.
-        //
-        // Two import paths matter and cannot be conflated. `Int64List` and
-        // `Uint64List` are SHADOWED by FRB with its own generalized versions
-        // (`package:flutter_rust_bridge/src/generalized_typed_data/_io.dart`)
-        // — the FRB-generated DTO's field type is the FRB version, not the
-        // dart:typed_data one. Passing `Int64List(0)` from `dart:typed_data`
-        // produces "argument type 'Int64List/*1*/' can't be assigned to
-        // parameter type 'Int64List/*2*/'". Import FRB's public lib for
-        // these.
-        //
-        // All other typed lists (`Uint8List`, `Int32List`, `Float64List`, …)
-        // are NOT shadowed — FRB references the `dart:typed_data` versions
-        // directly. Import `dart:typed_data` for these, hiding the shadowed
-        // names so the FRB versions remain unambiguous when both appear.
-        let needs_frb_typed = FRB_SHADOWED_TYPED_CTORS.iter().any(|ctor| default_expr.contains(ctor));
-        let needs_dart_typed = DART_TYPED_DATA_CTORS.iter().any(|ctor| default_expr.contains(ctor));
-        if needs_frb_typed {
-            imports.insert("import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';".to_string());
-        }
-        if needs_dart_typed {
-            if needs_frb_typed {
-                imports.insert("import 'dart:typed_data' hide Int64List, Uint64List;".to_string());
-            } else {
-                imports.insert("import 'dart:typed_data';".to_string());
-            }
-        }
-        let config_default = format!("config ?? {default_expr}");
-        let config_arg = format!("config: {config_default}");
+        let config_arg = "config: config".to_string();
         if non_config.is_empty() {
             config_arg
         } else {

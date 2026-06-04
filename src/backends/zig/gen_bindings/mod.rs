@@ -329,6 +329,29 @@ impl Backend for ZigBackend {
         }])
     }
 
+    fn generate_scaffold(&self, _api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let module_name = zig_module_name(&config.name);
+        let ffi_lib_name = config.ffi_lib_name();
+
+        // Render build.zig from template with module and library names.
+        let build_zig_content = crate::backends::zig::template_env::render(
+            "build_zig.jinja",
+            minijinja::context! {
+                module_name => &module_name,
+                ffi_lib_name => &ffi_lib_name,
+            },
+        );
+
+        let dir = resolve_output_dir(None, &config.name, "packages/zig");
+        let path = PathBuf::from(dir).join("build.zig");
+
+        Ok(vec![GeneratedFile {
+            path,
+            content: build_zig_content,
+            generated_header: true,
+        }])
+    }
+
     fn generate_service_api(
         &self,
         api: &ApiSurface,

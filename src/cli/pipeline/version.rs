@@ -1738,16 +1738,27 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
         return Ok(None);
     }
 
-    // Guard: the swift binding crate must exist.
+    // Guard: the swift binding crate must exist. Some consumers put it under
+    // `crates/{name}-swift/` (alef default), others under `packages/swift/rust/`
+    // (e.g. liter-llm). Probe both before giving up.
     let swift_crate = format!("{}-swift", config.name);
-    let swift_manifest = format!("crates/{swift_crate}/Cargo.toml");
-    if !std::path::Path::new(&swift_manifest).exists() {
+    let candidate_manifests = [
+        format!("crates/{swift_crate}/Cargo.toml"),
+        "packages/swift/rust/Cargo.toml".to_string(),
+    ];
+    let swift_manifest = candidate_manifests
+        .iter()
+        .find(|p| std::path::Path::new(p).exists())
+        .cloned();
+    let Some(swift_manifest) = swift_manifest else {
         warn!(
-            "Swift binding crate `{swift_crate}` not found at `{swift_manifest}` — \
-             skipping checksum precompute. Run with --skip-swift-checksum to suppress."
+            "Swift binding crate `{swift_crate}` not found under any of {:?} — \
+             skipping checksum precompute. Run with --skip-swift-checksum to suppress.",
+            candidate_manifests
         );
         return Ok(None);
-    }
+    };
+    debug!("Using swift manifest: {swift_manifest}");
 
     // Look for a pre-built artifactbundle zip under dist/swift-artifactbundle/.
     // The build action outputs `{ArtifactName}.artifactbundle.zip` there.

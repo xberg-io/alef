@@ -199,7 +199,15 @@ pub struct ValidatedApiSurface<'a> {
 
 impl<'a> ValidatedApiSurface<'a> {
     pub fn new(api: &'a ApiSurface, suppress_codes: &[String]) -> Result<Self, ValidationReport> {
-        let report = validate_api_surface(api);
+        Self::new_with_bridged_traits(api, suppress_codes, &AHashSet::new())
+    }
+
+    pub fn new_with_bridged_traits(
+        api: &'a ApiSurface,
+        suppress_codes: &[String],
+        bridged_trait_names: &AHashSet<&str>,
+    ) -> Result<Self, ValidationReport> {
+        let report = validate_api_surface_with_bridged_traits(api, bridged_trait_names);
         let fatal = report.errors().any(|diagnostic| {
             is_critical_unsuppressible(diagnostic.code)
                 || !suppress_codes.iter().any(|code| code == &diagnostic.code.to_string())
@@ -214,6 +222,15 @@ impl<'a> ValidatedApiSurface<'a> {
 
 /// Validate the extracted public API surface before backend generation.
 pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
+    validate_api_surface_with_bridged_traits(api, &AHashSet::new())
+}
+
+/// Validate the extracted public API surface before backend generation, allowing
+/// excluded-type substitution only for traits with explicit bridge config.
+pub fn validate_api_surface_with_bridged_traits(
+    api: &ApiSurface,
+    bridged_trait_names: &AHashSet<&str>,
+) -> ValidationReport {
     let mut report = ValidationReport::new();
     report.extend(sanitized_public_api_diagnostics(api).into_iter().map(|diagnostic| {
         ValidationDiagnostic::error(
@@ -236,11 +253,11 @@ pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
             item.suggested_fix.clone(),
         )
     }));
-    report.extend(backend_readiness_diagnostics(api));
+    report.extend(backend_readiness_diagnostics(api, bridged_trait_names));
     report
 }
 
-fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> {
+fn backend_readiness_diagnostics(api: &ApiSurface, bridged_trait_names: &AHashSet<&str>) -> Vec<ValidationDiagnostic> {
     let known_names = known_type_names(api);
     // Trait method signatures may reference per-language-excluded types because backend
     // `trait_bridge.rs` substitutes them with a JSON opaque carrier at code-emit. Free
@@ -262,7 +279,11 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
         if typ.binding_excluded {
             continue;
         }
-        let method_known_names = if typ.is_trait { &trait_known_names } else { &known_names };
+        let method_known_names = if typ.is_trait && bridged_trait_names.contains(typ.name.as_str()) {
+            &trait_known_names
+        } else {
+            &known_names
+        };
         for method in &typ.methods {
             if method.binding_excluded {
                 continue;

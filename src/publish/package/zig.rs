@@ -87,7 +87,7 @@ pub fn package_zig(
     // but skips calling this function (or calling `alef publish package --lang zig`),
     // the tarball will ship the in-tree build.zig with hardcoded workspace paths,
     // and downstream Zig consumers will fail at compile time with:
-    //   error: unable to find dynamic system library 'liter_llm_ffi' using strategy 'paths_first'
+    //   error: unable to find dynamic system library 'sample_lib_ffi' using strategy 'paths_first'
     //   warning: unable to open library directory '../../target/release': FileNotFound
     //
     // The rewritten build.zig uses b.path("lib") + b.path("include"), which
@@ -239,9 +239,10 @@ mod tests {
         // 3. Contains include/ with the C header
         // 4. Contains build.zig.zon with lib and include in .paths
         //
-        // Regression test for: https://github.com/kreuzberg-dev/liter-llm/issues/[TBD]
+        // Regression test: packaged Zig archives must not retain workspace-relative
+        // library paths from the in-tree build file.
         // where rc.57 tarball included workspace-relative paths instead of bundled libs.
-        let s = render_distributable_build_zig("liter_llm", "liter_llm_ffi");
+        let s = render_distributable_build_zig("sample_lib", "sample_lib_ffi");
 
         // Must NOT contain workspace-relative paths that break consumers.
         assert!(

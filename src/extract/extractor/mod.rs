@@ -751,6 +751,19 @@ fn extract_items(
                     has_lifetime_params: false,
                 });
             }
+            syn::Item::Trait(item_trait)
+                if is_pub(&item_trait.vis) && has_non_lifetime_generics(&item_trait.generics) =>
+            {
+                if extract_binding_exclusion_reason(&item_trait.attrs).is_none() {
+                    surface.unsupported_public_items.push(unsupported_public_item(
+                        "trait",
+                        crate_name,
+                        module_path,
+                        &item_trait.ident.to_string(),
+                        "public generic traits cannot be represented without explicit monomorphization metadata",
+                    ));
+                }
+            }
             syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {
                 let name = item_trait.ident.to_string();
                 let rust_path = build_rust_path(crate_name, module_path, &name);
@@ -788,6 +801,14 @@ fn extract_items(
 
                             // Skip generic methods
                             if !method.sig.generics.params.is_empty() {
+                                if method_binding_exclusion_reason.is_none() {
+                                    surface.unsupported_public_items.push(UnsupportedPublicItem {
+                                        item_kind: "method".to_string(),
+                                        item_path: format!("{rust_path}.{method_name}"),
+                                        reason: "public generic trait methods cannot be represented without explicit monomorphization metadata".to_string(),
+                                        suggested_fix: "exclude the method, configure an opaque/bridge policy, or provide explicit monomorphization metadata".to_string(),
+                                    });
+                                }
                                 return None;
                             }
 

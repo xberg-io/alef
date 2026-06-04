@@ -1028,6 +1028,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
 // ---------------------------------------------------------------------------
 
 mod trait_bridge {
+    use super::make_unit_enum;
     use alef::backends::extendr::trait_bridge::gen_trait_bridge;
     use alef::core::config::TraitBridgeConfig;
     use alef::core::ir::*;
@@ -1036,9 +1037,31 @@ mod trait_bridge {
         ApiSurface {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
-            types: vec![],
+            types: vec![TypeDef {
+                name: "NodeContext".to_string(),
+                rust_path: "my_lib::NodeContext".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            }],
             functions: vec![],
-            enums: vec![],
+            enums: vec![make_unit_enum("VisitResult", &["Continue"])],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1077,7 +1100,21 @@ mod trait_bridge {
     fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
         MethodDef {
             name: name.to_string(),
-            params: vec![],
+            params: vec![ParamDef {
+                name: "ctx".to_string(),
+                ty: TypeRef::Named("NodeContext".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }],
             return_type,
             is_async: false,
             is_static: false,
@@ -1159,8 +1196,8 @@ mod trait_bridge {
             bind_via: alef::core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            context_type: None,
-            result_type: None,
+            context_type: Some("NodeContext".to_string()),
+            result_type: Some("VisitResult".to_string()),
         }
     }
 
@@ -1356,7 +1393,12 @@ mod trait_bridge {
     fn test_visitor_bridge_generates_r_bridge_struct() {
         let trait_def = make_trait_def(
             "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
+            vec![make_method(
+                "visit_node",
+                TypeRef::Named("VisitResult".to_string()),
+                false,
+                true,
+            )],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
@@ -1372,7 +1414,12 @@ mod trait_bridge {
     fn test_visitor_bridge_does_not_generate_registration_fn() {
         let trait_def = make_trait_def(
             "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
+            vec![make_method(
+                "visit_node",
+                TypeRef::Named("VisitResult".to_string()),
+                false,
+                true,
+            )],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
@@ -1388,7 +1435,12 @@ mod trait_bridge {
     fn test_visitor_bridge_generates_trait_impl() {
         let trait_def = make_trait_def(
             "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
+            vec![make_method(
+                "visit_node",
+                TypeRef::Named("VisitResult".to_string()),
+                false,
+                true,
+            )],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
@@ -1407,7 +1459,12 @@ mod trait_bridge {
         // R is single-threaded, so callers must not actually move the bridge across threads.
         let trait_def = make_trait_def(
             "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
+            vec![make_method(
+                "visit_node",
+                TypeRef::Named("VisitResult".to_string()),
+                false,
+                true,
+            )],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())

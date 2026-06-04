@@ -297,7 +297,7 @@ fn callbacks_from_trait(trait_def: &TypeDef, context_type: &str, result_type: &s
         .methods
         .iter()
         .filter(|method| method_returns(method, result_type) && method_has_context(method, context_type))
-        .map(|method| callback_from_method(method, context_type))
+        .filter_map(|method| callback_from_method(method, context_type))
         .collect()
 }
 
@@ -312,25 +312,33 @@ fn method_has_context(method: &MethodDef, context_type: &str) -> bool {
         .any(|param| matches!(&param.ty, TypeRef::Named(name) if name == context_type))
 }
 
-fn callback_from_method(method: &MethodDef, context_type: &str) -> CallbackSpec {
-    let extra = method
+fn callback_from_method(method: &MethodDef, context_type: &str) -> Option<CallbackSpec> {
+    let extra: Option<Vec<_>> = method
         .params
         .iter()
         .filter(|param| !matches!(&param.ty, TypeRef::Named(name) if name == context_type))
-        .map(|param| extra_param_from_type(&param.name, &param.ty))
+        .map(extra_param_from_param)
         .collect();
-    CallbackSpec {
+    let Some(extra) = extra else {
+        eprintln!(
+            "[alef] gen_visitor(java): skip method `{}` — unsupported callback parameter",
+            method.name
+        );
+        return None;
+    };
+    Some(CallbackSpec {
         c_field: method.name.clone(),
         java_method: to_java_name(&method.name),
         doc: method.doc.clone(),
         extra,
-    }
+    })
 }
 
-fn extra_param_from_type(name: &str, ty: &TypeRef) -> ExtraParam {
+fn extra_param_from_param(param: &crate::core::ir::ParamDef) -> Option<ExtraParam> {
+    let name = param.name.as_str();
     let java_name = to_java_name(name);
-    match ty {
-        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => ExtraParam {
+    match (&param.ty, param.optional) {
+        (TypeRef::Vec(inner), false) if matches!(inner.as_ref(), TypeRef::String) => Some(ExtraParam {
             java_name,
             java_type: "List<String>".to_string(),
             c_layouts: vec!["ValueLayout.ADDRESS".to_string(), "ValueLayout.JAVA_LONG".to_string()],
@@ -339,48 +347,48 @@ fn extra_param_from_type(name: &str, ty: &TypeRef) -> ExtraParam {
                 super::helpers::raw_var_name(&to_java_name(name), 0),
                 super::helpers::raw_var_name(&to_java_name(name), 1)
             ),
-        },
-        TypeRef::String | TypeRef::Char | TypeRef::Named(_) | TypeRef::Json => ExtraParam {
+        }),
+        (TypeRef::String, _) => Some(ExtraParam {
             java_name,
-            java_type: crate::backends::java::type_map::java_type(ty).into_owned(),
+            java_type: crate::backends::java::type_map::java_type(&param.ty).into_owned(),
             c_layouts: vec!["ValueLayout.ADDRESS".to_string()],
             decode: format!(
                 "{}.equals(MemorySegment.NULL) ? null : {}.reinterpret(Long.MAX_VALUE).getString(0)",
                 super::helpers::raw_var_name(&to_java_name(name), 0),
                 super::helpers::raw_var_name(&to_java_name(name), 0)
             ),
-        },
-        TypeRef::Primitive(PrimitiveType::Bool) => ExtraParam {
+        }),
+        (TypeRef::Primitive(PrimitiveType::Bool), false) => Some(ExtraParam {
             java_name,
             java_type: "boolean".to_string(),
             c_layouts: vec!["ValueLayout.JAVA_INT".to_string()],
             decode: format!("{} != 0", super::helpers::raw_var_name(&to_java_name(name), 0)),
-        },
-        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Isize | PrimitiveType::Usize) => {
-            ExtraParam {
+        }),
+        (TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize), false) => {
+            Some(ExtraParam {
                 java_name,
                 java_type: "long".to_string(),
                 c_layouts: vec!["ValueLayout.JAVA_LONG".to_string()],
                 decode: super::helpers::raw_var_name(&to_java_name(name), 0),
-            }
+            })
         }
-        TypeRef::Primitive(_) => ExtraParam {
+        (
+            TypeRef::Primitive(
+                PrimitiveType::U32
+                | PrimitiveType::I32
+                | PrimitiveType::U16
+                | PrimitiveType::I16
+                | PrimitiveType::U8
+                | PrimitiveType::I8,
+            ),
+            false,
+        ) => Some(ExtraParam {
             java_name,
             java_type: "int".to_string(),
             c_layouts: vec!["ValueLayout.JAVA_INT".to_string()],
             decode: format!("(int) {}", super::helpers::raw_var_name(&to_java_name(name), 0)),
-        },
-        _ => ExtraParam {
-            java_name,
-            java_type: crate::backends::java::type_map::java_type(ty).into_owned(),
-            c_layouts: vec!["ValueLayout.ADDRESS".to_string()],
-            decode: format!(
-                "{}.equals(MemorySegment.NULL) ? null : JsonUtil.fromJson({}.reinterpret(Long.MAX_VALUE).getString(0), {}.class)",
-                super::helpers::raw_var_name(&to_java_name(name), 0),
-                super::helpers::raw_var_name(&to_java_name(name), 0),
-                crate::backends::java::type_map::java_type(ty)
-            ),
-        },
+        }),
+        _ => None,
     }
 }
 

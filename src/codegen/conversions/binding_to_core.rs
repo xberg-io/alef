@@ -1113,6 +1113,10 @@ fn gen_from_lifetime_type_constructor(
                         format!("val.{binding_field}.into()")
                     }
                 }
+                TypeRef::Map(_k, _v) => {
+                    // Map fields (HashMap→BTreeMap): pass by reference to constructor
+                    format!("&val.{binding_field}")
+                }
                 TypeRef::Named(_) => {
                     if field.optional {
                         format!("val.{binding_field}.map(Into::into)")
@@ -1129,7 +1133,13 @@ fn gen_from_lifetime_type_constructor(
             args.push(expr);
         } else {
             // No binding field for this param — use Default::default().
-            args.push("Default::default()".to_string());
+            // Special case: if param is a reference type, we need to provide a borrowed
+            // reference to a temporary default value. Use a reference to Default::default().
+            if param.is_ref {
+                args.push("&Default::default()".to_string());
+            } else {
+                args.push("Default::default()".to_string());
+            }
         }
     }
 
