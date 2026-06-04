@@ -891,6 +891,7 @@ fn no_trait_bridges_emit_empty_traits_dart_stub() {
 
 #[test]
 fn single_trait_bridge_emits_traits_dart_with_abstract_class() {
+    // TODO(alef-generic-cleanup): Replace OCR-shaped bridge fixture names with neutral trait names.
     let trait_def = make_trait(
         "OcrBackend",
         "demo_crate::OcrBackend",
@@ -1324,6 +1325,7 @@ fn dart_traits_preserve_excluded_named_type_as_explicit_bridge_type() {
     );
     assert!(
         !traits.contains("Future<ExtractionResult> extractBytes"),
+        // TODO(alef-generic-cleanup): Replace extraction-shaped excluded-type fixtures with neutral names.
         "excluded type must not be substituted to another DTO: {traits}"
     );
 }

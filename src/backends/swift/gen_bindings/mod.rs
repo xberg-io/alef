@@ -2573,6 +2573,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// This emits positional-arg overloads that accept JSON strings for config parameters,
 /// decode them via the corresponding `*FromJson` helpers, and delegate to the typed
 /// base function. Example:
+/// TODO(alef-generic-cleanup): Replace extractFile/extractionConfig examples with neutral fixture names.
 ///
 /// ```swift
 /// public func extractFile(_ path: String, _ mimeType: String?, _ configJson: String) throws -> OutputSummary {
@@ -2752,6 +2753,7 @@ fn emit_from_json_forwarders(
     //   2. streaming item types
     //   3. `json_fallback_types` (types Swift's `intoRust()` JSON-encodes)
     // The previous filter mirrored only (2), so types that participate purely
+    // TODO(alef-generic-cleanup): Replace downstream-shaped config examples with neutral fixture names.
     // as nested fields / return types (LayoutDetectionConfig, PdfConfig,
     // PostProcessorConfig, etc.) — but are still first-class Codable structs on
     // the Swift side — lacked a top-level `*FromJson` forwarder. Broaden to the
@@ -3806,6 +3808,7 @@ fn emit_single_free_function_forwarder(
         // (Codable/Sendable). There is no chainable conversion expression for the
         // `init(_ rb:) throws` initializer on a non-Optional/non-Sequence value, so
         // we bind the bridge result to a local and call the initializer separately.
+        // TODO(alef-generic-cleanup): Replace QueryOnlyConfig example with a neutral fixture name.
         // This covers nullary default-config getters like `schemaQueryOnly()` →
         // `QueryOnlyConfig` whose body would otherwise return the low-level
         // `RustBridge.QueryOnlyConfig` and fail to satisfy the declared type.

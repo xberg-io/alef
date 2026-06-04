@@ -17,6 +17,7 @@
 
 use serde::{Deserialize, Serialize};
 
+/// TODO(alef-generic-cleanup): replace server/app-shaped service examples with neutral fixtures.
 /// Per-registration configuration entry inside a `[[crates.services]]` table.
 ///
 /// Example in `alef.toml`:

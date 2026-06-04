@@ -355,6 +355,7 @@ pub struct TestBackendEmission {
 }
 
 impl TestBackendEmission {
+    /// TODO(alef-generic-cleanup): clarify stub_methods docs so placeholders do not imply generated output.
     /// Placeholder for unimplemented backends.
     pub fn unimplemented(language: &str) -> Self {
         Self {

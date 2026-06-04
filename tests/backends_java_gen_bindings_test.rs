@@ -2806,6 +2806,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
     );
 }
 
+/// TODO(alef-generic-cleanup): Replace sample-llm regression references with neutral fixture names.
 /// Regression: streaming method template uses fully-qualified `java.util.stream.Stream<T>` and
 /// `java.util.stream.StreamSupport.stream(...)` in the method body. Adding
 /// `import java.util.stream.Stream;` is therefore redundant and triggers Checkstyle's

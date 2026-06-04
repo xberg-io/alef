@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 /// Build a lookup map from short type name to its fully-qualified Rust path.
 ///
+/// TODO(alef-generic-cleanup): Replace downstream-shaped module path examples with neutral fixture paths.
 /// Types in the IR carry a `rust_path` field containing the path as extracted from
 /// the source file (e.g. `sample_core::extraction::docx::drawing::AnchorProperties`).
 /// Backends that emit source-crate references must use this path rather than
@@ -33,6 +34,7 @@ pub fn build_type_path_lookup(api: &ApiSurface) -> HashMap<String, String> {
     // emit fully-qualified paths rather than bare type names.
     //
     // IMPORTANT: use `entry().or_insert()` rather than `insert()` so that a visible binding
+    // TODO(alef-generic-cleanup): Replace downstream-shaped duplicate path example with neutral fixture paths.
     // type (already inserted from api.types/api.enums above) is never overwritten by an
     // excluded internal type with the same short name. Example: `Table` is a public type at
     // `sample_core::Table` *and* an excluded internal type at

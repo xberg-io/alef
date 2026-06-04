@@ -298,6 +298,7 @@ impl Backend for PhpBackend {
 
         // PhpBytes wrapper: accepts PHP binary strings without UTF-8 validation.
         // ext-php-rs's String FromZval rejects non-UTF-8 strings, so binary content
+        // TODO(alef-generic-cleanup): Replace document-specific binary examples with neutral data examples.
         // (PDFs, images, etc.) gets "Invalid value given for argument" errors. This
         // wrapper reads the raw bytes via `zend_str()` and exposes them as Vec<u8>.
         builder.add_item(
@@ -1503,6 +1504,7 @@ impl Backend for PhpBackend {
             context! { class_name => &class_name },
         ));
         content.push_str(
+            // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
             "    public function getErrorCode(): int { throw new \\RuntimeException('Not implemented.'); }\n",
         );
         // Emit introspection method stubs for errors that expose them.
@@ -1521,18 +1523,21 @@ impl Backend for PhpBackend {
             .any(|e| e.methods.iter().any(|m| m.name == "error_type"));
         if has_status_code {
             content.push_str(
+                // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                 "    /** HTTP status code for this error (0 means no associated status). */\n    \
                  public function statusCode(): int { throw new \\RuntimeException('Not implemented.'); }\n",
             );
         }
         if has_is_transient {
             content.push_str(
+                // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                 "    /** Returns true if the error is transient and a retry may succeed. */\n    \
                  public function isTransient(): bool { throw new \\RuntimeException('Not implemented.'); }\n",
             );
         }
         if has_error_type {
             content.push_str(
+                // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                 "    /** Machine-readable error category string for matching and logging. */\n    \
                  public function errorType(): string { throw new \\RuntimeException('Not implemented.'); }\n",
             );
@@ -1638,6 +1643,7 @@ impl Backend for PhpBackend {
                 let stub_body = if is_void {
                     "{ }".to_string()
                 } else {
+                    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                     "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }"
                         .to_string()
                 };
@@ -1778,6 +1784,7 @@ impl Backend for PhpBackend {
                 let stub_body = if is_void_stub {
                     "{ }".to_string()
                 } else {
+                    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                     "{ throw new \\RuntimeException('Not implemented.'); }".to_string()
                 };
                 content.push_str(&crate::backends::php::template_env::render(
@@ -2053,6 +2060,7 @@ fn gen_php_opaque_class_file(
         let body = if is_void {
             "    {\n    }\n"
         } else {
+            // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
             "    {\n        throw new \\RuntimeException('Not implemented — provided by the native extension.');\n    }\n"
         };
         content.push_str(body);
@@ -2077,6 +2085,7 @@ fn gen_php_opaque_class_file(
                 content.push_str("    public static function from_php_object(object $visitor): self\n");
                 content.push_str("    {\n");
                 content.push_str(
+                    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                     "        throw new \\RuntimeException('Not implemented — provided by the native extension.');\n",
                 );
                 content.push_str("    }\n");
@@ -2112,6 +2121,7 @@ fn gen_php_streaming_method_wrapper(adapter: &crate::core::config::AdapterConfig
     // The actual streaming implementation is on the Rust side; this PHP method
     // is a placeholder for IDE/PHPStan. At runtime, the native extension
     // provides the actual Generator-yielding implementation.
+    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
     format!(
         "    public function {method_name}({params_sig}): \\Generator\n    {{\n        \
          throw new \\RuntimeException('Not implemented — provided by the native extension.');\n    \
@@ -2396,6 +2406,7 @@ mod tests {
     /// Test that PHP wrapper param signatures preserve required-ness from the Rust API.
     ///
     /// Before the fix: Required params after an optional param were being made optional.
+    /// TODO(alef-generic-cleanup): Replace scrape/CrawlEngineHandle examples with neutral fixture names.
     /// Example: `scrape(?CrawlEngineHandle $engine = null, ?string $url = null)`
     /// when the Rust API required both `engine: CrawlEngineHandle` and `url: String`.
     ///

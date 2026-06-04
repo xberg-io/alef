@@ -98,6 +98,7 @@ pub fn kotlin_field_name(raw: &str, idx: usize) -> String {
 /// Derive a payload-informed field name for sealed-class tuple variants.
 ///
 /// For tuple variants with a single payload, this function derives smarter names:
+/// TODO(alef-generic-cleanup): Replace Pdf/PdfMetadata examples with neutral fixture names.
 /// - If the field name is positional (like `_0`), infer from the type:
 ///   - Named type `Pdf Metadata` with variant name `Pdf` → strip prefix "Pdf" → `metadata`
 ///   - Primitive type (String, Int, etc.) → use generic `value`

@@ -4,6 +4,7 @@
 //! 1. P/Invoke declarations for trait bridge registration/unregistration functions
 //! 2. Managed `interface I{TraitName}` with Plugin lifecycle + trait methods
 //! 3. Bridge class `{TraitName}Bridge` implementing marshal helpers, delegate rooting, and vtable construction
+//! TODO(alef-generic-cleanup): Replace fixed TextBackend example names with configurable fixture names.
 //! 4. Static registration helpers: `RegisterTextBackend(ITextBackend impl)`, `UnregisterTextBackend(string name)`
 
 use crate::backends::csharp::type_map::csharp_type;

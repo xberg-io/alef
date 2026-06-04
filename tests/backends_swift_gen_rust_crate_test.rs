@@ -2192,3 +2192,150 @@ features = ["serde", "config", "download"]
         cargo.content
     );
 }
+
+// ── Vec<TaggedEnum> parameter bridging tests ──────────────────────────────────
+
+/// Helper to create a tagged enum with variants that have fields.
+fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        variants: variants
+            .into_iter()
+            .map(|(v_name, fields)| EnumVariant {
+                name: v_name.to_string(),
+                fields: fields
+                    .into_iter()
+                    .map(|f| FieldDef {
+                        name: f.to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    })
+                    .collect(),
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: true,
+            })
+            .collect(),
+        doc: String::new(),
+        cfg: None,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        is_copy: false,
+        has_serde: true,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+    }
+}
+
+/// Test that a function with Vec<TaggedEnum> parameter generates correct shim.
+/// Tagged enums must be JSON-deserialized at the shim boundary, not treated
+/// as struct wrappers with `.0` access.
+#[test]
+fn function_with_vec_tagged_enum_param_uses_json_deserial() {
+    let tagged_enum = make_tagged_enum(
+        "PageAction",
+        vec![
+            ("Click", vec!["selector"]),
+            ("TypeText", vec!["selector", "text"]),
+        ],
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "interact".into(),
+            rust_path: "demo::interact".into(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "actions".into(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![tagged_enum],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Extern block must declare the parameter as Vec<String> (JSON-encoded).
+    assert!(
+        lib.content.contains("fn interact(actions: Vec<String>)"),
+        "extern block must declare actions: Vec<String> for tagged enum; got:\n{}",
+        lib.content
+    );
+
+    // Shim impl must match: take Vec<String> and deserialize each element.
+    assert!(
+        lib.content.contains("pub fn interact(actions: Vec<String>)"),
+        "shim impl must take Vec<String>, not Vec<PageAction>; got:\n{}",
+        lib.content
+    );
+
+    // Shim must use serde_json::from_str to deserialize each string element.
+    assert!(
+        lib.content.contains("::serde_json::from_str::<demo::PageAction>"),
+        "shim impl must JSON-deserialize each Vec<String> element; got:\n{}",
+        lib.content
+    );
+
+    // Shim must NOT use `.0` unwrapping (that's for struct wrappers, not enums).
+    assert!(
+        !lib.content.contains("actions.into_iter().map(|w| w.0)"),
+        "shim impl must not use .0 unwrapping for tagged enum; got:\n{}",
+        lib.content
+    );
+}

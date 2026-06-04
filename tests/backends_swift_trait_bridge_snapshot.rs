@@ -247,6 +247,7 @@ fn test_trait_bridge_primitive_params() {
 
 #[test]
 fn test_trait_bridge_excluded_type_return() {
+    // TODO(alef-generic-cleanup): Replace OCR/extraction-shaped bridge fixtures with neutral plugin names.
     let trait_def = make_trait_def(
         "OcrBackend",
         vec![make_method(

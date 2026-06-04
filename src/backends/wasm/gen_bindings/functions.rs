@@ -1006,6 +1006,7 @@ pub(super) fn gen_env_shims(shim_names: &[String]) -> String {
 
 /// Generate a type-appropriate unsupported body for WASM.
 pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
+    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
         format!("Err(JsValue::from_str(\"{err_msg}\"))")
@@ -1023,6 +1024,7 @@ pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, 
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0u64".to_string(),
             TypeRef::Named(_) | TypeRef::Json => format!(
+                // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
                 "compile_error!(\"alef cannot generate WASM binding for {fn_name}; \
                  configure wasm.exclude_functions or make the return type fallible\")"
             ),

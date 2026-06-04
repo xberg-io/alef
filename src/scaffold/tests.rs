@@ -10,6 +10,7 @@ fn test_config() -> ResolvedCrateConfig {
 }
 
 fn test_config_from_toml(extra_crate_config: &str) -> ResolvedCrateConfig {
+    // TODO(alef-generic-cleanup): replace stale my-lib/test metadata fixtures with neutral sample names.
     let cfg: NewAlefConfig = toml::from_str(&format!(
         r#"
 [workspace]
@@ -33,6 +34,7 @@ keywords = ["test"]
 }
 
 fn minimal_config_from_toml(extra_crate_config: &str) -> ResolvedCrateConfig {
+    // TODO(alef-generic-cleanup): replace stale my-lib path fixtures with neutral sample names.
     let cfg: NewAlefConfig = toml::from_str(&format!(
         r#"
 [workspace]

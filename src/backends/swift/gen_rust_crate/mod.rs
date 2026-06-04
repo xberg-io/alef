@@ -294,6 +294,13 @@ fn emit_lib_rs(
         .map(|e| e.name.as_str())
         .collect();
 
+    // Set of TAGGED enum names (variants with fields). These must use JSON deserialization.
+    let tagged_enum_names: HashSet<&str> = visible_enums
+        .iter()
+        .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
+
     // Union of all visible type names (structs + enums) that have swift-bridge wrapper newtypes
     // in the generated lib.rs. Used by trait bridge trampolines to decide whether a Named
     // return type should be wrapped (it has a newtype) or JSON-serialised (excluded/foreign type).
@@ -682,6 +689,7 @@ fn emit_lib_rs(
             &source_crate,
             &type_paths,
             &unit_enum_names,
+            &tagged_enum_names,
             &no_serde_names,
             &handle_returned_types,
         ));

@@ -1899,6 +1899,7 @@ fn make_async_method_php(name: &str, return_type: TypeRef) -> MethodDef {
 }
 
 fn make_node_context_php() -> TypeDef {
+    // TODO(alef-generic-cleanup): Replace markdown visitor DTO names with neutral fixture concepts.
     TypeDef {
         name: "NodeContext".to_string(),
         rust_path: "my_lib::NodeContext".to_string(),
@@ -2078,6 +2079,7 @@ fn test_php_visitor_bridge_has_php_obj_field() {
 fn test_php_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
     use alef::backends::php::trait_bridge::gen_trait_bridge;
 
+    // TODO(alef-generic-cleanup): Replace OCR-shaped plugin bridge fixtures with neutral trait names.
     let trait_def = make_trait_def_php(
         "OcrBackend",
         vec![make_method_php("process", TypeRef::String, true, false)],
@@ -2333,6 +2335,7 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
     );
 }
 
+/// TODO(alef-generic-cleanup): Replace sample-llm fixture references with neutral enum examples.
 /// Regression test: tagged data enums with tuple variants holding distinct inner types
 /// must produce per-variant flat field names, not a shared `_0` field that collapses all
 /// variant types to the first one.  Mirrors the `Message` enum in sample-llm:

@@ -643,6 +643,7 @@ fn gen_struct_methods_impl(
             }
         } else if has_named_params {
             let constructor = format!(
+                // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
                 "pub fn __construct() -> PhpResult<Self> {{\n    \
                  Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()))\n\
                  }}",

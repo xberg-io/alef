@@ -957,6 +957,7 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
+        // TODO(alef-generic-cleanup): Replace conversion-shaped option fixtures with neutral DTO names.
         types: vec![TypeDef {
             name: "ConversionOptions".to_string(),
             rust_path: "test_lib::ConversionOptions".to_string(),
@@ -1086,6 +1087,7 @@ mod trait_bridge {
         ApiSurface {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
+            // TODO(alef-generic-cleanup): Replace markdown visitor DTO names with neutral fixture concepts.
             types: vec![TypeDef {
                 name: "NodeContext".to_string(),
                 rust_path: "my_lib::NodeContext".to_string(),
@@ -2242,6 +2244,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
         binding_exclusion_reason: None,
     };
 
+    // TODO(alef-generic-cleanup): Replace sample-markdown fixture names with neutral visitor examples.
     let trait_def = TypeDef {
         name: "HtmlVisitor".to_string(),
         rust_path: "sample_markdown_rs::visitor::HtmlVisitor".to_string(),
