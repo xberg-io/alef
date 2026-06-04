@@ -134,8 +134,6 @@ fn gen_python_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (S
          }}"
     );
 
-    // TODO(alef-generic-cleanup): replace generated compile_error fallback with a real adapter path.
-    // TODO(alef-generic-cleanup): replace generated callback compile_error fallbacks with real conversions.
     let impl_code = format!(
         "impl {trait_nm} for {struct_name} {{\n    \
              type Input = Py<PyAny>;\n    \

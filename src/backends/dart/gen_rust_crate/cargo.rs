@@ -143,7 +143,6 @@ pub(crate) fn emit_cargo_toml(
     };
 
     // When the Rust ident form of the umbrella crate name (`core_dep_key`,
-    // TODO(alef-generic-cleanup): Replace sample_llm/sample-markdown package examples with neutral fixtures.
     // e.g. `sample_llm`) differs from the actual cargo package name in the
     // umbrella Cargo.toml (`crate_name`, e.g. `sample-llm`), cargo will not
     // resolve the path dependency unless we add an explicit `package = "..."`

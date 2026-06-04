@@ -683,7 +683,6 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> anyhow
 // ---------------------------------------------------------------------------
 
 fn gen_go_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    // TODO(alef-generic-cleanup): replace generated compile_error fallback with a real streaming adapter path.
     let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
@@ -693,7 +692,6 @@ fn gen_go_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn gen_java_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    // TODO(alef-generic-cleanup): replace generated compile_error fallback with a real streaming adapter path.
     let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
@@ -703,7 +701,6 @@ fn gen_java_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn gen_csharp_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    // TODO(alef-generic-cleanup): replace generated compile_error fallback with a real streaming adapter path.
     let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }

@@ -119,7 +119,6 @@ pub(crate) fn swift_call_arg(
             return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
-            // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
             return format!(
                 "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Swift; configure swift.exclude_functions for this item\") }}"
             );
@@ -433,7 +432,6 @@ pub(crate) fn emit_function_shim(
                 let fn_name_snake = swift_ident(&f.name.to_snake_case());
                 return format!(
                     "// alef: skipped — return type `{inner_name}` is excluded from codegen (no serde derive)\n\
-                     // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.\n\
                      pub fn {fn_name_snake}({params_str}) -> {return_ty} {{\n    \
                      compile_error!(\"alef cannot bridge Swift return type {inner_name}; configure swift.exclude_functions for {fn_name_snake} or expose serde for the type\")\n\
                      }}\n"

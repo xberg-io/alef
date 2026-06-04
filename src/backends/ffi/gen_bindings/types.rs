@@ -130,10 +130,8 @@ pub(super) fn gen_field_accessor(
     // When the field has a specific type_rust_path, use it for Named types to avoid
     // ambiguity when multiple types share the same short name.
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
-        // TODO(alef-generic-cleanup): Replace concrete workspace-crate examples with neutral fixture paths.
-        // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
-        // or "sample_core::types::OutputFormat" (already fully qualified with crate prefix)
-        // or "mylib_http::openapi::OpenApiConfig" (sibling workspace crate, common in
+        // type_rust_path may be relative to the crate, already fully qualified with
+        // the crate prefix, or point at a sibling workspace crate when the API uses
         // multi-crate workspaces where the umbrella crate re-exports types).
         // We need the module path prefix without the type name itself.
         // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
@@ -257,10 +255,9 @@ fn gen_field_access_body(
     let field_name = &field.name;
     let mut out = String::with_capacity(2048);
 
-    // TODO(alef-generic-cleanup): Replace downstream-shaped opaque-handle examples with neutral fixture names.
     // An opaque-handle override is a *fallback* for the genuinely impossible case:
-    // a primitive field (e.g. `bool`) whose C type is overridden to a struct handle
-    // (e.g. `CitationResult*`) — there is no value to box, so return null.
+    // a primitive field whose C type is overridden to a struct handle. There is no
+    // value to box in that shape, so return null.
     //
     // But when the field's own type is *already* the Named override type (e.g. a
     // `status: BatchStatus` field overridden to `BatchStatus`), the override is

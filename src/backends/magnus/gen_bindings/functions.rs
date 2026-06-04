@@ -917,7 +917,6 @@ pub(super) fn gen_magnus_unimplemented_body(
     has_error: bool,
 ) -> String {
     use crate::core::ir::TypeRef;
-    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
         crate::backends::magnus::template_env::render(

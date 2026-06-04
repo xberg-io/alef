@@ -22,7 +22,6 @@ public func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] 
     }
     var walker = URL(fileURLWithPath: fm.currentDirectoryPath)
     for _ in 0..<16 {
-        // TODO(alef-generic-cleanup): Replace hardcoded test_documents lookup with fixture-root metadata.
         roots.append(walker.appendingPathComponent("test_documents").path)
         roots.append(walker.appendingPathComponent("fixtures").path)
         let parent = walker.deletingLastPathComponent()

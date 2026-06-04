@@ -190,7 +190,6 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         // Bridge emission filters these functions out; keep this as a compile-time
         // diagnostic for any unconditional call path that reaches conversion.
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
-            // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
             return format!(
                 "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Dart FRB; configure dart.exclude_functions for this item\") }}"
             );

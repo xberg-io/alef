@@ -241,7 +241,6 @@ fn dart_call_arg_with_mirror_transmute(
             return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
-            // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
             return format!(
                 "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Dart FRB; configure dart.exclude_functions for this item\") }}"
             );

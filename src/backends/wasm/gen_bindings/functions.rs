@@ -1006,7 +1006,6 @@ pub(super) fn gen_env_shims(shim_names: &[String]) -> String {
 
 /// Generate a type-appropriate unsupported body for WASM.
 pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
-    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
         format!("Err(JsValue::from_str(\"{err_msg}\"))")
@@ -1024,7 +1023,6 @@ pub(super) fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, 
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0u64".to_string(),
             TypeRef::Named(_) | TypeRef::Json => format!(
-                // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
                 "compile_error!(\"alef cannot generate WASM binding for {fn_name}; \
                  configure wasm.exclude_functions or make the return type fallible\")"
             ),
@@ -1387,7 +1385,6 @@ mod tests {
     fn async_function(params: Vec<ParamDef>) -> FunctionDef {
         FunctionDef {
             name: "interact".to_string(),
-            // TODO(alef-generic-cleanup): Replace sample_crawler WASM regression paths with neutral fixtures.
             rust_path: "sample_crawler::interact".to_string(),
             original_rust_path: String::new(),
             params,
@@ -1669,7 +1666,6 @@ mod tests {
         // and other non-marshalable fields to appear in the generated Input DTO.
         // The generated From impl then emitted serde_json::from_str into the trait
         // object, producing uncompilable Rust in consumer wasm bindings.
-        // TODO(alef-generic-cleanup): Replace sample_crawler/CrawlConfig WASM fixture names with neutral ones.
         use crate::core::ir::{CoreWrapper, FieldDef};
 
         let make_field = |name: &str, ty: TypeRef, binding_excluded: bool, sanitized: bool| FieldDef {

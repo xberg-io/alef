@@ -614,7 +614,6 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
     // (e.g. variants marked `#[doc(hidden)]` or `#[alef(skip)]`).
     // Without this, adding a cfg-gated variant to the source enum causes a
     // non-exhaustive compile error in generated `From` impls.
-    // TODO(alef-generic-cleanup): Replace generated todo fallback with validation diagnostics.
     lines.push(format!(
         "            _ => ::std::todo!(\"unmapped {} variant\"),",
         enum_def.name

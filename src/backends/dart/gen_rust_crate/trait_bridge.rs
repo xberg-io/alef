@@ -80,8 +80,7 @@ pub(crate) fn emit_trait_bridge(
     //   - The factory returns the already-emitted local `type_alias` opaque wrapper
     //     (e.g. `VisitorHandle { inner: Arc<Mutex<...>> }`) which IS exposed to FRB.
     //
-    // TODO(alef-generic-cleanup): Replace plugin/ocr bridge-shape terminology with generic registry metadata.
-    // Bridge configs WITHOUT `type_alias` (the plugin/ocr pattern) keep the legacy
+    // Bridge configs WITHOUT `type_alias` (the registry-factory pattern) keep the legacy
     // factory shape: a `#[frb(opaque)] pub struct TraitDartImpl { Box<dyn Fn(...)> }`
     // exposed directly to FRB and handed to a `register_*` forwarder. Those callsites
     // use the Box-typed fields internally and never construct callbacks from Dart user
@@ -267,8 +266,7 @@ pub(crate) fn emit_trait_bridge(
     //     function type for each closure parameter (whereas closure FIELDS on opaque
     //     structs render as uninstantiable opaque types in FRB v2).
     //
-    // TODO(alef-generic-cleanup): Replace plugin/ocr factory-shape terminology with neutral registry fixtures.
-    // (B) `type_alias` is unset (plugin/ocr pattern): legacy factory shape — takes
+    // (B) `type_alias` is unset (registry-factory pattern): legacy factory shape — takes
     //     `Box<dyn Fn(...) -> DartFnFuture<R> + Send + Sync>` and returns the opaque
     //     bridge struct directly. The Dart-side wiring goes through `register_*` /
     //     `unregister_*` forwarders that consume the bridge struct opaquely.

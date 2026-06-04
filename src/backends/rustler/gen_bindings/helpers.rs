@@ -62,7 +62,6 @@ pub(super) fn emit_elixir_doc_attr(out: &mut String, attr: &str, doc: &str, inde
 
 /// Generate a type-appropriate unsupported body for Rustler.
 pub(super) fn gen_rustler_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
-    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
         format!("Err(String::from(\"{err_msg}\"))")

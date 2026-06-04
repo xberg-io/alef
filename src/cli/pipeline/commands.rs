@@ -211,7 +211,6 @@ pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool
 /// When `coverage` is true, runs coverage commands instead of regular test commands.
 /// When `e2e` is true, also runs e2e test commands.
 pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
-    // TODO(alef-generic-cleanup): Generalize pdfium/libpdfium dynamic-library path handling for e2e fixtures.
     // Compute pdfium dylib path from the workspace target directory.
     // Set DYLD_LIBRARY_PATH/LD_LIBRARY_PATH so pdfium-render can dlopen libpdfium.dylib at runtime.
     let pdfium_dir = compute_pdfium_dir();

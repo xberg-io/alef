@@ -80,7 +80,6 @@ pub(crate) fn bridge_type_with_handles(ty: &TypeRef, handle_types: &HashSet<Stri
 ///    fail with `Error("expected ','")`.
 ///
 /// 2. **Codegen todo** (`bridged_type.rs:1986`): `BuiltInResult::is_custom_result_type()`
-///    TODO(alef-generic-cleanup): Replace references to upstream todo fallback with validation diagnostics.
 ///    returns `true` when the ok type is a `StdLib` non-Vec type (e.g. `Option<T>`,
 ///    primitives). When true, the codegen calls `to_alpha_numeric_underscore_name` on the
 ///    ok type, but `StdLib::Option` and `StdLib::Vec` hit `_ => todo!()` there.
@@ -96,7 +95,6 @@ pub(crate) fn needs_json_bridge(ty: &TypeRef) -> bool {
         // Primitives, String, char, Named opaques, and Vec<u8> (Bytes) are all safe.
         // Anything else (Vec<Option<..>>, Vec<Vec<..>>, Vec<Map<..>>) triggers the parser bug.
         TypeRef::Vec(inner) => !is_bridge_leaf(inner),
-        // TODO(alef-generic-cleanup): Replace references to upstream todo fallback with validation diagnostics.
         // Option<T> as a Result ok-type causes is_custom_result_type()=true + todo!() in
         // to_alpha_numeric_underscore_name. JSON-bridge all Optional types to avoid this.
         TypeRef::Optional(_) => true,

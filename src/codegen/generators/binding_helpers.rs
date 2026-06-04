@@ -1861,7 +1861,6 @@ pub fn gen_async_body(
             )
         }
         AsyncPattern::None => {
-            // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
             "compile_error!(\"async delegation is not supported by this backend; exclude the item or configure an adapter\")"
                 .to_string()
         }
@@ -1900,7 +1899,6 @@ pub fn gen_unimplemented_body(
     } else {
         "configure an adapter body or add this item to the backend exclude list"
     };
-    // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
     let body = format!("compile_error!(\"alef cannot auto-delegate `{fn_name}`; {config_hint}\")");
     format!("{suppress}{body}")
 }

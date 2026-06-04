@@ -634,7 +634,6 @@ pub fn gen_method(
     // `future_into_py` would cause E0283 because the async block only returns `Err`
     // and Rust cannot infer the generic `T` parameter.
     let body = if needs_py && !opaque_can_delegate && !has_adapter {
-        // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
         let err_msg = format!("Not implemented: {type_name}.{}", method.name);
         // Suppress unused parameter warnings — params are not used in the stub body.
         let suppress = if method.params.is_empty() {

@@ -191,7 +191,6 @@ pub(super) fn gen_value_to_c(
 /// Generate a type-appropriate unsupported body for FFI.
 /// Uses set_last_error + null/zero return instead of panicking.
 pub(super) fn gen_ffi_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
-    // TODO(alef-generic-cleanup): Replace generated Not implemented fallback with validation diagnostics.
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error && is_void_return(return_type) {
         // Fallible + void: return error code

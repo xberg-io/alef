@@ -2149,7 +2149,6 @@ fn emit_streaming_sink_method(
     let (body, _struct_def) =
         crate::adapters::streaming::generate_body(adapter, crate::core::config::Language::Dart, config)
             .unwrap_or_else(|_| {
-                // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
                 (
                     String::from(
                         "compile_error!(\"alef cannot generate this Dart streaming adapter; configure a supported adapter body or exclude the method\")",

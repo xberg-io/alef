@@ -11,7 +11,6 @@ impl From<{{ binding_name }}> for {{ core_path }}{% if has_lifetime_params %}<'_
         Self({{ newtype_inner_expr }})
         {%- elif has_explicit_static_new %}
         let _ = val;
-        // TODO(alef-generic-cleanup): Replace generated compile_error fallback with validation diagnostics.
         compile_error!("alef cannot generate From<{{ binding_name }}> for {{ core_path }} because construction requires private or borrowed fields; expose a complete constructor, configure the item as opaque, or exclude it from this backend")
         {%- elif builder_mode %}
         let mut __result = {{ core_path }}::default();
