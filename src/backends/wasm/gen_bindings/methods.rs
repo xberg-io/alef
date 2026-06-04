@@ -139,12 +139,17 @@ pub(super) fn gen_method(
                             ));
                             serde_bindings.push_str("    ");
                         } else {
+                            // In methods context, we only have the current TypeDef, not the full API.
+                            // We assume types without Default will be caught at generation time by validation.
+                            // For now, conservatively pass false (require the param when undefined).
+                            let has_default = false;
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_required",
                                 minijinja::context! {
                                     param_name => &p.name,
                                     core_path => &core_path,
                                     err_conv => &err_conv,
+                                    has_default => has_default,
                                 },
                             ));
                             serde_bindings.push_str("    ");

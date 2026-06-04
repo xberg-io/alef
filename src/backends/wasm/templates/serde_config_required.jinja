@@ -1,5 +1,5 @@
 let {{ param_name }}_input: {{ input_dto_type }} = if {{ param_name }}.is_undefined() {
-        {{ input_dto_type }}::default()
+        {% if has_default %}{{ input_dto_type }}::default(){% else %}return Err(JsValue::from_str("{{ param_name }} is required")){% endif %}
     } else {
         serde_wasm_bindgen::from_value::<{{ input_dto_type }}>({{ param_name }}){{ err_conv }}?
     };
