@@ -1126,7 +1126,23 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
         let short_name = item.item_path.rsplit("::").next().unwrap_or(item.item_path.as_str());
         let by_type_name = is_type_excluded(short_name, &item.item_path, &exclude.types);
         let by_fn_name = item.item_kind == "function" && exclude.functions.contains(&short_name.to_string());
-        !(by_type_name || by_fn_name)
+        // `item_path` for methods is `crate::module::TypeName.method_name`; the tail after
+        // the last `::` is `TypeName.method_name`, which is exactly the format users write in
+        // `[crates.exclude] methods = ["TypeName.method_name"]`.
+        let by_method_name = item.item_kind == "method" && exclude.methods.contains(&short_name.to_string());
+        // Also skip a method on an excluded parent type — when the user excludes
+        // `RequestContext`, every `RequestContext.<method>` should follow it out.
+        let by_parent_excluded = if item.item_kind == "method" {
+            if let Some((owner_short, _)) = short_name.split_once('.') {
+                let owner_full = item.item_path.rsplit_once('.').map(|(p, _)| p).unwrap_or(item.item_path.as_str());
+                is_type_excluded(owner_short, owner_full, &exclude.types)
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        !(by_type_name || by_fn_name || by_method_name || by_parent_excluded)
     });
 
     // Apply method-level excludes: "TypeName.method_name"
@@ -1698,6 +1714,93 @@ mod tests {
         assert!(
             !expanded.contains("Dropped"),
             "function not in include.functions must not pull in its return type; got: {expanded:?}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // apply_filters — exclude.methods suppresses unsupported_public_items
+    // ---------------------------------------------------------------------------
+
+    fn make_unsupported_method(type_name: &str, method_name: &str) -> crate::core::ir::UnsupportedPublicItem {
+        crate::core::ir::UnsupportedPublicItem {
+            item_kind: "method".to_string(),
+            item_path: format!("my_crate::module::{type_name}.{method_name}"),
+            reason: "public generic trait methods cannot be represented without explicit monomorphization metadata".to_string(),
+            suggested_fix: "exclude the method".to_string(),
+        }
+    }
+
+    fn make_unsupported_function(fn_name: &str) -> crate::core::ir::UnsupportedPublicItem {
+        crate::core::ir::UnsupportedPublicItem {
+            item_kind: "function".to_string(),
+            item_path: format!("my_crate::{fn_name}"),
+            reason: "generic function".to_string(),
+            suggested_fix: "exclude the function".to_string(),
+        }
+    }
+
+    /// A method item whose `TypeName.method_name` tail appears in `exclude.methods`
+    /// must be removed from `unsupported_public_items`.
+    #[test]
+    fn apply_filters_removes_unsupported_method_when_excluded_by_methods_list() {
+        let mut surface = surface_with(vec![], vec![]);
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_method("NodeContext", "serialize"));
+
+        let mut config = ResolvedCrateConfig::default();
+        config.exclude.methods = vec!["NodeContext.serialize".to_string()];
+
+        let result = apply_filters(surface, &config);
+
+        assert!(
+            result.unsupported_public_items.is_empty(),
+            "method listed in exclude.methods must be removed from unsupported_public_items; \
+             remaining: {:?}",
+            result.unsupported_public_items
+        );
+    }
+
+    /// A method item whose tail is NOT in `exclude.methods` must be retained so the
+    /// diagnostic still surfaces as a fatal error.
+    #[test]
+    fn apply_filters_retains_unsupported_method_when_not_in_exclude_list() {
+        let mut surface = surface_with(vec![], vec![]);
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_method("NodeContext", "serialize"));
+
+        let mut config = ResolvedCrateConfig::default();
+        config.exclude.methods = vec!["NodeContext.other_method".to_string()];
+
+        let result = apply_filters(surface, &config);
+
+        assert_eq!(
+            result.unsupported_public_items.len(),
+            1,
+            "method NOT in exclude.methods must remain in unsupported_public_items"
+        );
+    }
+
+    /// Non-method items (kind == "function") must be unaffected by `exclude.methods` —
+    /// they are only suppressed by `exclude.functions`.
+    #[test]
+    fn apply_filters_exclude_methods_does_not_affect_unsupported_function_items() {
+        let mut surface = surface_with(vec![], vec![]);
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_function("generic_helper"));
+
+        // Deliberately add the function path tail to exclude.methods — must have no effect.
+        let mut config = ResolvedCrateConfig::default();
+        config.exclude.methods = vec!["generic_helper".to_string()];
+
+        let result = apply_filters(surface, &config);
+
+        assert_eq!(
+            result.unsupported_public_items.len(),
+            1,
+            "exclude.methods must not suppress items with item_kind == 'function'"
         );
     }
 }
