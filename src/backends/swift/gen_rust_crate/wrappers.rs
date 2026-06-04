@@ -919,10 +919,9 @@ pub(crate) fn emit_type_method_shims(
                                 "{name}.into_iter().map(|s| <{source_enum_ty} as ::std::convert::From<String>>::from(s)).collect::<Vec<_>>()"
                             );
                             if p.is_ref {
-                                // Core expects `&[EnumType]`; bind converted Vec locally.
-                                return format!(
-                                    "{{ let __converted = {map_expr}; __converted.as_slice() }}"
-                                );
+                                // Core expects `&[EnumType]`; coerce `&Vec<T>` to `&[T]`. The
+                                // temporary Vec lives for the enclosing call statement.
+                                return format!("&{map_expr}");
                             }
                             if p.optional {
                                 let opt_map = format!(
@@ -947,6 +946,11 @@ pub(crate) fn emit_type_method_shims(
                             return format!(
                                 "{name}.map(|s| <{source_enum_ty} as ::std::convert::From<String>>::from(s))"
                             );
+                        }
+                        if p.is_ref {
+                            // Core takes `&EnumType`; borrow the converted value (lifetime
+                            // covers the surrounding call expression).
+                            return format!("&{from_expr}");
                         }
                         return from_expr;
                     }
@@ -974,6 +978,7 @@ pub(crate) fn emit_type_method_shims(
                     TypeRef::Bytes if p.is_ref => format!("&{name}"),
                     TypeRef::Vec(_)
                         if p.is_ref
+                            && p.vec_inner_is_ref
                             && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)) =>
                     {
                         // Core takes `&[&str]`; swift-bridge delivers `Vec<String>`.

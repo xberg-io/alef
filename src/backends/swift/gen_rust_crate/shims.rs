@@ -172,10 +172,9 @@ pub(crate) fn swift_call_arg(
                     format!("{{ let values = {name}; {map_expr} }}")
                 };
                 if p.is_ref && !p.optional {
-                    // Core expects `&[EnumType]`; bind the Vec to a local and slice it.
-                    return format!(
-                        "{{ let __converted = {{ let values = {name}; {map_expr} }}; __converted.as_slice() }}"
-                    );
+                    // Core expects `&[EnumType]`; coerce `&Vec<T>` to `&[T]`. The temporary
+                    // Vec lives for the enclosing call statement.
+                    return format!("&{{ let values = {name}; {map_expr} }}");
                 }
                 return converted;
             }
@@ -278,10 +277,8 @@ pub(crate) fn swift_call_arg(
                 return format!("{name}.map(|v| v.into_iter().map(|w| w.0).collect::<Vec<_>>())");
             }
             if p.is_ref {
-                // sample_core expects &[T]. Collect to a temporary Vec and slice it.
-                return format!(
-                    "{{ let __tmp = {name}.iter().map(|w| w.0.clone()).collect::<Vec<_>>(); __tmp.as_slice() }}"
-                );
+                // sample_core expects &[T]. The temporary Vec lives for the enclosing call.
+                return format!("&{name}.iter().map(|w| w.0.clone()).collect::<Vec<_>>()");
             }
             return format!("{name}.into_iter().map(|w| w.0).collect::<Vec<_>>()");
         }
