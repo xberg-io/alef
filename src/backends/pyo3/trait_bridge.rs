@@ -476,10 +476,7 @@ fn gen_visitor_bridge(
 
     // Trait impl — collect all methods
     let mut methods_code = String::new();
-    for method in &trait_type.methods {
-        if method.trait_source.is_some() {
-            continue;
-        }
+    for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method(
             &mut methods_code,
             method,

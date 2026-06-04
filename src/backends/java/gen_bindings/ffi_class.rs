@@ -758,6 +758,7 @@ struct VisitorFunctionBridge {
     options_param_c: String,
     options_type_handle: String,
     options_field_java: String,
+    options_field_native: String,
     internal_method_name: String,
 }
 
@@ -786,6 +787,7 @@ fn visitor_bridge_for_trait_bridge(func: &FunctionDef, bridge: &TraitBridgeConfi
         options_type_handle: options_type.to_snake_case().to_uppercase(),
         options_param_java,
         options_field_java: safe_java_field_name(options_field),
+        options_field_native: options_field.to_snake_case(),
         internal_method_name: format!("{}WithVisitorInternal", to_java_name(&func.name)),
     })
 }
@@ -825,6 +827,11 @@ fn gen_convert_with_visitor_internal_method(
 ) -> String {
     let mut out = String::with_capacity(2048);
     let pu = prefix.to_uppercase();
+    let options_set_handle = format!(
+        "{}_OPTIONS_SET_{}",
+        pu,
+        visitor_bridge.options_field_native.to_uppercase()
+    );
     let exc = format!("{class_name}Exception");
     let params: Vec<String> = func
         .params
@@ -906,9 +913,8 @@ fn gen_convert_with_visitor_internal_method(
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_set_visitor.jinja",
         minijinja::context! {
-            pu => &pu,
+            handle_name => &options_set_handle,
             options_ptr => &visitor_bridge.options_param_c,
-            options_type_handle => &visitor_bridge.options_type_handle,
         },
     ));
     let call_args: Vec<String> = func
@@ -1201,6 +1207,65 @@ mod tests {
         assert!(out.contains("TEST_FREE_BYTES"), "should call FREE_BYTES");
         assert!(out.contains("return Optional.empty();"));
         assert!(out.contains("return Optional.of(result);"));
+    }
+
+    #[test]
+    fn test_options_field_visitor_setter_uses_configured_renderer_field() {
+        let api = ApiSurface {
+            functions: vec![FunctionDef {
+                name: "parse".to_string(),
+                rust_path: "syntax::parse".to_string(),
+                params: vec![
+                    ParamDef {
+                        name: "source".to_string(),
+                        ty: TypeRef::String,
+                        ..ParamDef::default()
+                    },
+                    ParamDef {
+                        name: "options".to_string(),
+                        ty: TypeRef::Named("ParseOptions".to_string()),
+                        ..ParamDef::default()
+                    },
+                ],
+                return_type: TypeRef::Named("WalkOutcome".to_string()),
+                error_type: Some("ParseError".to_string()),
+                ..FunctionDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+        let config = ResolvedCrateConfig {
+            trait_bridges: vec![TraitBridgeConfig {
+                trait_name: "SyntaxWalker".to_string(),
+                type_alias: Some("SyntaxWalkerHandle".to_string()),
+                param_name: Some("renderer".to_string()),
+                bind_via: BridgeBinding::OptionsField,
+                options_type: Some("ParseOptions".to_string()),
+                options_field: Some("renderer".to_string()),
+                context_type: Some("SyntaxContext".to_string()),
+                result_type: Some("WalkOutcome".to_string()),
+                ..TraitBridgeConfig::default()
+            }],
+            ..ResolvedCrateConfig::default()
+        };
+        let out = gen_main_class(
+            &api,
+            &config,
+            "dev.syntax",
+            "Syntax",
+            "syn",
+            &HashSet::new(),
+            &HashSet::new(),
+            true,
+        );
+
+        assert!(
+            out.contains("NativeLib.SYN_OPTIONS_SET_RENDERER.invoke("),
+            "Java options-field bridge must invoke the renderer-derived setter"
+        );
+        assert!(
+            !out.contains("SYN_OPTIONS_SET_VISITOR_HANDLE") && !out.contains("options_set_visitor_handle"),
+            "Java options-field bridge must not bind the legacy visitor_handle setter"
+        );
     }
 
     #[test]

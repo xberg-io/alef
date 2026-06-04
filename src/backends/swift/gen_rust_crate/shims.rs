@@ -148,9 +148,7 @@ pub(crate) fn swift_call_arg(
             // unit enum is required to implement.
             let from_expr = format!("<{native_ty} as ::std::convert::From<String>>::from({name})");
             if p.optional {
-                return format!(
-                    "{name}.map(|s| <{native_ty} as ::std::convert::From<String>>::from(s))"
-                );
+                return format!("{name}.map(|s| <{native_ty} as ::std::convert::From<String>>::from(s))");
             }
             return from_expr;
         }

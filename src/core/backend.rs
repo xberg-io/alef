@@ -1,5 +1,6 @@
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
+use crate::core::validation::ValidatedApiSurface;
 use std::path::PathBuf;
 
 /// Build-time dependency for a language backend.
@@ -104,7 +105,7 @@ pub struct Capabilities {
     ///
     /// Backends that support service API generation set this to `true` and
     /// override `generate_service_api`.  When `false` and a crate has non-empty
-    /// `services`, the generation pipeline emits a diagnostic warning.
+    /// `services`, the generation pipeline emits a fatal readiness diagnostic.
     pub supports_service_api: bool,
 }
 
@@ -122,6 +123,15 @@ pub trait Backend: Send + Sync {
     /// Generate binding source code.
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>>;
 
+    /// Generate binding source code from a centrally validated API surface.
+    fn generate_bindings_checked(
+        &self,
+        api: ValidatedApiSurface<'_>,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        self.generate_bindings(api.api(), config)
+    }
+
     /// Generate type stubs (.pyi, .rbs, .d.ts). Optional — default returns empty.
     fn generate_type_stubs(
         &self,
@@ -129,6 +139,15 @@ pub trait Backend: Send + Sync {
         _config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         Ok(vec![])
+    }
+
+    /// Generate type stubs from a centrally validated API surface.
+    fn generate_type_stubs_checked(
+        &self,
+        api: ValidatedApiSurface<'_>,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        self.generate_type_stubs(api.api(), config)
     }
 
     /// Generate package scaffolding. Optional — default returns empty.
@@ -149,6 +168,15 @@ pub trait Backend: Send + Sync {
         Ok(vec![])
     }
 
+    /// Generate public API wrappers from a centrally validated API surface.
+    fn generate_public_api_checked(
+        &self,
+        api: ValidatedApiSurface<'_>,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        self.generate_public_api(api.api(), config)
+    }
+
     /// Generate the idiomatic service/app object and async handler bridge for a
     /// backend that supports service API generation.
     ///
@@ -163,6 +191,15 @@ pub trait Backend: Send + Sync {
         _config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         Ok(vec![])
+    }
+
+    /// Generate service API wrappers from a centrally validated API surface.
+    fn generate_service_api_checked(
+        &self,
+        api: ValidatedApiSurface<'_>,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        self.generate_service_api(api.api(), config)
     }
 
     /// Build configuration for this backend. Returns `None` if build is not supported.

@@ -12,6 +12,6 @@ Audit bindings for coverage gaps — is every public Rust item exposed in every 
 4. Diff across targets: identify items present in some bindings but not others. That gap is the bug.
 5. **Triage outcomes:**
    - **Codegen issue** → fix in alef repo (`../alef`), update `CHANGELOG.md` `[Unreleased]`, commit, normal release flow.
-   - **Shared action bug** → fix in `../actions`, commit, then retag `v1.0.0` and `v1` on the new commit and force-push *only those two tags*.
+   - **Alef-owned workflow/action bug** → fix the owning Alef workflow/action repository, commit, then retag only the documented action tags for that repository.
    - **Per-target config gap** → fix the downstream repo's `alef.toml`; do not touch alef or actions.
 6. Always update `CHANGELOG.md` `[Unreleased]` on each upstream commit; use `--no-verify` only when hooks block a critical fix and re-run hooks afterwards.

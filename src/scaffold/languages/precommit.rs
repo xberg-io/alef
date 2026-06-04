@@ -62,7 +62,7 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             include_shared_hooks => include_shared_hooks,
             shared_hooks_repo => precommit.and_then(|p| p.shared_hooks_repo.as_deref()).unwrap_or(""),
             shared_hooks_rev => precommit.and_then(|p| p.shared_hooks_rev.as_deref()).unwrap_or(""),
-            include_alef_hooks => precommit_bool(precommit, |p| p.include_alef_hooks, true),
+            include_alef_hooks => precommit_bool(precommit, |p| p.include_alef_hooks, false),
             alef_hooks_repo => precommit_string(precommit, |p| p.alef_hooks_repo.as_deref(), DEFAULT_ALEF_HOOKS_REPO),
             alef_hooks_rev => precommit_string(precommit, |p| p.alef_hooks_rev.as_deref(), tv::precommit::ALEF_REV),
             alef_hooks_are_local => precommit

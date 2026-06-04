@@ -454,10 +454,8 @@ fn gen_visitor_bridge(
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Wasm,
     )?;
-    let methods: Vec<_> = trait_type
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none())
+    let methods: Vec<_> = crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg)
+        .into_iter()
         .map(|method| {
             let mut method_out = String::new();
             gen_visitor_method_wasm(&mut method_out, method, bridge_cfg, type_paths, &result_metadata);

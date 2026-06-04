@@ -812,13 +812,11 @@ pub struct CallConfig {
     ///
     /// - `Some(true)`: force streaming semantics regardless of fixture shape.
     /// - `Some(false)`: disable streaming auto-detection — assertions referencing
-    ///   fields like `chunks` / `chunks.length` / `tool_calls` / `finish_reason`
-    ///   are treated as plain field accessors on the result, not streaming
-    ///   adapters. Use this when your API has a `chunks` field that is a regular
-    ///   list (not an async stream).
+    ///   neutral stream fields like `stream.items` / `stream.items.length` are
+    ///   treated as plain field accessors on the result, not streaming adapters.
     /// - `None` (default): auto-detect — treat as streaming when either the
     ///   fixture provides a streaming `mock_response` or any assertion references
-    ///   a hard-coded streaming-virtual-field name.
+    ///   a neutral streaming-virtual-field name.
     #[serde(default)]
     pub streaming: Option<StreamingConfig>,
     /// When `true`, the function returns `Option<T>`.

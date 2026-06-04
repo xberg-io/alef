@@ -78,6 +78,45 @@ impl<'a> TraitBridgeSpec<'a> {
     }
 }
 
+/// Return visitor callback methods configured for visitor-style bridges.
+///
+/// A visitor callback is an own trait method whose return type is the configured
+/// visitor result type and whose parameters include the configured context type.
+pub fn visitor_callback_methods<'a>(trait_def: &'a TypeDef, bridge_config: &TraitBridgeConfig) -> Vec<&'a MethodDef> {
+    trait_def
+        .methods
+        .iter()
+        .filter(|method| is_visitor_callback_method(method, bridge_config))
+        .collect()
+}
+
+fn is_visitor_callback_method(method: &MethodDef, bridge_config: &TraitBridgeConfig) -> bool {
+    if method.trait_source.is_some() {
+        return false;
+    }
+
+    let Some(result_type) = bridge_config.result_type.as_deref() else {
+        return false;
+    };
+    let Some(context_type) = bridge_config.context_type.as_deref() else {
+        return false;
+    };
+
+    type_ref_matches_name(&method.return_type, result_type)
+        && method
+            .params
+            .iter()
+            .any(|param| type_ref_matches_name(&param.ty, context_type))
+}
+
+fn type_ref_matches_name(ty: &TypeRef, name: &str) -> bool {
+    match ty {
+        TypeRef::Named(type_name) => type_name == name,
+        TypeRef::Optional(inner) => type_ref_matches_name(inner, name),
+        _ => false,
+    }
+}
+
 /// Backend-specific trait bridge generation.
 ///
 /// Each binding backend (PyO3, NAPI-RS, wasm-bindgen, etc.) implements this trait

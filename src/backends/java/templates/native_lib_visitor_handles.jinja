@@ -14,9 +14,4 @@
         FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
     );
 
-    static final MethodHandle {{ prefix_upper }}_OPTIONS_SET_VISITOR_HANDLE = LINKER.downcallHandle(
-        LIB.find("{{ prefix }}_options_set_visitor_handle")
-            .or(() -> LIB.find("_{{ prefix }}_options_set_visitor_handle"))  // Try underscore-prefixed variant for macOS
-            .orElseThrow(),
-        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS)
-    );
+{{ options_set_handles }}

@@ -48,7 +48,7 @@ pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateC
     // configured sources and injected into the owner type's method list; the
     // owner is later marked `binding_excluded`, so they never reach the generic
     // struct/trait codegen.
-    recover_service_methods(surface, config);
+    warnings.extend(recover_service_methods(surface, config));
 
     // Build handler contracts first so we can reference them from service defs.
     for hc_cfg in &config.handler_contracts {
@@ -123,7 +123,8 @@ fn mark_variant_wrapper_types(surface: &mut ApiSurface) {
 /// constructor, configurators, registrations, and entrypoints — is recovered when
 /// absent from the owner type's already-extracted methods. Recovered methods are
 /// injected into the owner `TypeDef`.
-fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
+fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfig) -> Vec<String> {
+    let mut errors = Vec::new();
     // (owner_type, method_name) pairs configured but missing from the surface.
     let mut wanted: Vec<(String, String)> = Vec::new();
     for svc in &config.services {
@@ -147,7 +148,7 @@ fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfi
         }
     }
     if wanted.is_empty() {
-        return;
+        return errors;
     }
 
     // Candidate source paths (mirror the pipeline's source grouping).
@@ -162,14 +163,43 @@ fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfi
 
     let aliases = ahash::AHashSet::new();
     for src in sources {
-        let Ok(content) = std::fs::read_to_string(src) else {
-            continue;
+        let content = match std::fs::read_to_string(src) {
+            Ok(content) => content,
+            Err(err) => {
+                errors.push(format!(
+                    "service recovery: failed to read configured source `{}`: {err}",
+                    src.display()
+                ));
+                continue;
+            }
         };
-        let Ok(file) = syn::parse_file(&content) else {
-            continue;
+        let file = match syn::parse_file(&content) {
+            Ok(file) => file,
+            Err(err) => {
+                errors.push(format!(
+                    "service recovery: failed to parse configured source `{}`: {err}",
+                    src.display()
+                ));
+                continue;
+            }
         };
         recover_from_items(&file.items, &config.name, &aliases, &wanted, surface);
     }
+
+    for (owner, method) in wanted {
+        let recovered = surface
+            .types
+            .iter()
+            .find(|typ| typ.name == owner && !typ.is_trait)
+            .is_some_and(|typ| typ.methods.iter().any(|candidate| candidate.name == method));
+        if !recovered {
+            errors.push(format!(
+                "service `{owner}`: configured method `{method}` could not be recovered from configured sources"
+            ));
+        }
+    }
+
+    errors
 }
 
 /// Walk parsed items (recursing into inline modules) for inherent impl blocks on a
@@ -311,11 +341,16 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
         .clone();
 
     // Configurators
-    let configurators: Vec<MethodDef> = cfg
-        .configurators
-        .iter()
-        .filter_map(|name| find_method(methods, name).cloned())
-        .collect();
+    let mut configurators = Vec::with_capacity(cfg.configurators.len());
+    for configurator_name in &cfg.configurators {
+        let configurator = find_method(methods, configurator_name).ok_or_else(|| {
+            format!(
+                "service `{}`: configurator method `{}` not found",
+                cfg.owner_type, configurator_name
+            )
+        })?;
+        configurators.push(configurator.clone());
+    }
 
     // Registrations — built from RegistrationSpec, sourcing the method from
     // the owner's methods. Note: these methods were extracted with the
@@ -889,6 +924,42 @@ pub trait IntoHandler {}
             "missing owner type must produce a warning, got none"
         );
         assert!(surface.services.is_empty(), "no ServiceDef must be pushed on failure");
+    }
+
+    #[test]
+    fn missing_configured_configurator_returns_error() {
+        let (_dir, file_path, mut surface) = extract_source_persistent(SERVICE_SOURCE);
+        let mut config = make_resolved_config_with_service();
+        config.sources = vec![file_path];
+        config.services[0].configurators = vec!["missing_configurator".to_string()];
+
+        let errors = extract_services(&mut surface, &config);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("configurator method `missing_configurator` not found")),
+            "configured missing configurator must be fatal, got {errors:?}"
+        );
+        assert!(surface.services.is_empty(), "invalid service must not be emitted");
+    }
+
+    #[test]
+    fn unrecovered_configured_method_returns_error() {
+        let (_dir, file_path, mut surface) = extract_source_persistent(SERVICE_SOURCE);
+        let mut config = make_resolved_config_with_service();
+        config.sources = vec![file_path];
+        config.services[0].registrations[0].method = "missing_registration".to_string();
+
+        let errors = extract_services(&mut surface, &config);
+
+        assert!(
+            errors.iter().any(|error| {
+                error.contains("service `App`: configured method `missing_registration` could not be recovered")
+            }),
+            "configured missing service method must fail recovery, got {errors:?}"
+        );
+        assert!(surface.services.is_empty(), "invalid service must not be emitted");
     }
 
     #[test]

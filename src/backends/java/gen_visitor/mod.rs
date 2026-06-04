@@ -23,6 +23,7 @@ pub use callbacks::{CallbackSpec, ExtraParam};
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
+use heck::ToSnakeCase;
 
 // ---------------------------------------------------------------------------
 // Public API: generate visitor-related Java source files
@@ -49,13 +50,28 @@ pub fn has_visitor_generation_metadata(api: &ApiSurface, config: &ResolvedCrateC
 /// Generate NativeLib method handle declarations for visitor FFI functions.
 ///
 /// These lines are injected into the `NativeLib` class body after the normal handles.
-pub fn gen_native_lib_visitor_handles(prefix: &str) -> String {
+pub fn gen_native_lib_visitor_handles(prefix: &str, options_fields: &[String]) -> String {
     let pu = prefix.to_uppercase();
+    let options_set_handles = options_fields
+        .iter()
+        .map(|field| {
+            let field_snake = field.to_snake_case();
+            crate::backends::java::template_env::render(
+                "native_lib_options_set_visitor_handle.jinja",
+                minijinja::context! {
+                    handle_name => format!("{}_OPTIONS_SET_{}", pu, field_snake.to_uppercase()),
+                    ffi_name => format!("{prefix}_options_set_{field_snake}"),
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("");
     crate::backends::java::template_env::render(
         "native_lib_visitor_handles.jinja",
         minijinja::context! {
             prefix => prefix,
             prefix_upper => pu,
+            options_set_handles => options_set_handles,
         },
     )
 }
@@ -156,12 +172,30 @@ mod tests {
 
     #[test]
     fn gen_native_lib_visitor_handles_includes_all_three_handles() {
-        let out = gen_native_lib_visitor_handles("htm");
+        let out = gen_native_lib_visitor_handles("htm", &["visitor".to_string()]);
         assert!(out.contains("HTM_VISITOR_CREATE"), "must have visitor create handle");
         assert!(out.contains("HTM_VISITOR_FREE"), "must have visitor free handle");
         assert!(
-            out.contains("HTM_OPTIONS_SET_VISITOR_HANDLE"),
+            out.contains("HTM_OPTIONS_SET_VISITOR"),
             "must have options set visitor handle"
+        );
+    }
+
+    #[test]
+    fn gen_native_lib_visitor_handles_uses_configured_options_field() {
+        let out = gen_native_lib_visitor_handles("syn", &["renderer".to_string()]);
+
+        assert!(
+            out.contains("SYN_OPTIONS_SET_RENDERER"),
+            "must derive handle from renderer field"
+        );
+        assert!(
+            out.contains("syn_options_set_renderer"),
+            "must derive native symbol from renderer field"
+        );
+        assert!(
+            !out.contains("SYN_OPTIONS_SET_VISITOR_HANDLE") && !out.contains("syn_options_set_visitor_handle"),
+            "options-field mode must not bind the legacy visitor_handle setter"
         );
     }
 

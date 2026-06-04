@@ -77,11 +77,7 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
             "Kotlin scaffold requires package metadata license; set package_metadata.license or scaffold.license"
         )
     })?;
-    let repo_path = repo_url
-        .strip_prefix("https://github.com/")
-        .or_else(|| repo_url.strip_prefix("http://github.com/"))
-        .unwrap_or_else(|| repo_url.trim_start_matches("https://"))
-        .to_string();
+    let scm = scm_urls(&repo_url);
     let license_url = match license {
         "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
         "MIT" => "https://opensource.org/licenses/MIT",
@@ -124,6 +120,8 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     };
     let description = kt(&meta.description);
     let repo_url = kt(&repo_url);
+    let scm_connection = kt(&scm.connection);
+    let scm_developer_connection = kt(&scm.developer_connection);
 
     // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
     // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
@@ -257,8 +255,8 @@ mavenPublishing {{
     url.set("{repo_url}")
 {licenses_block}{developers_block}    scm {{
       url.set("{repo_url}")
-      connection.set("scm:git:git://github.com/{repo_path}.git")
-      developerConnection.set("scm:git:ssh://git@github.com:{repo_path}.git")
+      connection.set("{scm_connection}")
+      developerConnection.set("{scm_developer_connection}")
     }}
   }}
 }}
@@ -271,6 +269,8 @@ mavenPublishing {{
         ktlint = ktlint,
         kotlin_artifact_id = kotlin_artifact_id,
         binding_class = binding_class,
+        scm_connection = scm_connection,
+        scm_developer_connection = scm_developer_connection,
     );
 
     let settings_gradle = format!("rootProject.name = \"{project_name}\"\n");
@@ -421,6 +421,30 @@ object Sample {{
             generated_header: false,
         },
     ])
+}
+
+struct ScmUrls {
+    connection: String,
+    developer_connection: String,
+}
+
+fn scm_urls(repository: &str) -> ScmUrls {
+    let normalized = repository.trim_end_matches(".git");
+    let without_scheme = normalized
+        .strip_prefix("https://")
+        .or_else(|| normalized.strip_prefix("http://"))
+        .unwrap_or(normalized);
+    let (host, path) = without_scheme.split_once('/').unwrap_or((without_scheme, ""));
+    let suffix = if path.is_empty() {
+        String::new()
+    } else {
+        format!("/{path}.git")
+    };
+
+    ScmUrls {
+        connection: format!("scm:git:git://{host}{suffix}"),
+        developer_connection: format!("scm:git:ssh://git@{host}{suffix}"),
+    }
 }
 
 fn kotlin_native_def(config: &ResolvedCrateConfig) -> String {

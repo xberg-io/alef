@@ -255,3 +255,203 @@ fn visitor_result_policy_is_metadata_driven_for_napi_wasm_pyo3_magnus_extendr_an
     .expect("rustler visitor bridge should generate");
     assert_metadata_driven(&rustler.code);
 }
+
+#[test]
+fn visitor_callbacks_are_filtered_by_configured_context_and_result_for_dynamic_backends() {
+    let api = syntax_api();
+    let trait_def = api.types.iter().find(|typ| typ.name == "SyntaxWalker").unwrap();
+    let bridge_cfg = syntax_bridge_cfg();
+
+    let napi = alef::backends::napi::trait_bridge::gen_trait_bridge(
+        trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+    )
+    .expect("napi visitor bridge should generate");
+    assert_filtered_callback_surface(&napi.code, "JsSyntaxWalkerBridge");
+
+    let wasm = alef::backends::wasm::trait_bridge::gen_trait_bridge(
+        trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+    )
+    .expect("wasm visitor bridge should generate");
+    assert_filtered_callback_surface(&wasm.code, "WasmSyntaxWalkerBridge");
+
+    let pyo3 = alef::backends::pyo3::trait_bridge::gen_trait_bridge(
+        trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+    )
+    .expect("pyo3 visitor bridge should generate");
+    assert_filtered_callback_surface(&pyo3.code, "PySyntaxWalkerBridge");
+
+    let magnus = alef::backends::magnus::trait_bridge::gen_trait_bridge(
+        trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+    )
+    .expect("magnus visitor bridge should generate");
+    assert_filtered_callback_surface(&magnus, "RbSyntaxWalkerBridge");
+
+    let extendr = alef::backends::extendr::trait_bridge::gen_trait_bridge(
+        trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+    )
+    .expect("extendr visitor bridge should generate");
+    assert_filtered_callback_surface(&extendr.code, "RSyntaxWalkerBridge");
+
+    let rustler = alef::backends::rustler::trait_bridge::gen_trait_bridge(
+        trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+    )
+    .expect("rustler visitor bridge should generate");
+    assert_filtered_callback_surface(&rustler.code, "ElixirSyntaxWalkerBridge");
+}
+
+fn assert_filtered_callback_surface(code: &str, bridge_name: &str) {
+    assert!(
+        code.contains(bridge_name),
+        "visitor bridge should include {bridge_name}"
+    );
+    assert!(
+        code.contains("fn enter_syntax("),
+        "matching callback should be emitted:\n{code}"
+    );
+    assert!(
+        !code.contains("fn collect_options("),
+        "method with wrong return type should be excluded:\n{code}"
+    );
+    assert!(
+        !code.contains("fn configure_parse("),
+        "method without configured context param should be excluded:\n{code}"
+    );
+    assert!(
+        !code.contains("fn inherited_enter("),
+        "inherited visitor method should still be excluded:\n{code}"
+    );
+}
+
+fn syntax_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            type_def("SyntaxContext", "my_lib::syntax::SyntaxContext", false, vec![]),
+            type_def("ParseOptions", "my_lib::syntax::ParseOptions", false, vec![]),
+            type_def("SyntaxWalker", "my_lib::syntax::SyntaxWalker", true, syntax_methods()),
+        ],
+        functions: vec![],
+        enums: vec![walk_outcome_enum()],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    }
+}
+
+fn syntax_methods() -> Vec<MethodDef> {
+    let mut inherited = syntax_method(
+        "inherited_enter",
+        TypeRef::Named("WalkOutcome".to_string()),
+        vec![param("context", TypeRef::Named("SyntaxContext".to_string()))],
+    );
+    inherited.trait_source = Some("BaseSyntaxWalker".to_string());
+
+    vec![
+        syntax_method(
+            "enter_syntax",
+            TypeRef::Named("WalkOutcome".to_string()),
+            vec![param("context", TypeRef::Named("SyntaxContext".to_string()))],
+        ),
+        syntax_method(
+            "collect_options",
+            TypeRef::Named("ParseOptions".to_string()),
+            vec![param("context", TypeRef::Named("SyntaxContext".to_string()))],
+        ),
+        syntax_method(
+            "configure_parse",
+            TypeRef::Named("WalkOutcome".to_string()),
+            vec![param("options", TypeRef::Named("ParseOptions".to_string()))],
+        ),
+        inherited,
+    ]
+}
+
+fn syntax_method(name: &str, return_type: TypeRef, params: Vec<ParamDef>) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::RefMut),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: true,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+fn walk_outcome_enum() -> EnumDef {
+    EnumDef {
+        name: "WalkOutcome".to_string(),
+        rust_path: "my_lib::syntax::WalkOutcome".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "Proceed".to_string(),
+            is_default: true,
+            ..EnumVariant::default()
+        }],
+        doc: String::new(),
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+    }
+}
+
+fn syntax_bridge_cfg() -> TraitBridgeConfig {
+    TraitBridgeConfig {
+        trait_name: "SyntaxWalker".to_string(),
+        type_alias: Some("SyntaxWalkerHandle".to_string()),
+        options_type: Some("ParseOptions".to_string()),
+        options_field: Some("walker".to_string()),
+        context_type: Some("SyntaxContext".to_string()),
+        result_type: Some("WalkOutcome".to_string()),
+        ..TraitBridgeConfig::default()
+    }
+}
