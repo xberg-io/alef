@@ -124,11 +124,17 @@ pub mod pypi {
 
 pub mod gem {
     // renovate: datasource=rubygems depName=rb_sys
-    // Bundler's gemspec DSL rejects comma-joined requirements ("Illformed
-    // requirement"); a single constraint string is required. The 0.9.128 mingw
-    // sysroot issue is enforced at the cross-compile layer, not in the
-    // published-gem constraint.
-    pub const RB_SYS: &str = ">= 0.9";
+    // Emitted as multiple positional args to `add_dependency` / `gem` so
+    // Gemfile.lock resolution honours the `< 0.9.128` upper bound. rb_sys
+    // 0.9.128 ships a mingw cross sysroot that breaks rb-sys-dock's clang
+    // bindgen on the x64-mingw-ucrt target; bundler reads the gemspec / Gemfile
+    // when resolving the lockfile, so the cross-compile-layer `gem install
+    // rb_sys -v '< 0.9.128'` before `bundle install` is NOT sufficient — the
+    // upper-bound constraint must live in the source manifests too. The
+    // template-side emit strips the surrounding quotes so this string can hold
+    // a comma-separated list of quoted constraints that lands as separate
+    // positional args, which `add_dependency` / `gem` accepts.
+    pub const RB_SYS: &str = "\">= 0.9\", \"< 0.9.128\"";
 
     // renovate: datasource=rubygems depName=sorbet-runtime
     pub const SORBET_RUNTIME: &str = "~> 0.5";
@@ -449,5 +455,5 @@ pub mod precommit {
     pub const SAMPLE_CRATE_PRECOMMIT_HOOKS_REV: &str = "v1.1.17";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.22.23";
+    pub const ALEF_REV: &str = "v0.22.24";
 }

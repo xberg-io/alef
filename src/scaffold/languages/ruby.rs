@@ -209,7 +209,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.extensions    = ["ext/{ext_name}/native/extconf.rb"]
 
-  spec.add_dependency "rb_sys", "{rb_sys}"
+  spec.add_dependency "rb_sys", {rb_sys}
   spec.add_dependency "sorbet-runtime", "{sorbet_runtime}"
 end
 "#,
@@ -418,7 +418,7 @@ gemspec
 
 group :development do
   gem "rake-compiler", "{rake_compiler}"
-  gem "rb_sys", "{rb_sys}"
+  gem "rb_sys", {rb_sys}
   gem "rspec", "{rspec}"
   gem "rubocop", "{rubocop}"
   gem "rubocop-performance", "{rubocop_performance}"

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.24] - 2026-06-04
+
+### Fixed
+
+- fix(scaffold/ruby): pin gemspec + Gemfile `rb_sys` to `">= 0.9", "< 0.9.128"` via multi-arg `add_dependency` / `gem`. Previously the single-arg `">= 0.9"` constraint let Gemfile.lock resolve to rb_sys 0.9.128, which ships a mingw cross sysroot whose `<sys/select.h>` include path is broken under rb-sys-dock's clang bindgen on the x64-mingw-ucrt target. The `gem install rb_sys -v '< 0.9.128'` injected before `bundle install` in the publish workflow is NOT sufficient — bundler reads the gemspec when resolving the lockfile, so the upper bound must live in source. The bundler-rejected comma-joined form is avoided by passing each constraint as a separate positional argument. (`src/core/template_versions.rs`, `src/scaffold/languages/ruby.rs`)
+
 ## [0.22.23] - 2026-06-04
 
 ### Fixed
