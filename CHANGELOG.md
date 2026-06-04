@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ffi gen_bindings/functions (returns_ref Map)**: split `TypeRef::Vec(_) | TypeRef::Map(_, _)` match arm so `Map` uses `.clone()` instead of `.to_vec()`. `BTreeMap` has no `.to_vec()` method (only slices do), so the merged arm caused a compile error when a core method returns `&BTreeMap` with `returns_ref=true`. Now `Vec` still uses `.to_vec()` and `Map` uses `.clone()`. (`src/backends/ffi/gen_bindings/functions.rs`)
+
 - **ffi gen_visitor (Cow field CString)**: emit `.as_ref()` instead of `.as_str()` when converting a `Cow<'_, str>` context field to `CString`. `Cow::as_str()` is a recently-stabilised unstable API (`str_as_str` feature gate) and fails to compile on stable Rust. `as_ref()` returns `&str` via `Deref<Target=str>` and works on all stable toolchains. (`src/backends/ffi/gen_visitor.rs`)
 
 - **gen_method (non-opaque delegation, returns_ref Map)**: emit `.iter().map(|(k, v)| (k.clone(), v.clone())).collect()` conversion when a `Map` return type has `returns_ref=true`. Core methods returning `&BTreeMap<K, V>` previously received no suffix in the result_wrap match (falling through to `_ => String::new()`), so the generated binding returned `&BTreeMap` instead of the binding-side `HashMap`, causing a type mismatch. The fix adds an explicit `TypeRef::Map` arm that applies the iterator-collect conversion only when `returns_ref=true`. (`src/codegen/generators/methods.rs`)
