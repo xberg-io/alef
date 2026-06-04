@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-06-04
+
 ### Fixed
 
 - **ffi/napi backends — Cow<str> param passing**: emit `{name}.into()` (owned) or `{name}.map(std::borrow::Cow::Owned)` (optional) when the IR records `core_wrapper = CoreWrapper::Cow` for a `String`-typed parameter. Previously both backends passed the raw `String` value directly, causing E0308 type mismatch when the Rust core function expects `Cow<'_, str>` or `Option<Cow<'_, str>>`. The extractor now sets `ParamDef.core_wrapper = CoreWrapper::Cow` when the original type is `Cow<'_, str>` (detected by inspecting the syn AST for the `Cow<'_, str>` path before type erasure). (`src/core/ir.rs`, `src/extract/extractor/functions.rs`, `src/backends/ffi/gen_bindings/functions.rs`, `src/backends/napi/gen_bindings/functions.rs`)
