@@ -2335,33 +2335,31 @@ PHP_ARG_ENABLE([{}],
   [yes])
 
 if test "$PHP_{}_ENABLED" = "yes"; then
-  dnl Recognize the extension directory for phpize/make
+  dnl Register the extension directory so phpize creates modules/ and sets up build rules.
   PHP_NEW_EXTENSION({}, [], $ext_shared)
 
-  dnl Invoke cargo build to compile the Rust FFI library
+  dnl Invoke cargo build to compile the Rust FFI library and copy it to modules/.
   AC_CONFIG_COMMANDS([cargo-build], [
     if test -f "crates/{}-php/Cargo.toml"; then
-      cargo build --release --manifest-path crates/{}-php/Cargo.toml || exit 1
-      cargo_output_dir="crates/{}-php/target/release"
-      ext_soname="{}"
+      (cd crates/{}-php && cargo build --release) || exit 1
 
       dnl Detect output filename based on platform
-      if test -f "${{cargo_output_dir}}/lib{}_php.dylib"; then
-        cargo_lib="${{cargo_output_dir}}/lib{}_php.dylib"
-      elif test -f "${{cargo_output_dir}}/lib{}_php.so"; then
-        cargo_lib="${{cargo_output_dir}}/lib{}_php.so"
+      if test -f "crates/{}-php/target/release/lib{}_php.dylib"; then
+        cargo_lib="crates/{}-php/target/release/lib{}_php.dylib"
+      elif test -f "crates/{}-php/target/release/lib{}_php.so"; then
+        cargo_lib="crates/{}-php/target/release/lib{}_php.so"
       else
-        AC_MSG_ERROR([cargo build succeeded but .so/.dylib not found])
+        echo "ERROR: cargo build succeeded but .so/.dylib not found in crates/{}-php/target/release" >&2
+        exit 1
       fi
 
-      dnl Copy the compiled library to modules/ directory for phpize to install
-      cp "${{cargo_lib}}" "modules/${{ext_soname}}.so" || exit 1
+      mkdir -p modules
+      cp "$cargo_lib" "modules/{}.so" || exit 1
     else
-      AC_MSG_ERROR([crates/{}-php/Cargo.toml not found])
+      echo "ERROR: crates/{}-php/Cargo.toml not found" >&2
+      exit 1
     fi
-  ], [
-    extension_name={}
-  ])
+  ], [])
 fi
 "#,
         extension_name,
@@ -2373,13 +2371,16 @@ fi
         cargo_crate_name,
         cargo_crate_name,
         cargo_crate_name,
-        extension_name,
-        lib_name,
-        lib_name,
-        lib_name,
         lib_name,
         cargo_crate_name,
-        extension_name
+        lib_name,
+        cargo_crate_name,
+        lib_name,
+        cargo_crate_name,
+        cargo_crate_name,
+        extension_name,
+        cargo_crate_name,
+        extension_name,
     )
 }
 
