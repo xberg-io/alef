@@ -150,6 +150,17 @@ fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface
     // service extraction pass. Those are emitted through the service-API path; also wrapping
     // them as plain opaque client classes here would create symbol collisions.
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+    // Mirror the FFI backend's `contains('<')` filter for workspace-declared opaque types
+    // with generic-parameter rust_paths — the FFI backend skips `_new`/`_free` symbols for
+    // them, so Kotlin JNI external-fun declarations against those symbols would throw
+    // `UnsatisfiedLinkError`.
+    exclude_types.extend(
+        config
+            .opaque_types
+            .iter()
+            .filter(|(_, path)| path.contains('<'))
+            .map(|(name, _)| name.clone()),
+    );
     exclude_types
 }
 

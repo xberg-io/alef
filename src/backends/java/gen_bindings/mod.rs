@@ -51,6 +51,16 @@ fn effective_exclude_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> Ha
     }
     // Also exclude types flagged binding_excluded by the service extraction pass
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+    // Mirror the FFI backend's `contains('<')` filter for workspace-declared opaque types
+    // with generic-parameter rust_paths — the FFI backend skips `_new`/`_free` symbols for
+    // them, so Java (Panama/JNI) downcalls would link against missing symbols.
+    exclude_types.extend(
+        config
+            .opaque_types
+            .iter()
+            .filter(|(_, path)| path.contains('<'))
+            .map(|(name, _)| name.clone()),
+    );
     exclude_types
 }
 

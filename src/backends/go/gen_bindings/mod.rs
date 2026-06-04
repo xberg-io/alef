@@ -151,6 +151,21 @@ impl Backend for GoBackend {
         }
         // Extend exclude_types with types marked as binding_excluded in the IR.
         exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+        // Mirror the FFI backend's `contains('<')` filter for declared opaque types: a
+        // workspace-declared opaque whose `rust_path` carries generic parameters (e.g.
+        // `axum::http::Request<axum::body::Body>`) cannot be represented in the C ABI,
+        // so the FFI backend does not emit `_new`/`_free` symbols for it. The Go cgo
+        // shim references those symbols, so the Go backend must follow the same rule —
+        // otherwise generated Go code references `C.{prefix}_request_free` which the
+        // linker cannot resolve. See `crates/spikard-ffi/src/lib.rs` for the FFI-side
+        // filter.
+        exclude_types.extend(
+            config
+                .opaque_types
+                .iter()
+                .filter(|(_, path)| path.contains('<'))
+                .map(|(name, _)| name.clone()),
+        );
 
         // Collect value-only types (all fields are primitives). These don't have _to_json
         // functions emitted by the FFI backend, so Go codegen must construct them from
