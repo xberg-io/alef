@@ -358,8 +358,8 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_na
     // Build imports: include harness.imports config plus the binding module_name.
     // Get language-specific imports for swift with fallback to global imports.
     let mut imports = e2e_config.harness.imports_for_lang("swift");
-    // Prepend the binding module_name if not already present.
-    if !imports.iter().any(|i| i == module_name) {
+    // Prepend the binding module_name if not already present (case-insensitive check).
+    if !imports.iter().any(|i| i.to_lowercase() == module_name.to_lowercase()) {
         imports.insert(0, module_name.to_string());
     }
     let imports_str = imports
