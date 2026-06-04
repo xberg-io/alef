@@ -1163,7 +1163,7 @@ pub(crate) fn gen_opaque_handle_class(
     // Streaming method bodies reference java.util.stream.Stream<T> and
     // java.util.stream.StreamSupport via fully-qualified names in the template,
     // so no short-form import is needed. Adding one would trigger Checkstyle's
-    // UnusedImports rule (confirmed in sample-llm DefaultClient.java:12).
+    // UnusedImports rule (confirmed in sample_crate DefaultClient.java:12).
     let _ = has_streaming;
     // Import collection types from actual body usage (params AND returns), not just return types —
     // e.g. a builder method taking `List<String>` needs the import even with no List return.
@@ -1937,7 +1937,7 @@ fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
         JavaBuilderMode::Auto => {
             // Serializable types that are used as nested fields in other types benefit from
             // having a Builder so Jackson can properly deserialize them with correct defaults.
-            // Examples: PreprocessingOptions (used in ConversionOptions), metadata structures.
+            // Examples: PreprocessingOptions (used in ParseOptions), metadata structures.
             // Even if has_default is false (due to manual impl Default not being detected),
             // we should still emit a Builder for has_serde types to ensure proper deserialization.
             if typ.has_serde {
@@ -2185,7 +2185,7 @@ fn gen_builder_nested_class(
                         PrimitiveType::Bool => {
                             // Use typed_default from the extracted impl Default block.
                             // This correctly handles any type where a field defaults to true
-                            // (e.g. ProcessConfig.structure, ConversionOptions.autolinks).
+                            // (e.g. ProcessConfig.structure, ParseOptions.autolinks).
                             match &field.typed_default {
                                 Some(DefaultValue::BoolLiteral(b)) => b.to_string(),
                                 _ => "false".to_string(),

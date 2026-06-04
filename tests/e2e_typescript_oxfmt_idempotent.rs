@@ -1,7 +1,7 @@
 //! Regression test: verifies that TypeScript e2e code generation produces
 //! oxfmt-canonical output (double quotes, tab indentation, trailing semicolons)
 //! so that running oxfmt on the emitted test files produces no diffs (regression
-//! against downstream consumers like the polyglot binding generators).
+//! against generated packages with strict formatting checks).
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;

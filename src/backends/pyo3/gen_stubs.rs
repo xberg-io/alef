@@ -152,7 +152,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     // Build options-field-bridge lookup keyed by the options type name.
     // For each function whose params contain a value of one of these types, the PyO3
     // binding accepts an additional `{kwarg_name}: {type_alias} | None = None` kwarg
-    // (e.g. ConversionOptions → `visitor: VisitorHandle | None = None`).
+    // (e.g. ParseOptions -> `visitor: VisitorHandle | None = None`).
     // The stub `__init__` of the options type itself, and any module-level function
     // taking that type, must surface this kwarg so api.py's wrapper type-checks.
     let options_field_bridges: std::collections::HashMap<&str, (&str, Option<&str>)> = trait_bridges

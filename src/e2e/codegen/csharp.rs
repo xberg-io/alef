@@ -6,6 +6,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
+use crate::core::ir::{MethodDef, TypeRef};
 use crate::core::template_versions as tv;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{escape_csharp, sanitize_filename, sanitize_ident};
@@ -304,7 +305,7 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str, namespac
         "        // Prefer a sibling {test_documents_dir}/ directory (chdir into it so that"
     );
     out.push_str("        // fixture paths like \"docx/fake.docx\" resolve relative to it). If that\n");
-    out.push_str("        // is absent (web-crawler-style repos with no document fixtures), fall\n");
+    out.push_str("        // is absent (projects with no document fixtures), fall\n");
     out.push_str("        // back to a sibling alef.toml or fixtures/ marker as the repo root.\n");
     out.push_str("        var dir = new DirectoryInfo(AppContext.BaseDirectory);\n");
     out.push_str("        DirectoryInfo? repoRoot = null;\n");
@@ -1126,14 +1127,13 @@ fn render_test_method(
     let mut visitor_arg = String::new();
     let has_visitor = fixture.visitor.is_some();
     if let Some(visitor_spec) = &fixture.visitor {
-        let (visitor_trait, visitor_methods) = resolve_csharp_visitor_config(cs_overrides, type_defs, visitor_spec);
+        let visitor_config = resolve_csharp_visitor_config(config, cs_overrides, type_defs, visitor_spec);
         visitor_arg = build_csharp_visitor(
             &mut setup_lines,
             visitor_class_decls,
             &fixture.id,
             visitor_spec,
-            &visitor_trait,
-            &visitor_methods,
+            &visitor_config,
         );
     }
 
@@ -3421,8 +3421,7 @@ fn build_csharp_visitor(
     class_decls: &mut Vec<String>,
     fixture_id: &str,
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
-    visitor_trait: &str,
-    visitor_methods: &[String],
+    visitor_config: &CsharpVisitorConfig,
 ) -> String {
     use heck::ToUpperCamelCase;
     let class_name = format!("{}Visitor", fixture_id.to_upper_camel_case());
@@ -3432,16 +3431,25 @@ fn build_csharp_visitor(
 
     // Build the class declaration string (indented for nesting inside the test class).
     let mut decl = String::new();
-    decl.push_str(&format!("    private sealed class {class_name} : I{visitor_trait}\n"));
+    if visitor_config.has_missing_metadata {
+        decl.push_str(
+            "    #error C# visitor fixtures require trait_bridge context_type, result_type, and IR method metadata; add it to alef.toml or skip visitor fixtures for C#\n",
+        );
+    }
+    decl.push_str(&format!(
+        "    private sealed class {class_name} : I{}\n",
+        visitor_config.trait_name
+    ));
     decl.push_str("    {\n");
 
     // Emit all methods: use fixture action if specified, otherwise default to Continue.
-    for method_name in visitor_methods {
-        if let Some(action) = visitor_spec.callbacks.get(method_name.as_str()) {
-            emit_csharp_visitor_method(&mut decl, method_name, action);
+    for method in &visitor_config.methods {
+        let method_name = method.name.as_str();
+        if let Some(action) = visitor_spec.callbacks.get(method_name) {
+            emit_csharp_visitor_method(&mut decl, method_name, action, visitor_config);
         } else {
             // Default: Continue for methods not in the fixture
-            emit_csharp_visitor_method(&mut decl, method_name, &CallbackAction::Continue);
+            emit_csharp_visitor_method(&mut decl, method_name, &CallbackAction::Continue, visitor_config);
         }
     }
 
@@ -3451,11 +3459,25 @@ fn build_csharp_visitor(
     var_name
 }
 
+struct CsharpVisitorConfig {
+    trait_name: String,
+    context_type: String,
+    result_type: String,
+    methods: Vec<CsharpVisitorMethod>,
+    has_missing_metadata: bool,
+}
+
+struct CsharpVisitorMethod {
+    name: String,
+    params: Option<String>,
+}
+
 fn resolve_csharp_visitor_config(
+    config: &ResolvedCrateConfig,
     call_override: Option<&crate::e2e::config::CallOverride>,
     type_defs: &[crate::core::ir::TypeDef],
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
-) -> (String, Vec<String>) {
+) -> CsharpVisitorConfig {
     let trait_name = call_override
         .and_then(|override_config| override_config.visitor_trait.clone())
         .or_else(|| {
@@ -3472,58 +3494,104 @@ fn resolve_csharp_visitor_config(
         })
         .unwrap_or_else(|| "Visitor".to_string());
 
-    let methods = type_defs
+    let trait_def = type_defs.iter().find(|type_def| type_def.name == trait_name);
+    let bridge = config
+        .trait_bridges
         .iter()
-        .find(|type_def| type_def.name == trait_name)
-        .map(|type_def| type_def.methods.iter().map(|method| method.name.clone()).collect())
-        .unwrap_or_else(|| visitor_spec.callbacks.keys().cloned().collect());
+        .find(|bridge| bridge.trait_name == trait_name);
+    let methods: Vec<CsharpVisitorMethod> = trait_def
+        .map(|type_def| {
+            type_def
+                .methods
+                .iter()
+                .map(|method| CsharpVisitorMethod {
+                    name: method.name.clone(),
+                    params: Some(csharp_visitor_params(method)),
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            visitor_spec
+                .callbacks
+                .keys()
+                .cloned()
+                .map(|name| CsharpVisitorMethod { name, params: None })
+                .collect()
+        });
 
-    (trait_name, methods)
+    let callback_methods: Vec<&MethodDef> = trait_def
+        .map(|type_def| {
+            visitor_spec
+                .callbacks
+                .keys()
+                .filter_map(|name| type_def.methods.iter().find(|method| method.name == *name))
+                .collect()
+        })
+        .unwrap_or_default();
+    let context_type = bridge.and_then(|bridge| bridge.context_type.clone()).or_else(|| {
+        callback_methods
+            .iter()
+            .find_map(|method| first_named_param_type(method))
+    });
+    let result_type = bridge.and_then(|bridge| bridge.result_type.clone()).or_else(|| {
+        callback_methods
+            .iter()
+            .find_map(|method| named_type(&method.return_type))
+    });
+    let has_missing_metadata =
+        context_type.is_none() || result_type.is_none() || methods.iter().any(|method| method.params.is_none());
+
+    CsharpVisitorConfig {
+        trait_name,
+        context_type: context_type.unwrap_or_else(|| "SyntaxContext".to_string()),
+        result_type: result_type.unwrap_or_else(|| "WalkDecision".to_string()),
+        methods,
+        has_missing_metadata,
+    }
+}
+
+fn csharp_visitor_params(method: &MethodDef) -> String {
+    method
+        .params
+        .iter()
+        .map(|param| {
+            format!(
+                "{} {}",
+                csharp_type_for_stub(&param.ty),
+                param.name.to_lower_camel_case()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn first_named_param_type(method: &MethodDef) -> Option<String> {
+    method.params.iter().find_map(|param| named_type(&param.ty))
+}
+
+fn named_type(ty: &TypeRef) -> Option<String> {
+    match ty {
+        TypeRef::Named(name) => Some(name.clone()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => named_type(inner),
+        TypeRef::Map(key, value) => named_type(key).or_else(|| named_type(value)),
+        _ => None,
+    }
 }
 
 /// Emit a C# visitor method into a class declaration string.
-fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &CallbackAction) {
+fn emit_csharp_visitor_method(
+    decl: &mut String,
+    method_name: &str,
+    action: &CallbackAction,
+    visitor_config: &CsharpVisitorConfig,
+) {
     let camel_method = method_to_camel(method_name);
-    let params = match method_name {
-        "visit_link" => "NodeContext ctx, string href, string text, string title",
-        "visit_image" => "NodeContext ctx, string src, string alt, string title",
-        "visit_heading" => "NodeContext ctx, uint level, string text, string id",
-        "visit_code_block" => "NodeContext ctx, string lang, string code",
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => "NodeContext ctx, string text",
-        "visit_text" => "NodeContext ctx, string text",
-        "visit_list_item" => "NodeContext ctx, bool ordered, string marker, string text",
-        "visit_blockquote" => "NodeContext ctx, string content, ulong depth",
-        "visit_table_row" => "NodeContext ctx, List<string> cells, bool isHeader",
-        "visit_custom_element" => "NodeContext ctx, string tagName, string html",
-        "visit_form" => "NodeContext ctx, string actionUrl, string method",
-        "visit_input" => "NodeContext ctx, string inputType, string name, string value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "NodeContext ctx, string src",
-        "visit_details" => "NodeContext ctx, bool isOpen",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            "NodeContext ctx, string output"
-        }
-        "visit_list_start" => "NodeContext ctx, bool ordered",
-        "visit_list_end" => "NodeContext ctx, bool ordered, string output",
-        "visit_element_start"
-        | "visit_table_start"
-        | "visit_definition_list_start"
-        | "visit_figure_start"
-        | "visit_line_break"
-        | "visit_horizontal_rule" => "NodeContext ctx",
-        _ => "NodeContext ctx",
-    };
+    let params = visitor_config
+        .methods
+        .iter()
+        .find(|method| method.name == method_name)
+        .and_then(|method| method.params.clone())
+        .unwrap_or_else(|| format!("{} context", visitor_config.context_type));
 
     let (action_type, action_value) = match action {
         CallbackAction::Skip => ("skip", String::new()),
@@ -3541,8 +3609,15 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
         minijinja::context! {
             camel_method => camel_method,
             params => params,
+            result_type => &visitor_config.result_type,
             action_type => action_type,
             action_value => action_value,
+            unsupported_diagnostic => (visitor_config.has_missing_metadata || visitor_config.result_type != "WalkDecision").then(|| {
+                format!(
+                    "visitor fixture callback '{method_name}' requires explicit e2e metadata for result type '{}'",
+                    visitor_config.result_type
+                )
+            }),
         },
     );
     let _ = write!(decl, "{}", rendered);

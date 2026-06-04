@@ -20,7 +20,7 @@ Every step has a hard verification — never assume; always check.
 - User asks to bump alef version
 - After a stack of fix/feat commits that need a version cycle
 - After a breaking change is committed (must bump MINOR pre-1.0, MAJOR otherwise)
-- When downstream repos need a new pin
+- When consumer repos need a new pin
 
 ## Hard rules
 
@@ -43,7 +43,7 @@ Every step has a hard verification — never assume; always check.
    `alef.toml`, or `src/core/template_versions.rs`. `task set-version`
    rewrites all three in lockstep.
 7. **Publish with `gh release create`** — a bare `git tag` is not a release.
-   The GitHub release is what triggers downstream automation and what users
+   The GitHub release is what triggers consumer automation and what users
    discover. Alef ships as a single crate, so the tag push triggers exactly
    one `cargo publish` — no multi-crate sequencing, no index propagation race.
 

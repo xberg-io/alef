@@ -258,7 +258,7 @@ pub(super) fn gen_init_py(
     // registered as #[pyclass] in the native module (companion to methods.rs:75 m.add_class
     // gating), so they must be excluded from __init__.py public imports to avoid ImportError.
     imports_from_native.retain(|n| !opaque_types.contains_key(n));
-    // Case-insensitive sort matches isort's ordering (e.g. VisitorHandle < VisitResult).
+    // Case-insensitive sort matches isort's ordering (e.g. VisitorHandle < WalkDecision).
     imports_from_native.sort_by_key(|a| a.to_lowercase());
     imports_from_native.dedup();
 

@@ -187,11 +187,11 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
             return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
         // Vec<(Vec<u8>, …)> cannot be losslessly round-tripped through the FRB bridge.
-        // The caller must have already verified the function is in stub_methods before
-        // reaching this call; guard here as a fallback for any unconditional call path.
+        // Bridge emission filters these functions out; keep this as a compile-time
+        // diagnostic for any unconditional call path that reaches conversion.
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
             return format!(
-                "{{ let _ = {name}; ::std::unimplemented!(\"bytes-tuple parameter cannot be bridged through FRB\") }}"
+                "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Dart FRB; configure dart.exclude_functions for this item\") }}"
             );
         }
     }

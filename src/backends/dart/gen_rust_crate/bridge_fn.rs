@@ -10,7 +10,7 @@ pub(crate) fn emit_bridge_fn(
     type_paths: &std::collections::HashMap<String, String>,
     types_needing_from_conversion: &std::collections::HashSet<String>,
     opaque_type_names: &std::collections::HashSet<String>,
-    stub_methods: &[String],
+    _stub_methods: &[String],
 ) {
     emit_cleaned_dartdoc(out, &f.doc, "");
 
@@ -65,17 +65,6 @@ pub(crate) fn emit_bridge_fn(
     } else {
         f.rust_path.replace('-', "_")
     };
-
-    // When the function is listed in `stub_methods`, emit an `unimplemented!()` body
-    // immediately. These functions have FFI signatures (e.g. nested tuples containing
-    // `Vec<u8>`) that cannot be reconstructed from the FRB wire format. Rather than
-    // emitting partially-broken argument conversions, replace the entire body with a
-    // clear unimplemented marker so the crate still compiles for code-gen consumers.
-    if stub_methods.contains(fn_name) {
-        out.push_str("    ::std::unimplemented!(\"this method is listed in dart.stub_methods and cannot be bridged through FRB\")\n");
-        out.push_str("}\n");
-        return;
-    }
 
     // When the return type was sanitized (a Named core type collapsed to String because
     // the type is not exported through the Dart binding surface), the core fn still
@@ -253,7 +242,7 @@ fn dart_call_arg_with_mirror_transmute(
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
             return format!(
-                "{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Dart not yet bridged\") }}"
+                "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Dart FRB; configure dart.exclude_functions for this item\") }}"
             );
         }
     }

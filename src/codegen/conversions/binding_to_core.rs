@@ -19,9 +19,9 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
 
     // Types with an explicit static `new()` method may have private fields not exposed in the
-    // binding IR.  The struct literal construction path would fail to compile because it cannot
-    // set the private fields.  Flag these types so the template emits `todo!()` instead,
-    // directing callers to use the proper constructor.
+    // binding IR. The struct literal construction path would fail to compile because it cannot
+    // set the private fields. Flag these types so the template emits an explicit compile-time
+    // config requirement instead of a runtime placeholder.
     let has_explicit_static_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
 
     // Newtype structs: generate tuple constructor Self(val._0)
@@ -58,8 +58,9 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if let Some(constructor_call) = gen_from_lifetime_type_constructor(typ, &core_path, &binding_name, config) {
             return constructor_call;
         }
-        // No suitable constructor found; emit todo!() to avoid generating a broken struct literal
-        // (binding fields are String while core fields may be &str or other borrowed types).
+        // No suitable constructor found; emit an explicit compile-time config requirement to
+        // avoid generating a broken struct literal (binding fields are String while core fields
+        // may be &str or other borrowed types).
         return crate::codegen::template_env::render(
             "conversions/binding_to_core_impl",
             minijinja::context! {

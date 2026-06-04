@@ -12,25 +12,25 @@
 //!
 //! ```toml
 //! [[trait_bridges]]
-//! trait_name      = "OcrBackend"
-//! register_fn     = "register_ocr_backend"
-//! unregister_fn   = "unregister_ocr_backend"
-//! clear_fn        = "clear_ocr_backends"
+//! trait_name      = "TextBackend"
+//! register_fn     = "register_text_backend"
+//! unregister_fn   = "unregister_text_backend"
+//! clear_fn        = "clear_text_backends"
 //! ```
 //!
 //! …and a Java package `dev.sample_core`, the generator emits:
 //!
 //! ```kotlin
-//! fun registerOcrBackend(impl: dev.sample_core.IOcrBackend) {
-//!     dev.sample_core.OcrBackendBridge.registerOcrBackend(impl)
+//! fun registerTextBackend(impl: dev.sample_core.ITextBackend) {
+//!     dev.sample_core.TextBackendBridge.registerTextBackend(impl)
 //! }
 //!
-//! fun unregisterOcrBackend(name: String) {
-//!     dev.sample_core.OcrBackendBridge.unregisterOcrBackend(name)
+//! fun unregisterTextBackend(name: String) {
+//!     dev.sample_core.TextBackendBridge.unregisterTextBackend(name)
 //! }
 //!
-//! fun clearOcrBackends() {
-//!     dev.sample_core.OcrBackendBridge.clearAllOcrBackend()
+//! fun clearTextBackends() {
+//!     dev.sample_core.TextBackendBridge.clearAllTextBackend()
 //! }
 //! ```
 //!
@@ -211,27 +211,27 @@ mod tests {
 
     #[test]
     fn registration_fn_emits_kotlin_fun_when_set() {
-        let cfg = make_bridge_config("OcrBackend", Some("register_ocr_backend"), None, None);
-        let trait_def = make_trait_def("OcrBackend");
+        let cfg = make_bridge_config("TextBackend", Some("register_text_backend"), None, None);
+        let trait_def = make_trait_def("TextBackend");
         let spec = make_spec(&trait_def, &cfg);
         let generator = make_generator();
 
         let out = generator.gen_registration_fn(&spec);
         assert!(!out.is_empty(), "should emit non-empty string when register_fn is set");
         assert!(
-            out.contains("fun registerOcrBackend(impl: dev.sample_crate.IOcrBackend)"),
+            out.contains("fun registerTextBackend(impl: dev.sample_crate.ITextBackend)"),
             "must have correct signature: {out}"
         );
         assert!(
-            out.contains("dev.sample_crate.OcrBackendBridge.registerOcrBackend(impl)"),
+            out.contains("dev.sample_crate.TextBackendBridge.registerTextBackend(impl)"),
             "must delegate to Java bridge: {out}"
         );
     }
 
     #[test]
     fn registration_fn_returns_empty_when_none() {
-        let cfg = make_bridge_config("OcrBackend", None, None, None);
-        let trait_def = make_trait_def("OcrBackend");
+        let cfg = make_bridge_config("TextBackend", None, None, None);
+        let trait_def = make_trait_def("TextBackend");
         let spec = make_spec(&trait_def, &cfg);
         let generator = make_generator();
 
@@ -243,12 +243,12 @@ mod tests {
     #[test]
     fn unregistration_fn_emits_kotlin_fun_when_set() {
         let cfg = make_bridge_config(
-            "OcrBackend",
-            Some("register_ocr_backend"),
-            Some("unregister_ocr_backend"),
+            "TextBackend",
+            Some("register_text_backend"),
+            Some("unregister_text_backend"),
             None,
         );
-        let trait_def = make_trait_def("OcrBackend");
+        let trait_def = make_trait_def("TextBackend");
         let spec = make_spec(&trait_def, &cfg);
         let generator = make_generator();
 
@@ -258,19 +258,19 @@ mod tests {
             "should emit non-empty string when unregister_fn is set"
         );
         assert!(
-            out.contains("fun unregisterOcrBackend(name: String)"),
+            out.contains("fun unregisterTextBackend(name: String)"),
             "must have correct signature: {out}"
         );
         assert!(
-            out.contains("dev.sample_crate.OcrBackendBridge.unregisterOcrBackend(name)"),
+            out.contains("dev.sample_crate.TextBackendBridge.unregisterTextBackend(name)"),
             "must delegate to Java bridge: {out}"
         );
     }
 
     #[test]
     fn unregistration_fn_returns_empty_when_none() {
-        let cfg = make_bridge_config("OcrBackend", Some("register_ocr_backend"), None, None);
-        let trait_def = make_trait_def("OcrBackend");
+        let cfg = make_bridge_config("TextBackend", Some("register_text_backend"), None, None);
+        let trait_def = make_trait_def("TextBackend");
         let spec = make_spec(&trait_def, &cfg);
         let generator = make_generator();
 
@@ -282,31 +282,31 @@ mod tests {
     #[test]
     fn clear_fn_emits_kotlin_fun_when_set() {
         let cfg = make_bridge_config(
-            "OcrBackend",
-            Some("register_ocr_backend"),
+            "TextBackend",
+            Some("register_text_backend"),
             None,
-            Some("clear_ocr_backends"),
+            Some("clear_text_backends"),
         );
-        let trait_def = make_trait_def("OcrBackend");
+        let trait_def = make_trait_def("TextBackend");
         let spec = make_spec(&trait_def, &cfg);
         let generator = make_generator();
 
         let out = generator.gen_clear_fn(&spec);
         assert!(!out.is_empty(), "should emit non-empty string when clear_fn is set");
         assert!(
-            out.contains("fun clearOcrBackends()"),
+            out.contains("fun clearTextBackends()"),
             "must have correct no-arg signature: {out}"
         );
         assert!(
-            out.contains("dev.sample_crate.OcrBackendBridge.clearAllOcrBackend()"),
+            out.contains("dev.sample_crate.TextBackendBridge.clearAllTextBackend()"),
             "must delegate to Java bridge: {out}"
         );
     }
 
     #[test]
     fn clear_fn_returns_empty_when_none() {
-        let cfg = make_bridge_config("OcrBackend", Some("register_ocr_backend"), None, None);
-        let trait_def = make_trait_def("OcrBackend");
+        let cfg = make_bridge_config("TextBackend", Some("register_text_backend"), None, None);
+        let trait_def = make_trait_def("TextBackend");
         let spec = make_spec(&trait_def, &cfg);
         let generator = make_generator();
 

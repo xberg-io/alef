@@ -2096,7 +2096,7 @@ mod tests {
         );
         assert!(
             !rendered.contains("sample_language_pack"),
-            "TypeScript cache isolation setup must not contain downstream project names: {rendered}"
+            "TypeScript cache isolation setup must not contain project-specific names: {rendered}"
         );
     }
 

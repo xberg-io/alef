@@ -283,7 +283,7 @@ fn gen_trait_bridge(
     let trait_pascal = trait_name.to_pascal_case();
 
     // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
-    // E.g., for crate="sample_core", trait="OcrBackend": SAMPLE_CRATESampleCrateOcrBackendVTable
+    // E.g., for crate="sample_core", trait="TextBackend": SAMPLE_CRATESampleCrateTextBackendVTable
     // Hyphens in crate names are not valid in C identifiers;
     // normalize the same way ffi_prefix does (`-` → `_`) before uppercasing.
     let crate_normalized = crate_name.replace('-', "_");
@@ -529,7 +529,7 @@ fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait
     }
 
     let c_function = format!("{}_unregister_{}", ffi_prefix, trait_snake);
-    // Convert fn_name to PascalCase for Go (e.g., "unregister_ocr_backend" → "UnregisterOcrBackend")
+    // Convert fn_name to PascalCase for Go (e.g., "unregister_text_backend" → "UnregisterTextBackend")
     let go_fn_name = fn_name.to_pascal_case();
 
     let mut out = String::new();
@@ -564,7 +564,7 @@ fn gen_clear_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &s
     };
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
     let c_function = format!("{}_clear_{}", ffi_prefix, trait_snake);
-    // Convert fn_name to PascalCase for Go (e.g., "clear_ocr_backends" → "ClearOcrBackends")
+    // Convert fn_name to PascalCase for Go (e.g., "clear_text_backends" → "ClearTextBackends")
     let go_fn_name = fn_name.to_pascal_case();
 
     let mut out = String::new();

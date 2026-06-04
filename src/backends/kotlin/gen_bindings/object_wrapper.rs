@@ -662,7 +662,7 @@ fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_field: &str
             // calling valueToTree so Jackson resolves the serializer against the
             // variant class (which has @JsonSerialize reset to the default POJO
             // serializer), not against the parent sealed class (which would
-            // re-trigger OcrDocumentSerializer and cause infinite recursion).
+            // re-trigger InputDocumentSerializer and cause infinite recursion).
             out.push_str("                @Suppress(\"UNCHECKED_CAST\")\n");
             out.push_str(
                 "                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value as ",
@@ -1764,7 +1764,7 @@ mod tests {
     #[test]
     fn tagged_deserializer_named_field_variant_no_double_wrap() {
         let en = make_enum(
-            "OcrDocument",
+            "InputDocument",
             Some("type"),
             false,
             Some("snake_case"),
@@ -1783,16 +1783,16 @@ mod tests {
         let mut out = String::new();
         emit_enum(&en, &mut out, "");
 
-        // Must return readTreeAsValue directly on payload (tag-stripped) — no `OcrDocument.Base64(...)` wrap.
+        // Must return readTreeAsValue directly on payload (tag-stripped) — no `InputDocument.Base64(...)` wrap.
         // The explicit Kotlin type parameter avoids `Any!` inference.
         assert!(
             out.contains(
-                "\"base64\" -> ctx.readTreeAsValue<OcrDocument.Base64>(payload, OcrDocument.Base64::class.java)"
+                "\"base64\" -> ctx.readTreeAsValue<InputDocument.Base64>(payload, InputDocument.Base64::class.java)"
             ),
             "tagged deserializer must return readTreeAsValue<T>(payload) directly for named-field variant; got:\n{out}",
         );
         assert!(
-            !out.contains("OcrDocument.Base64(ctx.readTreeAsValue"),
+            !out.contains("InputDocument.Base64(ctx.readTreeAsValue"),
             "tagged deserializer must NOT wrap readTreeAsValue result in variant constructor; got:\n{out}",
         );
     }
@@ -2024,7 +2024,7 @@ mod tests {
     #[test]
     fn sealed_class_variant_data_classes_get_json_deserialize_reset_annotation() {
         let en = make_enum(
-            "OcrDocument",
+            "InputDocument",
             Some("type"),
             false,
             Some("snake_case"),
@@ -2146,7 +2146,7 @@ mod tests {
     #[test]
     fn tagged_serializer_named_field_variant_casts_to_concrete_type() {
         let en = make_enum(
-            "OcrDocument",
+            "InputDocument",
             Some("type"),
             false,
             Some("snake_case"),
@@ -2159,11 +2159,11 @@ mod tests {
         let mut out = String::new();
         emit_enum(&en, &mut out, "");
 
-        // The serializer must cast `value` to `OcrDocument.Url` before calling
+        // The serializer must cast `value` to `InputDocument.Url` before calling
         // valueToTree so Jackson uses the variant class's serializer (reset to
         // default POJO), not the parent sealed class's custom serializer.
         assert!(
-            out.contains("mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value as OcrDocument.Url) as com.fasterxml.jackson.databind.node.ObjectNode"),
+            out.contains("mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value as InputDocument.Url) as com.fasterxml.jackson.databind.node.ObjectNode"),
             "tagged serializer must cast value to concrete variant type; got:\n{out}",
         );
         // Must NOT call valueToTree on `value` without a cast.

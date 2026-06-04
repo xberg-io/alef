@@ -1181,7 +1181,10 @@ mod tests {
             out.contains("ORIGIN_ROOT_ROUTE_PREFIXES"),
             "missing named origin-root route prefixes"
         );
-        assert!(!out.contains("sample-"), "must not mention downstream fixture names");
+        assert!(
+            !out.contains("sample-"),
+            "must not mention project-specific fixture names"
+        );
     }
 
     #[test]

@@ -206,7 +206,7 @@ pub(crate) fn emit_default_construction_body(
                 // Use serde JSON round-trip WITHOUT a type annotation so that the
                 // target field type is inferred from __target.{name}. This handles
                 // Vec→Option<Vec>, Vec<String>→Vec<OtherType>, etc. gracefully:
-                // the deserialized JSON is coerced to whatever type sample_core uses.
+                // the deserialized JSON is coerced to the source field type.
                 //
                 // Exception: sanitized fields (e.g. `Vec<InlineImage>` mapped to
                 // `Vec<String>` by the IR) must NOT use the serde round-trip because

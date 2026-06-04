@@ -63,7 +63,7 @@ args = [
 "#;
 
 /// Config for a file-reading consumer (has file_path args).
-/// Represents sample_crate-style: fixtures read PDF/image files from test_documents/.
+/// Represents file-backed fixtures that read PDF/image files from test_documents/.
 const CONFIG_TOML_FILE: &str = r#"
 [workspace]
 languages = ["zig"]
@@ -277,7 +277,7 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
 
 #[test]
 fn set_cwd_emitted_only_for_file_fixture_consumers() {
-    // Consumer with file_path args (sample_crate-style): setCwd must be present.
+    // Consumer with file_path args: setCwd must be present.
     let groups_file = vec![FixtureGroup {
         category: "smoke".to_string(),
         fixtures: vec![fixture_for_file("smoke", "pdf_basic")],

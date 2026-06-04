@@ -680,7 +680,7 @@ fn streaming_adapter_shims_are_emitted() {
 // 11. Real-IR-shape test: Optional<String>, &str, Result, async
 // ---------------------------------------------------------------------------
 
-/// Verifies the emitter handles sample-llm-like IR shapes:
+/// Verifies the emitter handles sample-app-like IR shapes:
 ///   - Optional<String> params → `Some(name)` at the call site
 ///   - `&str` params (is_ref=true, String ty) → `&name` at the call site
 ///   - functions with error_type → `match result { Ok(v) => ..., Err(e) => ... }`
@@ -688,7 +688,7 @@ fn streaming_adapter_shims_are_emitted() {
 ///   - `use core_crate::*;` in the import block
 #[test]
 fn real_ir_shape_optional_ref_result_async() {
-    // Build an API surface resembling sample-llm's public surface.
+    // Build an API surface resembling a sample app's public surface.
     let client_type = TypeDef {
         name: "DemoClient".to_string(),
         rust_path: "demo::DemoClient".to_string(),
@@ -1706,12 +1706,12 @@ package = "dev.sample_crate"
 namespace = "dev.sample_crate"
 
 [[crates.trait_bridges]]
-trait_name = "OcrBackend"
+trait_name = "TextBackend"
 super_trait = "demo::Plugin"
-registry_getter = "demo::get_ocr_registry"
-register_fn = "register_ocr_backend"
-unregister_fn = "unregister_ocr_backend"
-clear_fn = "clear_ocr_backends"{exclude_array}
+registry_getter = "demo::get_text_registry"
+register_fn = "register_text_backend"
+unregister_fn = "unregister_text_backend"
+clear_fn = "clear_text_backends"{exclude_array}
 "#,
     );
     resolved_one(&toml)
@@ -1746,27 +1746,27 @@ fn trait_bridge_emits_jni_shim_symbols() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeRegisterOcrBackend"),
-        "missing nativeRegisterOcrBackend extern fn: {content}"
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeRegisterTextBackend"),
+        "missing nativeRegisterTextBackend extern fn: {content}"
     );
     assert!(
         content
-            .contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeUnregisterOcrBackend"),
-        "missing nativeUnregisterOcrBackend extern fn: {content}"
+            .contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeUnregisterTextBackend"),
+        "missing nativeUnregisterTextBackend extern fn: {content}"
     );
     assert!(
-        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeClearOcrBackends"),
-        "missing nativeClearOcrBackends extern fn: {content}"
+        content.contains("pub unsafe extern \"system\" fn Java_dev_sample_1crate_DemoBridge_nativeClearTextBackends"),
+        "missing nativeClearTextBackends extern fn: {content}"
     );
 
     // Unregister wires through to the host-configured function.
     assert!(
-        content.contains("core_crate::unregister_ocr_backend(&name)"),
+        content.contains("core_crate::unregister_text_backend(&name)"),
         "unregister shim must call host unregister_fn: {content}"
     );
     // Clear wires through to the host-configured function.
     assert!(
-        content.contains("core_crate::clear_ocr_backends"),
+        content.contains("core_crate::clear_text_backends"),
         "clear shim must call host clear_fn: {content}"
     );
 }
@@ -1780,15 +1780,15 @@ fn trait_bridge_exclude_languages_suppresses_jni_shim() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
     assert!(
-        !content.contains("nativeRegisterOcrBackend"),
+        !content.contains("nativeRegisterTextBackend"),
         "excluded trait bridge must not emit register shim: {content}"
     );
     assert!(
-        !content.contains("nativeUnregisterOcrBackend"),
+        !content.contains("nativeUnregisterTextBackend"),
         "excluded trait bridge must not emit unregister shim: {content}"
     );
     assert!(
-        !content.contains("nativeClearOcrBackends"),
+        !content.contains("nativeClearTextBackends"),
         "excluded trait bridge must not emit clear shim: {content}"
     );
 }

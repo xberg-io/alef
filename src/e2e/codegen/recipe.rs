@@ -1,7 +1,7 @@
 //! Shared e2e call and argument recipe resolution.
 //!
 //! This module centralizes binding-agnostic fixture/call decisions so language
-//! generators do not infer behavior from downstream-shaped type names.
+//! generators do not infer behavior from project-shaped type names.
 
 use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride};
 use crate::core::config::extras::{AdapterConfig, AdapterPattern};
@@ -74,7 +74,7 @@ impl<'a> E2eCallRecipe<'a> {
     ///
     /// Handle fixtures create an opaque owner before invoking the target call.
     /// The config type must come from explicit fixture/call metadata instead of
-    /// language generators guessing a downstream DTO name.
+    /// language generators guessing a project-specific DTO name.
     pub fn handle_config_type(&self, arg: &'a ArgMapping) -> Option<&'a str> {
         if arg.arg_type != "handle" {
             return None;
@@ -137,7 +137,7 @@ impl<'a> ResolvedE2eCallRecipe<'a> {
     ///
     /// Handle fixtures create an opaque owner before invoking the target call.
     /// The config type must come from explicit fixture/call metadata instead of
-    /// language generators guessing a downstream DTO name.
+    /// language generators guessing a project-specific DTO name.
     pub fn handle_config_type(&self, arg: &'a ArgMapping) -> Option<&'a str> {
         if arg.arg_type != "handle" {
             return None;
@@ -157,7 +157,7 @@ pub(crate) fn trait_bridge_options_type(config: &ResolvedCrateConfig) -> Option<
 ///
 /// Explicit call recipe metadata wins. Otherwise infer from matching streaming
 /// adapters. Returning `None` is intentional: event assertions must be skipped
-/// or diagnosed instead of guessing a downstream-specific union type.
+/// or diagnosed instead of guessing a project-specific union type.
 pub(crate) fn streaming_item_type<'a>(
     call_config: &'a CallConfig,
     adapters: &'a [AdapterConfig],

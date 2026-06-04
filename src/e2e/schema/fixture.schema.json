@@ -39,7 +39,7 @@
         "assertion_recipes": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Assertion recipes enabled for domain-shaped assertion shortcuts"
+          "description": "Assertion recipes enabled for domain-shaped assertion shortcuts and streaming pseudo-fields"
         },
         "assertions": {
           "type": "array",

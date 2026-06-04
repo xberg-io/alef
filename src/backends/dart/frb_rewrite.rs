@@ -454,8 +454,12 @@ fn ensure_handler_closures_are_async(source: &str) -> String {
             }
             // Case 2: Multi-line signature (unbalanced parens) — find the closing brace line
             else if !parens_balanced {
-                for j in (i + 1)..std::cmp::min(i + 30, lines.len()) {
-                    let check_line = lines[j];
+                for (j, check_line) in lines
+                    .iter()
+                    .enumerate()
+                    .take(std::cmp::min(i + 30, lines.len()))
+                    .skip(i + 1)
+                {
                     // Look for a line that has `)` (closing paren) and `{` (opening brace).
                     // This is typically the closing line of a multi-line function signature.
                     if check_line.contains(')') && check_line.contains('{') && !check_line.trim().starts_with("//") {

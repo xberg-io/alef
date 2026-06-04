@@ -2,7 +2,7 @@
 priority: medium
 ---
 
-When downstream consumer repos test a codegen change, use the local alef binary, not crates.io.
+When consumer repos test a codegen change, use the local alef binary, not crates.io.
 
 **Canonical install path:**
 

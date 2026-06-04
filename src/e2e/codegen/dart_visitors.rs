@@ -4,20 +4,24 @@
 //! `DartFnFuture` machinery. Every method of the trait must be supplied as a
 //! closure to the generated visitor factory — the FRB generator requires
 //! all callbacks to be passed positionally. Fixtures only configure a subset
-//! of callbacks; for the rest we emit default closures that return
-//! `VisitResult.continue_()`.
+//! of callbacks; for the rest we emit default closures that return the
+//! configured result type's continue action.
 
 use super::dart::escape_dart;
+use crate::core::config::ResolvedCrateConfig;
+use crate::core::ir::{MethodDef, TypeRef};
 use crate::e2e::fixture::{CallbackAction, VisitorSpec};
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;
 
 pub(super) struct DartVisitorConfig {
     pub(super) trait_name: String,
+    pub(super) result_type: String,
     pub(super) methods: Vec<String>,
 }
 
 pub(super) fn resolve_dart_visitor_config(
+    config: &ResolvedCrateConfig,
     call_override: Option<&crate::e2e::config::CallOverride>,
     type_defs: &[crate::core::ir::TypeDef],
     visitor_spec: &VisitorSpec,
@@ -40,11 +44,56 @@ pub(super) fn resolve_dart_visitor_config(
         .map(|type_def| type_def.methods.iter().map(|method| method.name.clone()).collect())
         .unwrap_or_else(|| visitor_spec.callbacks.keys().cloned().collect());
 
-    DartVisitorConfig { trait_name, methods }
+    let bridge = config
+        .trait_bridges
+        .iter()
+        .find(|bridge| bridge.trait_name == trait_name);
+    let callback_methods = callback_methods(type_defs, visitor_spec, &trait_name);
+    let result_type = bridge
+        .and_then(|bridge| bridge.result_type.clone())
+        .or_else(|| {
+            callback_methods
+                .iter()
+                .find_map(|method| named_type(&method.return_type))
+        })
+        .unwrap_or_else(|| "VisitorResult".to_string());
+
+    DartVisitorConfig {
+        trait_name,
+        result_type,
+        methods,
+    }
 }
 
 fn has_method(type_def: &crate::core::ir::TypeDef, method_name: &str) -> bool {
     type_def.methods.iter().any(|method| method.name == method_name)
+}
+
+fn callback_methods<'a>(
+    type_defs: &'a [crate::core::ir::TypeDef],
+    visitor_spec: &VisitorSpec,
+    trait_name: &str,
+) -> Vec<&'a MethodDef> {
+    type_defs
+        .iter()
+        .find(|type_def| type_def.name == trait_name)
+        .map(|type_def| {
+            visitor_spec
+                .callbacks
+                .keys()
+                .filter_map(|name| type_def.methods.iter().find(|method| method.name == *name))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn named_type(ty: &TypeRef) -> Option<String> {
+    match ty {
+        TypeRef::Named(name) => Some(name.clone()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => named_type(inner),
+        TypeRef::Map(key, value) => named_type(key).or_else(|| named_type(value)),
+        _ => None,
+    }
 }
 
 /// Build a visitor-handle setup block and append it to `setup_lines`. Returns
@@ -55,19 +104,24 @@ pub(super) fn build_dart_visitor(
     visitor_config: &DartVisitorConfig,
 ) -> String {
     // Emit one named-arg per visitor method. Methods with fixture-supplied
-    // callbacks return the action-specific VisitResult; all others return
-    // the default `VisitResult.continue_()` so the conversion falls through
-    // to the built-in markdown emitter.
+    // callbacks return the action-specific configured result type; all others
+    // return the configured continue action.
     let mut named_args: Vec<String> = Vec::with_capacity(visitor_config.methods.len());
     for method in &visitor_config.methods {
         let camel = method.to_lower_camel_case();
         let params = dart_visitor_params(method);
         let body = match visitor_spec.callbacks.get(method.as_str()) {
-            Some(action) => dart_action_body(method, action),
-            None => "VisitResult.continue_()".to_string(),
+            Some(action) => dart_action_body(method, action, &visitor_config.result_type),
+            None if visitor_config.result_type != "VisitorResult" => {
+                dart_result_ctor(&visitor_config.result_type, "continue_", None)
+            }
+            None => format!(
+                "throw UnsupportedError('dart visitor fixture requires explicit e2e result-action metadata for result type {}')",
+                visitor_config.result_type
+            ),
         };
         // Use an async closure so the callback signature matches
-        // `DartFnFuture<VisitResult>` (FRB awaits the returned future).
+        // `DartFnFuture<ResultType>` (FRB awaits the returned future).
         named_args.push(format!("{camel}: ({params}) async => {body}"));
     }
 
@@ -130,13 +184,19 @@ fn dart_visitor_params(method: &str) -> &'static str {
 }
 
 /// Render the Dart expression for a fixture-driven callback action.
-fn dart_action_body(method: &str, action: &CallbackAction) -> String {
+fn dart_action_body(method: &str, action: &CallbackAction, result_type: &str) -> String {
+    if result_type == "VisitorResult" {
+        return format!(
+            "throw UnsupportedError('dart visitor fixture callback {method} requires explicit e2e result-action metadata for result type {result_type}')"
+        );
+    }
     match action {
-        CallbackAction::Skip => "VisitResult.skip()".to_string(),
-        CallbackAction::Continue => "VisitResult.continue_()".to_string(),
-        CallbackAction::PreserveHtml => "VisitResult.preserveHtml()".to_string(),
+        CallbackAction::Skip => dart_result_ctor(result_type, "skip", None),
+        CallbackAction::Continue => dart_result_ctor(result_type, "continue_", None),
+        CallbackAction::PreserveHtml => dart_result_ctor(result_type, "preserveHtml", None),
         CallbackAction::Custom { output } => {
-            format!("VisitResult.custom(field0: '{}')", escape_dart(output))
+            let args = format!("field0: '{}'", escape_dart(output));
+            dart_result_ctor(result_type, "custom", Some(&args))
         }
         CallbackAction::CustomTemplate { template, return_form } => {
             // Convert `{placeholder}` segments to Dart string-interpolation
@@ -146,7 +206,7 @@ fn dart_action_body(method: &str, action: &CallbackAction) -> String {
             // closure typedefs), so each placeholder name must be camelCased.
             // Visitor method parameters are bound in the enclosing closure so
             // the interpolation resolves at call-time. Template return form is
-            // ignored for Dart — the bridge only carries `VisitResult::Custom`
+            // ignored for Dart — the bridge carries a single custom string
             // (String) and there is no struct/dict variant.
             let _ = return_form;
             let _ = method;
@@ -176,9 +236,14 @@ fn dart_action_body(method: &str, action: &CallbackAction) -> String {
                     other => interpolated.push(other),
                 }
             }
-            format!("VisitResult.custom(field0: '{interpolated}')")
+            let args = format!("field0: '{interpolated}'");
+            dart_result_ctor(result_type, "custom", Some(&args))
         }
     }
+}
+
+fn dart_result_ctor(result_type: &str, ctor: &str, args: Option<&str>) -> String {
+    format!("{result_type}.{ctor}({})", args.unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -196,6 +261,7 @@ mod tests {
     fn visitor_config(methods: &[&str]) -> DartVisitorConfig {
         DartVisitorConfig {
             trait_name: "RenderVisitor".to_string(),
+            result_type: "WalkDecision".to_string(),
             methods: methods.iter().map(|method| method.to_string()).collect(),
         }
     }
@@ -218,10 +284,10 @@ mod tests {
         let block = &lines[0];
         assert!(block.contains("createRenderVisitor("), "got: {block}");
         assert!(block.contains("visitAudio:"), "got: {block}");
-        assert!(block.contains("VisitResult.custom(field0: '[AUDIO]')"), "got: {block}");
+        assert!(block.contains("WalkDecision.custom(field0: '[AUDIO]')"), "got: {block}");
         // Methods without fixture callbacks default to `continue_()`.
         assert!(block.contains("visitText:"), "got: {block}");
-        assert!(block.contains("VisitResult.continue_()"), "got: {block}");
+        assert!(block.contains("WalkDecision.continue_()"), "got: {block}");
     }
 
     #[test]
@@ -232,7 +298,7 @@ mod tests {
             &spec("visit_button", CallbackAction::Skip),
             &visitor_config(&["visit_button"]),
         );
-        assert!(lines[0].contains("VisitResult.skip()"), "got: {}", lines[0]);
+        assert!(lines[0].contains("WalkDecision.skip()"), "got: {}", lines[0]);
     }
 
     #[test]
@@ -245,7 +311,7 @@ mod tests {
         );
         // Continue is the default, so we can't distinguish — but the method
         // body should still be `continue_()` (the action mirrors the default).
-        assert!(lines[0].contains("visitStrong: (ctx, text) async => VisitResult.continue_()"));
+        assert!(lines[0].contains("visitStrong: (ctx, text) async => WalkDecision.continue_()"));
     }
 
     #[test]
@@ -263,7 +329,7 @@ mod tests {
             &visitor_config(&["visit_link"]),
         );
         assert!(
-            lines[0].contains("VisitResult.custom(field0: '[LINK:${text}:${href}]')"),
+            lines[0].contains("WalkDecision.custom(field0: '[LINK:${text}:${href}]')"),
             "got: {}",
             lines[0]
         );

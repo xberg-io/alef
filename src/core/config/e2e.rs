@@ -717,8 +717,9 @@ pub struct CallConfig {
     /// Assertion recipes enabled for all fixtures routed to this call.
     ///
     /// Recipes intentionally gate domain-shaped assertion shortcuts such as
-    /// `embeddings_*`, `keywords`, and tree parser helpers. Generic recursive
-    /// field/text/JSON assertions do not require a recipe.
+    /// `embeddings_*`, `keywords`, tree parser helpers, and streaming
+    /// pseudo-fields. Generic recursive field/text/JSON assertions do not
+    /// require a recipe.
     #[serde(default)]
     pub assertion_recipes: HashSet<String>,
     /// The function name (alef applies language naming conventions).

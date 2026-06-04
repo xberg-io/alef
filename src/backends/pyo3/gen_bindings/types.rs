@@ -586,7 +586,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
 /// not supported by TypedDict, so we only emit field name + type hint.
 ///
 /// ```python
-/// class ConversionResult(TypedDict, total=False):
+/// class ParseOutput(TypedDict, total=False):
 ///     """One-line doc."""
 ///
 ///     content: str | None

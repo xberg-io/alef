@@ -188,7 +188,7 @@ pub(super) fn gen_value_to_c(
     }
 }
 
-/// Generate a type-appropriate unimplemented body for FFI (no todo!()).
+/// Generate a type-appropriate unsupported body for FFI.
 /// Uses set_last_error + null/zero return instead of panicking.
 pub(super) fn gen_ffi_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
     let err_msg = format!("Not implemented: {fn_name}");

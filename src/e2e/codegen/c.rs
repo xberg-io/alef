@@ -319,7 +319,7 @@ impl E2eCodegen for CCodegen {
         if !visitor_fixtures.is_empty() {
             files.push(GeneratedFile {
                 path: output_base.join("test_visitor.c"),
-                content: render_visitor_test_file(&visitor_fixtures, &header, &prefix, e2e_config),
+                content: render_visitor_test_file(&visitor_fixtures, &header, &prefix, e2e_config, config),
                 generated_header: true,
             });
         }
@@ -2973,7 +2973,7 @@ fn emit_nested_accessor(
             }
             // Intermediate JSON key — must be an object/array value. Use the
             // object extractor so the substring includes braces/brackets and
-            // downstream primitive lookups against it find their keys
+            // later primitive lookups against it find their keys
             // (alef_json_get_string would return NULL on non-string values).
             let json_var = format!("{seg_snake}_json");
             if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
@@ -3064,7 +3064,7 @@ fn emit_nested_accessor(
 
         // Skip any assertion that touches a field marked "skip" in fields_c_types.
         if is_skipped_c_field(fields_c_types, &current_snake_type, &seg_snake) {
-            return Some("__skip__".to_string()); // Sentinel: no accessor emitted, assertion skipped downstream.
+            return Some("__skip__".to_string()); // Sentinel: no accessor emitted, assertion skipped later.
         }
 
         if is_leaf {
@@ -3077,10 +3077,8 @@ fn emit_nested_accessor(
             }
             // Opaque struct leaf: when fields_c_types maps "{parent}.{field}" to a
             // PascalCase type name (not a primitive, not "char*", not "skip"), the
-            // accessor returns a struct pointer rather than a string.  Emit the typed
-            // handle declaration and register it for freeing.  Example:
-            //   "markdown_result.citations" = "CitationResult"
-            //   → KCRAWLCitationResult* citations_handle = kcrawl_markdown_result_citations(handle);
+            // accessor returns a struct pointer rather than a string. Emit the typed
+            // handle declaration and register it for freeing.
             if let Some(opaque_type) = fields_c_types.get(&lookup_key).filter(|t| {
                 *t != "char*"
                     && *t != "skip"
@@ -3096,7 +3094,7 @@ fn emit_nested_accessor(
                     );
                     intermediate_handles.push((handle_var.clone(), opaque_snake.clone()));
                 }
-                // Treat the handle itself as the local_var for downstream assertions.
+                // Treat the handle itself as the local_var for later assertions.
                 // Map local_var → handle_var so render_assertion uses the handle name.
                 if local_var != handle_var {
                     let _ = writeln!(out, "    {prefix_upper}{opaque_type}* {local_var} = {handle_var};");
@@ -3830,7 +3828,13 @@ fn json_to_c(value: &serde_json::Value) -> String {
 /// 7. Extracts fields via `alef_json_get_string` and runs `contains`/`not_contains`
 ///    assertions with `assert(…)`.
 /// 8. Frees all handles in reverse allocation order.
-fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str, e2e_config: &E2eConfig) -> String {
+fn render_visitor_test_file(
+    fixtures: &[&Fixture],
+    header: &str,
+    prefix: &str,
+    e2e_config: &E2eConfig,
+    config: &ResolvedCrateConfig,
+) -> String {
     use crate::e2e::fixture::CallbackAction;
 
     let mut out = String::new();
@@ -3849,7 +3853,19 @@ fn render_visitor_test_file(fixtures: &[&Fixture], header: &str, prefix: &str, e
     let prefix_upper = prefix.to_uppercase();
     let visitor_type_stem = prefix.to_pascal_case();
     let visitor_callbacks_type = format!("{prefix_upper}{visitor_type_stem}VisitorCallbacks");
-    let visitor_context_type = format!("{prefix_upper}{visitor_type_stem}NodeContext");
+    let visitor_context_stem = config
+        .trait_bridges
+        .iter()
+        .find_map(|bridge| bridge.context_type.as_deref())
+        .unwrap_or("SyntaxContext");
+    if visitor_context_stem == "SyntaxContext" {
+        let _ = writeln!(
+            out,
+            "#error \"C visitor fixtures require trait_bridge.context_type metadata; add it to alef.toml or skip visitor fixtures for C\""
+        );
+        let _ = writeln!(out);
+    }
+    let visitor_context_type = format!("{prefix_upper}{visitor_context_stem}");
     let visitor_handle_type = format!("{prefix_upper}{visitor_type_stem}Visitor");
 
     for (i, fixture) in fixtures.iter().enumerate() {
@@ -4118,7 +4134,7 @@ fn c_visitor_callback_params(method: &str, context_type: &str) -> String {
 
 /// Build the body of a C visitor callback function for a given action.
 ///
-/// Return values mirror the Rust `HTMVisitResult` discriminants:
+/// Return values mirror the legacy visitor FFI discriminants:
 ///   0 = Continue, 1 = Skip, 2 = PreserveHtml, 3 = Custom.
 ///
 /// For `Custom` and `CustomTemplate`, we heap-allocate a copy of the output string
@@ -4315,20 +4331,19 @@ fn c_visitor_placeholder_to_arg(method: &str, name: &str) -> String {
 }
 
 /// Emit a test backend stub.
-///
-/// Phase 2 will fill in the real implementation. For now, returns unimplemented!().
 pub fn emit_test_backend(
     _trait_bridge: &crate::core::config::TraitBridgeConfig,
     _methods: &[&crate::core::ir::MethodDef],
     _fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    unimplemented!("test_backend emission not yet implemented")
+    super::TestBackendEmission::unimplemented("c")
 }
 
 #[cfg(test)]
 mod visitor_tests {
     use super::{c_visitor_fixture_has_typed_call, render_visitor_test_file};
     use crate::core::config::e2e::{CallConfig, CallOverride, E2eConfig};
+    use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
     use crate::e2e::fixture::{Assertion, CallbackAction, Fixture, VisitorSpec};
     use std::collections::BTreeMap;
 
@@ -4386,14 +4401,27 @@ mod visitor_tests {
         }
     }
 
+    fn crate_config_with_visitor_metadata() -> ResolvedCrateConfig {
+        ResolvedCrateConfig {
+            trait_bridges: vec![TraitBridgeConfig {
+                trait_name: "Renderer".to_string(),
+                context_type: Some("RenderContext".to_string()),
+                result_type: Some("RenderDecision".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn c_visitor_file_uses_configured_call_types_and_symbols() {
         let fixture = visitor_fixture();
         let fixtures = vec![&fixture];
-        let content = render_visitor_test_file(&fixtures, "krz.h", "krz", &e2e_config_with_c_call());
+        let config = crate_config_with_visitor_metadata();
+        let content = render_visitor_test_file(&fixtures, "krz.h", "krz", &e2e_config_with_c_call(), &config);
 
         assert!(content.contains("KRZKrzVisitorCallbacks _callbacks"));
-        assert!(content.contains("const KRZKrzNodeContext* _ctx"));
+        assert!(content.contains("const KRZRenderContext* _ctx"));
         assert!(content.contains("KRZRenderConfig* _options = krz_render_config_from_json"));
         assert!(content.contains("KRZRenderOutput* _result = krz_render_document"));
         assert!(content.contains("char* _json = krz_render_output_to_json(_result);"));
@@ -4401,13 +4429,14 @@ mod visitor_tests {
         assert!(content.contains("krz_render_config_free(_options);"));
 
         for hardcoded in [
-            "ConversionOptions",
-            "ConversionResult",
+            "DefaultOptions",
+            "DefaultResult",
             "conversion_options_from_json",
             "conversion_result_to_json",
-            "htm_convert",
-            "HTMHtmVisitorCallbacks",
-            "HTMHtmNodeContext",
+            "default_convert",
+            "DEFDftVisitorCallbacks",
+            "DEFDftSyntaxContext",
+            "KRZKrzSyntaxContext",
         ] {
             assert!(
                 !content.contains(hardcoded),

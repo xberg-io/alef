@@ -438,7 +438,7 @@ pub(super) fn gen_wrapper_class(
 
     // Emit Clear* facade methods for trait bridges with clear_fn configured.
     // These static methods forward to the {Trait}Registry.Clear() methods.
-    // The method name is derived from clear_fn (e.g., "clear_ocr_backends" → "ClearOcrBackends"),
+    // The method name is derived from clear_fn (e.g., "clear_text_backends" → "ClearTextBackends"),
     // not from the trait name, to match the Rust FFI free-function naming convention.
     for bridge_cfg in trait_bridges {
         if let Some(clear_fn) = &bridge_cfg.clear_fn {

@@ -16,7 +16,7 @@ use crate::core::ir::{FunctionDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
-/// Returns true when a function can be fully bridged without emitting `unimplemented!()`.
+/// Returns true when a function can be fully bridged.
 ///
 /// A function is unbridgeable when any parameter is an enum bridge wrapper (no reverse From),
 /// any tuple-vec parameter has an unbridgeable inner type (e.g. `Vec<u8>,`), when the
@@ -51,26 +51,19 @@ pub(crate) fn is_bridgeable_fn(
             _ => {}
         }
     }
-    // Tuple-vec with Vec<u8> inner: batch_extract_bytes pattern.
+    // Tuple-vec with Vec<u8> inner: the IR-flattened bridge shape cannot be
+    // losslessly converted back into `Vec<(Vec<u8>, T)>`.
     for p in &f.params {
-        let original = p.original_type.as_deref().unwrap_or("");
+        let Some(original) = p.original_type.as_deref() else {
+            continue;
+        };
         let stripped = original
             .trim()
             .trim_start_matches('&')
             .trim_start_matches("mut ")
-            .trim();
-        if !stripped.is_empty() && stripped.starts_with("Vec(") && stripped.contains("Named(\"(") {
-            let tuple_inner = stripped
-                .find("Named(\"(")
-                .and_then(|start| {
-                    let rest = &stripped[start + 8..];
-                    rest.find(")\")")
-                        .map(|end| rest[..end].trim_end_matches(')').to_string())
-                })
-                .unwrap_or_default();
-            if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
-                return false;
-            }
+            .replace(' ', "");
+        if stripped.starts_with("Vec(Named(\"(Vec<u8>,") {
+            return false;
         }
     }
     // Unbridgeable JSON return: inner Named type excluded or lacks serde.
@@ -126,7 +119,7 @@ pub(crate) fn swift_call_arg(
         }
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
             return format!(
-                "{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Swift not yet bridged\") }}"
+                "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Swift; configure swift.exclude_functions for this item\") }}"
             );
         }
     }
@@ -202,8 +195,7 @@ pub(crate) fn swift_call_arg(
         let native_ty = swift_bridge_rust_type(&p.ty);
         let deser = format!("::serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
         if p.is_ref {
-            // When the sample_core function expects a reference (e.g. &[Vec<String>]),
-            // we must borrow the deserialized value.
+            // When the source function expects a reference, borrow the deserialized value.
             return format!("&{deser}");
         }
         return deser;
@@ -228,14 +220,7 @@ pub(crate) fn swift_call_arg(
     // For enums, the parameter is already the correct type (the bridge deserialized it
     // via the JSON-bridge path above at lines 142-152). Just use it directly.
     if let TypeRef::Named(type_name) = &p.ty {
-        // Enums are guarded by is_bridgeable_fn to prevent them from being
-        // bridged as function parameters (no reverse From impl).
-        // If an enum reaches here, it's a logic error in the guard.
         if unit_enum_names.contains(type_name.as_str()) {
-            // Enums cannot be reversed via From<BridgeEnum> for SourceEnum,
-            // and they fall here because enum params are marked is_ref/optional false,
-            // missing the JSON-bridge path above. This is guarded at is_bridgeable_fn level.
-            // For now, return the parameter name directly; the is_bridgeable_fn guard should prevent this.
             return name;
         }
         // Struct wrappers have .0; access it with appropriate reference/mutability.
@@ -265,7 +250,7 @@ pub(crate) fn swift_call_arg(
         if let TypeRef::Named(_) = inner.as_ref() {
             if p.optional {
                 if p.is_ref {
-                    // sample_core expects Option<&[T]>. We collect to a temporary Vec
+                    // The source function expects Option<&[T]>. We collect to a temporary Vec
                     // and call as_deref(). The temporary lives for the enclosing
                     // statement (function call) so the reference is valid.
                     return format!(
@@ -275,7 +260,7 @@ pub(crate) fn swift_call_arg(
                 return format!("{name}.map(|v| v.into_iter().map(|w| w.0).collect::<Vec<_>>())");
             }
             if p.is_ref {
-                // sample_core expects &[T]. The temporary Vec lives for the enclosing call.
+                // The source function expects &[T]. The temporary Vec lives for the enclosing call.
                 return format!("&{name}.iter().map(|w| w.0.clone()).collect::<Vec<_>>()");
             }
             return format!("{name}.into_iter().map(|w| w.0).collect::<Vec<_>>()");
@@ -398,12 +383,11 @@ pub(crate) fn emit_function_shim(
     };
     let source_call = format!("{resolved_path}({call_args_str})");
 
-    // Bug B: If the return type is a JSON-bridged Optional/Vec/Named whose inner
-    // Named type is NOT in the visible type table (i.e., excluded from codegen —
-    // such as EmbeddingPreset or InternalDocument which don't impl serde), we
-    // cannot generate a working serde-based bridge. Emit an unimplemented!() body
-    // so the crate at least compiles rather than failing with "trait not satisfied".
-    // The function will panic at runtime, but that is preferable to compile errors.
+    // If the return type is a JSON-bridged Optional/Vec/Named whose inner Named
+    // type is not in the visible type table or does not implement serde, we
+    // cannot generate a working serde-based bridge. This should already be filtered
+    // by `is_bridgeable_fn`; keep a compile-time diagnostic here for any caller that
+    // bypasses that filter.
     fn inner_named_type(ty: &TypeRef) -> Option<&str> {
         match ty {
             TypeRef::Named(n) => Some(n.as_str()),
@@ -415,12 +399,12 @@ pub(crate) fn emit_function_shim(
         if let Some(inner_name) = inner_named_type(&f.return_type) {
             if !type_paths.contains_key(inner_name) || no_serde_names.contains(inner_name) {
                 // The inner Named type is not in the visible type table or lacks serde.
-                // We cannot serde-bridge it — emit an unimplemented shim.
+                // We cannot serde-bridge it.
                 let fn_name_snake = swift_ident(&f.name.to_snake_case());
                 return format!(
                     "// alef: skipped — return type `{inner_name}` is excluded from codegen (no serde derive)\n\
                      pub fn {fn_name_snake}({params_str}) -> {return_ty} {{\n    \
-                     ::std::unimplemented!(\"{fn_name_snake}: return type {inner_name} is not bridgeable\")\n\
+                     compile_error!(\"alef cannot bridge Swift return type {inner_name}; configure swift.exclude_functions for {fn_name_snake} or expose serde for the type\")\n\
                      }}\n"
                 );
             }
@@ -437,14 +421,14 @@ pub(crate) fn emit_function_shim(
     // Enum wrappers implement From<SourceT> — use T::from(val) or val.map(T::from).
     // Struct newtypes use T(val) constructor directly.
     let wrap_named = |t: &str| -> String {
-        if enum_names.contains(t) {
+        if unit_enum_names.contains(t) {
             format!("{t}::from")
         } else {
             t.to_string()
         }
     };
     let wrap_named_direct = |t: &str, source: &str| -> String {
-        if enum_names.contains(t) {
+        if unit_enum_names.contains(t) {
             format!("{t}::from({source})")
         } else {
             format!("{t}({source})")
@@ -523,7 +507,7 @@ pub(crate) fn emit_function_shim(
                 }
             }
             None => {
-                // No wrapping needed — but the sample_core function might return `&str`
+                // No wrapping needed, but the source function might return `&str`
                 // when the IR says `String`, or `Vec<&str>` when the IR says `Vec<String>`.
                 // Apply coercions to match the declared return type.
                 match &f.return_type {

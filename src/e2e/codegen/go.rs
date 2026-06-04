@@ -695,9 +695,9 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileCo
     // Determine if any fixture actually uses the pkg import.
     // Fixtures without mock_response are emitted as t.Skip() stubs and don't reference the
     // package — omit the import when no fixture needs it to avoid the Go "imported and not
-    // used" compile error. Visitor fixtures reference the package types (NodeContext,
-    // VisitResult, VisitResult* helpers) in struct method signatures emitted at file scope,
-    // so they also require the import even when the test body itself is a Skip stub.
+    // used" compile error. Visitor fixtures reference configured visitor package types in
+    // struct method signatures emitted at file scope, so they also require the import even
+    // when the test body itself is a Skip stub.
     // Direct-callable fixtures (non-HTTP, non-mock, with a resolved Go function) also
     // reference the package when a Go override function is configured.
     let needs_pkg = fixtures
@@ -978,7 +978,8 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileCo
     for fixture in fixtures.iter() {
         if let Some(visitor_spec) = &fixture.visitor {
             let struct_name = visitor_struct_name(&fixture.id);
-            emit_go_visitor_struct(&mut body, &struct_name, visitor_spec, import_alias);
+            let binding = resolve_go_visitor_binding(config, type_defs, visitor_spec, import_alias);
+            emit_go_visitor_struct(&mut body, &struct_name, visitor_spec, import_alias, binding.as_ref());
             let _ = writeln!(body);
         }
     }
@@ -3804,12 +3805,102 @@ fn emit_go_visitor_struct(
     struct_name: &str,
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
     import_alias: &str,
+    binding: Option<&GoVisitorBinding>,
 ) {
     let _ = writeln!(out, "type {struct_name} struct{{");
     let _ = writeln!(out, "\t{import_alias}.BaseVisitor");
     let _ = writeln!(out, "}}");
     for (method_name, action) in &visitor_spec.callbacks {
-        emit_go_visitor_method(out, struct_name, method_name, action, import_alias);
+        let method = binding.and_then(|binding| binding.method(method_name));
+        emit_go_visitor_method(out, struct_name, method_name, action, import_alias, method);
+    }
+}
+
+struct GoVisitorBinding {
+    methods: Vec<GoVisitorMethod>,
+}
+
+impl GoVisitorBinding {
+    fn method(&self, name: &str) -> Option<&GoVisitorMethod> {
+        self.methods.iter().find(|method| method.name == name)
+    }
+}
+
+struct GoVisitorMethod {
+    name: String,
+    result_type: String,
+    params: String,
+    pointer_params: std::collections::HashSet<String>,
+}
+
+fn resolve_go_visitor_binding(
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    visitor_spec: &crate::e2e::fixture::VisitorSpec,
+    import_alias: &str,
+) -> Option<GoVisitorBinding> {
+    let trait_name = config
+        .trait_bridges
+        .iter()
+        .find_map(|bridge| bridge.result_type.as_ref().map(|_| bridge.trait_name.as_str()))?;
+    let trait_def = type_defs.iter().find(|type_def| type_def.name == trait_name)?;
+    let result_type = config
+        .trait_bridges
+        .iter()
+        .find(|bridge| bridge.trait_name == trait_name)
+        .and_then(|bridge| bridge.result_type.clone())
+        .or_else(|| {
+            visitor_spec.callbacks.keys().find_map(|name| {
+                trait_def
+                    .methods
+                    .iter()
+                    .find(|method| method.name == *name)
+                    .and_then(|method| named_type(&method.return_type))
+            })
+        })?;
+    let methods = visitor_spec
+        .callbacks
+        .keys()
+        .filter_map(|name| {
+            trait_def
+                .methods
+                .iter()
+                .find(|method| method.name == *name)
+                .map(|method| go_visitor_method(method, &result_type, import_alias))
+        })
+        .collect();
+    Some(GoVisitorBinding { methods })
+}
+
+fn go_visitor_method(method: &crate::core::ir::MethodDef, result_type: &str, import_alias: &str) -> GoVisitorMethod {
+    let mut pointer_params = std::collections::HashSet::new();
+    let params = method
+        .params
+        .iter()
+        .map(|param| {
+            let name = go_param_name(&param.name);
+            let ty = stub_go_type_with_context(&param.ty, &std::collections::HashSet::new(), import_alias);
+            if ty.starts_with('*') {
+                pointer_params.insert(name.clone());
+            }
+            format!("{name} {ty}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    GoVisitorMethod {
+        name: method.name.clone(),
+        result_type: result_type.to_string(),
+        params,
+        pointer_params,
+    }
+}
+
+fn named_type(ty: &crate::core::ir::TypeRef) -> Option<String> {
+    match ty {
+        crate::core::ir::TypeRef::Named(name) => Some(name.clone()),
+        crate::core::ir::TypeRef::Optional(inner) | crate::core::ir::TypeRef::Vec(inner) => named_type(inner),
+        crate::core::ir::TypeRef::Map(key, value) => named_type(key).or_else(|| named_type(value)),
+        _ => None,
     }
 }
 
@@ -3820,68 +3911,49 @@ fn emit_go_visitor_method(
     method_name: &str,
     action: &CallbackAction,
     import_alias: &str,
+    method: Option<&GoVisitorMethod>,
 ) {
     let camel_method = method_to_camel(method_name);
-    // Parameter signatures must exactly match the generated visitor interface.
-    // Optional fields use pointer types (*string, *uint32, etc.) to indicate nil-ability.
-    let params = match method_name {
-        "visit_link" => format!("_ {import_alias}.NodeContext, href string, text string, title *string"),
-        "visit_image" => format!("_ {import_alias}.NodeContext, src string, alt string, title *string"),
-        "visit_heading" => format!("_ {import_alias}.NodeContext, level uint32, text string, id *string"),
-        "visit_code_block" => format!("_ {import_alias}.NodeContext, lang *string, code string"),
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => format!("_ {import_alias}.NodeContext, text string"),
-        "visit_text" => format!("_ {import_alias}.NodeContext, text string"),
-        "visit_list_item" => {
-            format!("_ {import_alias}.NodeContext, ordered bool, marker string, text string")
-        }
-        "visit_blockquote" => format!("_ {import_alias}.NodeContext, content string, depth uint"),
-        "visit_table_row" => format!("_ {import_alias}.NodeContext, cells []string, isHeader bool"),
-        "visit_custom_element" => format!("_ {import_alias}.NodeContext, tagName string, html string"),
-        "visit_form" => format!("_ {import_alias}.NodeContext, action *string, method *string"),
-        "visit_input" => {
-            format!("_ {import_alias}.NodeContext, inputType string, name *string, value *string")
-        }
-        "visit_audio" | "visit_video" | "visit_iframe" => {
-            format!("_ {import_alias}.NodeContext, src *string")
-        }
-        "visit_details" => format!("_ {import_alias}.NodeContext, open bool"),
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            format!("_ {import_alias}.NodeContext, output string")
-        }
-        "visit_list_start" => format!("_ {import_alias}.NodeContext, ordered bool"),
-        "visit_list_end" => format!("_ {import_alias}.NodeContext, ordered bool, output string"),
-        _ => format!("_ {import_alias}.NodeContext"),
-    };
+    let params = method
+        .map(|method| method.params.clone())
+        .unwrap_or_else(|| format!("_ {import_alias}.SyntaxContext"));
+    let result_type_name = method
+        .map(|method| method.result_type.as_str())
+        .unwrap_or("WalkDecision");
+    let result_type = method
+        .map(|method| format!("{import_alias}.{}", method.result_type))
+        .unwrap_or_else(|| format!("{import_alias}.WalkDecision"));
 
-    let _ = writeln!(
-        out,
-        "func (v *{struct_name}) {camel_method}({params}) {import_alias}.VisitResult {{"
-    );
+    let _ = writeln!(out, "func (v *{struct_name}) {camel_method}({params}) {result_type} {{");
+    if method.is_none() {
+        let _ = writeln!(
+            out,
+            "\tpanic(\"go visitor fixture '{method_name}' requires trait_bridge result_type and IR method metadata\")"
+        );
+        let _ = writeln!(out, "}}");
+        return;
+    }
+    if result_type_name != "WalkDecision" {
+        let _ = writeln!(
+            out,
+            "\tpanic(\"go visitor fixture '{method_name}' requires explicit e2e result-action metadata for result type '{result_type_name}'\")"
+        );
+        let _ = writeln!(out, "}}");
+        return;
+    }
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultSkip()");
+            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionSkip()");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultContinue()");
+            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionContinue()");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultPreserveHTML()");
+            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionPreserveHTML()");
         }
         CallbackAction::Custom { output } => {
             let escaped = go_string_literal(output);
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped})");
+            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionCustom({escaped})");
         }
         CallbackAction::CustomTemplate { template, .. } => {
             // Convert {var} placeholders to %s format verbs and collect arg names.
@@ -3890,36 +3962,23 @@ fn emit_go_visitor_method(
             // For pointer-typed params (e.g. `src *string`), dereference with `*`
             // — the test fixtures always supply a non-nil value for methods that
             // fire a custom template, so this is safe in practice.
-            let ptr_params = go_visitor_ptr_params(method_name);
+            let ptr_params = method
+                .map(|method| method.pointer_params.iter().map(String::as_str).collect())
+                .unwrap_or_default();
             let (fmt_str, fmt_args) = template_to_sprintf(template, &ptr_params);
             let escaped_fmt = go_string_literal(&fmt_str);
             if fmt_args.is_empty() {
-                let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped_fmt})");
+                let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionCustom({escaped_fmt})");
             } else {
                 let args_str = fmt_args.join(", ");
                 let _ = writeln!(
                     out,
-                    "\treturn {import_alias}.VisitResultCustom(fmt.Sprintf({escaped_fmt}, {args_str}))"
+                    "\treturn {import_alias}.WalkDecisionCustom(fmt.Sprintf({escaped_fmt}, {args_str}))"
                 );
             }
         }
     }
     let _ = writeln!(out, "}}");
-}
-
-/// Return the set of camelCase parameter names that are pointer types (`*string`) for a
-/// given visitor method name.  Used to dereference pointers in template `fmt.Sprintf` calls.
-fn go_visitor_ptr_params(method_name: &str) -> std::collections::HashSet<&'static str> {
-    match method_name {
-        "visit_link" => ["title"].into(),
-        "visit_image" => ["title"].into(),
-        "visit_heading" => ["id"].into(),
-        "visit_code_block" => ["lang"].into(),
-        "visit_form" => ["action", "method"].into(),
-        "visit_input" => ["name", "value"].into(),
-        "visit_audio" | "visit_video" | "visit_iframe" => ["src"].into(),
-        _ => std::collections::HashSet::new(),
-    }
 }
 
 /// Convert a `{var}` template string into a `fmt.Sprintf` format string and argument list.

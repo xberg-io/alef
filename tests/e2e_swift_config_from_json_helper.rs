@@ -121,7 +121,7 @@ options_via = "from_json"
         "must emit processConfigFromJson when options_type = ProcessConfig. Rendered:\n{rendered}"
     );
 
-    // Should NOT use the hardcoded sample_crate name
+    // Should NOT use a hardcoded fixture name.
     assert!(
         !rendered.contains("extractionConfigFromJson("),
         "must NOT hardcode extractionConfigFromJson when options_type is set. Rendered:\n{rendered}"

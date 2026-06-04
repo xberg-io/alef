@@ -282,7 +282,7 @@ pub(super) fn render_test_function(
     );
 
     // Append trait-bridge teardown after assertions. This restores shared
-    // global state (e.g. downstream plugin registries) between pytest
+    // global state (e.g. plugin registries) between pytest
     // tests in the same process. See `emit_test_backend` for the rationale.
     if !teardown_block.is_empty() {
         if !result_assertions.ends_with('\n') {
@@ -349,7 +349,7 @@ fn emit_error_assertion(
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
             // Match against EITHER the rendered exception message OR the
-            // exception class name. Different downstream crates use different
+            // exception class name. Different crates use different
             // fixture-shape conventions:
             //   * config-validation fixtures may use field names that are substrings
             //     of the user-facing error message, never of a class name.

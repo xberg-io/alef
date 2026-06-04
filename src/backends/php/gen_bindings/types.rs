@@ -204,16 +204,16 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
         if let Some(ref type_alias) = bridge.type_alias {
             if type_alias == &typ.name {
                 // Generate the from_php_object static method that wraps a PHP object
-                // The bridge struct is named Php<TraitName>Bridge (e.g., PhpHtmlVisitorBridge)
+                // The bridge struct is named Php<TraitName>Bridge (e.g., PhpSyntaxWalkerBridge)
                 let bridge_struct_name = format!("Php{}Bridge", bridge.trait_name.to_pascal_case().replace('-', ""));
-                // Use the full path to the trait from the core crate (e.g., sample_markdown_rs::visitor::HtmlVisitor)
+                // Use the full path to the trait from the core crate (e.g., sample_crate::visitor::SyntaxWalker)
                 let _trait_path = format!(
                     "{}::visitor::{}",
                     core_import,
                     bridge.trait_name.split("::").last().unwrap_or(&bridge.trait_name)
                 );
-                // The inner field wraps VisitorHandle (which is Arc<Mutex<dyn HtmlVisitor + Send>>)
-                // VisitorHandle is a type alias: Arc<Mutex<dyn HtmlVisitor + Send>>
+                // The inner field wraps VisitorHandle (which is Arc<Mutex<dyn SyntaxWalker + Send>>)
+                // VisitorHandle is a type alias: Arc<Mutex<dyn SyntaxWalker + Send>>
                 // We need to create Arc<VisitorHandle>, so wrap Arc<Mutex<>> in Arc
                 let handle_path =
                     crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, core_import);

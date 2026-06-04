@@ -1887,31 +1887,27 @@ mod tests {
         let method = make_method(
             "default",
             vec![],
-            TypeRef::Named("ConversionOptions".into()),
+            TypeRef::Named("ParseOptions".into()),
             false,
             true,
             None,
         );
-        let sig = render_method_signature(&method, "ConversionOptions", Language::Kotlin, TEST_PREFIX);
-        assert_eq!(sig, "@JvmStatic\nfun default(): ConversionOptions");
+        let sig = render_method_signature(&method, "ParseOptions", Language::Kotlin, TEST_PREFIX);
+        assert_eq!(sig, "@JvmStatic\nfun default(): ParseOptions");
     }
 
     #[test]
     fn test_render_method_signature_swift_instance_with_throws() {
         let method = make_method(
             "apply_update",
-            vec![make_param(
-                "update",
-                TypeRef::Named("ConversionOptionsUpdate".into()),
-                false,
-            )],
+            vec![make_param("update", TypeRef::Named("ParseOptionsUpdate".into()), false)],
             TypeRef::Unit,
             false,
             false,
             Some("ConversionError"),
         );
-        let sig = render_method_signature(&method, "ConversionOptions", Language::Swift, TEST_PREFIX);
-        assert_eq!(sig, "public func applyUpdate(update: ConversionOptionsUpdate) throws");
+        let sig = render_method_signature(&method, "ParseOptions", Language::Swift, TEST_PREFIX);
+        assert_eq!(sig, "public func applyUpdate(update: ParseOptionsUpdate) throws");
     }
 
     #[test]
@@ -1938,11 +1934,8 @@ mod tests {
             false,
             None,
         );
-        let sig = render_method_signature(&method, "ConversionResult", Language::Zig, TEST_PREFIX);
-        assert_eq!(
-            sig,
-            "pub fn warnings(self: *const ConversionResult) []const [:0]const u8"
-        );
+        let sig = render_method_signature(&method, "ParseOutput", Language::Zig, TEST_PREFIX);
+        assert_eq!(sig, "pub fn warnings(self: *const ParseOutput) []const [:0]const u8");
     }
 
     #[test]
@@ -1950,13 +1943,13 @@ mod tests {
         let method = make_method(
             "create",
             vec![],
-            TypeRef::Named("ConversionOptions".into()),
+            TypeRef::Named("ParseOptions".into()),
             false,
             true,
             None,
         );
-        let sig = render_method_signature(&method, "ConversionOptions", Language::Zig, TEST_PREFIX);
-        assert_eq!(sig, "pub fn create() ConversionOptions");
+        let sig = render_method_signature(&method, "ParseOptions", Language::Zig, TEST_PREFIX);
+        assert_eq!(sig, "pub fn create() ParseOptions");
     }
 
     #[test]

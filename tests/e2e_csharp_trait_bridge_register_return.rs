@@ -1,6 +1,6 @@
 //! Test that C# trait bridge Register methods return IntPtr for e2e test stub assignments.
 //!
-//! This tests the fix for sample_crate v5.0.0-rc.3 e2e C# test compilation failure:
+//! This tests the fix for an e2e C# test compilation failure:
 //! `var result = RendererBridge.Register(new TestStub_...)` was invalid when Register
 //! returned void. Now Register returns IntPtr and is assignable to a variable.
 

@@ -180,7 +180,7 @@ fn native_struct_emits_data_class() {
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
-            "ConversionOptions",
+            "ParseOptions",
             vec![
                 make_field("max_width", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("output_path", TypeRef::Path, false),
@@ -212,7 +212,7 @@ fn native_struct_emits_data_class() {
         "missing cinterop import: {content}"
     );
     assert!(
-        content.contains("data class ConversionOptions("),
+        content.contains("data class ParseOptions("),
         "missing data class: {content}"
     );
     assert!(

@@ -89,11 +89,11 @@ pub struct BridgeFiles {
 /// Generate both the managed interface file and the bridge class file for one trait.
 ///
 /// `unregister_fn` is the configured name of the host-crate unregister function (e.g.
-/// `"unregister_ocr_backend"`). When `Some`, a `public static void unregister{Trait}(String
+/// `"unregister_text_backend"`). When `Some`, a `public static void unregister{Trait}(String
 /// name)` helper is emitted in the bridge class. When `None`, the method is omitted.
 ///
 /// `clear_fn` is the configured name of the host-crate clear-all function (e.g.
-/// `"clear_ocr_backends"`). When `Some`, a `public static void clearAll{Trait}()` helper is
+/// `"clear_text_backends"`). When `Some`, a `public static void clearAll{Trait}()` helper is
 /// emitted. When `None`, the method is omitted.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridge_files(

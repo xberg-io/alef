@@ -2310,11 +2310,11 @@ pub(crate) struct TraitBridgeFn {
 /// definition). Honours `exclude_languages` so excluded bridges don't shadow real
 /// free functions.
 ///
-/// Example: `clear_ocr_backends` is defined both as `pub fn` in
+/// Example: `clear_text_backends` is defined both as `pub fn` in
 /// `crates/sample_core/src/plugins/ocr.rs` (so it appears in `api.functions`) AND
-/// synthesised by the trait-bridge generator for the `OcrBackend` trait. The
+/// synthesised by the trait-bridge generator for the `TextBackend` trait. The
 /// trait-bridge form is the canonical one — it resolves to the
-/// `sample_core::plugins::ocr_backend::clear_ocr_backends` path module rather than
+/// `sample_core::plugins::text_backend::clear_text_backends` path module rather than
 /// the top-level alias — so emit it from the bridge generator and skip the
 /// duplicate from `api.functions`.
 pub(crate) fn collect_trait_bridge_fn_names(config: &ResolvedCrateConfig) -> ahash::AHashSet<String> {
@@ -3258,7 +3258,7 @@ fn gen_namespace(
     }
 
     // Trait-bridge functions need explicit NAMESPACE exports so that callers can use
-    // them directly (e.g. `sample_core::register_ocr_backend(...)`). Without an `export()`
+    // them directly (e.g. `sample_core::register_text_backend(...)`). Without an `export()`
     // entry, R restricts the wrapper to internal-only visibility and `:: ` lookups fail.
     for bridge_fn in trait_bridge_fns {
         out.push_str(&crate::backends::extendr::template_env::render(
@@ -4295,7 +4295,7 @@ clear_fn = "clear_ocr_backends"
     fn extendr_wrappers_emits_trait_bridge_register_unregister_clear() {
         // Regression: extendr-wrappers.R only iterated `api.functions` and so omitted
         // the trait-bridge register/unregister/clear functions. R callers had no way to
-        // invoke `wrap__register_ocr_backend` because no R wrapper existed.
+        // invoke `wrap__register_text_backend` because no R wrapper existed.
         let backend = ExtendrBackend;
         let config = trait_bridge_config_for_tests();
         let api = make_api_surface();

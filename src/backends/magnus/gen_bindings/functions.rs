@@ -910,7 +910,7 @@ pub(super) fn gen_async_function(
     )
 }
 
-/// Generate a type-appropriate unimplemented body for Magnus (no todo!()).
+/// Generate a type-appropriate unsupported body for Magnus.
 pub(super) fn gen_magnus_unimplemented_body(
     return_type: &crate::core::ir::TypeRef,
     fn_name: &str,

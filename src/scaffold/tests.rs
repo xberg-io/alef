@@ -1283,10 +1283,10 @@ fn test_scaffold_ruby_production_features() {
 }
 
 /// Regression: the generated gemspec must declare `sorbet-runtime` as a runtime
-/// dependency so consumers running `bundle install --without development` can load
+/// dependency so projects running `bundle install --without development` can load
 /// the `native.rb` wrapper, which unconditionally `require 'sorbet-runtime'`.
-/// Missing the dep caused `LoadError: cannot load such file -- sorbet-runtime` in
-/// sample_crawler CI E2E (run 25997906829, job 76416254666).
+/// Missing the dep caused `LoadError: cannot load such file -- sorbet-runtime`
+/// in CI E2E runs.
 #[test]
 fn test_scaffold_ruby_gemspec_includes_sorbet_runtime_dependency() {
     let config = test_config();
@@ -1505,15 +1505,15 @@ fn test_precommit_defaults_do_not_invent_alef_remote_or_bot_identity() {
     let config = minimal_config_from_toml("");
     let files = generate_pre_commit_config(&config, &[Language::Node]);
     let content = &files[0].content;
-    let downstream_org = format!("{}-{}", "consumer", "dev");
+    let project_org = format!("{}-{}", "project", "dev");
 
     assert!(
-        !content.contains(&downstream_org) && !content.contains("consumer-bot") && !content.contains("bot@"),
-        "unconfigured consumer precommit scaffold must not copy Alef organization, repo, or bot metadata:\n{content}"
+        !content.contains(&project_org) && !content.contains("project-bot") && !content.contains("bot@"),
+        "unconfigured project precommit scaffold must not copy Alef organization, repo, or bot metadata:\n{content}"
     );
     assert!(
         !content.contains("alef-readme") && !content.contains("alef-verify"),
-        "unconfigured consumer precommit scaffold must leave Alef hooks opt-in:\n{content}"
+        "unconfigured project precommit scaffold must leave Alef hooks opt-in:\n{content}"
     );
 }
 
@@ -2340,7 +2340,7 @@ fn test_scaffold_elixir_cargo_tokio_when_async_function() {
 
 /// Trait bridge module names must use PascalCase for hyphenated crate names.
 ///
-/// When the consumer crate name contains hyphens (e.g., `demo-markup`), the
+/// When the source crate name contains hyphens (e.g., `demo-markup`), the
 /// Elixir trait bridge module name must be `DemoMarkupHtmlVisitorBridge`, not
 /// `Demo_markupHtmlVisitorBridge` (which is what `capitalize_first` produces).
 #[test]
@@ -2351,7 +2351,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
     config.name = "demo-markup".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
-        app_name: Some("sample_markdown".to_string()),
+        app_name: Some("demo_markup".to_string()),
         features: None,
         serde_rename_all: None,
         exclude_functions: vec![],
@@ -2393,9 +2393,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         .expect("Elixir scaffold must produce a trait bridge .ex file");
 
     assert!(
-        bridge_file
-            .content
-            .contains("defmodule SampleMarkdownHtmlVisitorBridge do"),
+        bridge_file.content.contains("defmodule DemoMarkupHtmlVisitorBridge do"),
         "trait bridge module name must be PascalCase for hyphenated crate names; got:\n{}",
         bridge_file.content
     );
@@ -2414,7 +2412,7 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
     config.name = "demo-markup".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
-        app_name: Some("sample_markdown".to_string()),
+        app_name: Some("demo_markup".to_string()),
         features: None,
         serde_rename_all: None,
         exclude_functions: vec![],
@@ -2430,7 +2428,7 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
-        registry_getter: Some("sample_markdown::get_registry".to_string()),
+        registry_getter: Some("demo_markup::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
         unregister_fn: None,
         clear_fn: None,
@@ -2457,7 +2455,7 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
         bridge_file.content.contains("plugin_name = impl_module.name()")
             && bridge_file
                 .content
-                .contains("SampleMarkdown.Native.register_ocr_backend(pid, plugin_name)"),
+                .contains("DemoMarkup.Native.register_ocr_backend(pid, plugin_name)"),
         "register/1 must require Plugin.name/0 and register the started GenServer pid; got:\n{}",
         bridge_file.content
     );

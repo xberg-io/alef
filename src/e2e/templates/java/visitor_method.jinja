@@ -1,13 +1,15 @@
-    @Override public VisitResult {{ camel_method }}({{ params }}) {
-{%- if action_type == "skip" %}
-        return VisitResult.skip();
+    @Override public {{ result_type }} {{ camel_method }}({{ params }}) {
+{%- if unsupported_diagnostic %}
+        throw new UnsupportedOperationException("{{ unsupported_diagnostic }}");
+{%- elif action_type == "skip" %}
+        return {{ result_type }}.skip();
 {%- elif action_type == "continue" %}
-        return VisitResult.continue_();
+        return {{ result_type }}.continue_();
 {%- elif action_type == "preserve_html" %}
-        return VisitResult.preserveHtml();
+        return {{ result_type }}.preserveHtml();
 {%- elif action_type == "custom_literal" %}
-        return VisitResult.custom("{{ action_value }}");
+        return {{ result_type }}.custom("{{ action_value }}");
 {%- elif action_type == "custom_formatted" %}
-        return VisitResult.custom(String.format("{{ action_value }}", {{ format_args|join(", ") }}));
+        return {{ result_type }}.custom(String.format("{{ action_value }}", {{ format_args|join(", ") }}));
 {%- endif %}
     }

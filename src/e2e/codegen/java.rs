@@ -6,6 +6,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
+use crate::core::ir::{MethodDef, TypeRef};
 use crate::core::template_versions as tv;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{escape_java, sanitize_filename};
@@ -831,7 +832,7 @@ fn render_test_file(
         }
         let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_om, f, call_cfg, type_defs);
         if f.visitor.is_some() {
-            if let Some(binding) = java_visitor_binding(config, recipe.options_type) {
+            if let Some(binding) = java_visitor_binding(config, type_defs, f.visitor.as_ref(), recipe.options_type) {
                 all_options_types.insert(binding.options_type);
             }
         }
@@ -932,9 +933,9 @@ fn render_test_file(
     // Import visitor types when any fixture uses visitor callbacks.
     let has_visitor_fixtures = fixtures.iter().any(|f| f.visitor.is_some());
     if has_visitor_fixtures && !binding_pkg_for_imports.is_empty() {
-        imports.push(format!("import {binding_pkg_for_imports}.Visitor;"));
-        imports.push(format!("import {binding_pkg_for_imports}.NodeContext;"));
-        imports.push(format!("import {binding_pkg_for_imports}.VisitResult;"));
+        for type_name in java_visitor_imports(config, type_defs, fixtures) {
+            imports.push(format!("import {binding_pkg_for_imports}.{type_name};"));
+        }
     }
 
     // Import Optional when using builder expressions with optional fields.
@@ -1579,9 +1580,21 @@ fn render_test_method(
 
     let mut final_args = args_str;
     if let Some(visitor_spec) = &fixture.visitor {
-        let visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
-        if let Some(binding) = java_visitor_binding(config, effective_options_type) {
+        if let Some(binding) = java_visitor_binding(config, type_defs, Some(visitor_spec), effective_options_type) {
+            if binding.result_type != "WalkDecision" {
+                setup_lines.push(format!(
+                    "org.junit.jupiter.api.Assumptions.assumeTrue(false, \"java visitor fixture '{}' requires explicit e2e result-action metadata for result type '{}'\");",
+                    escape_java(&fixture.id),
+                    escape_java(&binding.result_type)
+                ));
+            }
+            let visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name, &binding);
             final_args = apply_java_visitor_arg(&mut setup_lines, &final_args, args, &visitor_var, &binding);
+        } else {
+            setup_lines.push(format!(
+                "org.junit.jupiter.api.Assumptions.assumeTrue(false, \"java visitor fixture '{}' requires trait_bridge options_type, options_field, context_type, and result_type metadata\");",
+                escape_java(&fixture.id)
+            ));
         }
     }
 
@@ -2486,7 +2499,7 @@ fn render_assertion(
                                         // (which is the Java mapping for free-form JSON values
                                         // like `Option<serde_json::Value>` — javac otherwise
                                         // infers LUB(Object, String) = Object and breaks
-                                        // String-only method calls downstream like .contains()).
+                                        // String-only method calls like .contains()).
                                         format!("{optional_expr}.map(java.util.Objects::toString).orElse(\"\")")
                                     }
                                 } else {
@@ -2868,10 +2881,11 @@ fn build_java_visitor(
     setup_lines: &mut Vec<String>,
     visitor_spec: &crate::e2e::fixture::VisitorSpec,
     class_name: &str,
+    binding: &JavaVisitorBinding,
 ) -> String {
-    setup_lines.push("class _TestVisitor implements Visitor {".to_string());
+    setup_lines.push(format!("class _TestVisitor implements {} {{", binding.trait_type));
     for (method_name, action) in &visitor_spec.callbacks {
-        emit_java_visitor_method(setup_lines, method_name, action, class_name);
+        emit_java_visitor_method(setup_lines, method_name, action, class_name, binding);
     }
     setup_lines.push("}".to_string());
     setup_lines.push("var visitor = new _TestVisitor();".to_string());
@@ -2882,22 +2896,132 @@ fn build_java_visitor(
 struct JavaVisitorBinding {
     options_type: String,
     options_field: String,
+    trait_type: String,
+    context_type: String,
+    result_type: String,
+    methods: Vec<JavaVisitorMethod>,
+    has_missing_method_metadata: bool,
+}
+
+#[derive(Debug, Clone)]
+struct JavaVisitorMethod {
+    name: String,
+    params: String,
 }
 
 fn java_visitor_binding(
     config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    visitor_spec: Option<&crate::e2e::fixture::VisitorSpec>,
     fallback_options_type: Option<&str>,
 ) -> Option<JavaVisitorBinding> {
     let bridge = config
         .trait_bridges
         .iter()
         .find(|bridge| bridge.options_type.is_some() && bridge.resolved_options_field().is_some())?;
+    let trait_def = type_defs.iter().find(|type_def| type_def.name == bridge.trait_name);
+    let callback_methods: Vec<&MethodDef> = visitor_spec
+        .map(|spec| {
+            spec.callbacks
+                .keys()
+                .filter_map(|name| {
+                    trait_def.and_then(|type_def| type_def.methods.iter().find(|method| method.name == *name))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let methods = visitor_spec
+        .map(|spec| {
+            spec.callbacks
+                .keys()
+                .filter_map(|name| {
+                    trait_def
+                        .and_then(|type_def| type_def.methods.iter().find(|method| method.name == *name))
+                        .map(java_visitor_method)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let has_missing_method_metadata = visitor_spec.is_some_and(|spec| methods.len() != spec.callbacks.len());
     Some(JavaVisitorBinding {
         options_type: fallback_options_type
             .or(bridge.options_type.as_deref())
             .map(str::to_string)?,
         options_field: bridge.resolved_options_field()?.to_string(),
+        trait_type: bridge.trait_name.clone(),
+        context_type: bridge.context_type.clone().or_else(|| {
+            callback_methods
+                .iter()
+                .find_map(|method| first_named_param_type(method))
+        })?,
+        result_type: bridge.result_type.clone().or_else(|| {
+            callback_methods
+                .iter()
+                .find_map(|method| named_type(&method.return_type))
+        })?,
+        methods,
+        has_missing_method_metadata,
     })
+}
+
+fn java_visitor_method(method: &MethodDef) -> JavaVisitorMethod {
+    let params = method
+        .params
+        .iter()
+        .map(|param| format!("{} {}", java_visitor_type(&param.ty), param.name.to_lower_camel_case()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    JavaVisitorMethod {
+        name: method.name.clone(),
+        params,
+    }
+}
+
+fn java_visitor_type(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::backends::java::type_map::java_type;
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Optional(inner) => java_visitor_type(inner),
+        TypeRef::Vec(inner) => format!("java.util.List<{}>", java_visitor_type(inner)),
+        TypeRef::Map(key, value) => {
+            format!(
+                "java.util.Map<{}, {}>",
+                java_visitor_type(key),
+                java_visitor_type(value)
+            )
+        }
+        _ => java_type(ty).into_owned(),
+    }
+}
+
+fn java_visitor_imports(
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    fixtures: &[&Fixture],
+) -> std::collections::BTreeSet<String> {
+    let mut imports = std::collections::BTreeSet::new();
+    for fixture in fixtures.iter().filter(|fixture| fixture.visitor.is_some()) {
+        if let Some(binding) = java_visitor_binding(config, type_defs, fixture.visitor.as_ref(), None) {
+            imports.insert(binding.trait_type);
+            imports.insert(binding.context_type);
+            imports.insert(binding.result_type);
+        }
+    }
+    imports
+}
+
+fn first_named_param_type(method: &MethodDef) -> Option<String> {
+    method.params.iter().find_map(|param| named_type(&param.ty))
+}
+
+fn named_type(ty: &TypeRef) -> Option<String> {
+    match ty {
+        TypeRef::Named(name) => Some(name.clone()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => named_type(inner),
+        TypeRef::Map(key, value) => named_type(key).or_else(|| named_type(value)),
+        _ => None,
+    }
 }
 
 fn apply_java_visitor_arg(
@@ -2935,42 +3059,15 @@ fn emit_java_visitor_method(
     method_name: &str,
     action: &CallbackAction,
     _class_name: &str,
+    binding: &JavaVisitorBinding,
 ) {
     let camel_method = method_to_camel(method_name);
-    let params = match method_name {
-        "visit_link" => "NodeContext ctx, String href, String text, String title",
-        "visit_image" => "NodeContext ctx, String src, String alt, String title",
-        "visit_heading" => "NodeContext ctx, int level, String text, String id",
-        "visit_code_block" => "NodeContext ctx, String lang, String code",
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => "NodeContext ctx, String text",
-        "visit_text" => "NodeContext ctx, String text",
-        "visit_list_item" => "NodeContext ctx, boolean ordered, String marker, String text",
-        "visit_blockquote" => "NodeContext ctx, String content, long depth",
-        "visit_table_row" => "NodeContext ctx, java.util.List<String> cells, boolean isHeader",
-        "visit_custom_element" => "NodeContext ctx, String tagName, String html",
-        "visit_form" => "NodeContext ctx, String actionUrl, String method",
-        "visit_input" => "NodeContext ctx, String inputType, String name, String value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "NodeContext ctx, String src",
-        "visit_details" => "NodeContext ctx, boolean isOpen",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            "NodeContext ctx, String output"
-        }
-        "visit_list_start" => "NodeContext ctx, boolean ordered",
-        "visit_list_end" => "NodeContext ctx, boolean ordered, String output",
-        _ => "NodeContext ctx",
-    };
+    let params = binding
+        .methods
+        .iter()
+        .find(|method| method.name == method_name)
+        .map(|method| method.params.clone())
+        .unwrap_or_else(|| format!("{} context", binding.context_type));
 
     // Determine action type and values for template
     let (action_type, action_value, format_args) = match action {
@@ -3020,16 +3117,24 @@ fn emit_java_visitor_method(
         }
     };
 
-    let params = params.to_string();
+    let unsupported_diagnostic =
+        (binding.has_missing_method_metadata || binding.result_type != "WalkDecision").then(|| {
+            format!(
+                "visitor fixture callback '{method_name}' requires explicit e2e metadata for result type '{}'",
+                binding.result_type
+            )
+        });
 
     let rendered = crate::e2e::template_env::render(
         "java/visitor_method.jinja",
         minijinja::context! {
             camel_method,
             params,
+            result_type => &binding.result_type,
             action_type,
             action_value,
             format_args => format_args,
+            unsupported_diagnostic => unsupported_diagnostic,
         },
     );
     setup_lines.push(rendered);
@@ -3794,17 +3899,22 @@ mod tests {
                 bind_via: BridgeBinding::OptionsField,
                 options_type: Some("RenderOptions".to_string()),
                 options_field: Some("callback".to_string()),
+                context_type: Some("RenderContext".to_string()),
+                result_type: Some("RenderDecision".to_string()),
                 ..Default::default()
             }],
             ..Default::default()
         };
 
-        let binding = java_visitor_binding(&config, None).expect("visitor binding");
+        let binding = java_visitor_binding(&config, &[], None, None).expect("visitor binding");
         assert_eq!(binding.options_type, "RenderOptions");
         assert_eq!(binding.options_field, "callback");
+        assert_eq!(binding.trait_type, "Renderer");
+        assert_eq!(binding.context_type, "RenderContext");
+        assert_eq!(binding.result_type, "RenderDecision");
 
         let args = apply_java_visitor_arg(&mut Vec::new(), "html, null", &[], "visitor", &binding);
         assert_eq!(args, "html, new RenderOptions().withCallback(visitor)");
-        assert!(!args.contains("ConversionOptions"));
+        assert!(!args.contains("DefaultOptions"));
     }
 }

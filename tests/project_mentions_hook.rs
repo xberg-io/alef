@@ -571,6 +571,25 @@ fn strict_mode_reports_mentions_in_snapshots_and_docs() {
 }
 
 #[test]
+fn strict_mode_reports_domain_types_in_prose() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let docs_dir = dir.path().join("docs");
+    fs::create_dir_all(&docs_dir).expect("create docs dir");
+    let doc = docs_dir.join("guide.md");
+
+    fs::write(&doc, "Regression note for ConversionOptions.\n").expect("write doc fixture");
+
+    let output = run_hook_with_args(&["--strict"], &[&doc]);
+
+    assert!(!output.status.success(), "strict hook should reject prose domain types");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `ConversionOptions`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn reports_multiple_files_with_line_numbers() {
     let dir = tempfile::tempdir().expect("tempdir");
     let first = dir.path().join("first.toml");

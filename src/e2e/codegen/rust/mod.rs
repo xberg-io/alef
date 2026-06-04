@@ -375,9 +375,9 @@ fn rust_type_name(ty: &crate::core::ir::TypeRef) -> String {
 /// and the body is `Ok(default_for_T)`.
 ///
 /// For reference-returning methods (`returns_ref = true`), the IR collapses
-/// `&[T]` into `Vec<T>` + flag.  A `Default::default()` value cannot be returned
-/// as a reference without a named binding, so those methods fall back to
-/// `unimplemented!()` which satisfies any return type via the never type `!`.
+/// `&[T]` into `Vec<T>` + flag.  Slice and string references use empty literals.
+/// Other reference returns emit an explicit compile-time diagnostic because the
+/// e2e stub cannot synthesize an owned backing value safely.
 /// Emit a single method body inside a `impl Trait for Stub` block.
 ///
 /// `crate_module`: when `Some`, used to qualify single-arg `Result<T>` return types
@@ -443,8 +443,6 @@ fn emit_rust_stub_method(
         //   String       → &str
         //   Vec<T>       → &[T]
         //   T            → &T
-        // Emit with `unimplemented!()` body since returning a reference from a Default
-        // value requires a named binding; the never type `!` satisfies any return type.
         use crate::core::ir::TypeRef;
         let ref_type = match &method.return_type {
             TypeRef::String => "&str".to_string(),
@@ -498,12 +496,16 @@ fn emit_rust_stub_method(
         // Reference-returning methods: return the cheapest valid reference that
         // satisfies the return type without requiring a named binding.
         //   &str, &[u8], &[&str], &[T]  → use an empty literal (&[], "")
-        //   &T (other)                   → fall back to unimplemented!()
+        //   &T (other)                   → emit an unsupported-generation diagnostic
         use crate::core::ir::TypeRef;
         match &method.return_type {
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes | TypeRef::Vec(_) => "&[]".to_string(),
-            _ => "unimplemented!()".to_string(),
+            _ => format!(
+                "compile_error!(\"alef cannot generate Rust e2e test_backend method `{}` because it returns an \
+                 unsupported reference type\")",
+                method.name
+            ),
         }
     } else {
         let raw = match &method.return_type {

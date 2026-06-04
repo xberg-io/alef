@@ -51,7 +51,7 @@ gleeunit = "{gleeunit}"
     // Smoke test that exercises the generated module loads. `gleam test` requires a
     // `test/<app_name>_test.gleam` entry point; without it the test runner errors out.
     // We don't import the generated module here to avoid forcing reference to specific
-    // symbols that may shift across regenerations; downstream users add real assertions.
+    // symbols that may shift across regenerations; projects add real assertions.
     let smoke_test = r#"import gleeunit
 import gleeunit/should
 

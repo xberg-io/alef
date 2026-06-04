@@ -415,7 +415,6 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
-        unsupported_public_items: Vec::new(),
         };
 
         let registration = RegistrationDef {

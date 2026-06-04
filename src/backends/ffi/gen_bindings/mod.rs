@@ -261,7 +261,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
-    // FFI backend uses fully qualified paths (e.g. sample_markdown_rs::ConversionOptions)
+    // FFI backend uses fully qualified paths (e.g. sample_crate::ParseOptions)
     // for all core type references, so no named or glob imports from the core crate are
     // needed. Trait imports (collected above) are sufficient for method dispatch.
 
@@ -1165,7 +1165,7 @@ result_type = "VisitResult"
         }
     }
 
-    /// Like `sample_api()` but includes an `HtmlVisitor` trait with representative methods.
+    /// Like `sample_api()` but includes a `SyntaxWalker` trait with representative methods.
     ///
     /// Use this for tests that exercise visitor callback generation.  The methods cover each
     /// `ParamKind` variant: Str, OptStr, Bool, U32, Usize, CellSlice, and no-params.
@@ -2369,7 +2369,7 @@ visitor_callbacks = true
         assert!(lib.content.contains("HTM_VISIT_CUSTOM"));
         assert!(lib.content.contains("HTM_VISIT_ERROR"));
 
-        // NodeContext fields
+        // SyntaxContext fields
         assert!(lib.content.contains("node_type: i32"));
         assert!(lib.content.contains("tag_name: *const std::ffi::c_char"));
         assert!(lib.content.contains("depth: usize"));
@@ -2482,7 +2482,7 @@ visitor_callbacks = true
         // VisitorRef wrapper for forwarding trait methods
         assert!(lib.content.contains("struct VisitorRef"));
         assert!(lib.content.contains("impl std::fmt::Debug for VisitorRef"));
-        // VisitorRef should implement HtmlVisitor trait (core_import is my_lib for this test)
+        // VisitorRef should implement SyntaxWalker trait (core_import is my_lib for this test)
         assert!(lib.content.contains("impl my_lib::visitor::HtmlVisitor for VisitorRef"));
     }
 
@@ -2697,7 +2697,7 @@ result_type = "WalkOutcome"
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-        // Helper function for building and passing NodeContext to C callbacks
+        // Helper function for building and passing SyntaxContext to C callbacks
         assert!(lib.content.contains("call_with_ctx"));
         assert!(lib.content.contains("HtmContext"));
         assert!(lib.content.contains("tag_cstring"));
@@ -3842,7 +3842,7 @@ type = "*const std::ffi::c_char"
         );
     }
 
-    /// Regression test for https://github.com/kreuzberg-dev/alef/issues/118.
+    /// Regression test for the sample_crate issue tracker.
     /// Struct fields typed `Option<Bytes>` / `Option<Vec<u8>>` (e.g. EmailAttachment.data)
     /// must emit the same (ptr, out_len: *mut usize) contract as non-optional Bytes fields.
     /// Previously the needs_len_out predicate only matched `Bytes && !optional`.

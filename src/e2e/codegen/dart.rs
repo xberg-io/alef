@@ -342,7 +342,7 @@ fn render_test_file(
     // those are materialized via `jsonDecode` at test-run time and cast to `List<String>`.
     // Handle args themselves no longer require `jsonDecode` since they construct the config via
     // the FRB-generated `createCrawlConfigFromJson(json:)` helper which accepts the JSON string
-    // directly. The variable name is kept as `has_handle_args` for downstream stability.
+    // directly. The variable name is kept as `has_handle_args` for config stability.
     let has_handle_args = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return false;
@@ -1470,7 +1470,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
     // above.
     if let Some(visitor_spec) = &fixture.visitor {
         let mut visitor_setup: Vec<String> = Vec::new();
-        let visitor_config = super::dart_visitors::resolve_dart_visitor_config(call_overrides, type_defs, visitor_spec);
+        let visitor_config =
+            super::dart_visitors::resolve_dart_visitor_config(config, call_overrides, type_defs, visitor_spec);
         let _ = super::dart_visitors::build_dart_visitor(&mut visitor_setup, visitor_spec, &visitor_config);
         // Prepend the visitor block so `_visitor` is in scope by the time the
         // options call (which may reference it) runs.
@@ -1746,7 +1747,7 @@ fn render_assertion_dart(
             let (array_part, elem_part) = match resolved_full.find("[].") {
                 Some(rdot) => (&resolved_full[..rdot], &resolved_full[rdot + 3..]),
                 // Resolver mapped the path away from `[].` form — fall back to the original
-                // split, since downstream code expects the array/elem structure.
+                // split, since generated code expects the array/elem structure.
                 None => (&f[..dot], &f[dot + 3..]),
             };
             let array_accessor = if array_part.is_empty() {

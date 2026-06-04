@@ -733,10 +733,10 @@ mod tests {
 
     #[test]
     fn test_doc_type_named_without_path() {
-        let ty = TypeRef::Named("ConversionOptions".to_string());
-        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "ConversionOptions");
-        assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "ConversionOptions");
-        assert_eq!(doc_type(&ty, Language::Ffi, TEST_PREFIX), "HtmConversionOptions");
+        let ty = TypeRef::Named("ParseOptions".to_string());
+        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "ParseOptions");
+        assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "ParseOptions");
+        assert_eq!(doc_type(&ty, Language::Ffi, TEST_PREFIX), "HtmParseOptions");
     }
 
     #[test]
@@ -797,19 +797,16 @@ mod tests {
 
     #[test]
     fn test_doc_type_optional_of_named_all_languages() {
-        let ty = TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string())));
-        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "ConversionOptions | None");
-        assert_eq!(
-            doc_type(&ty, Language::Java, TEST_PREFIX),
-            "Optional<ConversionOptions>"
-        );
-        assert_eq!(doc_type(&ty, Language::Csharp, TEST_PREFIX), "ConversionOptions?");
-        assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "*ConversionOptions");
-        assert_eq!(doc_type(&ty, Language::Rust, TEST_PREFIX), "Option<ConversionOptions>");
-        assert_eq!(doc_type(&ty, Language::Ruby, TEST_PREFIX), "ConversionOptions?");
-        assert_eq!(doc_type(&ty, Language::Php, TEST_PREFIX), "?ConversionOptions");
-        assert_eq!(doc_type(&ty, Language::Elixir, TEST_PREFIX), "ConversionOptions | nil");
-        assert_eq!(doc_type(&ty, Language::R, TEST_PREFIX), "ConversionOptions or NULL");
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("ParseOptions".to_string())));
+        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "ParseOptions | None");
+        assert_eq!(doc_type(&ty, Language::Java, TEST_PREFIX), "Optional<ParseOptions>");
+        assert_eq!(doc_type(&ty, Language::Csharp, TEST_PREFIX), "ParseOptions?");
+        assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "*ParseOptions");
+        assert_eq!(doc_type(&ty, Language::Rust, TEST_PREFIX), "Option<ParseOptions>");
+        assert_eq!(doc_type(&ty, Language::Ruby, TEST_PREFIX), "ParseOptions?");
+        assert_eq!(doc_type(&ty, Language::Php, TEST_PREFIX), "?ParseOptions");
+        assert_eq!(doc_type(&ty, Language::Elixir, TEST_PREFIX), "ParseOptions | nil");
+        assert_eq!(doc_type(&ty, Language::R, TEST_PREFIX), "ParseOptions or NULL");
     }
 
     #[test]
@@ -1047,8 +1044,8 @@ mod tests {
         assert_eq!(java_boxed_type(&TypeRef::String), "String");
         assert_eq!(java_boxed_type(&TypeRef::Bytes), "byte[]");
         assert_eq!(
-            java_boxed_type(&TypeRef::Named("ConversionOptions".to_string())),
-            "ConversionOptions"
+            java_boxed_type(&TypeRef::Named("ParseOptions".to_string())),
+            "ParseOptions"
         );
         assert_eq!(java_boxed_type(&TypeRef::Duration), "Duration");
     }

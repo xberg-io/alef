@@ -5,7 +5,7 @@
 //! Mirrors the Go/Zig codegen pattern: when `client_factory` is set the
 //! generated test must instantiate `DefaultClient`, call the method on it, and
 //! close it. When absent, the object-level function is called directly —
-//! the sample_crate flat-function style must remain untouched.
+//! flat-function fixtures must remain untouched.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -162,7 +162,7 @@ type = "json_object"
 }
 
 /// When `client_factory` is absent, the generator falls back to the flat
-/// object-function call pattern. This ensures sample_crate regression-free.
+/// object-function call pattern.
 #[test]
 fn without_client_factory_emits_flat_function_call() {
     let rendered = render_kotlin_smoke(BASE_TOML_WITH_FLAT_OVERRIDE, "smoke_basic");

@@ -710,7 +710,7 @@ fn render_bytes_value(raw: &str) -> String {
 /// absent instead of passing a plain R list to an ExternalPtr-backed DTO.
 ///
 /// When `options_type` is provided, emit the corresponding typed default.
-/// Otherwise leave the optional slot unset instead of guessing a downstream type.
+/// Otherwise leave the optional slot unset instead of guessing a project type.
 fn r_default_for_config_arg(arg_name: &str, options_type: Option<&str>) -> String {
     if let Some(type_name) = options_type {
         return format!("{type_name}$default()");

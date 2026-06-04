@@ -83,22 +83,13 @@ fn build_example_fixture(e2e_config: &E2eConfig) -> String {
         format!("{{\n{}\n  }}", input_fields.join(",\n"))
     };
 
-    // Use the first arg's field for the not_empty assertion if available
-    let first_field = e2e_config
-        .call
-        .args
-        .first()
-        .map(|a| a.field.as_str())
-        .unwrap_or("result");
-
     format!(
         r#"{{
   "id": "basic_smoke",
   "description": "Basic smoke test verifying the function returns without error",
   "input": {input_block},
   "assertions": [
-    {{ "type": "not_error" }},
-    {{ "type": "not_empty", "field": "{first_field}" }}
+    {{ "type": "not_error" }}
   ]
 }}
 "#

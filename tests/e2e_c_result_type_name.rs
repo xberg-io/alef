@@ -5,8 +5,7 @@
 //! produces `HTMHtmConvert*` — the prefix is doubled.  The fallback must use
 //! `call.function` (the base, un-prefixed name) so it produces `HTMConvert*`,
 //! which is at least not self-contradictory and matches the `<prefix><Base>` pattern.
-//! When the correct type differs (e.g. `ConversionResult`), users add an explicit
-//! `result_type` override.
+//! When the correct type differs, users add an explicit `result_type` override.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;

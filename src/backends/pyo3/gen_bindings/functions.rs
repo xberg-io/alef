@@ -12,7 +12,7 @@ use super::types::collect_named_types;
 
 /// Generate api.py — wrapper functions that convert Python types to Rust binding types.
 ///
-/// For each function parameter whose type is a `has_default` struct (e.g. `ConversionOptions`),
+/// For each function parameter whose type is a `has_default` struct (e.g. `ParseOptions`),
 /// we generate a `_to_rust_{snake_name}` converter that maps the Python `@dataclass` instance
 /// to the Rust binding's pyclass by passing every field as a keyword argument.
 #[allow(clippy::too_many_arguments)]
@@ -389,7 +389,7 @@ pub(super) fn gen_api_py(
             }
         };
 
-        // Check if this type has an options-field bridge (e.g. ConversionOptions.visitor).
+        // Check if this type has an options-field bridge (e.g. ParseOptions.visitor).
         // If so, the converter gains a `_visitor_override: {type_alias} | None = None` param.
         let bridge_visitor_field = options_field_bridges.get(type_name.as_str()).copied();
         let bridge_visitor_type = bridge_visitor_field.and_then(|(_, _, alias)| alias).unwrap_or("object");
@@ -1288,7 +1288,7 @@ pub(super) fn gen_api_py(
 
     // Collect names already emitted in the main api.functions loop so we don't duplicate
     // a function that is both an api.function AND named in a trait-bridge config.
-    // Trait bridges declare `clear_fn = "clear_ocr_backends"` etc.; that same function
+    // Trait bridges declare `clear_fn = "clear_text_backends"` etc.; that same function
     // is usually also configured as a regular call in [crates.e2e.calls.*] and ends up
     // in api.functions with a richer doc-comment from the Rust source. Without this guard,
     // api.py declares both — the second wins at import time but ruff flags F811.
@@ -1297,7 +1297,7 @@ pub(super) fn gen_api_py(
     // Emit pass-through wrappers for trait-bridge registration functions.
     // These functions are emitted as #[pyfunction] in the native Rust module but are not in
     // api.functions — they must be re-exported via api.py so callers can use the public package
-    // path (e.g. `sample_core.register_ocr_backend`) rather than `sample_core._sample_core.register_ocr_backend`.
+    // path (e.g. `sample_core.register_text_backend`) rather than `sample_core._sample_core.register_text_backend`.
     for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(trait_bridges) {
         if emitted_function_names.contains(&register_fn) {
             continue;

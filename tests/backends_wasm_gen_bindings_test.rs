@@ -1057,7 +1057,7 @@ fn test_opaque_type_filter_generic_path_excluded() {
     let backend = WasmBackend;
 
     // Regression test: Opaque with generic params in path should be EXCLUDED
-    // because wasm-bindgen cannot wrap generic types. This is the kreuzberg
+    // because wasm-bindgen cannot wrap generic types. This is the sample_crate
     // Arc<Mutex<dyn Trait>> case.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
@@ -1419,8 +1419,8 @@ fn make_async_method_wasm(name: &str, return_type: TypeRef) -> MethodDef {
 
 fn make_node_context_wasm() -> TypeDef {
     TypeDef {
-        name: "NodeContext".to_string(),
-        rust_path: "my_lib::NodeContext".to_string(),
+        name: "SyntaxContext".to_string(),
+        rust_path: "my_lib::SyntaxContext".to_string(),
         original_rust_path: String::new(),
         fields: vec![make_field("node_id", TypeRef::String, false)],
         methods: vec![],
@@ -1445,8 +1445,8 @@ fn make_node_context_wasm() -> TypeDef {
 
 fn make_visit_result_wasm() -> EnumDef {
     EnumDef {
-        name: "VisitResult".to_string(),
-        rust_path: "my_lib::VisitResult".to_string(),
+        name: "WalkDecision".to_string(),
+        rust_path: "my_lib::WalkDecision".to_string(),
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
@@ -1540,8 +1540,8 @@ fn make_visitor_bridge_cfg_wasm(trait_name: &str, type_alias: &str) -> alef::cor
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        context_type: Some("NodeContext".to_string()),
-        result_type: Some("VisitResult".to_string()),
+        context_type: Some("SyntaxContext".to_string()),
+        result_type: Some("WalkDecision".to_string()),
     }
 }
 
@@ -1554,21 +1554,22 @@ fn test_wasm_visitor_bridge_produces_visitor_struct() {
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "HtmlVisitor",
+        "SyntaxWalker",
         vec![make_method_wasm("visit_node", TypeRef::Unit, false, true)],
     );
-    let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
+    let bridge_cfg = make_visitor_bridge_cfg_wasm("SyntaxWalker", "SyntaxWalker");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
         .expect("trait bridge generation should succeed");
 
     assert!(
-        code.code.contains("WasmHtmlVisitorBridge"),
+        code.code.contains("WasmSyntaxWalkerBridge"),
         "WASM visitor bridge struct must be named Wasm{{TraitName}}Bridge"
     );
     assert!(
-        code.code.contains("impl my_lib::HtmlVisitor for WasmHtmlVisitorBridge"),
+        code.code
+            .contains("impl my_lib::SyntaxWalker for WasmSyntaxWalkerBridge"),
         "WASM visitor bridge must implement the trait"
     );
 }
@@ -1578,10 +1579,10 @@ fn test_wasm_visitor_bridge_has_js_obj_field() {
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "HtmlVisitor",
+        "SyntaxWalker",
         vec![make_method_wasm("visit_node", TypeRef::Unit, false, true)],
     );
-    let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
+    let bridge_cfg = make_visitor_bridge_cfg_wasm("SyntaxWalker", "SyntaxWalker");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
@@ -1598,18 +1599,18 @@ fn test_wasm_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "OcrBackend",
+        "TextBackend",
         vec![make_method_wasm("process", TypeRef::String, true, false)],
     );
-    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("TextBackend");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
         .expect("trait bridge generation should succeed");
 
     assert!(
-        code.code.contains("pub struct WasmOcrBackendBridge"),
-        "WASM plugin bridge wrapper struct must be WasmOcrBackendBridge"
+        code.code.contains("pub struct WasmTextBackendBridge"),
+        "WASM plugin bridge wrapper struct must be WasmTextBackendBridge"
     );
     assert!(
         code.code.contains("inner:"),
@@ -1626,17 +1627,17 @@ fn test_wasm_plugin_bridge_generates_super_trait_impl() {
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "OcrBackend",
+        "TextBackend",
         vec![make_method_wasm("process", TypeRef::String, true, false)],
     );
-    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("TextBackend");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
         .expect("trait bridge generation should succeed");
 
     assert!(
-        code.code.contains("impl my_lib::Plugin for WasmOcrBackendBridge"),
+        code.code.contains("impl my_lib::Plugin for WasmTextBackendBridge"),
         "WASM plugin bridge must implement Plugin super-trait"
     );
     assert!(code.code.contains("fn name("), "Plugin impl must contain name()");
@@ -1655,17 +1656,17 @@ fn test_wasm_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "OcrBackend",
+        "TextBackend",
         vec![make_method_wasm("process", TypeRef::String, true, false)],
     );
-    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("TextBackend");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
         .expect("trait bridge generation should succeed");
 
     assert!(
-        code.code.contains("impl my_lib::OcrBackend for WasmOcrBackendBridge"),
+        code.code.contains("impl my_lib::TextBackend for WasmTextBackendBridge"),
         "WASM plugin bridge must implement the trait itself"
     );
     assert!(
@@ -1679,10 +1680,10 @@ fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "OcrBackend",
+        "TextBackend",
         vec![make_method_wasm("process", TypeRef::String, true, false)],
     );
-    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("TextBackend");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
@@ -1693,7 +1694,7 @@ fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute
         "WASM registration function must carry the #[wasm_bindgen] attribute"
     );
     assert!(
-        code.code.contains("pub fn register_ocrbackend("),
+        code.code.contains("pub fn register_textbackend("),
         "WASM registration function must use the configured name"
     );
 }
@@ -2026,10 +2027,10 @@ fn test_vec_string_is_ref_serde_path_emits_refs_binding() {
 
 /// Regression test: a non-opaque struct with `has_default: true` and a static `default()`
 /// method returning `TypeRef::Named` with the same struct name must emit `.into()` so the
-/// binding wrapper type (e.g. `WasmConversionOptions`) is returned, not the bare core type.
+/// binding wrapper type (e.g. `WasmParseOptions`) is returned, not the bare core type.
 ///
 /// Before the fix, `wrap_return_with_mutex` skipped `.into()` when `n == type_name`, which
-/// caused `fn default() -> WasmConversionOptions { core::ConversionOptions::default() }` —
+/// caused `fn default() -> WasmParseOptions { core::ParseOptions::default() }` —
 /// a type mismatch compile error.
 #[test]
 fn test_static_default_returns_binding_wrapper_not_core_type() {
@@ -2039,14 +2040,14 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "test_lib::options::ConversionOptions".to_string(),
+            name: "ParseOptions".to_string(),
+            rust_path: "test_lib::options::ParseOptions".to_string(),
             original_rust_path: String::new(),
             fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
             methods: vec![MethodDef {
                 name: "default".to_string(),
                 params: vec![],
-                return_type: TypeRef::Named("ConversionOptions".to_string()),
+                return_type: TypeRef::Named("ParseOptions".to_string()),
                 is_async: false,
                 is_static: true,
                 error_type: None,
@@ -2104,7 +2105,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
     // Wasm-prefixed binding wrapper is returned, not the bare inner core type.
     // The wasm backend builds the core call as `{core_import}::{type_name}::method()`.
     assert!(
-        content.contains("::ConversionOptions::default().into()"),
+        content.contains("::ParseOptions::default().into()"),
         "static default() must wrap core call with .into() to return binding wrapper;\n\
          actual content around fn default:\n{}",
         extract_fn_snippet(content, "fn default")
@@ -2123,15 +2124,15 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         version: "0.1.0".to_string(),
         types: vec![
             TypeDef {
-                name: "ConversionOptions".to_string(),
-                rust_path: "test_lib::options::ConversionOptions".to_string(),
+                name: "ParseOptions".to_string(),
+                rust_path: "test_lib::options::ParseOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
                 methods: vec![MethodDef {
                     name: "from_update".to_string(),
                     params: vec![ParamDef {
                         name: "update".to_string(),
-                        ty: TypeRef::Named("ConversionOptionsUpdate".to_string()),
+                        ty: TypeRef::Named("ParseOptionsUpdate".to_string()),
                         optional: false,
                         default: None,
                         sanitized: false,
@@ -2144,7 +2145,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                         map_key_is_cow: false,
                         vec_inner_is_ref: false,
                     }],
-                    return_type: TypeRef::Named("ConversionOptions".to_string()),
+                    return_type: TypeRef::Named("ParseOptions".to_string()),
                     is_async: false,
                     is_static: true,
                     error_type: None,
@@ -2177,8 +2178,8 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "ConversionOptionsUpdate".to_string(),
-                rust_path: "test_lib::ConversionOptionsUpdate".to_string(),
+                name: "ParseOptionsUpdate".to_string(),
+                rust_path: "test_lib::ParseOptionsUpdate".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field(
                     "enabled",
@@ -2228,7 +2229,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
 
     // The body must convert the core result with .into() so the binding wrapper is returned.
     assert!(
-        content.contains("ConversionOptions::from_update(update_core).into()"),
+        content.contains("ParseOptions::from_update(update_core).into()"),
         "static from_update() must wrap core call with .into() to return binding wrapper;\n\
          actual content around fn from_update:\n{}",
         extract_fn_snippet(content, "fn from_update")
@@ -2506,10 +2507,10 @@ fn test_wasm_bridge_constructor_reads_js_name_property() {
     use alef::backends::wasm::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_wasm(
-        "OcrBackend",
+        "TextBackend",
         vec![make_method_wasm("process", TypeRef::String, true, false)],
     );
-    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("TextBackend");
     let api = make_api_wasm();
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
@@ -4094,8 +4095,8 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
     let backend = WasmBackend;
 
     let trait_def = TypeDef {
-        name: "OcrBackend".to_string(),
-        rust_path: "test_lib::OcrBackend".to_string(),
+        name: "TextBackend".to_string(),
+        rust_path: "test_lib::TextBackend".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![MethodDef {
@@ -4136,8 +4137,8 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
 
     // The clear_fn is a zero-parameter function in the public API surface.
     let clear_fn = FunctionDef {
-        name: "clear_ocr_backends".to_string(),
-        rust_path: "test_lib::clear_ocr_backends".to_string(),
+        name: "clear_text_backends".to_string(),
+        rust_path: "test_lib::clear_text_backends".to_string(),
         original_rust_path: String::new(),
         params: vec![],
         return_type: TypeRef::Unit,
@@ -4170,12 +4171,12 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
-        trait_name: "OcrBackend".to_string(),
+        trait_name: "TextBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("test_lib::get_ocr_registry".to_string()),
-        register_fn: Some("register_ocr_backend".to_string()),
-        unregister_fn: Some("unregister_ocr_backend".to_string()),
-        clear_fn: Some("clear_ocr_backends".to_string()),
+        register_fn: Some("register_text_backend".to_string()),
+        unregister_fn: Some("unregister_text_backend".to_string()),
+        clear_fn: Some("clear_text_backends".to_string()),
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -4200,20 +4201,20 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
     let content = &lib_file.content;
 
     // Not duplicated — exactly one wasm-bindgen export with this JS name.
-    let occurrences = content.matches("clearOcrBackends").count();
+    let occurrences = content.matches("clearTextBackends").count();
     assert_eq!(
         occurrences, 1,
-        "clearOcrBackends must appear exactly once in lib.rs (not duplicated by top-level + bridge glob re-export);\nfound {occurrences} occurrence(s)"
+        "clearTextBackends must appear exactly once in lib.rs (not duplicated by top-level + bridge glob re-export);\nfound {occurrences} occurrence(s)"
     );
 
     // Emitted via the bridge module, not silently dropped — the bridge module and its
-    // glob re-export must both be present so callers can reach clearOcrBackends.
+    // glob re-export must both be present so callers can reach clearTextBackends.
     assert!(
-        content.contains("mod __alef_wasm_bridge_ocrbackend"),
-        "bridge module __alef_wasm_bridge_ocrbackend must be present in lib.rs"
+        content.contains("mod __alef_wasm_bridge_textbackend"),
+        "bridge module __alef_wasm_bridge_textbackend must be present in lib.rs"
     );
     assert!(
-        content.contains("pub use __alef_wasm_bridge_ocrbackend::*"),
+        content.contains("pub use __alef_wasm_bridge_textbackend::*"),
         "bridge module must be glob-re-exported so its symbols are reachable"
     );
 }

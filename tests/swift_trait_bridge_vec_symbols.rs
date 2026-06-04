@@ -53,7 +53,7 @@ fn make_method(name: &str, return_type: TypeRef, is_async: bool) -> MethodDef {
 
 #[test]
 fn test_swift_trait_bridge_vec_phantom_symbols() {
-    let trait_names = vec!["DocumentExtractor", "OcrBackend", "PostProcessor", "Renderer"];
+    let trait_names = vec!["DocumentExtractor", "TextBackend", "PostProcessor", "Renderer"];
 
     for trait_name in trait_names {
         let trait_def = make_trait_def(trait_name, vec![make_method("process", TypeRef::String, false)]);

@@ -21,12 +21,12 @@ use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
 /// Returns true when the wrapper getter for `field` cannot be safely bridged
-/// to swift-bridge — i.e. the only viable impl would be `unimplemented!()`.
+/// to swift-bridge.
 ///
 /// Used by `extern_block::emit_extern_block_for_type` to skip the extern
 /// declaration *and* by `wrappers::emit_getters` to skip the impl. Keeping
 /// these in lockstep means the swift-bridge surface never contains a callable
-/// function whose body would panic at runtime.
+/// function with no valid bridge implementation.
 ///
 /// Three cases qualify:
 /// 1. Explicitly excluded fields (`[swift].exclude_fields` config).

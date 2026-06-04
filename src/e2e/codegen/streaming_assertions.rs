@@ -1,10 +1,9 @@
 //! Shared streaming-virtual-fields module for e2e test codegen.
 //!
 //! Streaming fixtures assert on "virtual" fields that don't exist on the
-//! stream result type itself. Generic assertions use the neutral `stream.items`
-//! / `stream.items.length` surface; domain-shaped assertions such as chat
-//! content/tool-call helpers only apply when a fixture/call is already resolved
-//! as streaming by mock data or explicit call configuration.
+//! stream result type itself. These fields require the `streaming` assertion
+//! recipe unless the call explicitly maps the asserted root as a real result
+//! field.
 //!
 //! [`StreamingFieldResolver`] provides two entry points:
 //! - [`StreamingFieldResolver::accessor`] — the language-specific expression
@@ -188,7 +187,7 @@ impl StreamingFieldResolver {
     ///
     /// When `item_type` is `None` the `stream.has_*_event` branches return
     /// `None`, so the call site can skip or diagnose the assertion rather than
-    /// emitting a reference to an unknown downstream type.
+    /// emitting a reference to an unknown project type.
     pub fn accessor_with_streaming_context(
         field: &str,
         lang: &str,

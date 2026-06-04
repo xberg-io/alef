@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
+- **generic codegen cleanup**: remove the remaining AsRef public-generic extraction rewrite, neutralize visitor/e2e/scaffold/governance fixtures, and replace generated non-delegatable runtime fallbacks with explicit diagnostics. E2e visitor generation now derives context/result names from trait-bridge metadata instead of fixed legacy visitor shapes, strict project-mention enforcement covers generated guidance/templates without scanning unrelated historical changelog text, and backend tests use neutral fixture names outside explicit enforcement cases. (`src/extract/extractor`, `src/e2e`, `src/backends`, `hooks/check_project_mentions.py`, `.ai-rulez`, `tests`)
+
 - **csharp backend**: wire `gen_opaque_streaming_static_wrapper` into the method emission loop for opaque types. The function was defined but never called, so opaque types with streaming methods (e.g., `CrawlStreamAsync` on `DefaultEngine`) did not emit static facade methods in the main wrapper class, causing C# compilation errors. Now opaque streaming methods correctly emit both instance methods on the opaque handle class and static convenience wrappers in the wrapper class. (`src/backends/csharp/gen_bindings/methods.rs`)
 
 

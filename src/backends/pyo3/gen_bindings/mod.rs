@@ -178,7 +178,7 @@ fn replace_constructor_with_serde_rename(
         }
     }
 
-    // Check if this type has an options-field bridge (e.g., ConversionOptions.visitor).
+    // Check if this type has an options-field bridge (e.g., ParseOptions.visitor).
     // The bridge field is appended later via `bridge_param`; filter it out of
     // `sorted_fields` so we do not emit it twice when the field is force-restored
     // through `never_skip_cfg_field_names`.
@@ -449,7 +449,7 @@ impl Backend for Pyo3Backend {
         // Also include type_alias names from options-field bridges (e.g. `VisitorHandle`).
         // These are opaque types (is_opaque=true, is_trait=false) but they represent visitor
         // handles embedded as fields in has_default structs.  When they appear as struct field
-        // types (e.g. ConversionOptions.visitor: Option<VisitorHandle>), the binding struct
+        // types (e.g. ParseOptions.visitor: Option<VisitorHandle>), the binding struct
         // should store them as `Option<Py<PyAny>>` with `#[serde(skip)]` so the visitor can
         // be extracted before the serde round-trip in the bridge function.  Without this, the
         // mapper emits `Option<VisitorHandle>` which cannot implement `serde::Serialize`.
@@ -532,7 +532,7 @@ impl Backend for Pyo3Backend {
             builder.add_import(&trait_path);
         }
         // Core crate types are referenced via fully-qualified paths (e.g.
-        // `sample_markdown_rs::ConversionOptions`) in generated code, so no
+        // `sample_crate::ParseOptions`) in generated code, so no
         // named or glob imports from the core crate are needed.  Importing
         // core type names would shadow the local PyO3 wrapper structs that
         // share the same names, causing compilation errors.
@@ -1381,10 +1381,10 @@ mod alef_json_str_opt {
 
         // Fix wrapper functions that pass Option<T> params to core functions expecting Option<T>.
         // When a binding param is Optional<T> and serde deserializes to T, wrap in Some() at call site.
-        // The core function expects Option<ConversionOptions>, but serde deserialization produces
-        // ConversionOptions (not Optional). Wrap in Some() when passing to core.
-        // Look for patterns like: sample_markdown_rs::convert(&html, options_core)
-        // and replace with: sample_markdown_rs::convert(&html, Some(options_core))
+        // The core function expects Option<ParseOptions>, but serde deserialization produces
+        // ParseOptions (not Optional). Wrap in Some() when passing to core.
+        // Look for patterns like: sample_crate::parse(&source, options_core)
+        // and replace with: sample_crate::parse(&source, Some(options_core))
         //
         // CRITICAL: only wrap when the SOURCE param is `Option<T>` — i.e. `param.optional == true`.
         // When the source is non-Option `T`, the core function expects `T` directly and wrapping

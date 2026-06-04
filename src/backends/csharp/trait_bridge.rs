@@ -4,7 +4,7 @@
 //! 1. P/Invoke declarations for trait bridge registration/unregistration functions
 //! 2. Managed `interface I{TraitName}` with Plugin lifecycle + trait methods
 //! 3. Bridge class `{TraitName}Bridge` implementing marshal helpers, delegate rooting, and vtable construction
-//! 4. Static registration helpers: `RegisterOcrBackend(IOcrBackend impl)`, `UnregisterOcrBackend(string name)`
+//! 4. Static registration helpers: `RegisterTextBackend(ITextBackend impl)`, `UnregisterTextBackend(string name)`
 
 use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
@@ -14,7 +14,7 @@ use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
 /// Maps a TypeRef to its C# representation, substituting non-visible Named types with string.
-/// This prevents internal types like `InternalDocument` or `SyncExtractor` from appearing
+/// This prevents internal types like `PrivatePayload` or `SyncExtractor` from appearing
 /// in the generated trait interface signatures.
 fn csharp_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
     match ty {
@@ -89,7 +89,7 @@ pub fn gen_native_methods_trait_bridges(
             // `{prefix}_clear_{trait_snake}` (see alef-backend-ffi trait_bridge::registration),
             // deliberately ignoring the alef.toml `register_fn` / `unregister_fn` / `clear_fn`
             // aliases (which only name the host-language wrappers, and may be plural or
-            // unprefixed, e.g. `clear_ocr_backends`). The P/Invoke EntryPoint must match the
+            // unprefixed, e.g. `clear_text_backends`). The P/Invoke EntryPoint must match the
             // actual FFI symbol, not the alias. go/java derive these identically.
             let register_fn = format!("{prefix}_register_{trait_snake}");
             let has_unregister = config.unregister_fn.is_some();
@@ -672,7 +672,7 @@ fn gen_single_trait_bridge(
                 }
                 _ => {
                     // For complex types (including non-API types), assume JSON deserialization
-                    // Non-API types like InternalDocument are marshalled as strings (JSON)
+                    // Non-API types like PrivatePayload are marshalled as strings (JSON)
                     callbacks.push_str(&render(
                         "callback_json_from_ptr.jinja",
                         minijinja::context! { param_name },
@@ -909,13 +909,13 @@ mod tests {
 
     #[test]
     fn test_interface_contains_lifecycle_when_super_trait_set() {
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", Some("Plugin"));
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public interface IOcrBackend"));
+        assert!(content.contains("public interface ITextBackend"));
         assert!(content.contains("string Name { get; }"));
         assert!(content.contains("string Version { get; }"));
         assert!(content.contains("void Initialize();"));
@@ -924,25 +924,25 @@ mod tests {
 
     #[test]
     fn test_interface_omits_lifecycle_when_super_trait_empty() {
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public interface IOcrBackend"));
+        assert!(content.contains("public interface ITextBackend"));
         assert!(!content.contains("string Name { get; }"));
     }
 
     #[test]
     fn test_bridge_class_exists() {
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
+        assert!(content.contains("public sealed class TextBackendBridge : IDisposable"));
         assert!(content.contains("private delegate void FreeStringFn(IntPtr ptr);"));
         assert!(content.contains("FreeStringCallback"));
         assert!(content.contains("Marshal.FreeCoTaskMem(ptr);"));
@@ -995,14 +995,14 @@ mod tests {
     fn test_registry_no_super_trait_requires_explicit_name_param() {
         // Without super_trait, the interface has no Name property, so Register must
         // accept an explicit string name from the caller.
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public static class OcrBackendRegistry"));
-        assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
+        assert!(content.contains("public static class TextBackendRegistry"));
+        assert!(content.contains("public static IntPtr Register(ITextBackend impl, string name)"));
         // unregister_fn is None — Unregister must not be emitted
         assert!(!content.contains("public static void Unregister(string name)"));
         // No impl.Name reference when interface lacks it
@@ -1012,45 +1012,45 @@ mod tests {
     #[test]
     fn test_registry_with_super_trait_reads_name_from_impl() {
         // With super_trait, interface declares Name property; Register reads it from impl.
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", Some("Plugin"));
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public static class OcrBackendRegistry"));
-        assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
-        assert!(!content.contains("Register(IOcrBackend impl, string name)"));
+        assert!(content.contains("public static class TextBackendRegistry"));
+        assert!(content.contains("public static IntPtr Register(ITextBackend impl)"));
+        assert!(!content.contains("Register(ITextBackend impl, string name)"));
         assert!(content.contains("impl.Name"));
     }
 
     #[test]
     fn test_exclude_languages_skips_csharp() {
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
         bridge_cfg.exclude_languages = vec!["csharp".to_string()];
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(!content.contains("interface IOcrBackend"));
-        assert!(!content.contains("class OcrBackendBridge"));
+        assert!(!content.contains("interface ITextBackend"));
+        assert!(!content.contains("class TextBackendBridge"));
     }
 
     #[test]
     fn test_native_methods_declarations_without_unregister() {
         // unregister_fn is None — only the register P/Invoke should be emitted.
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("RegisterOcrBackend"));
-        assert!(!content.contains("UnregisterOcrBackend"));
+        assert!(content.contains("RegisterTextBackend"));
+        assert!(!content.contains("UnregisterTextBackend"));
         assert!(content.contains("[DllImport"));
-        assert!(content.contains("sample_crate_register_ocr_backend"));
-        assert!(!content.contains("sample_crate_unregister_ocr_backend"));
+        assert!(content.contains("sample_crate_register_text_backend"));
+        assert!(!content.contains("sample_crate_unregister_text_backend"));
     }
 
     #[test]
@@ -1058,19 +1058,19 @@ mod tests {
         // When unregister_fn is set, both register and unregister P/Invokes are emitted.
         // The EntryPoints are derived from `{prefix}_{register,unregister}_{trait_snake}`,
         // not from the alias values.
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        bridge_cfg.register_fn = Some("sample_crate_register_ocr_backend".to_string());
-        bridge_cfg.unregister_fn = Some("sample_crate_unregister_ocr_backend".to_string());
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
+        bridge_cfg.register_fn = Some("sample_crate_register_text_backend".to_string());
+        bridge_cfg.unregister_fn = Some("sample_crate_unregister_text_backend".to_string());
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("RegisterOcrBackend"));
-        assert!(content.contains("UnregisterOcrBackend"));
+        assert!(content.contains("RegisterTextBackend"));
+        assert!(content.contains("UnregisterTextBackend"));
         assert!(content.contains("[DllImport"));
-        assert!(content.contains("sample_crate_register_ocr_backend"));
-        assert!(content.contains("sample_crate_unregister_ocr_backend"));
+        assert!(content.contains("sample_crate_register_text_backend"));
+        assert!(content.contains("sample_crate_unregister_text_backend"));
     }
 
     #[test]
@@ -1101,86 +1101,86 @@ mod tests {
     fn test_native_methods_clear_uses_derived_ffi_symbol_not_alias() {
         // The FFI layer exports the clear function as `{prefix}_clear_{trait_snake}`,
         // ignoring the alef.toml `clear_fn` alias (which may be plural, e.g.
-        // `clear_ocr_backends`). The P/Invoke EntryPoint must match the actual FFI
-        // symbol `sample_core_clear_ocr_backend`, not the alias.
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        // `clear_text_backends`). The P/Invoke EntryPoint must match the actual FFI
+        // symbol `sample_core_clear_text_backend`, not the alias.
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
+        bridge_cfg.clear_fn = Some("clear_text_backends".to_string());
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("EntryPoint = \"sample_crate_clear_ocr_backend\""));
-        assert!(!content.contains("sample_crate_clear_ocr_backends"));
-        assert!(!content.contains("EntryPoint = \"clear_ocr_backends\""));
-        assert!(content.contains("ClearOcrBackend("));
+        assert!(content.contains("EntryPoint = \"sample_crate_clear_text_backend\""));
+        assert!(!content.contains("sample_crate_clear_text_backends"));
+        assert!(!content.contains("EntryPoint = \"clear_text_backends\""));
+        assert!(content.contains("ClearTextBackend("));
     }
 
     #[test]
     fn test_native_methods_omits_clear_when_not_configured() {
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let content = gen_native_methods_trait_bridges("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(!content.contains("sample_crate_clear_ocr_backend"));
-        assert!(!content.contains("ClearOcrBackend("));
+        assert!(!content.contains("sample_crate_clear_text_backend"));
+        assert!(!content.contains("ClearTextBackend("));
     }
 
     #[test]
     fn test_registry_emits_clear_when_configured() {
         // When clear_fn is set, the registry class should contain a Clear method.
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
+        bridge_cfg.clear_fn = Some("clear_text_backends".to_string());
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public static void Clear()"));
-        assert!(content.contains("NativeMethods.ClearOcrBackend(out var outError)"));
+        assert!(content.contains("NativeMethods.ClearTextBackend(out var outError)"));
     }
 
     #[test]
     fn test_registry_omits_clear_when_not_configured() {
         // When clear_fn is None, the registry class must not emit a Clear method.
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(!content.contains("NativeMethods.ClearOcrBackend("));
+        assert!(!content.contains("NativeMethods.ClearTextBackend("));
     }
 
     #[test]
     fn test_registry_emits_unregister_when_configured() {
         // When unregister_fn is set, the registry class should contain an Unregister method.
-        let trait_def = make_trait_def("OcrBackend");
-        let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        bridge_cfg.unregister_fn = Some("sample_crate_unregister_ocr_backend".to_string());
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
+        bridge_cfg.unregister_fn = Some("sample_crate_unregister_text_backend".to_string());
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public static class OcrBackendRegistry"));
+        assert!(content.contains("public static class TextBackendRegistry"));
         assert!(content.contains("public static void Unregister(string name)"));
-        assert!(content.contains("NativeMethods.UnregisterOcrBackend(name, out var outError)"));
+        assert!(content.contains("NativeMethods.UnregisterTextBackend(name, out var outError)"));
     }
 
     #[test]
     fn test_registry_omits_unregister_when_not_configured() {
         // When unregister_fn is None, the registry class must not emit an Unregister method.
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public static class OcrBackendRegistry"));
+        assert!(content.contains("public static class TextBackendRegistry"));
         assert!(!content.contains("public static void Unregister(string name)"));
-        assert!(!content.contains("NativeMethods.UnregisterOcrBackend"));
+        assert!(!content.contains("NativeMethods.UnregisterTextBackend"));
     }
 
     /// Regression (#114): the `[UnmanagedFunctionPointer]` delegate type for a Bytes parameter
@@ -1247,14 +1247,14 @@ mod tests {
     #[test]
     fn test_bridge_class_has_register_static_method_with_super_trait() {
         // Bridge class should have a static Register method that takes the impl and optionally name
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", Some("Plugin"));
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
-        assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
+        assert!(content.contains("public sealed class TextBackendBridge : IDisposable"));
+        assert!(content.contains("public static IntPtr Register(ITextBackend impl)"));
         // Verify it's reading impl.Name
         assert!(content.contains("var name = impl.Name;"));
     }
@@ -1262,14 +1262,14 @@ mod tests {
     #[test]
     fn test_bridge_class_has_register_static_method_without_super_trait() {
         // Bridge class should have a static Register method that takes impl and explicit name param
-        let trait_def = make_trait_def("OcrBackend");
-        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
-        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let trait_def = make_trait_def("TextBackend");
+        let bridge_cfg = make_bridge_cfg("TextBackend", None);
+        let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["TextBackend"].into_iter().collect();
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-        assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
-        assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
+        assert!(content.contains("public sealed class TextBackendBridge : IDisposable"));
+        assert!(content.contains("public static IntPtr Register(ITextBackend impl, string name)"));
     }
 
     /// Regression: enum return types are visible in the interface, so the interface

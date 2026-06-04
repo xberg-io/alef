@@ -245,7 +245,7 @@ fn generate_lang_doc(
     }
 
     // --- Types section ---
-    // Order: ConversionOptions, ConversionResult, then rest alphabetical
+    // Order: ParseOptions, ParseOutput, then rest alphabetical
     // Skip opaque types and *Update types in main section
     let mut types_to_doc: Vec<&TypeDef> = api
         .types
@@ -253,7 +253,7 @@ fn generate_lang_doc(
         .filter(|t| !is_update_type(&t.name) && !exclude_types.contains(&t.name))
         .collect();
 
-    // Sort: ConversionOptions first, ConversionResult second, rest alphabetical
+    // Sort: ParseOptions first, ParseOutput second, rest alphabetical
     types_to_doc.sort_by(|a, b| type_sort_key(&a.name).cmp(&type_sort_key(&b.name)));
 
     if !types_to_doc.is_empty() {
@@ -349,7 +349,7 @@ fn render_function(
                 .map(|s| {
                     // Clean Rust syntax from param descriptions
                     let s = s.replace("::", ".");
-                    s.replace("ConversionOptions.default()", "default options")
+                    s.replace("ParseOptions.default()", "default options")
                 })
                 .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
             out.push_str(&template_env::render(
@@ -1669,8 +1669,8 @@ exclude_types = ["FfiHidden"]
             crate_name: "mylib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![TypeDef {
-                name: "ConversionOptions".to_string(),
-                rust_path: "mylib::ConversionOptions".to_string(),
+                name: "ParseOptions".to_string(),
+                rust_path: "mylib::ParseOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![FieldDef {
                     name: "max_length".to_string(),
@@ -1725,7 +1725,7 @@ exclude_types = ["FfiHidden"]
             .iter()
             .find(|f| f.path.to_str().unwrap().contains("api-python"))
             .unwrap();
-        assert!(lang_file.content.contains("ConversionOptions"));
+        assert!(lang_file.content.contains("ParseOptions"));
         assert!(lang_file.content.contains("max_length"));
         assert!(lang_file.content.contains("Maximum output length."));
     }

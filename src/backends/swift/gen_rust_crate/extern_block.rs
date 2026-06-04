@@ -127,11 +127,8 @@ pub(crate) fn emit_extern_block_for_type(
         ));
     }
 
-    // Getters — skip declaration entirely for fields whose impl would have to be
-    // `unimplemented!()` (excluded via config, or Vec inner type that cannot be
-    // bridged). Skipping here keeps the swift-bridge surface free of callable
-    // functions that panic at runtime; the matching `wrappers.rs` skips the impl
-    // for the same fields.
+    // Getters — skip declaration entirely for fields whose impl cannot be safely
+    // bridged. The matching `wrappers.rs` skips the impl for the same fields.
     //
     // Escape Swift keywords so e.g. `fn extension(&self)` becomes `fn extension_(&self)` —
     // matches the impl block in `wrappers.rs`.
@@ -199,8 +196,7 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
     // (`cargo build` succeeds) because `Vec<EnumName>` is valid Rust.  The
     // Vectorizable conformance only causes failures when the *Swift* side is
     // compiled (Xcode / full XCFramework build) and the enum is not a Swift
-    // class type.  `cargo build -p sample-llm-swift` only exercises the Rust
-    // compilation step, so the Vectorizable symbols do not surface there.
+    // class type. A Rust-only cargo build does not surface those symbols.
     //
     // Getters that *return* enum-typed fields use `String` (the serde variant
     // name via `to_string()`) rather than the opaque handle — see
@@ -371,7 +367,7 @@ pub(crate) fn emit_extern_block_for_functions(
         let params_str = params.join(", ");
 
         // Returns route through the handle-aware bridge mapper so that Named types
-        // returned from public functions (e.g. `Option<EmbeddingPreset>`) stay as
+        // returned from public functions stay as
         // opaque handles instead of getting JSON-collapsed to `String`.
         let return_ty = if f.error_type.is_some() {
             let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);

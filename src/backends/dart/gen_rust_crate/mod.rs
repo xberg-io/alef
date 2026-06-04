@@ -79,10 +79,6 @@ fn emit_lib_rs(
     stub_methods: &[String],
 ) -> GeneratedFile {
     let mut content = String::new();
-    // batch_extract_bytes* functions use unimplemented!() for the items argument,
-    // making the `config` parameter appear unreachable to rustc. Suppress the
-    // resulting unused-variable and unreachable-code noise crate-wide; all other
-    // functions use every parameter they declare and have reachable code paths.
     // Inner crate-level attributes must appear before any items (including `mod frb_generated`).
     // We also declare `mod frb_generated` explicitly so FRB codegen doesn't prepend it
     // BEFORE the #![allow] attrs (which would make those attrs invalid per E0753).
@@ -493,10 +489,8 @@ fn emit_lib_rs(
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
-        // Skip functions with unbridgeable parameters UNLESS they are in stub_methods.
-        // Stub methods emit `unimplemented!()` bodies and do not attempt argument conversion,
-        // so their unbridgeable parameters are irrelevant.
-        .filter(|f| !has_unbridgeable_param(f) || stub_methods.contains(&f.name))
+        .filter(|f| !stub_methods.contains(&f.name))
+        .filter(|f| !has_unbridgeable_param(f))
         // Skip functions whose name matches a trait_bridge.clear_fn — the trait-bridge
         // emission path emits its own forwarder; a duplicate `pub fn clear_*` here
         // would either fail to compile or be silently de-duped by frb_codegen
@@ -1987,9 +1981,9 @@ fn has_unbridgeable_param(f: &crate::core::ir::FunctionDef) -> bool {
 /// whose mirror layout is identical to core) or `From` conversion (for sanitized
 /// types). Async methods use `.await` and return `Result<MirrorType, String>`.
 ///
-/// Methods listed in `stub_methods` get `unimplemented!()` bodies, matching the
-/// treatment of top-level free functions (e.g. `chat_stream` which returns a
-/// `BoxStream` that cannot be bridged through FRB).
+/// Methods listed in `stub_methods` are omitted from the FRB surface; unsupported
+/// methods should be hidden with explicit backend config instead of generated as
+/// callable runtime fallbacks.
 #[allow(clippy::too_many_arguments)]
 fn emit_opaque_impl_block(
     out: &mut String,
@@ -2028,7 +2022,10 @@ fn emit_opaque_impl_block(
     }
     let mut named_refs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for method in &ty.methods {
-        if method.sanitized && !stub_methods.contains(&method.name) {
+        if stub_methods.contains(&method.name) {
+            continue;
+        }
+        if method.sanitized {
             let adapter_key = format!("{type_name}.{}", method.name);
             if !streaming_adapters.contains_key(&adapter_key) {
                 continue;
@@ -2072,10 +2069,13 @@ fn emit_opaque_impl_block(
 
     for method in &ty.methods {
         let method_name = &method.name;
+        if stub_methods.contains(method_name) {
+            continue;
+        }
 
-        // Sanitized methods that are NOT listed as stub_methods: check for a streaming adapter.
+        // Sanitized methods: check for a streaming adapter.
         // If one exists, emit a StreamSink<T> variant; otherwise skip entirely.
-        if method.sanitized && !stub_methods.contains(method_name) {
+        if method.sanitized {
             let adapter_key = format!("{type_name}.{method_name}");
             if let Some(adapter) = streaming_adapters.get(&adapter_key) {
                 emit_streaming_sink_method(out, method_name, adapter, types_needing_from_conversion, config);
@@ -2148,7 +2148,14 @@ fn emit_streaming_sink_method(
     // Delegate to the streaming body generator for the Dart language.
     let (body, _struct_def) =
         crate::adapters::streaming::generate_body(adapter, crate::core::config::Language::Dart, config)
-            .unwrap_or_else(|_| (String::from("unimplemented!()"), None));
+            .unwrap_or_else(|_| {
+                (
+                    String::from(
+                        "compile_error!(\"alef cannot generate this Dart streaming adapter; configure a supported adapter body or exclude the method\")",
+                    ),
+                    None,
+                )
+            });
 
     out.push_str(&format!(
         "    #[frb]\n    pub fn {method_name}(&self{params_str}, sink: crate::frb_generated::StreamSink<{item_type}>) {{\n        {body}\n    }}\n"
@@ -2161,7 +2168,7 @@ fn emit_opaque_method(
     _ty: &TypeDef,
     method: &MethodDef,
     source_crate_name: &str,
-    stub_methods: &[String],
+    _stub_methods: &[String],
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
 ) {
@@ -2209,20 +2216,13 @@ fn emit_opaque_method(
         "    pub {async_kw}fn {method_name}({self_param}, {params_str}) -> {ret_ty} {{\n"
     ));
 
-    // Body: stub methods or real delegation.
-    if stub_methods.contains(method_name) {
-        out.push_str(&format!(
-            "        ::std::unimplemented!(\"method `{method_name}` is listed in dart.stub_methods\")\n"
-        ));
-    } else {
-        emit_opaque_method_body(
-            out,
-            method,
-            source_crate_name,
-            types_needing_from_conversion,
-            opaque_type_names,
-        );
-    }
+    emit_opaque_method_body(
+        out,
+        method,
+        source_crate_name,
+        types_needing_from_conversion,
+        opaque_type_names,
+    );
 
     out.push_str("    }\n");
 }
@@ -2236,7 +2236,7 @@ fn emit_static_opaque_method(
     ty: &TypeDef,
     method: &MethodDef,
     source_crate_name: &str,
-    stub_methods: &[String],
+    _stub_methods: &[String],
     types_needing_from_conversion: &HashSet<String>,
     opaque_type_names: &HashSet<String>,
 ) {
@@ -2274,21 +2274,14 @@ fn emit_static_opaque_method(
         "    pub {async_kw}fn {method_name}({params_str}) -> {ret_ty} {{\n"
     ));
 
-    // Body: stub methods or real delegation.
-    if stub_methods.contains(method_name) {
-        out.push_str(&format!(
-            "        ::std::unimplemented!(\"method `{method_name}` is listed in dart.stub_methods\")\n"
-        ));
-    } else {
-        emit_static_opaque_method_body(
-            out,
-            ty,
-            method,
-            source_crate_name,
-            types_needing_from_conversion,
-            opaque_type_names,
-        );
-    }
+    emit_static_opaque_method_body(
+        out,
+        ty,
+        method,
+        source_crate_name,
+        types_needing_from_conversion,
+        opaque_type_names,
+    );
 
     out.push_str("    }\n");
 }

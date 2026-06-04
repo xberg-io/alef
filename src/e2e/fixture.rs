@@ -124,8 +124,9 @@ pub struct Fixture {
     /// Assertion recipes this fixture opts into.
     ///
     /// Built-in domain-shaped assertions such as embeddings, keyword extraction,
-    /// and tree-query helpers require an explicit recipe so generic e2e
-    /// fixtures don't silently inherit downstream-specific assumptions.
+    /// tree-query helpers, and streaming pseudo-fields require an explicit
+    /// recipe so generic e2e fixtures don't silently inherit project-specific
+    /// assumptions.
     #[serde(default)]
     pub assertion_recipes: Vec<String>,
     /// List of assertions to check.

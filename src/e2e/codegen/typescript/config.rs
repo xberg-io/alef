@@ -49,7 +49,7 @@ pub(crate) fn render_package_json(
 ///
 /// Idempotent: re-running with the same extras yields the same output. Existing
 /// entries with the same key are overwritten by the extras (last-write-wins) so
-/// downstream config can pin a version away from the default emitter.
+/// project config can pin a version away from the default emitter.
 pub(crate) fn inject_package_json_extras(manifest_json: &str, extras: &ManifestExtras) -> String {
     let mut root: serde_json::Value = match serde_json::from_str(manifest_json) {
         Ok(v) => v,

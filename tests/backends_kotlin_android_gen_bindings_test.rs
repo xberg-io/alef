@@ -237,7 +237,7 @@ fn make_trait_carrier_api() -> ApiSurface {
 }
 
 /// `KotlinAndroidBackend` must advertise streaming support so downstream
-/// consumers (e.g. sample-llm) can rely on the `Flow<T>` surface.
+/// consumers (e.g. sample apps) can rely on the `Flow<T>` surface.
 #[test]
 fn supports_streaming_capability_is_true() {
     assert!(
@@ -681,7 +681,7 @@ fn handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params() {
 // ---------------------------------------------------------------------------
 
 fn make_optional_params_api() -> ApiSurface {
-    // A top-level `create_client` with three optional params (the sample-llm shape):
+    // A top-level `create_client` with three optional params (the sample-app shape):
     //   create_client(api_key: String, base_url: String, timeout_secs: Option<u64>,
     //                 max_retries: Option<u32>, model_hint: Option<String>) -> DefaultClient
     let chat_method = MethodDef {
@@ -1433,16 +1433,16 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
 // ---------------------------------------------------------------------------
 
 fn make_convert_api() -> ApiSurface {
-    // Simulate sample_markup's convert(html: String, options: Option<ConversionOptions>) ->
-    // ConversionResult shape where ConversionOptions and ConversionResult are
+    // Simulate a parser crate's convert(html: String, options: Option<ParseOptions>) ->
+    // ParseOutput shape where ParseOptions and ParseOutput are
     // non-opaque named types (DTOs).
     ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
             TypeDef {
-                name: "ConversionOptions".into(),
-                rust_path: "demo::ConversionOptions".into(),
+                name: "ParseOptions".into(),
+                rust_path: "demo::ParseOptions".into(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -1464,8 +1464,8 @@ fn make_convert_api() -> ApiSurface {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "ConversionResult".into(),
-                rust_path: "demo::ConversionResult".into(),
+                name: "ParseOutput".into(),
+                rust_path: "demo::ParseOutput".into(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -1509,7 +1509,7 @@ fn make_convert_api() -> ApiSurface {
                 },
                 ParamDef {
                     name: "options".into(),
-                    ty: TypeRef::Named("ConversionOptions".into()),
+                    ty: TypeRef::Named("ParseOptions".into()),
                     optional: true,
                     default: None,
                     sanitized: false,
@@ -1523,7 +1523,7 @@ fn make_convert_api() -> ApiSurface {
                     vec_inner_is_ref: false,
                 },
             ],
-            return_type: TypeRef::Named("ConversionResult".into()),
+            return_type: TypeRef::Named("ParseOutput".into()),
             is_async: false,
             error_type: None,
             doc: String::new(),
@@ -1547,8 +1547,8 @@ fn make_convert_api() -> ApiSurface {
 }
 
 /// Track 2.2 regression: when the API surface has functions returning non-opaque
-/// Named types (DTOs like `ConversionResult`), the facade object must:
-/// - Accept typed options (`ConversionOptions? = null`) not raw JSON strings.
+/// Named types (DTOs like `ParseOutput`), the facade object must:
+/// - Accept typed options (`ParseOptions? = null`) not raw JSON strings.
 /// - Deserialize the result JSON via Jackson into the typed return class.
 /// - Emit a `suspend fun convertAsync` companion via `withContext(Dispatchers.IO)`.
 /// - Import `jacksonObjectMapper`, `Dispatchers`, and `withContext`.
@@ -1567,19 +1567,19 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
 
     // Options param must be typed, not raw String.
     assert!(
-        content.contains("options: ConversionOptions? = null"),
-        "options param must be typed ConversionOptions? = null, got:\n{content}"
+        content.contains("options: ParseOptions? = null"),
+        "options param must be typed ParseOptions? = null, got:\n{content}"
     );
 
     // Return type must be the named DTO, not String.
     assert!(
-        content.contains("): ConversionResult {"),
-        "convert must return ConversionResult, got:\n{content}"
+        content.contains("): ParseOutput {"),
+        "convert must return ParseOutput, got:\n{content}"
     );
 
     // Jackson deserialization must be present.
     assert!(
-        content.contains("mapper.readValue(resultJson, ConversionResult::class.java)"),
+        content.contains("mapper.readValue(resultJson, ParseOutput::class.java)"),
         "must deserialize result via Jackson, got:\n{content}"
     );
 
@@ -1618,8 +1618,8 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
 
 fn make_batch_function_api() -> ApiSurface {
     // Simulate sample_crate's batch_extract_files and batch_extract_bytes:
-    //   batch_extract_files(items: Vec<BatchFileItem>) -> Result<Vec<ExtractionResult>, _>
-    //   batch_extract_bytes(items: Vec<BatchBytesItem>) -> Result<Vec<ExtractionResult>, _>
+    //   batch_extract_files(items: Vec<BatchFileItem>) -> Result<Vec<ParseResult>, _>
+    //   batch_extract_bytes(items: Vec<BatchBytesItem>) -> Result<Vec<ParseResult>, _>
     ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1973,8 +1973,8 @@ fn vec_of_named_dto_return_still_uses_type_reference_list_dto() {
 
 #[test]
 fn scalar_named_dto_return_still_uses_class_java_literal() {
-    // Regression boundary: scalar Named DTO returns (`ConversionResult`)
-    // must keep the `ConversionResult::class.java` deserialization path —
+    // Regression boundary: scalar Named DTO returns (`ParseOutput`)
+    // must keep the `ParseOutput::class.java` deserialization path —
     // generic-container routing is reserved for Vec/Map shapes.
     let api = make_convert_api();
     let config = make_opaque_factory_config();
@@ -1986,8 +1986,8 @@ fn scalar_named_dto_return_still_uses_class_java_literal() {
     let content = &module_kt.content;
 
     assert!(
-        content.contains("mapper.readValue(resultJson, ConversionResult::class.java)"),
-        "scalar DTO return must use ConversionResult::class.java, got:\n{content}"
+        content.contains("mapper.readValue(resultJson, ParseOutput::class.java)"),
+        "scalar DTO return must use ParseOutput::class.java, got:\n{content}"
     );
 }
 
@@ -2220,8 +2220,8 @@ fn exclude_types_suppresses_listed_types_enums_and_errors() {
 fn make_trait_api() -> ApiSurface {
     use alef::core::ir::{MethodDef, TypeDef};
     let trait_def = TypeDef {
-        name: "OcrBackend".into(),
-        rust_path: "demo::OcrBackend".into(),
+        name: "TextBackend".into(),
+        rust_path: "demo::TextBackend".into(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![MethodDef {
@@ -2311,12 +2311,12 @@ artifact_id = "demo-android"
 group_id = "dev.sample_crate"
 
 [[crates.trait_bridges]]
-trait_name = "OcrBackend"
+trait_name = "TextBackend"
 super_trait = "demo::Plugin"
-registry_getter = "demo::get_ocr_registry"
-register_fn = "register_ocr_backend"
-unregister_fn = "unregister_ocr_backend"
-clear_fn = "clear_ocr_backends"
+registry_getter = "demo::get_text_registry"
+register_fn = "register_text_backend"
+unregister_fn = "unregister_text_backend"
+clear_fn = "clear_text_backends"
 "#,
     )
 }
@@ -2337,25 +2337,25 @@ fn trait_bridge_emits_native_funs_and_interface_file() {
     let body = &bridge_kt.content;
 
     assert!(
-        body.contains("external fun nativeRegisterOcrBackend(impl: dev.sample_crate.IOcrBackend)"),
+        body.contains("external fun nativeRegisterTextBackend(impl: dev.sample_crate.ITextBackend)"),
         "register native fun missing: {body}"
     );
     assert!(
-        body.contains("external fun nativeUnregisterOcrBackend(name: String)"),
+        body.contains("external fun nativeUnregisterTextBackend(name: String)"),
         "unregister native fun missing: {body}"
     );
     assert!(
-        body.contains("external fun nativeClearOcrBackends()"),
+        body.contains("external fun nativeClearTextBackends()"),
         "clear native fun missing: {body}"
     );
 
     let iface = files
         .iter()
-        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IOcrBackend.kt"))
-        .expect("IOcrBackend.kt must be emitted alongside the trait-bridge native funs");
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("ITextBackend.kt"))
+        .expect("ITextBackend.kt must be emitted alongside the trait-bridge native funs");
     let iface_body = &iface.content;
     assert!(
-        iface_body.contains("interface IOcrBackend"),
+        iface_body.contains("interface ITextBackend"),
         "I<Trait> interface declaration missing: {iface_body}"
     );
     // Super-trait `Plugin` surfaces the canonical lifecycle methods.
@@ -2397,10 +2397,10 @@ artifact_id = "demo-android"
 group_id = "dev.sample_crate"
 
 [[crates.trait_bridges]]
-trait_name = "OcrBackend"
-register_fn = "register_ocr_backend"
-unregister_fn = "unregister_ocr_backend"
-clear_fn = "clear_ocr_backends"
+trait_name = "TextBackend"
+register_fn = "register_text_backend"
+unregister_fn = "unregister_text_backend"
+clear_fn = "clear_text_backends"
 exclude_languages = ["kotlin_android"]
 "#,
     );
@@ -2411,13 +2411,13 @@ exclude_languages = ["kotlin_android"]
         .expect("DemoBridge.kt must be emitted");
     let body = &bridge_kt.content;
     assert!(
-        !body.contains("nativeRegisterOcrBackend"),
+        !body.contains("nativeRegisterTextBackend"),
         "register native fun must be suppressed when kotlin_android is excluded: {body}"
     );
     assert!(
         !files
             .iter()
-            .any(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("IOcrBackend.kt")),
+            .any(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("ITextBackend.kt")),
         "I<Trait>.kt must be suppressed when kotlin_android is excluded"
     );
 }
@@ -2429,8 +2429,8 @@ exclude_languages = ["kotlin_android"]
 // (or `#[doc(hidden)]`) annotations on the Rust source. The kotlin-android emitter
 // must honour the flag for both DTOs and enums, matching the behaviour of every
 // other backend (PHP, WASM, NAPI, etc.). Without this filter, the sample_crate AAR
-// ships ~28 stale wrapper files (`OcrTesseractConfig.kt`, `Table2.kt`,
-// `OcrPipelineConfig.kt`, …) corresponding to types the Rust source has marked
+// ships ~28 stale wrapper files (`LegacyPlainTextConfig.kt`, `Table2.kt`,
+// `LegacyPipelineConfig.kt`, ...) corresponding to types the Rust source has marked
 // as binding-excluded.
 // ---------------------------------------------------------------------------
 
@@ -2695,7 +2695,7 @@ fn make_long_signature_api() -> ApiSurface {
                 vec_inner_is_ref: false,
             },
         ],
-        return_type: TypeRef::Named("ExtractionResult".into()),
+        return_type: TypeRef::Named("ParseResult".into()),
         is_async: true,
         is_static: false,
         error_type: None,
@@ -2890,7 +2890,7 @@ fn long_signature_suspend_method_wraps_multiline_with_trailing_commas() {
     );
     // Return type should be on its own line
     assert!(
-        content.contains("): ExtractionResult"),
+        content.contains("): ParseResult"),
         "return type must be on closing paren line, got:\n{content}"
     );
 }
@@ -2945,7 +2945,7 @@ fn format_method_signature_long_wraps_with_trailing_commas() {
         "suspend ",
         "extractFile",
         "path: java.nio.file.Path, mimeType: String, config: ExtractionConfig",
-        "ExtractionResult",
+        "ParseResult",
     );
     // Should be multi-line with trailing commas
     assert!(
@@ -2965,7 +2965,7 @@ fn format_method_signature_long_wraps_with_trailing_commas() {
         "config param should have trailing comma, got:\n{sig}"
     );
     assert!(
-        sig.contains("): ExtractionResult"),
+        sig.contains("): ParseResult"),
         "return type should be on closing paren line, got:\n{sig}"
     );
 }
