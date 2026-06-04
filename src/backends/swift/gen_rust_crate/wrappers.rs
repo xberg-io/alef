@@ -796,7 +796,7 @@ pub(crate) fn emit_type_method_shims(
     _source_crate: &str,
     type_paths: &HashMap<String, String>,
     handle_returned_types: &std::collections::HashSet<String>,
-    enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
 ) -> String {
     let type_snake = ty.name.to_snake_case();
     let type_name = &ty.name;

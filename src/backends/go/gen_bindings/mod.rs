@@ -157,8 +157,7 @@ impl Backend for GoBackend {
         // so the FFI backend does not emit `_new`/`_free` symbols for it. The Go cgo
         // shim references those symbols, so the Go backend must follow the same rule —
         // otherwise generated Go code references `C.{prefix}_request_free` which the
-        // linker cannot resolve. See `crates/spikard-ffi/src/lib.rs` for the FFI-side
-        // filter.
+        // linker cannot resolve.
         exclude_types.extend(
             config
                 .opaque_types
