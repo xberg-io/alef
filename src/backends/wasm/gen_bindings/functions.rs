@@ -1167,6 +1167,24 @@ pub(super) fn wasm_wrap_return(
                 returns_cow,
             ),
         },
+        // Map: WASM can't pass BTreeMap/HashMap across the JS boundary; use JsValue via
+        // serde_wasm_bindgen::to_value. When the core method returns `&BTreeMap`
+        // (returns_ref=true), wrap as `serde_wasm_bindgen::to_value(expr)`.
+        TypeRef::Map(_, _) => {
+            if returns_ref {
+                format!("serde_wasm_bindgen::to_value({expr}).unwrap_or(JsValue::NULL)")
+            } else {
+                generators::wrap_return(
+                    expr,
+                    return_type,
+                    type_name,
+                    opaque_types,
+                    self_is_opaque,
+                    returns_ref,
+                    returns_cow,
+                )
+            }
+        }
         _ => generators::wrap_return(
             expr,
             return_type,

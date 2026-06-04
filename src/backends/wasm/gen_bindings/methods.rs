@@ -210,12 +210,88 @@ pub(super) fn gen_method(
             } else {
                 String::new()
             };
-            let call_args = if let_bindings.is_empty() {
-                generators::gen_call_args(&method.params, opaque_types)
+
+            // For lifetime-parameterized types, emit let bindings for String→Cow and
+            // JsValue→BTreeMap conversions, and rename borrowed→owned constructors.
+            let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
+            let lifetime_bindings = if typ.has_lifetime_params {
+                let mut bindings = String::new();
+                for p in &method.params {
+                    match &p.ty {
+                        TypeRef::String => {
+                            if p.optional {
+                                bindings
+                                    .push_str(&format!("let {}_converted = {}.map(Into::into);\n    ", p.name, p.name));
+                            } else {
+                                bindings.push_str(&format!(
+                                    "let {}_converted: std::borrow::Cow<'_, str> = {}.into();\n    ",
+                                    p.name, p.name
+                                ));
+                            }
+                        }
+                        TypeRef::Map(_, _) => {
+                            // JsValue → BTreeMap: deserialize via serde_wasm_bindgen
+                            bindings.push_str(&format!(
+                                "let {}_converted: std::collections::BTreeMap<String, String> = \
+                                 serde_wasm_bindgen::from_value({}.clone()).unwrap_or_default();\n    ",
+                                p.name, p.name
+                            ));
+                        }
+                        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
+                            bindings.push_str(&format!("let {}_converted = {}.map(Into::into);\n    ", p.name, p.name));
+                        }
+                        _ => {}
+                    }
+                }
+                bindings
             } else {
-                generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+                String::new()
             };
-            let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
+
+            let (call_args, actual_method_name) = if !lifetime_bindings.is_empty() {
+                // Adjust call args to use converted variables and drop & borrow for Map params
+                // when switching from borrowed→owned constructor.
+                let base_call_args = if let_bindings.is_empty() {
+                    generators::gen_call_args(&method.params, opaque_types)
+                } else {
+                    generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+                };
+                let mut adjusted = base_call_args;
+                for p in &method.params {
+                    match &p.ty {
+                        TypeRef::Map(_, _) => {
+                            if is_borrowed_to_owned && p.is_ref {
+                                adjusted = adjusted.replace(&format!("&{}", p.name), &format!("{}_converted", p.name));
+                            } else {
+                                adjusted = adjusted.replace(p.name.as_str(), &format!("{}_converted", p.name));
+                            }
+                        }
+                        TypeRef::String => {
+                            adjusted = adjusted.replace(p.name.as_str(), &format!("{}_converted", p.name));
+                        }
+                        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
+                            adjusted = adjusted.replace(p.name.as_str(), &format!("{}_converted", p.name));
+                        }
+                        _ => {}
+                    }
+                }
+                let method_name = if is_borrowed_to_owned {
+                    method.name.replace("borrowed", "owned")
+                } else {
+                    method.name.clone()
+                };
+                (adjusted, method_name)
+            } else {
+                let base_call_args = if let_bindings.is_empty() {
+                    generators::gen_call_args(&method.params, opaque_types)
+                } else {
+                    generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+                };
+                (base_call_args, method.name.clone())
+            };
+
+            let combined_let_bindings = format!("{let_bindings}{lifetime_bindings}");
+            let core_call = format!("{core_import}::{type_name}::{actual_method_name}({call_args})");
             if method.error_type.is_some() {
                 let wrap = wasm_wrap_return(
                     "result",
@@ -229,11 +305,11 @@ pub(super) fn gen_method(
                     mutex_types,
                 );
                 format!(
-                    "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+                    "{combined_let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
                 )
             } else {
                 format!(
-                    "{let_bindings}{}",
+                    "{combined_let_bindings}{}",
                     wasm_wrap_return(
                         &core_call,
                         &method.return_type,
