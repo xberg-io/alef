@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(extendr): dereference StrIter item in list_get comparison to fix `can't compare &str with str` error. The comparison now emits `*name == key` instead of `name == key` to handle the lifetime/reference mismatch. (`src/backends/extendr/gen_bindings/mod.rs:1038`)
+- fix(extendr): include all integer types (u64, i64, usize, isize) in the Optional primitive type handler. Previously only u64 and usize were handled, causing i64 and isize Option fields to fall through to the fallback that produced type mismatches. Now all four types map to their correct core types when wrapped in Option. (`src/backends/extendr/gen_bindings/mod.rs:1455-1461`)
 - fix(scaffold/ruby): exempt `rb-sys` from cargo-machete in NIF Cargo.toml. The ruby scaffold always pins `rb-sys` to avoid the 0.9.128 mingw sysroot bug, even though Magnus brings it transitively and the NIF wrapper code does not directly use it. The generated `[package.metadata.cargo-machete]` now includes `rb-sys` in the ignored list so prek's cargo-machete hook does not fail. (`src/scaffold/languages/ruby.rs`)
 
 ## [0.22.30] - 2026-06-04

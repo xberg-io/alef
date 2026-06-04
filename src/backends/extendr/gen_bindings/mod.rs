@@ -1035,7 +1035,7 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     code.push_str("    if let Some(names) = list.names() {\n");
     code.push_str("        names\n");
     code.push_str("            .zip(list.iter())\n");
-    code.push_str("            .find(|(name, _)| name == key)\n");
+    code.push_str("            .find(|(name, _)| *name == key)\n");
     code.push_str("            .map(|(_, val)| val)\n");
     code.push_str("    } else {\n");
     code.push_str("        None\n");
@@ -1452,12 +1452,14 @@ fn gen_field_decoder(
                     code.push_str("(v)?);\n");
                     code.push_str("    }\n");
                 }
-                TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
+                TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize)) => {
                     // R maps these types to Option<f64> in the binding layer, but the core
                     // field uses the original integer type, so cast f64 back to the core type.
                     let core_ty = match prim {
                         PrimitiveType::U64 => "u64",
+                        PrimitiveType::I64 => "i64",
                         PrimitiveType::Usize => "usize",
+                        PrimitiveType::Isize => "isize",
                         _ => unreachable!(),
                     };
                     code.push_str("    if let Some(v) = list_get(&list, \"");
