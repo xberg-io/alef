@@ -865,6 +865,115 @@ fn test_opaque_type() {
 }
 
 #[test]
+fn test_opaque_type_configured_in_config() {
+    let backend = WasmBackend;
+
+    // Create test API with an opaque type that's also declared in config.opaque_types
+    // (like `Language` in tree-sitter-language-pack)
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Language".to_string(),
+            rust_path: "test_lib::Language".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Opaque language type".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![
+            // Function that returns the opaque type
+            FunctionDef {
+                name: "get_language".to_string(),
+                rust_path: "test_lib::get_language".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                }],
+                return_type: TypeRef::Named("Language".to_string()),
+                is_async: false,
+                error_type: None,
+                doc: "Get language by name".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let mut config = make_config();
+    // Declare Language as an opaque type (external to the binding layer)
+    config
+        .opaque_types
+        .insert("Language".to_string(), "test_lib::Language".to_string());
+
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // Regression check: Opaque wrapper struct MUST be emitted even though Language
+    // is in config.opaque_types. This is needed so that get_language() can return WasmLanguage.
+    assert!(
+        content.contains("pub struct WasmLanguage"),
+        "WasmLanguage struct must be emitted for opaque return type"
+    );
+    assert!(
+        content.contains("pub(crate) inner: Arc"),
+        "WasmLanguage must wrap Arc<core::Language>"
+    );
+    assert!(
+        content.contains("pub fn get_language"),
+        "get_language function must be present"
+    );
+    // The function should return WasmLanguage (or Result<WasmLanguage, ...>)
+    assert!(
+        content.contains("WasmLanguage"),
+        "get_language should return or work with WasmLanguage"
+    );
+}
+
+#[test]
 fn test_exclude_functions() {
     let backend = WasmBackend;
 

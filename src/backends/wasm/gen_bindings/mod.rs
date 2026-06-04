@@ -203,10 +203,6 @@ impl Backend for WasmBackend {
         let wasm_config = config.wasm.as_ref();
         let mut exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let mut exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
-        // Declared opaque types are external host-runtime references whose actual Rust
-        // path carries generic parameters the injected IR cannot model; skip them so
-        // wasm-bindgen does not try to wrap them as #[wasm_bindgen] classes.
-        exclude_types.extend(config.opaque_types.keys().cloned());
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
