@@ -385,7 +385,7 @@ fn render_test_case(
         build_r_visitor(&mut setup_lines, visitor_spec);
         // R rejects duplicated named arguments ("matched by multiple actual arguments"), so
         // strip any existing `options = ...` arg before appending the visitor-options list.
-        // Handles `options = NULL` (when no default) and `options = ConversionOptions$default()`
+        // Handles `options = NULL` (when no default) and `options = <OptionsType>$default()`
         // (when build_args_string emits a default placeholder for an optional options arg).
         let base = strip_options_arg(&args_with_extra);
         let visitor_opts = "options = list(visitor = visitor)";
@@ -415,7 +415,7 @@ fn render_test_case(
     }
     // The extendr extraction wrappers return JSON strings carrying the
     // serialized core result; parse into an R list so tests can use `$`
-    // accessors. `result_is_simple` calls (e.g. `convert_sample_markdown`)
+    // accessors. `result_is_simple` calls
     // already return scalar values and must be passed through verbatim.
     // `result_is_r_list` signals the binding returns a native R list (Robj),
     // not a JSON string — skip `jsonlite::fromJSON` but keep `$` accessors.
@@ -550,7 +550,7 @@ fn build_args_string(
             // R extendr-generated wrappers do not preserve Option<T> defaults from
             // the Rust signature — every parameter is positional and required at
             // the R level. To keep generated calls valid we must pass a placeholder
-            // (`NULL` for `Option<T>`, `ExtractionConfig$default()` for typed
+            // (`NULL` for `Option<T>`, `<OptionsType>$default()` for typed
             // configs) whenever the fixture omits an optional value.
             let val = match val {
                 Some(v) if !(v.is_null() && arg.optional) => v,
@@ -568,8 +568,8 @@ fn build_args_string(
             // The extendr bindings expect owned PORs (ExternalPtr) for typed
             // config arguments — passing an R `list()` raises
             // `Expected ExternalPtr got List`. The fixtures don't carry the
-            // option fields needed to round-trip through ExtractionConfig$new,
-            // so emit `ExtractionConfig$default()` whenever a `json_object` arg
+            // option fields needed to round-trip through the configured type's constructor,
+            // so emit `<OptionsType>$default()` whenever a `json_object` arg
             // resolves to an empty / object-shaped JSON value.
             if arg.arg_type == "json_object" && (val.is_null() || val.as_object().is_some_and(|m| m.is_empty())) {
                 let r_value = r_default_for_config_arg(arg_name, options_type);
@@ -1668,11 +1668,11 @@ mod tests {
 
         // Must not contain any hardcoded domain-specific names.
         for name in &[
-            "OcrBackend",
-            "DocumentExtractor",
+            "ImageBackend",
+            "RecordProvider",
             "process_image",
             "extract_bytes",
-            "sample_crate",
+            "sample_lib",
         ] {
             assert!(
                 !emission.setup_block.contains(name),

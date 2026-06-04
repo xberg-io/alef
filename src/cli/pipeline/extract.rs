@@ -10,6 +10,8 @@ use crate::cli::cache;
 
 use super::version::read_version;
 
+const IR_CACHE_SCHEMA_VERSION: &str = "ir-cache-v2";
+
 /// Ensure required entries are in `.gitignore` — creates the file if absent.
 /// Adds `.alef/` (cache) and language-specific build artifacts based on config.
 pub fn ensure_gitignore(base_dir: &Path, config: &ResolvedCrateConfig) {
@@ -80,8 +82,8 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // without this the cache would hand back stale IR and downstream stages
     // (notably READMEs) would render the previous version's badges/snippets.
     let version_for_hash = config.resolved_version().unwrap_or_default();
-    let config_hash = extraction_config_hash(config);
-    let cache_key = format!("{source_hash}:{version_for_hash}:{config_hash}");
+    let config_hash = extraction_config_hash(config)?;
+    let cache_key = format!("{IR_CACHE_SCHEMA_VERSION}:{source_hash}:{version_for_hash}:{config_hash}");
 
     if !clean && cache::is_ir_cached(&config.name, &cache_key) {
         info!("Using cached IR");
@@ -149,6 +151,20 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // the IR so adapter codegen can still look up parameter info.
     mark_adapter_handled_methods(&mut api, config);
 
+    // Apply `[crates.exclude].methods = ["Owner.method"]` to service configurators.
+    // This pass runs AFTER `extract_services` populates `api.services` so the user's
+    // method-level excludes are honored for the per-binding service codegen path —
+    // otherwise non-delegatable configurators (e.g. `App.config(mut self) -> Self`)
+    // surface as `compile_error!` in the emitted binding crate.
+    if !config.exclude.methods.is_empty() {
+        for service in &mut api.services {
+            service.configurators.retain(|m| {
+                let key = format!("{}.{}", service.name, m.name);
+                !config.exclude.methods.contains(&key)
+            });
+        }
+    }
+
     validate_extracted_api(&api, config)?;
 
     cache::write_ir_cache(&config.name, &api, &cache_key).context("failed to write IR cache")?;
@@ -162,9 +178,9 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     Ok(api)
 }
 
-fn extraction_config_hash(config: &ResolvedCrateConfig) -> String {
-    let config_toml = toml::to_string(config).unwrap_or_default();
-    blake3::hash(config_toml.as_bytes()).to_hex().to_string()
+fn extraction_config_hash(config: &ResolvedCrateConfig) -> anyhow::Result<String> {
+    let config_toml = toml::to_string(config).context("failed to serialize resolved config for IR cache key")?;
+    Ok(blake3::hash(config_toml.as_bytes()).to_hex().to_string())
 }
 
 fn validate_extracted_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<()> {
@@ -1134,7 +1150,11 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
         // `RequestContext`, every `RequestContext.<method>` should follow it out.
         let by_parent_excluded = if item.item_kind == "method" {
             if let Some((owner_short, _)) = short_name.split_once('.') {
-                let owner_full = item.item_path.rsplit_once('.').map(|(p, _)| p).unwrap_or(item.item_path.as_str());
+                let owner_full = item
+                    .item_path
+                    .rsplit_once('.')
+                    .map(|(p, _)| p)
+                    .unwrap_or(item.item_path.as_str());
                 is_type_excluded(owner_short, owner_full, &exclude.types)
             } else {
                 false
@@ -1150,6 +1170,16 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
         for typ in &mut api.types {
             typ.methods.retain(|m| {
                 let key = format!("{}.{}", typ.name, m.name);
+                !exclude.methods.contains(&key)
+            });
+        }
+        // Service-extractor configurators are populated separately from the regular
+        // `impl T` walk; apply the same `OwnerType.method_name` exclude here so entries
+        // like `App.config` are honored by the per-binding service codegen, which would
+        // otherwise emit a non-delegatable Rust shim and fail compilation.
+        for service in &mut api.services {
+            service.configurators.retain(|m| {
+                let key = format!("{}.{}", service.name, m.name);
                 !exclude.methods.contains(&key)
             });
         }
@@ -1725,7 +1755,8 @@ mod tests {
         crate::core::ir::UnsupportedPublicItem {
             item_kind: "method".to_string(),
             item_path: format!("my_crate::module::{type_name}.{method_name}"),
-            reason: "public generic trait methods cannot be represented without explicit monomorphization metadata".to_string(),
+            reason: "public generic trait methods cannot be represented without explicit monomorphization metadata"
+                .to_string(),
             suggested_fix: "exclude the method".to_string(),
         }
     }
@@ -1801,6 +1832,58 @@ mod tests {
             result.unsupported_public_items.len(),
             1,
             "exclude.methods must not suppress items with item_kind == 'function'"
+        );
+    }
+
+    #[test]
+    fn apply_filters_retains_unsupported_function_when_included_by_function_list() {
+        let mut surface = surface_with(vec![], vec![]);
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_function("generic_helper"));
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_function("unused_generic"));
+
+        let mut config = ResolvedCrateConfig::default();
+        config.include.functions = vec!["generic_helper".to_string()];
+
+        let result = apply_filters(surface, &config);
+
+        assert_eq!(
+            result
+                .unsupported_public_items
+                .iter()
+                .map(|item| item.item_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["my_crate::generic_helper"],
+            "include.functions must retain diagnostics only for included generic functions"
+        );
+    }
+
+    #[test]
+    fn apply_filters_retains_unsupported_method_when_parent_type_is_included() {
+        let mut surface = surface_with(vec![make_typedef("NodeContext"), make_typedef("OtherType")], vec![]);
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_method("NodeContext", "serialize"));
+        surface
+            .unsupported_public_items
+            .push(make_unsupported_method("OtherType", "serialize"));
+
+        let mut config = ResolvedCrateConfig::default();
+        config.include.types = vec!["NodeContext".to_string()];
+
+        let result = apply_filters(surface, &config);
+
+        assert_eq!(
+            result
+                .unsupported_public_items
+                .iter()
+                .map(|item| item.item_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["my_crate::module::NodeContext.serialize"],
+            "include.types must retain diagnostics only for methods owned by included public types"
         );
     }
 }

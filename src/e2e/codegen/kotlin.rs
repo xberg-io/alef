@@ -1677,7 +1677,7 @@ fn build_args_and_setup(
                 // - If options_type is set, use `OptionsType()` for kotlin_android (data class
                 //   constructor with defaults) or `OptionsType.builder().build()` for Java facade.
                 // - If no options_type, infer the type from arg.name and emit default constructor
-                //   (e.g., "ExtractionConfig()" for config arg). This handles both Java facade
+                //   (e.g., a configured default constructor for an options arg). This handles both Java facade
                 //   (which requires non-null) and kotlin_android (which also declares non-null).
                 if arg.arg_type == "json_object" {
                     let default_constructor = if let Some(opts_type) = options_type {

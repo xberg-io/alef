@@ -72,7 +72,17 @@ pub(super) fn gen_function(
         .enumerate()
         .filter_map(|(idx, (aug, orig))| {
             if aug.optional && !orig.optional && !crate::codegen::shared::is_promoted_optional(&func.params, idx) {
-                Some(format!("    let {} = {}.unwrap_or_default();\n", orig.name, orig.name))
+                // Named non-opaque params are handled by gen_named_let_bindings_pub which emits
+                // named_let_binding_optional (.map(|v| v.into()).unwrap_or_default()). Skip the
+                // outer coerce prefix for those to avoid double-unwrapping.
+                let is_named_non_opaque = matches!(&orig.ty,
+                    TypeRef::Named(n) if !opaque_types.contains(n.as_str())
+                );
+                if is_named_non_opaque {
+                    return None;
+                }
+                let mut_kw = if orig.is_mut { "mut " } else { "" };
+                Some(format!("    let {}{} = {}.unwrap_or_default();\n", mut_kw, orig.name, orig.name))
             } else {
                 None
             }
@@ -104,7 +114,9 @@ pub(super) fn gen_function(
         || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty))
         || func.params.iter().any(|p| is_bytes_param(&p.ty));
     let call_args = if use_let_bindings {
-        let base_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
+        // Use the mutex-aware variant so opaque params with is_ref && is_mut get
+        // `&mut *{name}.inner.lock().unwrap()` instead of `&{name}.inner`.
+        let base_args = generators::gen_call_args_with_let_bindings_mutex(&func.params, opaque_types, mutex_types);
         napi_apply_primitive_casts_to_call_args(&base_args, &func.params)
     } else {
         napi_gen_call_args(&func.params, opaque_types)
@@ -123,9 +135,11 @@ pub(super) fn gen_function(
         if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
             let serde_bindings =
                 generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
-            // Also generate Vec<String>+is_ref bindings (names_refs) since serde doesn't handle them
+            // Also generate Vec<&str> intermediate bindings for params where the core function
+            // expects &[&str] (vec_inner_is_ref=true). When vec_inner_is_ref=false the core
+            // expects &[String], which the binding Vec<String> satisfies directly via &[..].
             let vec_str_bindings: String = func.params.iter().filter(|p| {
-                p.is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
+                p.is_ref && p.vec_inner_is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
             }).map(|p| {
                 format!("let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ", p.name, p.name)
             }).collect();
@@ -161,9 +175,17 @@ pub(super) fn gen_function(
             )
         }
     } else if func.is_async {
-        // For async delegatable functions, generate let bindings if needed before the async call
+        // For async delegatable functions, generate let bindings if needed before the async call.
+        // Use gen_named_let_bindings_with_augmented so augmented optional params (those promoted
+        // from non-optional because they have defaults) use unwrap_or_default().into() rather than
+        // map(Into::into). The call-site borrows &param_core and needs T, not Option<&T>.
         let mut let_bindings = if use_let_bindings {
-            generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+            generators::gen_named_let_bindings_with_augmented(
+                &augmented_params,
+                &func.params,
+                opaque_types,
+                core_import,
+            )
         } else {
             String::new()
         };
@@ -194,9 +216,17 @@ pub(super) fn gen_function(
         )
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
-        // Generate let bindings for Named params if needed
+        // Generate let bindings for Named params if needed.
+        // Use gen_named_let_bindings_with_augmented so augmented optional params (those promoted
+        // from non-optional because they have defaults) use unwrap_or_default().into() rather than
+        // map(Into::into). The call-site borrows &param_core and needs T, not Option<&T>.
         let mut let_bindings = if use_let_bindings {
-            generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+            generators::gen_named_let_bindings_with_augmented(
+                &augmented_params,
+                &func.params,
+                opaque_types,
+                core_import,
+            )
         } else {
             String::new()
         };
@@ -454,7 +484,8 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                         } else {
                             p.name.clone()
                         }
-                    } else if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                    } else if p.is_ref && p.vec_inner_is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        // Core expects &[&str]: use the pre-built _refs binding.
                         format!("&{}_refs", p.name)
                     } else if p.is_ref {
                         format!("&{}", p.name)

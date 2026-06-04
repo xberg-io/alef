@@ -1898,13 +1898,81 @@ fn make_async_method_php(name: &str, return_type: TypeRef) -> MethodDef {
     }
 }
 
+fn make_node_context_php() -> TypeDef {
+    TypeDef {
+        name: "NodeContext".to_string(),
+        rust_path: "my_lib::NodeContext".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("node_id", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    }
+}
+
+fn make_visit_result_php() -> EnumDef {
+    EnumDef {
+        name: "VisitResult".to_string(),
+        rust_path: "my_lib::VisitResult".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Continue".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            },
+            EnumVariant {
+                name: "Stop".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: Some("snake_case".to_string()),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+    }
+}
+
 fn make_api_php() -> ApiSurface {
     ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
-        types: vec![],
+        types: vec![make_node_context_php()],
         functions: vec![],
-        enums: vec![],
+        enums: vec![make_visit_result_php()],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

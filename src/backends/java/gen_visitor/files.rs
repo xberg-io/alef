@@ -517,6 +517,47 @@ pub(super) mod tests {
         );
     }
 
+    #[test]
+    fn callbacks_skip_methods_with_extra_named_dto_params() {
+        let mut api = visitor_api("DemoVisitor", "VisitContext", "FlowDecision");
+        let trait_def = api
+            .types
+            .iter_mut()
+            .find(|typ| typ.name == "DemoVisitor")
+            .expect("visitor trait exists");
+        trait_def.methods.push(MethodDef {
+            name: "inspect_with_payload".to_string(),
+            params: vec![
+                param("context", TypeRef::Named("VisitContext".to_string())),
+                param("payload", TypeRef::Named("Payload".to_string())),
+            ],
+            return_type: TypeRef::Named("FlowDecision".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: "Inspect with an unsupported named payload.".to_string(),
+            receiver: Some(ReceiverKind::RefMut),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        let config = visitor_config("DemoVisitor", "VisitContext", "FlowDecision");
+
+        let visitor = resolve_visitor_generation(&api, &config, "Demo").expect("metadata is complete");
+
+        assert_eq!(
+            visitor.callbacks.len(),
+            1,
+            "Java visitor callbacks must stay aligned with FFI-supported callback params"
+        );
+        assert_eq!(visitor.callbacks[0].c_field, "inspect");
+    }
+
     pub(crate) fn visitor_config(trait_name: &str, context_type: &str, result_type: &str) -> ResolvedCrateConfig {
         ResolvedCrateConfig {
             trait_bridges: vec![TraitBridgeConfig {

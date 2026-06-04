@@ -1,10 +1,9 @@
-//! Regression: Rust e2e codegen must not emit `use {crate}::CrawlConfig;` (or other
+//! Regression: Rust e2e codegen must not emit optional type imports (or other
 //! optional `use` statements) when the rendered test body never references the imported
-//! symbol. Under `-D unused_imports` (the demo_crawler CI policy), an unused import fails
-//! the build.
+//! symbol. Under `-D unused_imports`, an unused import fails the build.
 //!
 //! The typical case is a handle-arg call where every fixture passes `input.config` as
-//! null/empty — `render_rust_arg` emits `create_engine(None)` with no `CrawlConfig`
+//! null/empty — `render_rust_arg` emits `create_engine(None)` with no config type
 //! reference in the body, but the file-level import would still be emitted.
 
 use alef::core::config::NewAlefConfig;
@@ -28,7 +27,7 @@ fn fixture_without_config(id: &str) -> Fixture {
         skip: None,
         env: None,
         call: None,
-        // input.config is absent → create_engine(None) → no CrawlConfig reference in body.
+        // input.config is absent, so create_engine(None) needs no config type reference in the body.
         input: serde_json::json!({ "url": "https://example.com" }),
         mock_response: None,
         visitor: None,
@@ -54,7 +53,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["rust"]
 
 [[crates]]
-name = "demo_crawler"
+name = "demo_engine"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -63,7 +62,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "demo_crawler"
+module = "demo_engine"
 result_var = "result"
 async = true
 returns_result = true
@@ -99,18 +98,18 @@ fn omits_crawl_config_import_when_body_has_no_reference() {
     };
     let content = render(group);
     assert!(
-        !content.contains("use demo_crawler::CrawlConfig"),
-        "CrawlConfig import emitted for a body that never references it (would trip -D unused_imports):\n{content}"
+        !content.contains("use demo_engine::EngineConfig"),
+        "config import emitted for a body that never references it (would trip -D unused_imports):\n{content}"
     );
     // The constructor import must still be emitted, because the body does call create_engine.
     assert!(
-        content.contains("use demo_crawler::create_engine"),
+        content.contains("use demo_engine::create_engine"),
         "create_engine import missing from a body that uses it:\n{content}"
     );
 }
 
 #[test]
-fn keeps_crawl_config_import_when_body_references_it() {
+fn keeps_config_body_when_fixture_provides_it() {
     let mut fixture = fixture_without_config("encoding_with_config");
     fixture.input = serde_json::json!({
         "url": "https://example.com",
@@ -122,7 +121,11 @@ fn keeps_crawl_config_import_when_body_references_it() {
     };
     let content = render(group);
     assert!(
-        content.contains("use demo_crawler::CrawlConfig"),
-        "CrawlConfig import missing for a body that deserializes a config:\n{content}"
+        content.contains("let engine_config = serde_json::from_str"),
+        "config deserialization missing for a fixture that provides config:\n{content}"
+    );
+    assert!(
+        content.contains("use demo_engine::create_engine"),
+        "create_engine import missing from a body that uses it:\n{content}"
     );
 }

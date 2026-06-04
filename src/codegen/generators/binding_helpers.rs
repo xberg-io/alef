@@ -350,6 +350,13 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         }
                     } else if promoted {
                         format!("{}{}.into()", p.name, unwrap_suffix)
+                    } else if p.is_mut {
+                        // Named param that core takes by &mut: requires a mutable let binding.
+                        // gen_call_args is used when there are no serde let-bindings; in that case
+                        // the binding value is passed directly via .into() then borrowed mutably.
+                        // Since we can't do &mut on a temporary, we rely on the caller to have
+                        // created a let binding; this path emits &mut {name} (binding directly).
+                        format!("&mut {}", p.name)
                     } else {
                         format!("{}.into()", p.name)
                     }
@@ -596,6 +603,9 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     if p.optional && p.is_ref {
                         // Let binding already created Option<&T> via .as_ref()
                         format!("{}_core", p.name)
+                    } else if p.is_mut {
+                        // Let binding created T, need &mut reference for call
+                        format!("&mut {}_core", p.name)
                     } else if p.is_ref {
                         // Let binding created T, need reference for call
                         format!("&{}_core", p.name)
@@ -695,9 +705,9 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         } else {
                             format!("{}_core", p.name)
                         }
-                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
-                        // Vec<String> with is_ref=true: core expects &[&str].
-                        // Convert via _refs intermediate binding.
+                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref {
+                        // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects &[&str].
+                        // Convert via _refs intermediate binding (generated in gen_vec_string_refs_bindings).
                         if p.optional {
                             format!("{}.as_deref()", p.name)
                         } else {
@@ -742,9 +752,61 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
         .join(", ")
 }
 
+/// Like `gen_call_args_with_let_bindings` but additionally handles opaque Named params that are
+/// mutex-wrapped and passed as `&mut` (i.e. `is_ref=true && is_mut=true`).
+///
+/// For such params the call argument must be `&mut *{name}.inner.lock().unwrap()` rather than
+/// the plain `&{name}.inner` emitted by the base function.
+pub fn gen_call_args_with_let_bindings_mutex(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+) -> String {
+    // Generate the base call args first, then patch mutex-opaque is_mut entries.
+    let base = gen_call_args_with_let_bindings(params, opaque_types);
+
+    // Build a replacement map: for each param that is an opaque mutex type with is_ref && is_mut,
+    // the base function emits `&{name}.inner` but we need `&mut *{name}.inner.lock().unwrap()`.
+    let mut patched = base;
+    for p in params {
+        if let TypeRef::Named(type_name) = &p.ty {
+            if opaque_types.contains(type_name.as_str())
+                && mutex_types.contains(type_name.as_str())
+                && p.is_ref
+                && p.is_mut
+                && !p.optional
+            {
+                // Replace the expression emitted by the base function with the lock pattern.
+                let old_expr = format!("&{}.inner", p.name);
+                let new_expr = format!("&mut *{}.inner.lock().unwrap()", p.name);
+                patched = patched.replace(&old_expr, &new_expr);
+            }
+        }
+    }
+    patched
+}
+
 /// Generate let bindings for non-opaque Named params, converting them to core types.
 pub fn gen_named_let_bindings_pub(params: &[ParamDef], opaque_types: &AHashSet<String>, core_import: &str) -> String {
     gen_named_let_bindings(params, opaque_types, core_import)
+}
+
+/// Like `gen_named_let_bindings_pub` but for augmented params where non-optional Named params
+/// with defaults have been promoted to `Option<T>` in the binding signature.
+///
+/// Augmented optional params (original `optional=false`, augmented to `optional=true`) must use
+/// the "promoted" template (`unwrap_or_default().into()`) rather than the "optional" template
+/// (`map(Into::into)`) because the call-site still uses `&param_core` (non-optional borrow from
+/// original params). The optional_ref template produces `Option<&T>` which cannot satisfy `&T`.
+///
+/// Naturally optional params (original `optional=true`) continue using the optional template.
+pub fn gen_named_let_bindings_with_augmented(
+    augmented_params: &[ParamDef],
+    original_params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    gen_named_let_bindings_inner_augmented(augmented_params, original_params, opaque_types, core_import)
 }
 
 /// Like `gen_named_let_bindings_pub` but without optional-promotion semantics.
@@ -897,6 +959,9 @@ fn gen_named_let_bindings_inner(
                         minijinja::context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
+                            // Mutable: core function expects &mut T, so the _core binding must
+                            // be declared mut to allow borrowing as mutable reference.
+                            is_mut => p.is_mut,
                         },
                     )
                 } else {
@@ -905,6 +970,9 @@ fn gen_named_let_bindings_inner(
                         minijinja::context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
+                            // Mutable: core function expects &mut T, so the _core binding must
+                            // be declared mut to allow borrowing as mutable reference.
+                            is_mut => p.is_mut,
                         },
                     )
                 };
@@ -945,9 +1013,15 @@ fn gen_named_let_bindings_inner(
                 bindings.push_str(&binding);
                 bindings.push_str("\n    ");
             }
-            // Vec<String> with is_ref=true: core expects &[&str].
+            // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects &[&str].
             // Convert Vec<String> to Vec<&str> via intermediate binding.
-            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
+            // When vec_inner_is_ref=false the core expects &[String] which Vec<String> already
+            // satisfies via &[..] coercion — no intermediate binding needed.
+            TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                    && p.is_ref
+                    && p.vec_inner_is_ref =>
+            {
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/vec_string_refs_binding_optional.jinja",
@@ -981,6 +1055,136 @@ fn gen_named_let_bindings_inner(
                         name => &p.name,
                     },
                 ));
+            }
+            _ => {}
+        }
+    }
+    bindings
+}
+
+/// Like `gen_named_let_bindings_inner` but aware of augmented params.
+///
+/// When `augmented_params[idx].optional = true` but `original_params[idx].optional = false`,
+/// the param was augmented (it has a default). Such params must use the "promoted" template
+/// (`unwrap_or_default().into()`) because the call-site emits `&param_core` (non-optional borrow
+/// from the original params). The optional_ref template produces `Option<&T>` which doesn't
+/// satisfy `&T`.
+fn gen_named_let_bindings_inner_augmented(
+    augmented_params: &[ParamDef],
+    original_params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let mut bindings = String::new();
+    for (idx, p) in augmented_params.iter().enumerate() {
+        let is_augmented_optional = p.optional
+            && original_params
+                .get(idx)
+                .map(|orig| !orig.optional)
+                .unwrap_or(false);
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
+                let core_type_path = format!("{}::{}", core_import, name);
+                let binding = if is_augmented_optional {
+                    // Augmented: was non-optional in core, promoted to Option<T> in the binding
+                    // signature. Use promoted template so the let binding produces T (not Option<T>),
+                    // allowing the call-site to borrow it as &T.
+                    crate::codegen::template_env::render(
+                        "binding_helpers/named_let_binding_promoted.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                            core_type_path => &core_type_path,
+                            is_mut => p.is_mut,
+                        },
+                    )
+                } else if p.optional {
+                    if p.is_ref {
+                        crate::codegen::template_env::render(
+                            "binding_helpers/named_let_binding_optional_ref.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                core_type_path => &core_type_path,
+                            },
+                        )
+                    } else {
+                        crate::codegen::template_env::render(
+                            "binding_helpers/named_let_binding_optional.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                core_type_path => &core_type_path,
+                            },
+                        )
+                    }
+                } else {
+                    let promoted = crate::codegen::shared::is_promoted_optional(augmented_params, idx);
+                    if promoted {
+                        crate::codegen::template_env::render(
+                            "binding_helpers/named_let_binding_promoted.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                core_type_path => &core_type_path,
+                                is_mut => p.is_mut,
+                            },
+                        )
+                    } else {
+                        crate::codegen::template_env::render(
+                            "binding_helpers/named_let_binding_simple.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                core_type_path => &core_type_path,
+                                is_mut => p.is_mut,
+                            },
+                        )
+                    }
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
+            }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
+                let binding = if p.optional && p.is_ref {
+                    crate::codegen::template_env::render(
+                        "binding_helpers/vec_named_let_binding_optional.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
+                    )
+                } else if p.optional {
+                    crate::codegen::template_env::render(
+                        "binding_helpers/vec_named_let_binding_optional_no_ref.jinja",
+                        minijinja::context! {
+                            name => &p.name,
+                        },
+                    )
+                } else {
+                    let promoted = crate::codegen::shared::is_promoted_optional(augmented_params, idx);
+                    let template = if promoted {
+                        "binding_helpers/vec_named_let_binding_promoted.jinja"
+                    } else {
+                        "binding_helpers/vec_named_let_binding_simple.jinja"
+                    };
+                    crate::codegen::template_env::render(template, minijinja::context! { name => &p.name })
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
+            }
+            TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                    && p.is_ref
+                    && p.vec_inner_is_ref =>
+            {
+                let binding = if p.optional {
+                    crate::codegen::template_env::render(
+                        "binding_helpers/vec_string_refs_binding_optional.jinja",
+                        minijinja::context! { name => &p.name },
+                    )
+                } else {
+                    crate::codegen::template_env::render(
+                        "binding_helpers/vec_string_refs_binding_simple.jinja",
+                        minijinja::context! { name => &p.name },
+                    )
+                };
+                bindings.push_str(&binding);
+                bindings.push_str("\n    ");
             }
             _ => {}
         }

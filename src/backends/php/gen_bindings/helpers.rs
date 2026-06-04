@@ -294,6 +294,7 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
 pub(crate) fn gen_php_named_let_bindings(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
     core_import: &str,
 ) -> String {
     let mut out = String::new();
@@ -311,31 +312,56 @@ pub(crate) fn gen_php_named_let_bindings(
                 continue;
             }
         }
+        // PHP parameter names are camelCase (via to_php_name). Let bindings must
+        // use the same PHP-side name as the parameter so the generated code compiles.
+        let php_param_name = to_php_name(&p.name);
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_named_let_binding.jinja",
                     context! {
-                        php_name => &p.name,
+                        php_name => &php_param_name,
                         core_import => core_import,
                         type_name => name.as_str(),
                         is_optional => p.optional,
+                        is_mut => p.is_mut,
                     },
                 ));
+                // For optional+is_mut params: unwrap into a mutable intermediate so
+                // &mut {name}_unwrapped can be passed to functions taking &mut T.
+                if p.optional && p.is_mut {
+                    out.push_str(&format!(
+                        "    let mut {php_param_name}_unwrapped = {php_param_name}_core.unwrap_or_default();\n"
+                    ));
+                }
             }
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
-                        // Vec<NonOpaqueCustomType> (php_class struct): manually iterate PHP array
-                        out.push_str(&crate::backends::php::template_env::render(
-                            "php_vec_named_struct_let_binding.jinja",
-                            context! {
-                                php_name => &p.name,
-                                core_import => core_import,
-                                struct_name => name,
-                                is_optional => p.optional,
-                            },
-                        ));
+                        if enum_names.contains(name.as_str()) {
+                            // Vec<EnumType>: the PHP param is Vec<String>; convert each element
+                            // via `From<String>` (enum discriminant round-trip).
+                            out.push_str(&crate::backends::php::template_env::render(
+                                "php_let_binding_vec_named.jinja",
+                                context! {
+                                    pname => php_param_name.as_str(),
+                                    core_import => core_import,
+                                    name => name.as_str(),
+                                },
+                            ));
+                        } else {
+                            // Vec<StructType>: the PHP param is &ZendHashTable; iterate and convert
+                            // each element via FromZval.
+                            out.push_str(&crate::backends::php::template_env::render(
+                                "php_vec_named_struct_let_binding.jinja",
+                                context! {
+                                    php_name => &php_param_name,
+                                    core_import => core_import,
+                                    struct_name => name,
+                                    is_optional => p.optional,
+                                },
+                            ));
+                        }
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                     // Sanitized Vec<tuple>: each item is a JSON-encoded tuple string.
@@ -343,16 +369,18 @@ pub(crate) fn gen_php_named_let_bindings(
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_sanitized_vec_let_binding.jinja",
                         context! {
-                            param_name => &p.name,
+                            param_name => &php_param_name,
                             is_optional => p.optional,
                         },
                     ));
-                } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
-                    // Vec<String> with is_ref=true: core expects &[&str].
+                } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref {
+                    // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects &[&str].
+                    // When vec_inner_is_ref=false the core expects &[String], which Vec<String>
+                    // already satisfies via &[..] coercion — no _refs binding needed.
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_vec_string_refs_let_binding.jinja",
                         context! {
-                            param_name => &p.name,
+                            param_name => &php_param_name,
                         },
                     ));
                 }
@@ -367,6 +395,7 @@ pub(crate) fn gen_php_named_let_bindings(
 pub(crate) fn gen_php_call_args_with_let_bindings(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     params
         .iter()
@@ -382,8 +411,15 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     }
                 }
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    let is_mutex = mutex_types.contains(name.as_str());
                     if p.optional {
-                        format!("{php_name}.as_ref().map(|v| &v.inner)")
+                        if p.is_mut && is_mutex {
+                            format!("{php_name}.as_ref().map(|v| &mut *v.inner.lock().unwrap())")
+                        } else {
+                            format!("{php_name}.as_ref().map(|v| &v.inner)")
+                        }
+                    } else if p.is_mut && is_mutex {
+                        format!("&mut *{php_name}.inner.lock().unwrap()")
                     } else {
                         format!("&{php_name}.inner")
                     }
@@ -393,7 +429,16 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     // If core expects a reference (is_ref=true), add & for optional or &val for non-optional.
                     if p.is_ref {
                         if p.optional {
-                            format!("{php_name}_core.as_ref()")
+                            if p.is_mut {
+                                // gen_php_named_let_bindings emits an extra
+                                // `let mut {name}_unwrapped = {name}_core.unwrap_or_default();`
+                                // for optional+is_mut params, so we can borrow it mutably here.
+                                format!("&mut {php_name}_unwrapped")
+                            } else {
+                                format!("{php_name}_core.as_ref()")
+                            }
+                        } else if p.is_mut {
+                            format!("&mut {php_name}_core")
                         } else {
                             format!("&{php_name}_core")
                         }
@@ -465,8 +510,9 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                         } else {
                             format!("{php_name}_core")
                         }
-                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
-                        // Vec<String> with is_ref: convert via _refs binding to &[&str]
+                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref {
+                        // Vec<String> with is_ref and vec_inner_is_ref: core expects &[&str].
+                        // Use the pre-built _refs binding (Vec<&str>).
                         format!("&{php_name}_refs")
                     } else {
                         // Opaque or primitive types: no binding needed

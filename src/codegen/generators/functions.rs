@@ -1,5 +1,5 @@
 use crate::codegen::generators::binding_helpers::{
-    gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings, gen_named_let_bindings,
+    gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings_mutex, gen_named_let_bindings,
     gen_named_let_bindings_by_ref, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
@@ -119,7 +119,9 @@ pub fn gen_function_with_mutex(
     };
     let use_let_bindings = has_named_params(&effective_params, opaque_types);
     let call_args = if use_let_bindings {
-        gen_call_args_with_let_bindings(&effective_params, opaque_types)
+        // Use the mutex-aware variant so opaque params with is_ref && is_mut get
+        // `&mut *{name}.inner.lock().unwrap()` instead of `&{name}.inner`.
+        gen_call_args_with_let_bindings_mutex(&effective_params, opaque_types, mutex_types)
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
         gen_call_args_cfg(
             &effective_params,

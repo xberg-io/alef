@@ -116,14 +116,14 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "convert"
-module = "sample_markdown_rs"
+module = "demo_markup_rs"
 args = [
   {{ name = "html", field = "html", type = "string" }},
   {{ name = "options", field = "options", type = "json_object", optional = true }},
 ]
 
 [crates.e2e.call.overrides.rust]
-crate_name = "sample_markdown_rs"
+crate_name = "demo_markup_rs"
 function = "convert"
 {extra_call_override}
 "#

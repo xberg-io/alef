@@ -515,6 +515,15 @@ pub fn field_conversion_from_core(
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)) => {
             format!("{name}: val.{name}.map(|v| v.into_iter().collect())")
         }
+        // String: core may be &str (lifetime-param types like Segment<'_>), binding is always
+        // String. Use .to_string() which works for both owned String (no-op clone) and &str.
+        TypeRef::String => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v.to_string())")
+            } else {
+                format!("{name}: val.{name}.to_string()")
+            }
+        }
         // Everything else is symmetric
         _ => field_conversion_to_core(name, ty, optional),
     }

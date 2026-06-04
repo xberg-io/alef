@@ -5,9 +5,22 @@ use alef::core::ir::{
     ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
     PrimitiveType, TypeDef, TypeRef,
 };
+use std::borrow::Cow;
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
-    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    let toml = if toml.contains("[crates.package_metadata]") {
+        Cow::Borrowed(toml)
+    } else {
+        Cow::Owned(format!(
+            r#"{toml}
+
+[crates.package_metadata]
+repository = "https://github.com/example/demo"
+license = "MIT"
+"#
+        ))
+    };
+    let cfg: NewAlefConfig = toml::from_str(&toml).unwrap();
     cfg.resolve().unwrap().remove(0)
 }
 

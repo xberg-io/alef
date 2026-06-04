@@ -365,9 +365,16 @@ pub(super) fn gen_opaque_instance_method(
     // Use the shared can_auto_delegate check for opaque instance methods.
     // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
     // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    // Methods with Vec<Named non-opaque> is_ref params cannot be auto-delegated because
+    // the call-site generates &Vec<JsT> but core expects &[T] — let bindings are required.
+    let has_named_ref_param = method
+        .params
+        .iter()
+        .any(|p| crate::codegen::shared::is_named_ref_param_pub(p, opaque_types));
     let opaque_can_delegate = !method.sanitized
         && (!is_ref_mut_receiver || has_mut_methods)
         && (!is_owned_receiver || typ.is_clone)
+        && !has_named_ref_param
         && method
             .params
             .iter()
@@ -407,14 +414,16 @@ pub(super) fn gen_opaque_instance_method(
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             let serde_bindings =
                 generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
-            let serde_call_args = generators::gen_call_args_with_let_bindings(&method.params, opaque_types);
+            let serde_call_args = generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types);
             let core_call = if has_mut_methods {
                 format!("self.inner.lock().unwrap().{}({serde_call_args})", method.name)
             } else {
                 format!("self.inner.{}({serde_call_args})", method.name)
             };
+            // For async methods, the core call returns a Future — must .await before mapping the error.
+            let await_suffix = if method.is_async { ".await" } else { "" };
             if matches!(method.return_type, TypeRef::Unit) {
-                format!("{serde_bindings}{core_call}{err_conv}?;\n    Ok(())")
+                format!("{serde_bindings}{core_call}{await_suffix}{err_conv}?;\n    Ok(())")
             } else {
                 let wrap = napi_wrap_return(
                     "result",
@@ -426,7 +435,7 @@ pub(super) fn gen_opaque_instance_method(
                     prefix,
                     mutex_types,
                 );
-                format!("{serde_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
+                format!("{serde_bindings}let result = {core_call}{await_suffix}{err_conv}?;\n    Ok({wrap})")
             }
         } else {
             generators::gen_unimplemented_body(
@@ -459,7 +468,7 @@ pub(super) fn gen_opaque_instance_method(
         let (let_bindings, call_args_for_call) = if use_let_bindings {
             let bindings = generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import);
             let args = napi_apply_primitive_casts_to_call_args(
-                &generators::gen_call_args_with_let_bindings(&method.params, opaque_types),
+                &generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
                 &method.params,
             );
             (bindings, args)
@@ -708,8 +717,10 @@ pub(super) fn gen_dto_method_fns(
 
         // The binding DTO type name (Js-prefixed if prefix is non-empty).
         let binding_type = format!("{prefix}{}", typ.name);
-        let return_annotation = mapper.map_type(&method.return_type);
-        let return_annotation = mapper.wrap_return(&return_annotation, method.error_type.is_some());
+        // Do not pre-wrap with mapper.wrap_return here — line 813-815 wraps with
+        // napi::Result<T> when error_type.is_some(). Pre-wrapping would produce
+        // napi::Result<Result<T>> for constructor/static methods that return Result.
+        let return_annotation = mapper.map_type(&method.return_type).to_string();
 
         // Build parameter list.  For instance withers, the receiver struct is the first param.
         let mut param_parts: Vec<String> = vec![];
@@ -752,16 +763,37 @@ pub(super) fn gen_dto_method_fns(
             } else {
                 format!("{core_type_path}::{}({call_args_str})", method.name)
             };
-            napi_wrap_return(
-                &core_call,
-                &method.return_type,
-                &typ.name,
-                opaque_types,
-                false,
-                method.returns_ref,
-                prefix,
-                mutex_types,
-            )
+            if method.error_type.is_some() {
+                // Constructor/factory returns Result<T>: map the Ok value to the binding type
+                // and convert the error to napi::Error.
+                let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+                let wrapped = napi_wrap_return(
+                    "val",
+                    &method.return_type,
+                    &typ.name,
+                    opaque_types,
+                    false,
+                    method.returns_ref,
+                    prefix,
+                    mutex_types,
+                );
+                if wrapped == "val" {
+                    format!("{core_call}{err_conv}")
+                } else {
+                    format!("{core_call}.map(|val| {wrapped}){err_conv}")
+                }
+            } else {
+                napi_wrap_return(
+                    &core_call,
+                    &method.return_type,
+                    &typ.name,
+                    opaque_types,
+                    false,
+                    method.returns_ref,
+                    prefix,
+                    mutex_types,
+                )
+            }
         } else {
             // Wither: convert cfg back to core, call method, convert result back to binding.
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";

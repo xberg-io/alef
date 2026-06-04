@@ -75,7 +75,7 @@ impl Backend for GoBackend {
 
         let ffi_lib_name = config.ffi_lib_name();
         let ffi_header = config.ffi_header_name();
-        // Derive the FFI crate directory from the output path (e.g., "crates/sample-markdown-ffi/src/" → "crates/sample-markdown-ffi")
+        // Derive the FFI crate directory from the configured output path.
         let ffi_crate_dir = config
             .output_paths
             .get("ffi")

@@ -29,12 +29,18 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
+    // When the core enum has cfg-gated variants (excluded from the IR's `variants` list),
+    // the Rust compiler sees those variants at compile time but the generated match arms
+    // don't cover them, making the match non-exhaustive. Emit a wildcard arm in that case.
+    let has_excluded_variants = !enum_def.excluded_variants.is_empty();
+
     crate::codegen::template_env::render(
         "conversions/enum_from_binding_to_core",
         minijinja::context! {
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
+            has_excluded_variants => has_excluded_variants,
         },
     )
 }
@@ -65,12 +71,18 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
+    // When the core enum has cfg-gated variants (excluded from the IR's `variants` list),
+    // the Rust compiler sees those variants at compile time but the generated match arms
+    // don't cover them, making the match non-exhaustive. Emit a wildcard arm in that case.
+    let has_excluded_variants = !enum_def.excluded_variants.is_empty();
+
     crate::codegen::template_env::render(
         "conversions/enum_from_core_to_binding",
         minijinja::context! {
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
+            has_excluded_variants => has_excluded_variants,
         },
     )
 }

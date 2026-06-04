@@ -474,31 +474,31 @@ mod tests {
     #[test]
     fn shared_lib_linux() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
-        assert_eq!(t.shared_lib_name("sample_markdown_ffi"), "libsample_markdown_ffi.so");
+        assert_eq!(t.shared_lib_name("demo_markup_ffi"), "libdemo_markup_ffi.so");
     }
 
     #[test]
     fn shared_lib_macos() {
         let t = RustTarget::parse("aarch64-apple-darwin").unwrap();
-        assert_eq!(t.shared_lib_name("sample_markdown_ffi"), "libsample_markdown_ffi.dylib");
+        assert_eq!(t.shared_lib_name("demo_markup_ffi"), "libdemo_markup_ffi.dylib");
     }
 
     #[test]
     fn shared_lib_windows() {
         let t = RustTarget::parse("x86_64-pc-windows-msvc").unwrap();
-        assert_eq!(t.shared_lib_name("sample_markdown_ffi"), "sample_markdown_ffi.dll");
+        assert_eq!(t.shared_lib_name("demo_markup_ffi"), "demo_markup_ffi.dll");
     }
 
     #[test]
     fn static_lib_unix() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
-        assert_eq!(t.static_lib_name("sample_markdown_ffi"), "libsample_markdown_ffi.a");
+        assert_eq!(t.static_lib_name("demo_markup_ffi"), "libdemo_markup_ffi.a");
     }
 
     #[test]
     fn static_lib_windows() {
         let t = RustTarget::parse("x86_64-pc-windows-msvc").unwrap();
-        assert_eq!(t.static_lib_name("sample_markdown_ffi"), "sample_markdown_ffi.lib");
+        assert_eq!(t.static_lib_name("demo_markup_ffi"), "demo_markup_ffi.lib");
     }
 
     #[test]

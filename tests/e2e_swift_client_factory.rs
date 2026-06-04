@@ -143,7 +143,7 @@ options_via = "from_json"
 }
 
 /// When `client_factory` is absent, the generator must emit a free-function call.
-/// This ensures no regression for sample_crate's flat-function swift binding.
+/// This ensures no regression for flat-function Swift bindings.
 #[test]
 fn without_client_factory_emits_free_function_call() {
     let toml = format!(
@@ -156,7 +156,7 @@ options_via = "from_json"
     let rendered = smoke_test_content(&files);
 
     assert!(
-        rendered.contains("try await SampleLlm.chat("),
+        rendered.contains("try await DemoClient.chat("),
         "must call module-qualified free function chat directly. Rendered:\n{rendered}"
     );
     assert!(
@@ -250,7 +250,7 @@ options_via = "from_json"
     // The dep must be referenced by path basename in `.product(package:)`.
     // The default BASE_TOML uses path `../../packages/swift`, basename `swift`.
     assert!(
-        pkg.contains(r#".product(name: "SampleLlm", package: "swift")"#),
+        pkg.contains(r#".product(name: "DemoClient", package: "swift")"#),
         "Package.swift must reference the dep by path basename `swift`. Content:\n{pkg}"
     );
     assert!(

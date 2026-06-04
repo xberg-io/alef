@@ -369,7 +369,7 @@ fn render_test_file(
     });
 
     // Collect plugin trait types used in test_backend arguments. These types must be imported
-    // from the main package (e.g., DocumentExtractor, OcrBackend, etc.) so test stubs can extend them.
+    // from the main package so test stubs can extend them.
     let used_trait_types: std::collections::HashSet<String> = fixtures
         .iter()
         .flat_map(|f| {
@@ -1242,19 +1242,16 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
             }
             "string" => {
                 // Polyglot repos expose their Dart surface through a hand-written facade
-                // (e.g. `SampleMarkupBridge.convert(String html, {ConversionOptions? options})`,
-                // `SampleLanguagePackBridge.process(String source, ProcessConfig config)`,
-                // `SampleCrateBridge.extractBytes(Uint8List content, String mimeType, [SampleSettings? settings])`)
+                // (e.g. a facade method with required positional args and optional named args)
                 // that wraps the FRB-generated bridge methods. Those facades follow the
                 // Rust idiom: required args are positional, optional args are named with
                 // defaults. The "always emit named" heuristic targets the raw FRB bridge
                 // call site but breaks every hand-written facade.
                 //
                 // Mirror the policy used by the `json_object` handler below: required →
-                // positional, optional → named. Sample-llm's `chat`/`embed` calls are
-                // unaffected because they route through the `from_json` path (which
-                // always emits `req:` named) and the `client_factory` path (which
-                // hardcodes its own arg shape).
+                // positional, optional → named. Request-object calls route through the
+                // `from_json` path (which always emits `req:` named) and client-factory
+                // calls have their own configured arg shape.
                 let dart_param_name = snake_to_camel(&arg_def.name);
                 // The `mime_type` parameter is a *positional* parameter in every facade
                 // extract method — both `extractBytes`/`extractBytesSync` (where it is a
@@ -1304,9 +1301,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
             "json_object" => {
                 if let Some(elem_type) = &arg_def.element_type {
                     if elem_type == "String" && arg_value.is_array() {
-                        // Scalar string array (e.g. `texts: ["a", "b"]` for embed_texts).
-                        // The `SampleCrateBridge` facade declares these parameters as required
-                        // positional (e.g. `embedTexts(List<String> texts, SampleSettings settings)`),
+                        // Scalar string array. Facades can declare these parameters as required
+                        // positional,
                         // so the list literal must be passed positionally — matching the
                         // facade contract rather than the underlying FRB bridge's named-arg
                         // convention.
@@ -1419,7 +1415,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                     args.push(var_name);
                 } else if let serde_json::Value::Object(map) = &arg_value {
                     // Generic options-style json_object arg (for APIs whose
-                    // `options: ConversionOptions` on `convert(html, options)`). When the
+                    // a typed options arg). When the
                     // fixture provides input.options and the call config declares an
                     // `options_type`, build the mirror struct via the FRB-generated
                     // `create<OptionsType>FromJson(json: '...')` helper. Use the arg's
@@ -1469,9 +1465,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
     // The visitor setup line is INSERTED at the front of `setup_lines` so
     // `_visitor` is defined before any `_options` line that references it.
     // Fixtures without an `options` json_object in input still need an options
-    // blob to carry the visitor through to convert — we synthesise an empty-
-    // options call to `createConversionOptionsFromJsonWithVisitor(json: '{}',
-    // visitor: _visitor)` here when no `options` arg was emitted in the loop
+    // blob to carry the visitor through to the configured call — we synthesise an empty
+    // options call with the configured options type here when no `options` arg was emitted in the loop
     // above.
     if let Some(visitor_spec) = &fixture.visitor {
         let mut visitor_setup: Vec<String> = Vec::new();

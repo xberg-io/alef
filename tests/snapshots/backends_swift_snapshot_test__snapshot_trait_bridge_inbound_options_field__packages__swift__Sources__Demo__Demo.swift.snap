@@ -101,8 +101,8 @@ private func jsonEscapeStr(_ s: String) -> String {
 
 /// Wrap a `MarkupVisitorProtocol` conformer in an opaque `CallbackHandle` handle
 /// that can be passed to `renderOptionsFromJsonWithVisitor(...)` on the Rust side.
-public func makeMarkupVisitorHandle(_ visitor: any MarkupVisitorProtocol) -> CallbackHandle {
-    return RustBridge.makeMarkupVisitorHandle(SwiftMarkupVisitorBox(_MarkupVisitorProtocolAdapter(visitor)))
+public func makeMarkupVisitorCallbackHandle(_ visitor: any MarkupVisitorProtocol) -> CallbackHandle {
+    return RustBridge.makeMarkupVisitorCallbackHandle(SwiftMarkupVisitorBox(_MarkupVisitorProtocolAdapter(visitor)))
 }
 
 /// Decode `RenderOptions` JSON and attach a `CallbackHandle` visitor handle.

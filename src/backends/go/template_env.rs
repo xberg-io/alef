@@ -72,14 +72,6 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("export_marker.jinja", include_str!("templates/export_marker.jinja")),
     (
-        "node_context_struct.jinja",
-        include_str!("templates/node_context_struct.jinja"),
-    ),
-    (
-        "visit_result_struct.jinja",
-        include_str!("templates/visit_result_struct.jinja"),
-    ),
-    (
         "visit_result_helper.jinja",
         include_str!("templates/visit_result_helper.jinja"),
     ),

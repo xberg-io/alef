@@ -250,7 +250,7 @@ mod tests {
             "rewritten build.zig must not reference workspace target dir:\n{s}"
         );
         assert!(
-            !s.contains("../../crates/liter-llm-ffi"),
+            !s.contains("../../crates/sample-lib-ffi"),
             "rewritten build.zig must not reference workspace crate dir:\n{s}"
         );
         assert!(

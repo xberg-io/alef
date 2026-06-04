@@ -63,11 +63,16 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         .as_ref()
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
-    let mod_exclude_types: ahash::AHashSet<String> = config
+    let mut mod_exclude_types: ahash::AHashSet<String> = config
         .python
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
+    // Declared opaque types from `[workspace.opaque_types]` are external host-runtime
+    // references — the per-binding wrapper loop skips emitting `#[pyclass]` structs for
+    // them, so the module-init loop must also skip the corresponding `m.add_class::<T>`
+    // call to avoid `cannot find type` errors.
+    mod_exclude_types.extend(config.opaque_types.keys().cloned());
     // Capsule types have no #[pyclass] struct — emitting m.add_class::<T>() for them
     // causes a compile error because the struct was never generated.
     let capsule_type_names: AHashSet<String> = config

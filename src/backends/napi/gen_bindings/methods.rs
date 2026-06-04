@@ -370,6 +370,10 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         })
         .collect::<Vec<_>>();
 
+    // When the core enum has cfg-gated variants excluded from the IR, emit a wildcard arm
+    // to keep the match exhaustive under --all-features builds.
+    let has_excluded_variants = !enum_def.excluded_variants.is_empty();
+
     crate::backends::napi::template_env::render(
         "gen_tagged_enum_core_to_binding.jinja",
         minijinja::context! {
@@ -377,6 +381,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
             core_path => core_path,
             tag_field => tag_field,
             variants => variants,
+            has_excluded_variants => has_excluded_variants,
         },
     )
 }

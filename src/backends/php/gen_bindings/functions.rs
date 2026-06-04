@@ -18,6 +18,9 @@ use super::helpers::{
 pub(crate) struct PhpParamTypeSets<'a> {
     pub(crate) opaque: &'a AHashSet<String>,
     pub(crate) default: &'a AHashSet<String>,
+    /// Flat/unit enum names (surfaced as String in PHP). Used to select the
+    /// correct Vec<T> let-binding template (From<String> vs FromZval).
+    pub(crate) enums: &'a AHashSet<String>,
 }
 
 /// Format the `-> ReturnType` part of a function signature.
@@ -128,8 +131,17 @@ fn apply_default_param_substitutions(
         .zip(params.iter())
         .map(|(term, param)| {
             if promoted_names.contains(param.name.as_str()) {
+                // PHP parameter names are camelCase — use to_php_name so the generated
+                // variable references match the let bindings and function signature.
+                let php_name = crate::codegen::naming::to_php_name(&param.name);
                 if param.is_ref {
-                    format!("&{}_core.unwrap_or_default()", param.name)
+                    if param.is_mut {
+                        // Mutable ref: the serde path generated an `_unwrapped` binding.
+                        // Use that binding instead of re-deriving from the Option.
+                        format!("&mut {php_name}_unwrapped")
+                    } else {
+                        format!("&{php_name}_core.unwrap_or_default()")
+                    }
                 } else {
                     format!("{term}.unwrap_or_default()")
                 }
@@ -167,10 +179,14 @@ fn has_sanitized_recoverable(params: &[crate::core::ir::ParamDef]) -> bool {
 fn gen_php_serde_let_bindings(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
     core_import: &str,
 ) -> String {
     let mut out = String::new();
     for p in params {
+        // PHP parameter names are camelCase. Use to_php_name so let bindings reference
+        // the same camelCase variable that appears in the function signature.
+        let php_param_name = crate::codegen::naming::to_php_name(&p.name);
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.is_ref {
@@ -179,16 +195,23 @@ fn gen_php_serde_let_bindings(
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_serde_ref_named_optional_let_binding.jinja",
                             context! {
-                                pname => &p.name,
+                                pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
                             },
                         ));
+                        // For optional+is_mut params: unwrap into a mutable binding so
+                        // &mut {name}_unwrapped can be passed to functions taking &mut T.
+                        if p.is_mut {
+                            out.push_str(&format!(
+                                "    let mut {php_param_name}_unwrapped = {php_param_name}_core.unwrap_or_default();\n"
+                            ));
+                        }
                     } else {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_serde_ref_named_let_binding.jinja",
                             context! {
-                                pname => &p.name,
+                                pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
                             },
@@ -200,7 +223,7 @@ fn gen_php_serde_let_bindings(
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_named_optional.jinja",
                             minijinja::context! {
-                                pname => &p.name,
+                                pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
                             },
@@ -209,7 +232,7 @@ fn gen_php_serde_let_bindings(
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_named.jinja",
                             minijinja::context! {
-                                pname => &p.name,
+                                pname => &php_param_name,
                                 core_import => core_import,
                                 name => name,
                             },
@@ -220,22 +243,26 @@ fn gen_php_serde_let_bindings(
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
-                        if p.optional {
-                            out.push_str(&crate::backends::php::template_env::render(
-                                "php_let_binding_vec_named_optional.jinja",
-                                context! {
-                                    pname => &p.name,
-                                    core_import => core_import,
-                                    name => name,
-                                },
-                            ));
-                        } else {
+                        // php_param_name already defined above as to_php_name(&p.name)
+                        if enum_names.contains(name.as_str()) {
+                            // Vec<EnumType>: PHP param is Vec<String>; convert via From<String>.
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_let_binding_vec_named.jinja",
                                 context! {
-                                    pname => &p.name,
+                                    pname => php_param_name.as_str(),
                                     core_import => core_import,
-                                    name => name,
+                                    name => name.as_str(),
+                                },
+                            ));
+                        } else {
+                            // Vec<StructType>: PHP param is &ZendHashTable; convert via FromZval.
+                            out.push_str(&crate::backends::php::template_env::render(
+                                "php_vec_named_struct_let_binding.jinja",
+                                context! {
+                                    php_name => &php_param_name,
+                                    core_import => core_import,
+                                    struct_name => name,
+                                    is_optional => p.optional,
                                 },
                             ));
                         }
@@ -248,14 +275,14 @@ fn gen_php_serde_let_bindings(
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_sanitized_vec_string_optional.jinja",
                             context! {
-                                pname => &p.name,
+                                pname => &php_param_name,
                             },
                         ));
                     } else {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_sanitized_vec_string.jinja",
                             context! {
-                                pname => &p.name,
+                                pname => &php_param_name,
                             },
                         ));
                     }
@@ -263,7 +290,7 @@ fn gen_php_serde_let_bindings(
                     out.push_str(&crate::backends::php::template_env::render(
                         "php_let_binding_string_refs.jinja",
                         context! {
-                            pname => &p.name,
+                            pname => &php_param_name,
                         },
                     ));
                 }
@@ -281,6 +308,7 @@ pub(crate) fn gen_instance_method(
     is_opaque: bool,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &AdapterBodies,
     mutex_types: &AHashSet<String>,
@@ -356,8 +384,8 @@ pub(crate) fn gen_instance_method(
         }
     } else if is_opaque {
         // Not auto-delegatable opaque instance method — use let-binding conversion
-        let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, core_import);
-        let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types);
+        let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, enum_names, core_import);
+        let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types, mutex_types);
         // When the type is in mutex_types, we need .lock().unwrap() to access the inner value,
         // regardless of whether the method is &self or &mut self. The Mutex protects the inner value.
         let needs_lock = mutex_types.contains(type_name);
@@ -795,8 +823,8 @@ fn gen_function_body(
     if can_delegate {
         let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
         let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
-        let let_bindings = gen_php_named_let_bindings(&promoted_params, type_sets.opaque, core_import);
-        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque);
+        let let_bindings = gen_php_named_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque, mutex_types);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -881,11 +909,11 @@ fn gen_function_body(
         let needs_serde = func.error_type.is_some()
             && (has_ref_named_params(&func.params, type_sets.opaque) || has_sanitized_recoverable(&func.params));
         let let_bindings = if has_serde && needs_serde {
-            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, core_import)
+            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import)
         } else {
-            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, core_import)
+            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import)
         };
-        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque, mutex_types);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -1014,11 +1042,11 @@ fn gen_async_function_body(
         let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
         let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
         let let_bindings = if needs_serde && !can_delegate {
-            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, core_import)
+            gen_php_serde_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import)
         } else {
-            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, core_import)
+            gen_php_named_let_bindings(&promoted_params, type_sets.opaque, type_sets.enums, core_import)
         };
-        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque);
+        let raw_call_args = gen_php_call_args_with_let_bindings(&promoted_params, type_sets.opaque, mutex_types);
         let raw_call_args = apply_default_param_substitutions(&raw_call_args, &promoted_params, &promoted_names);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -1078,9 +1106,10 @@ pub(crate) fn gen_async_instance_method(
     is_opaque: bool,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &AdapterBodies,
-    _mutex_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
@@ -1095,7 +1124,17 @@ pub(crate) fn gen_async_instance_method(
     } else if can_delegate && is_opaque {
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let inner_clone = "let inner = self.inner.clone();\n    ";
-        let core_call = format!("inner.{}({})", method.name, call_args);
+        let needs_lock = mutex_types.contains(type_name);
+        let inner_name = if needs_lock {
+            "self.inner.lock().unwrap()"
+        } else {
+            "inner"
+        };
+        let core_call = if needs_lock {
+            format!("{inner_name}.{}({})", method.name, call_args)
+        } else {
+            format!("inner.{}({})", method.name, call_args)
+        };
         let result_wrap = php_wrap_return(
             "result",
             &method.return_type,
@@ -1104,7 +1143,7 @@ pub(crate) fn gen_async_instance_method(
             true,
             method.returns_ref,
             method.returns_cow,
-            _mutex_types,
+            mutex_types,
         );
         if method.error_type.is_some() {
             crate::backends::php::template_env::render(
@@ -1120,6 +1159,51 @@ pub(crate) fn gen_async_instance_method(
                 "php_async_body_with_let_bindings.jinja",
                 context! {
                     let_bindings => inner_clone,
+                    core_call => &core_call,
+                    result_wrap => &result_wrap,
+                },
+            )
+        }
+    } else if is_opaque {
+        // Not auto-delegatable opaque async instance method — use let-binding conversion.
+        let named_let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, enum_names, core_import);
+        let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types, mutex_types);
+        let needs_lock = mutex_types.contains(type_name);
+        // For Arc<T> types: clone inner before the async block so we can move it in.
+        // For Arc<Mutex<T>> types: lock directly inside the async block.
+        let (let_bindings, core_call) = if needs_lock {
+            let core_call = format!("self.inner.lock().unwrap().{}({})", method.name, call_args);
+            (named_let_bindings, core_call)
+        } else {
+            let inner_prefix = "let inner = self.inner.clone();\n    ".to_string();
+            let let_bindings = format!("{inner_prefix}{named_let_bindings}");
+            let core_call = format!("inner.{}({})", method.name, call_args);
+            (let_bindings, core_call)
+        };
+        let result_wrap = php_wrap_return(
+            "result",
+            &method.return_type,
+            type_name,
+            opaque_types,
+            true,
+            method.returns_ref,
+            method.returns_cow,
+            mutex_types,
+        );
+        if method.error_type.is_some() {
+            crate::backends::php::template_env::render(
+                "php_async_result_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
+                    core_call => &core_call,
+                    result_wrap => &result_wrap,
+                },
+            )
+        } else {
+            crate::backends::php::template_env::render(
+                "php_async_body_with_let_bindings.jinja",
+                context! {
+                    let_bindings => &let_bindings,
                     core_call => &core_call,
                     result_wrap => &result_wrap,
                 },

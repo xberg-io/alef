@@ -18,6 +18,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     let core_path = core_type_path_remapped(typ, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
 
+    // Types with an explicit static `new()` method may have private fields not exposed in the
+    // binding IR.  The struct literal construction path would fail to compile because it cannot
+    // set the private fields.  Flag these types so the template emits `todo!()` instead,
+    // directing callers to use the proper constructor.
+    let has_explicit_static_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
+
     // Newtype structs: generate tuple constructor Self(val._0)
     if is_newtype(typ) {
         let field = &typ.fields[0];
@@ -34,6 +40,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 binding_name => binding_name,
                 has_lifetime_params => typ.has_lifetime_params,
                 is_newtype => true,
+                has_explicit_static_new => false,
                 newtype_inner_expr => newtype_inner_expr,
                 builder_mode => false,
                 uses_builder_pattern => false,
@@ -51,6 +58,24 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if let Some(constructor_call) = gen_from_lifetime_type_constructor(typ, &core_path, &binding_name, config) {
             return constructor_call;
         }
+        // No suitable constructor found; emit todo!() to avoid generating a broken struct literal
+        // (binding fields are String while core fields may be &str or other borrowed types).
+        return crate::codegen::template_env::render(
+            "conversions/binding_to_core_impl",
+            minijinja::context! {
+                core_path => &core_path,
+                binding_name => &binding_name,
+                has_lifetime_params => true,
+                is_newtype => false,
+                has_explicit_static_new => true,
+                newtype_inner_expr => String::new(),
+                builder_mode => false,
+                uses_builder_pattern => false,
+                has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+                statements => vec![] as Vec<String>,
+                fields => vec![] as Vec<String>,
+            },
+        );
     }
 
     // Determine if we're using the builder pattern
@@ -159,6 +184,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 binding_name => binding_name,
                 has_lifetime_params => typ.has_lifetime_params,
                 is_newtype => false,
+                has_explicit_static_new => false,
                 newtype_inner_expr => "",
                 builder_mode => true,
                 uses_builder_pattern => uses_builder_pattern,
@@ -358,6 +384,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             binding_name => binding_name,
             has_lifetime_params => typ.has_lifetime_params,
             is_newtype => false,
+            has_explicit_static_new => has_explicit_static_new,
             newtype_inner_expr => "",
             builder_mode => optionalized,
             uses_builder_pattern => uses_builder_pattern,
@@ -1092,12 +1119,28 @@ fn gen_from_lifetime_type_constructor(
         .collect();
 
     // Find a static method whose params include all binding field names.
-    let constructor = typ.methods.iter().find(|m| {
-        // Must be static (no receiver).
-        m.receiver.is_none()
+    // Prefer with_owned_* methods over with_borrowed_* because the From impl
+    // cannot provide the lifetime required by borrowed variants (temporaries can't be borrowed).
+    let constructor = typ
+        .methods
+        .iter()
+        .find(|m| {
+            // Must be static (no receiver).
+            m.receiver.is_none()
             // All binding fields must appear as a param.
             && field_names.iter().all(|fname| m.params.iter().any(|p| p.name == *fname))
-    })?;
+            // Prefer owned variants over borrowed for From impl context
+            && !m.name.contains("borrowed")
+        })
+        .or_else(|| {
+            // Fallback: accept borrowed variants if no owned variant exists
+            typ.methods.iter().find(|m| {
+                m.receiver.is_none()
+                    && field_names
+                        .iter()
+                        .all(|fname| m.params.iter().any(|p| p.name == *fname))
+            })
+        })?;
 
     // Build the argument list in param order.
     let mut args: Vec<String> = Vec::new();
@@ -1114,8 +1157,10 @@ fn gen_from_lifetime_type_constructor(
                     }
                 }
                 TypeRef::Map(_k, _v) => {
-                    // Map fields (HashMap→BTreeMap): pass by reference to constructor
-                    format!("&val.{binding_field}")
+                    // Map fields: convert HashMap to BTreeMap (owned, since From impl context can't provide lifetime)
+                    format!(
+                        "val.{binding_field}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>()"
+                    )
                 }
                 TypeRef::Named(_) => {
                     if field.optional {
@@ -1132,13 +1177,19 @@ fn gen_from_lifetime_type_constructor(
             };
             args.push(expr);
         } else {
-            // No binding field for this param — use Default::default().
-            // Special case: if param is a reference type, we need to provide a borrowed
-            // reference to a temporary default value. Use a reference to Default::default().
-            if param.is_ref {
-                args.push("&Default::default()".to_string());
-            } else {
-                args.push("Default::default()".to_string());
+            // No binding field for this param — use Default::default() or empty collection
+            match &param.ty {
+                TypeRef::Map(_, _) => {
+                    // For Map parameters with no binding field, create an empty BTreeMap
+                    args.push("std::collections::BTreeMap::new()".to_string());
+                }
+                _ => {
+                    if param.is_ref {
+                        args.push("&Default::default()".to_string());
+                    } else {
+                        args.push("Default::default()".to_string());
+                    }
+                }
             }
         }
     }

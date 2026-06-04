@@ -125,6 +125,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 true,
                 &typ.name,
                 opaque_types,
+                &mapper.enum_names,
                 core_import,
                 adapter_bodies,
                 mutex_types,
@@ -136,6 +137,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 true,
                 &typ.name,
                 opaque_types,
+                &mapper.enum_names,
                 core_import,
                 adapter_bodies,
                 mutex_types,
@@ -456,7 +458,12 @@ fn gen_struct_methods_impl(
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
 
-    if !typ.fields.is_empty() {
+    // When the type already has an explicit static `new()` method in its IR, do not emit a
+    // field-based `#[php(constructor)]` — the static method will be emitted as a named
+    // constructor and would conflict (duplicate `new` definitions) with the auto-generated one.
+    let has_explicit_static_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
+
+    if !has_explicit_static_new && !typ.fields.is_empty() {
         let has_named_params = typ
             .fields
             .iter()
@@ -567,27 +574,18 @@ fn gen_struct_methods_impl(
                     if let TypeRef::Vec(inner) = &f.ty {
                         if let TypeRef::Named(name) = inner.as_ref() {
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
-                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
+                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable.
+                                // Use the struct template (FromZval) for both optional and non-optional.
                                 let php_param_name = crate::codegen::naming::to_php_name(&f.name);
-                                if f.optional {
-                                    let_bindings.push_str(&crate::backends::php::template_env::render(
-                                        "php_let_binding_vec_named_optional.jinja",
-                                        minijinja::context! {
-                                            pname => php_param_name.as_str(),
-                                            core_import => core_import,
-                                            name => name.as_str(),
-                                        },
-                                    ));
-                                } else {
-                                    let_bindings.push_str(&crate::backends::php::template_env::render(
-                                        "php_let_binding_vec_named.jinja",
-                                        minijinja::context! {
-                                            pname => php_param_name.as_str(),
-                                            core_import => core_import,
-                                            name => name.as_str(),
-                                        },
-                                    ));
-                                }
+                                let_bindings.push_str(&crate::backends::php::template_env::render(
+                                    "php_vec_named_struct_let_binding.jinja",
+                                    minijinja::context! {
+                                        php_name => php_param_name.as_str(),
+                                        core_import => core_import,
+                                        struct_name => name.as_str(),
+                                        is_optional => f.optional,
+                                    },
+                                ));
                             }
                         }
                     }
@@ -693,26 +691,18 @@ fn gen_struct_methods_impl(
                     if let TypeRef::Vec(inner) = &f.ty {
                         if let TypeRef::Named(name) = inner.as_ref() {
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
-                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable
-                                if f.optional {
-                                    let_bindings.push_str(&crate::backends::php::template_env::render(
-                                        "php_let_binding_vec_named_optional.jinja",
-                                        minijinja::context! {
-                                            pname => f.name.as_str(),
-                                            core_import => core_import,
-                                            name => name.as_str(),
-                                        },
-                                    ));
-                                } else {
-                                    let_bindings.push_str(&crate::backends::php::template_env::render(
-                                        "php_let_binding_vec_named.jinja",
-                                        minijinja::context! {
-                                            pname => f.name.as_str(),
-                                            core_import => core_import,
-                                            name => name.as_str(),
-                                        },
-                                    ));
-                                }
+                                // Vec<NonOpaqueCustomType> parameter needs conversion from ZendHashTable.
+                                // Use the struct template (FromZval) for both optional and non-optional.
+                                let php_param_name = crate::codegen::naming::to_php_name(&f.name);
+                                let_bindings.push_str(&crate::backends::php::template_env::render(
+                                    "php_vec_named_struct_let_binding.jinja",
+                                    minijinja::context! {
+                                        php_name => php_param_name.as_str(),
+                                        core_import => core_import,
+                                        struct_name => name.as_str(),
+                                        is_optional => f.optional,
+                                    },
+                                ));
                             }
                         }
                     }
@@ -883,6 +873,7 @@ fn gen_struct_methods_impl(
                 false,
                 &typ.name,
                 opaque_types,
+                &mapper.enum_names,
                 core_import,
                 &empty_adapter_bodies,
                 &AHashSet::new(),
@@ -1272,6 +1263,13 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 out.push_str(" ..Default::default() },\n");
             }
         }
+    }
+    // When the IR has excluded variants (e.g. cfg-gated variants with #[alef(skip)] or
+    // #[doc(hidden)]), the Rust compiler sees those variants at compile time but the generated
+    // match arms don't cover them, making the match non-exhaustive. Emit a wildcard arm so the
+    // match is always exhaustive regardless of which feature flags are active.
+    if !enum_def.excluded_variants.is_empty() {
+        out.push_str("            _ => Default::default(),\n");
     }
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_match_end.jinja",

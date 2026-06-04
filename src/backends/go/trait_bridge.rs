@@ -284,7 +284,7 @@ fn gen_trait_bridge(
 
     // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
     // E.g., for crate="sample_core", trait="OcrBackend": SAMPLE_CRATESampleCrateOcrBackendVTable
-    // Hyphens in crate names (e.g. "sample-markdown") are not valid in C identifiers;
+    // Hyphens in crate names are not valid in C identifiers;
     // normalize the same way ffi_prefix does (`-` → `_`) before uppercasing.
     let crate_normalized = crate_name.replace('-', "_");
     let crate_upper = crate_normalized.to_uppercase();

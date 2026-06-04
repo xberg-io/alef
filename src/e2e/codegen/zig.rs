@@ -3595,11 +3595,11 @@ mod tests_trait_bridge {
 
         // Must not contain any hardcoded domain-specific names.
         for name in &[
-            "OcrBackend",
-            "DocumentExtractor",
+            "ImageBackend",
+            "RecordProvider",
             "processImage",
             "process_image_fn",
-            "sample_crate",
+            "sample_lib",
         ] {
             assert!(
                 !emission.setup_block.contains(name),
@@ -3619,7 +3619,7 @@ mod zig_hash_tests {
     /// verbatim — no network fetch, no cache lookup.
     #[test]
     fn explicit_hash_override_is_used_verbatim() {
-        let url = "https://github.com/sample_crate-dev/demo-client/releases/download/v1.4.0/demo-client-zig-v1.4.0-linux-x86_64.tar.gz";
+        let url = "https://example.invalid/example-org/demo-client/releases/download/v1.4.0/demo-client-zig-v1.4.0-linux-x86_64.tar.gz";
         let pinned = "1220abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
         let result = resolve_zig_hash(Some(pinned), url);
         assert_eq!(
@@ -3635,7 +3635,7 @@ mod zig_hash_tests {
         let hash = "12208badf00d";
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
-            "https://github.com/sample_crate-dev/demo-client/releases/download/v1.4.0-rc.32/demo-client-zig-v1.4.0-rc.32.tar.gz"
+            "https://example.invalid/example-org/demo-client/releases/download/v1.4.0-rc.32/demo-client-zig-v1.4.0-rc.32.tar.gz"
                 .to_string();
         platform_hashes.insert("generic".to_string(), (url, Some(hash.to_string())));
         let content = render_build_zig_zon(
@@ -3667,7 +3667,7 @@ mod zig_hash_tests {
         platform_hashes.insert(
             "linux-x86_64".to_string(),
             (
-                "https://github.com/sample_crate-dev/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-linux-x86_64.tar.gz"
+                "https://example.invalid/example-org/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-linux-x86_64.tar.gz"
                     .to_string(),
                 Some("1220linux".to_string()),
             ),
@@ -3675,7 +3675,7 @@ mod zig_hash_tests {
         platform_hashes.insert(
             "macos-arm64".to_string(),
             (
-                "https://github.com/sample_crate-dev/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-macos-arm64.tar.gz"
+                "https://example.invalid/example-org/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-macos-arm64.tar.gz"
                     .to_string(),
                 Some("1220macos".to_string()),
             ),
@@ -3706,7 +3706,7 @@ mod zig_hash_tests {
     fn build_zig_zon_omits_hash_when_no_hash() {
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
-            "https://github.com/sample_crate-dev/demo-client/releases/download/v1.4.0-rc.32/demo-client-zig-v1.4.0-rc.32.tar.gz"
+            "https://example.invalid/example-org/demo-client/releases/download/v1.4.0-rc.32/demo-client-zig-v1.4.0-rc.32.tar.gz"
                 .to_string();
         platform_hashes.insert("generic".to_string(), (url, None));
         let content = render_build_zig_zon(
@@ -3732,11 +3732,11 @@ mod zig_hash_tests {
     fn build_zig_zon_emits_full_release_url_with_repo_segment_and_platform_suffix() {
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
-            "https://github.com/sample_crate-dev/demo-markup/releases/download/v3.5.1/demo-markup-rs-zig-v3.5.1.tar.gz"
+            "https://example.invalid/example-org/demo-markup/releases/download/v3.5.1/demo-markup-rs-zig-v3.5.1.tar.gz"
                 .to_string();
         platform_hashes.insert("generic".to_string(), (url, None));
         let content = render_build_zig_zon(
-            "sample_markdown",
+            "demo_markup",
             "../../packages/zig",
             DependencyMode::Registry,
             "3.5.1",
@@ -3745,7 +3745,7 @@ mod zig_hash_tests {
         );
         // Verify the generic (no-suffix) URL is present with proper repo segment.
         let expected_url =
-            "https://github.com/sample_crate-dev/demo-markup/releases/download/v3.5.1/demo-markup-rs-zig-v3.5.1.tar.gz";
+            "https://example.invalid/example-org/demo-markup/releases/download/v3.5.1/demo-markup-rs-zig-v3.5.1.tar.gz";
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the generic source tarball URL with proper repo segment; got:\n{content}"

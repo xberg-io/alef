@@ -371,7 +371,7 @@ fn render_test_file(
             .resolved_args(call_config)
             .iter()
             .any(|a| a.arg_type == "string" && a.optional);
-        // json_object args emit option.None in ExtractionConfig and BatchItem constructors.
+        // json_object args emit option.None in configured option and item constructors.
         let has_json_object_arg = fixture
             .resolved_args(call_config)
             .iter()

@@ -10,6 +10,9 @@ impl From<{{ core_path }}> for {{ binding_name }} {
             {{ core_path }}::{{ variant.name }} { {{ variant.destructured | join(", ") }} } => Self { {{ tag_field }}_tag: "{{ variant.tag_value }}".to_string(), {{ variant.field_inits | join(", ") }} },
     {%- endif %}
 {%- endfor %}
+{%- if has_excluded_variants %}
+            _ => Default::default(),
+{%- endif %}
         }
     }
 }

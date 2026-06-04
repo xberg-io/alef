@@ -820,7 +820,7 @@ pub fn gen_bridge_function(
             })
             .collect();
 
-        // Build the call args, replacing the bridge param with the VisitorHandle.
+        // Build the call args, replacing the bridge param with the configured handle.
         let with_call_args: Vec<String> = func
             .params
             .iter()

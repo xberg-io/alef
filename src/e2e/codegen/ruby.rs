@@ -2583,7 +2583,7 @@ fn build_ruby_method_call(
     }
 }
 
-/// Convert a module path (e.g., "sample_markdown") to Ruby PascalCase module name
+/// Convert a module path (e.g., "demo_markup") to Ruby PascalCase module name
 /// (e.g., "DemoMarkup").
 fn ruby_module_name(module_path: &str) -> String {
     use heck::ToUpperCamelCase;

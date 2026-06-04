@@ -96,8 +96,8 @@ name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.sample_crate.samplellm.android"
-namespace = "dev.sample_crate.samplellm.android"
+package = "dev.sample_crate.democlient.android"
+namespace = "dev.sample_crate.democlient.android"
 artifact_id = "demo-client-android"
 group_id = "dev.sample_crate"
 
@@ -139,8 +139,8 @@ name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.sample_crate.samplellm.android"
-namespace = "dev.sample_crate.samplellm.android"
+package = "dev.sample_crate.democlient.android"
+namespace = "dev.sample_crate.democlient.android"
 artifact_id = "demo-client-android"
 group_id = "dev.sample_crate"
 
@@ -184,8 +184,8 @@ name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
-package = "dev.sample_crate.samplellm.android"
-namespace = "dev.sample_crate.samplellm.android"
+package = "dev.sample_crate.democlient.android"
+namespace = "dev.sample_crate.democlient.android"
 artifact_id = "demo-client-android"
 group_id = "dev.sample_crate"
 
@@ -320,17 +320,17 @@ fn render_kotlin_android_streaming(fixture: Fixture) -> String {
 /// Regression for Bug 2: when `[crates.e2e.calls.chat.overrides.java]` has
 /// `client_factory = "createClient"` the kotlin_android codegen must also pick
 /// that up and emit:
-///   val client = SampleLlm.createClient(...)
+///   val client = DemoClient.createClient(...)
 ///   val result = client.chat(...)
 ///   client.close()
-/// rather than a flat `SampleLlm.chat(...)` call.
+/// rather than a flat `DemoClient.chat(...)` call.
 #[test]
 fn kotlin_android_uses_java_client_factory() {
     let fixture = make_chat_fixture("chat_basic");
     let rendered = render_kotlin_android_chat(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
 
     assert!(
-        rendered.contains("val client = SampleLlm.createClient("),
+        rendered.contains("val client = DemoClient.createClient("),
         "must construct client via factory; got:\n{rendered}"
     );
     assert!(
@@ -342,7 +342,7 @@ fn kotlin_android_uses_java_client_factory() {
         "must close the client; got:\n{rendered}"
     );
     assert!(
-        !rendered.contains("SampleLlm.chat("),
+        !rendered.contains("DemoClient.chat("),
         "must NOT call chat as flat function; got:\n{rendered}"
     );
 }

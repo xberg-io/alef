@@ -1761,7 +1761,7 @@ fn build_args_and_setup(
     // Method calls on the configured client handle (e.g. `_client.chat(req)`) use
     // anonymous Swift argument labels (`func chat(_ req:)`), so omit `name:` prefixes.
     // Free-function calls (e.g. `process(source:, config:)`) keep labelled args.
-    // Registration functions (e.g. `registerOcrBackend(_:)`) also use positional args.
+    // Registration functions also use positional args.
     // Swift argument labels must be camelCase, so convert from snake_case.
     // Some APIs like detectMimeTypeFromBytes take unnamed first parameters —
     // omit labels for indices listed in unnamed_arg_indices.

@@ -209,7 +209,7 @@ args = [
 ]
 
 [crates.e2e.call.overrides.c]
-header = "sample_markdown.h"
+header = "demo_markup.h"
 function = "htm_convert"
 prefix = "htm"
 "#;

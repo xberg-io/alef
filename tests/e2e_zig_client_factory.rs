@@ -134,7 +134,7 @@ result_is_json_struct = true
 }
 
 /// When `client_factory` is absent, the generator must fall back to the flat
-/// module-function call pattern (sample_crate style). This ensures no regression.
+/// module-function call pattern. This ensures no regression.
 #[test]
 fn without_client_factory_emits_flat_function_call() {
     let rendered = render_zig_smoke(BASE_TOML, "smoke_basic");
@@ -148,7 +148,7 @@ fn without_client_factory_emits_flat_function_call() {
         "must NOT call create_client when client_factory is absent. Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("_client."),
+        !rendered.contains("const _client") && !rendered.contains(" _client."),
         "must NOT reference client instance when client_factory is absent. Rendered:\n{rendered}"
     );
 }

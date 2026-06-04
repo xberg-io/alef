@@ -1788,9 +1788,56 @@ fn make_api_napi() -> ApiSurface {
     ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
-        types: vec![],
+        types: vec![TypeDef {
+            name: "NodeContext".to_string(),
+            rust_path: "my_lib::NodeContext".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("depth", TypeRef::Primitive(PrimitiveType::U32), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
         functions: vec![],
-        enums: vec![],
+        enums: vec![EnumDef {
+            name: "VisitResult".to_string(),
+            rust_path: "my_lib::VisitResult".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Continue".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1798,6 +1845,26 @@ fn make_api_napi() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+}
+
+fn make_visitor_method_napi(name: &str) -> MethodDef {
+    let mut method = make_method_napi(name, TypeRef::Named("VisitResult".to_string()), false, true);
+    method.params = vec![ParamDef {
+        name: "context".to_string(),
+        ty: TypeRef::Named("NodeContext".to_string()),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+        vec_inner_is_ref: false,
+    }];
+    method
 }
 
 fn make_plugin_bridge_cfg(trait_name: &str) -> alef::core::config::TraitBridgeConfig {
@@ -1839,8 +1906,8 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef::core::co
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
-        context_type: None,
-        result_type: None,
+        context_type: Some("NodeContext".to_string()),
+        result_type: Some("VisitResult".to_string()),
     }
 }
 
@@ -1852,10 +1919,7 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef::core::co
 fn test_napi_visitor_bridge_produces_visitor_struct() {
     use alef::backends::napi::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_napi(
-        "HtmlVisitor",
-        vec![make_method_napi("visit_node", TypeRef::Unit, false, true)],
-    );
+    let trait_def = make_trait_def_napi("HtmlVisitor", vec![make_visitor_method_napi("visit_node")]);
     let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
     let api = make_api_napi();
 
@@ -1876,10 +1940,7 @@ fn test_napi_visitor_bridge_produces_visitor_struct() {
 fn test_napi_visitor_bridge_has_obj_field() {
     use alef::backends::napi::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_napi(
-        "HtmlVisitor",
-        vec![make_method_napi("visit_node", TypeRef::Unit, false, true)],
-    );
+    let trait_def = make_trait_def_napi("HtmlVisitor", vec![make_visitor_method_napi("visit_node")]);
     let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
     let api = make_api_napi();
 
@@ -3306,6 +3367,8 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
     config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Renderer".to_string(),
         type_alias: Some("RendererHandle".to_string()),
+        context_type: Some("RenderContext".to_string()),
+        result_type: Some("RenderResult".to_string()),
         ..Default::default()
     }];
     let api = ApiSurface {
@@ -3319,8 +3382,22 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                 fields: vec![],
                 methods: vec![MethodDef {
                     name: "render".to_string(),
-                    params: vec![],
-                    return_type: TypeRef::Unit,
+                    params: vec![ParamDef {
+                        name: "context".to_string(),
+                        ty: TypeRef::Named("RenderContext".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
+                        vec_inner_is_ref: false,
+                    }],
+                    return_type: TypeRef::Named("RenderResult".to_string()),
                     is_async: false,
                     is_static: false,
                     error_type: None,
@@ -3346,6 +3423,29 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                 is_return_type: false,
                 serde_rename_all: None,
                 has_serde: false,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            },
+            TypeDef {
+                name: "RenderContext".to_string(),
+                rust_path: "test_lib::callbacks::RenderContext".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("depth", TypeRef::Primitive(PrimitiveType::U32), false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
                 super_traits: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
@@ -3408,7 +3508,32 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
-        enums: vec![],
+        enums: vec![EnumDef {
+            name: "RenderResult".to_string(),
+            rust_path: "test_lib::callbacks::RenderResult".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Continue".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        }],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

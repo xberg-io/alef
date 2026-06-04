@@ -305,7 +305,7 @@ pub fn render_test_file(
         let _ = module_path; // retained in signature for potential future use
         if needs_options_import {
             if lang == "node" {
-                // ConversionOptions is a TypeScript interface — type-only import.
+                // Configured options types can be TypeScript interfaces — use type-only imports.
                 // No Update class exists; options are constructed as plain object literals.
                 for opts_type in &all_options_types {
                     let type_import = format!("type {opts_type}");
@@ -1090,7 +1090,7 @@ fn has_bytes_file_reads(input: &serde_json::Value, args: &[ArgMapping]) -> bool 
 
 /// Build a TypeScript expression to construct an options object.
 ///
-/// Node: ConversionOptions is a TypeScript interface — returns a plain object literal
+/// Node: configured options types can be TypeScript interfaces — return a plain object literal
 /// with a type assertion (`{ key: val } as TypeName`). No Update class or fromUpdate().
 ///
 /// WASM: alef-backend-wasm does not emit `*Update` builder classes, so we

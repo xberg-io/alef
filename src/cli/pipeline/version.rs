@@ -1739,8 +1739,8 @@ fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Opt
     }
 
     // Guard: the swift binding crate must exist. Some consumers put it under
-    // `crates/{name}-swift/` (alef default), others under `packages/swift/rust/`
-    // (e.g. liter-llm). Probe both before giving up.
+    // `crates/{name}-swift/` (alef default), others under `packages/swift/rust/`.
+    // Probe both before giving up.
     let swift_crate = format!("{}-swift", config.name);
     let candidate_manifests = [
         format!("crates/{swift_crate}/Cargo.toml"),

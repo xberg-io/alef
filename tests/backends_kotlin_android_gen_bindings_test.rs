@@ -2,9 +2,22 @@ use alef::backends::kotlin_android::KotlinAndroidBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef::core::ir::{ApiSurface, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
+use std::borrow::Cow;
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
-    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    let toml = if toml.contains("[crates.package_metadata]") {
+        Cow::Borrowed(toml)
+    } else {
+        Cow::Owned(format!(
+            r#"{toml}
+
+[crates.package_metadata]
+repository = "https://github.com/example/demo"
+license = "MIT"
+"#
+        ))
+    };
+    let cfg: NewAlefConfig = toml::from_str(&toml).unwrap();
     cfg.resolve().unwrap().remove(0)
 }
 

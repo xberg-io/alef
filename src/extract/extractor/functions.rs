@@ -9,6 +9,45 @@ use super::helpers::{
     build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, extract_doc_comments, unwrap_optional,
 };
 
+fn has_non_lifetime_generics(generics: &syn::Generics) -> bool {
+    generics
+        .params
+        .iter()
+        .any(|param| !matches!(param, syn::GenericParam::Lifetime(_)))
+}
+
+fn record_unsupported_generic_impl_methods(
+    item: &syn::ItemImpl,
+    crate_name: &str,
+    type_name: &str,
+    surface: &mut ApiSurface,
+    reason: &str,
+    methods_are_public_by_trait: bool,
+) {
+    for impl_item in &item.items {
+        let syn::ImplItem::Fn(method) = impl_item else {
+            continue;
+        };
+        if (!methods_are_public_by_trait && !super::helpers::is_pub(&method.vis))
+            || extract_binding_exclusion_reason(&method.attrs).is_some()
+        {
+            continue;
+        }
+        let method_name = method.sig.ident.to_string();
+        if method_name.starts_with('_') {
+            continue;
+        }
+        surface.unsupported_public_items.push(UnsupportedPublicItem {
+            item_kind: "method".to_string(),
+            item_path: format!("{crate_name}::{type_name}.{method_name}"),
+            reason: reason.to_string(),
+            suggested_fix:
+                "exclude the method, configure an opaque/bridge policy, or provide explicit monomorphization metadata"
+                    .to_string(),
+        });
+    }
+}
+
 /// The concrete type to substitute when monomorphizing a single `AsRef<T>` generic.
 ///
 /// Each variant encodes both the IR `TypeRef` for the substituted param and metadata
@@ -529,6 +568,18 @@ pub(crate) fn extract_impl_block(
         _ => return,
     };
 
+    if has_non_lifetime_generics(&item.generics) {
+        record_unsupported_generic_impl_methods(
+            item,
+            crate_name,
+            &type_name,
+            surface,
+            "public methods on generic impl blocks cannot be represented without explicit monomorphization metadata",
+            false,
+        );
+        return;
+    }
+
     // Opaque types expose no public fields, so no field-based constructor is generated for them —
     // a hand-written `new` returning `Self` is their only constructor and must be preserved. For
     // field-based (data-class) types the derived field constructor supersedes such a `new`, so it
@@ -690,6 +741,18 @@ pub(crate) fn extract_trait_impl_methods(
         return;
     };
 
+    if has_non_lifetime_generics(&item.generics) {
+        record_unsupported_generic_impl_methods(
+            item,
+            crate_name,
+            &type_name,
+            surface,
+            "public trait implementation methods on generic impl blocks cannot be represented without explicit monomorphization metadata",
+            true,
+        );
+        return;
+    }
+
     // Extract the trait path from `impl TraitPath for Type`
     // Standard library traits that should NOT be imported (always in scope or from std)
     const STD_TRAITS: &[&str] = &[
@@ -769,12 +832,25 @@ pub(crate) fn extract_trait_impl_methods(
         return;
     }
 
+    // Skip impl blocks for standard-library traits whose methods are intrinsically
+    // generic (Serialize::serialize<S>, Deserialize::deserialize<D>, Hash::hash<H>,
+    // PartialEq::eq via blanket, etc.). The generic parameter is on the trait method
+    // signature, not the implementor — consumers never call these directly across the
+    // FFI boundary; serde/std dispatch them. Flagging them as
+    // `unsupported_generic_item` produces noise; the canonical way to "bind" these
+    // implementations is to expose the type and let derive macros handle the codegen.
+    let is_std_trait_impl = item.trait_.as_ref().is_some_and(|(_, path, _)| {
+        path.segments
+            .last()
+            .is_some_and(|s| STD_TRAITS.contains(&s.ident.to_string().as_str()))
+    });
+
     // Extract methods from the trait impl (trait methods are implicitly pub)
     for impl_item in &item.items {
         if let syn::ImplItem::Fn(method) = impl_item {
             // Skip generic methods — they can't be directly exposed to FFI
             if !method.sig.generics.params.is_empty() {
-                if extract_binding_exclusion_reason(&method.attrs).is_none() {
+                if !is_std_trait_impl && extract_binding_exclusion_reason(&method.attrs).is_none() {
                     surface.unsupported_public_items.push(UnsupportedPublicItem {
                         item_kind: "method".to_string(),
                         item_path: format!("{crate_name}::{type_name}.{}", method.sig.ident),

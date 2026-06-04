@@ -676,7 +676,7 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
 /// ```rust,ignore
 /// let visitor = visitor.map(|v| {
 ///     let bridge = Py{TraitName}Bridge::new(v);
-///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as core_crate::callbacks::VisitorHandle
+///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as core_crate::callbacks::{ConfiguredHandle}
 /// });
 /// ```
 #[allow(clippy::too_many_arguments)]
@@ -998,26 +998,6 @@ pub fn gen_bridge_function(
             body => body,
         },
     )
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn visitor_bridge_uses_configured_context_and_result_metadata() {
-        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
-        let output = super::gen_trait_bridge(
-            &trait_type,
-            &bridge,
-            "sample_core",
-            "SampleError",
-            "SampleError::Message { message: {msg} }",
-            &api,
-        )
-        .expect("visitor bridge should generate");
-
-        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
-        assert!(output.code.contains("\"display_name\""));
-    }
 }
 
 /// Generate a PyO3 function wrapper for a bridge whose handle lives as a field
@@ -1342,4 +1322,24 @@ pub fn gen_bridge_field_function(
             body => body,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let output = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
+        assert!(output.code.contains("\"display_name\""));
+    }
 }

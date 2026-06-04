@@ -2130,7 +2130,8 @@ fn test_pub_trait_with_supertrait() {
 
 #[test]
 fn test_generic_trait_not_extracted() {
-    // Traits with generic parameters are skipped (same as generic type aliases).
+    // Traits with generic parameters are not extracted, but they must remain
+    // visible to validation as unsupported public API.
     let source = r#"
         pub trait Converter<T> {
             fn convert(&self, input: T) -> T;
@@ -2139,6 +2140,11 @@ fn test_generic_trait_not_extracted() {
 
     let surface = extract_from_source(source);
     assert_eq!(surface.types.len(), 0, "Generic trait should not be extracted");
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    let item = &surface.unsupported_public_items[0];
+    assert_eq!(item.item_kind, "trait");
+    assert!(item.item_path.ends_with("Converter"));
+    assert!(item.reason.contains("generic traits"));
 }
 
 #[test]
@@ -3525,6 +3531,109 @@ fn test_extract_cfg_gated_generic_async_fn_is_recorded_as_unsupported() {
 }
 
 #[test]
+fn test_generic_trait_method_is_recorded_as_unsupported() {
+    let source = r#"
+        pub trait Renderer {
+            fn render<T: AsRef<str>>(&self, input: T) -> String;
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let renderer = surface
+        .types
+        .iter()
+        .find(|typ| typ.name == "Renderer")
+        .expect("non-generic trait should be extracted");
+    assert!(
+        renderer.methods.is_empty(),
+        "generic trait method should not be extracted"
+    );
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    let item = &surface.unsupported_public_items[0];
+    assert_eq!(item.item_kind, "method");
+    assert!(item.item_path.ends_with("Renderer.render"));
+    assert!(item.reason.contains("generic trait methods"));
+}
+
+#[test]
+fn test_public_method_on_generic_inherent_impl_is_recorded_as_unsupported() {
+    let source = r#"
+        pub struct Parser {
+            pub name: String,
+        }
+
+        impl<T> Parser {
+            pub fn parse(&self, input: T) -> String {
+                unimplemented!()
+            }
+
+            fn private_helper(&self, input: T) -> String {
+                unimplemented!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let parser = surface
+        .types
+        .iter()
+        .find(|typ| typ.name == "Parser")
+        .expect("Parser should still be extracted");
+    assert!(
+        parser.methods.iter().all(|method| method.name != "parse"),
+        "method from generic impl block must not be extracted as concrete IR"
+    );
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    let item = &surface.unsupported_public_items[0];
+    assert_eq!(item.item_kind, "method");
+    assert!(item.item_path.ends_with("Parser.parse"));
+    assert!(
+        item.reason.contains("generic impl blocks"),
+        "unsupported reason should mention generic impl blocks: {:?}",
+        item.reason
+    );
+}
+
+#[test]
+fn test_trait_impl_method_on_generic_impl_is_recorded_as_unsupported() {
+    let source = r#"
+        pub trait Renderer {
+            fn render(&self) -> String;
+        }
+
+        pub struct JsonRenderer {
+            pub name: String,
+        }
+
+        impl<T> Renderer for JsonRenderer {
+            fn render(&self) -> String {
+                unimplemented!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let renderer = surface
+        .types
+        .iter()
+        .find(|typ| typ.name == "JsonRenderer")
+        .expect("JsonRenderer should be extracted");
+    assert!(
+        renderer.methods.iter().all(|method| method.name != "render"),
+        "trait method from generic impl block must not be extracted as concrete IR"
+    );
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    let item = &surface.unsupported_public_items[0];
+    assert_eq!(item.item_kind, "method");
+    assert!(item.item_path.ends_with("JsonRenderer.render"));
+    assert!(
+        item.reason.contains("generic impl blocks"),
+        "unsupported reason should mention generic impl blocks: {:?}",
+        item.reason
+    );
+}
+
+#[test]
 fn wrapper_struct_alongside_per_element_struct_is_extracted() {
     // Regression for sample_crawler's BatchScrapeResults: a wrapper struct
     // declared in the same module as the per-element struct and the
@@ -3654,7 +3763,7 @@ fn test_extract_excludes_dyn_trait_object_fields() {
 
 #[test]
 fn test_asref_str_slice_param_monomorphizes_to_vec_str() {
-    // The canonical ergonomic pattern used throughout tree-sitter-language-pack:
+    // The canonical ergonomic pattern used by string-list APIs:
     //   pub fn download<S: AsRef<str>>(names: &[S]) -> Result<usize, Error>
     // must extract as a function with a `&[&str]` parameter (Vec<String> in IR
     // with is_ref=true and vec_inner_is_ref=true), not as an unsupported generic.

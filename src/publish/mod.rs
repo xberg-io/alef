@@ -252,7 +252,7 @@ fn substitute_target(cmd: &str, target: Option<&RustTarget>) -> String {
 
 /// Extract the Rust crate name from an output path in the config.
 ///
-/// `"crates/sample-markdown-ffi/src/"` → `Some("sample-markdown-ffi")`
+/// `"crates/example-ffi/src/"` → `Some("example-ffi")`
 pub(crate) fn crate_name_from_output(config: &ResolvedCrateConfig, lang: Language) -> Option<String> {
     let output_path = match lang {
         Language::Python => config.explicit_output.python.as_deref(),

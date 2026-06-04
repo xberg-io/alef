@@ -350,7 +350,7 @@ impl Backend for CsharpBackend {
         } else {
             // When visitor_callbacks is disabled, delete stale files from prior runs
             // to prevent CS8632 warnings (nullable context not enabled).
-            delete_stale_visitor_files(&base_path)?;
+            delete_stale_visitor_files(&base_path, config)?;
         }
 
         // 3c. Generate trait bridge classes when configured.
@@ -652,8 +652,23 @@ fn delete_superseded_visitor_files(base_path: &std::path::Path) -> anyhow::Resul
 /// Delete stale visitor-related files when visitor_callbacks is disabled.
 /// When visitor_callbacks transitions from true → false, these files remain on disk
 /// and cause CS8632 warnings (nullable context not enabled in these files).
-fn delete_stale_visitor_files(base_path: &std::path::Path) -> anyhow::Result<()> {
-    let stale_files = vec!["IVisitor.cs", "VisitorCallbacks.cs", "NodeContext.cs", "VisitResult.cs"];
+fn delete_stale_visitor_files(
+    base_path: &std::path::Path,
+    config: &crate::core::config::ResolvedCrateConfig,
+) -> anyhow::Result<()> {
+    let mut stale_files = vec!["IVisitor.cs".to_string(), "VisitorCallbacks.cs".to_string()];
+    stale_files.extend(config.trait_bridges.iter().filter_map(|bridge| {
+        bridge
+            .context_type
+            .as_deref()
+            .map(|name| format!("{}.cs", crate::codegen::naming::csharp_type_name(name)))
+    }));
+    stale_files.extend(config.trait_bridges.iter().filter_map(|bridge| {
+        bridge
+            .result_type
+            .as_deref()
+            .map(|name| format!("{}.cs", crate::codegen::naming::csharp_type_name(name)))
+    }));
 
     for filename in stale_files {
         let path = base_path.join(filename);

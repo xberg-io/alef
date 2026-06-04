@@ -1,9 +1,9 @@
 let mut {{ pname }}_core_result: Vec<{{ core_import }}::{{ name }}> = Vec::new();
-for (_, item) in {{ pname }}.iter() {
-    if let Some(parsed) = <&{{ name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
-        {{ pname }}_core_result.push(parsed.clone().into());
-    } else {
-        return Err(ext_php_rs::exception::PhpException::default("Failed to convert array element to {{ name }}".to_string()));
-    }
+// `pname` here is `Vec<String>` from the PHP-facing signature (named enums are
+// surfaced as snake_case wire-strings via `<EnumName as From<String>>`). Iterating
+// a `Vec<String>` produces `&String`, so no hashtable-style `(key, value)`
+// destructure applies.
+for item in {{ pname }}.iter() {
+    {{ pname }}_core_result.push(<{{ core_import }}::{{ name }} as From<String>>::from(item.clone()));
 }
 let {{ pname }}_core: Vec<{{ core_import }}::{{ name }}> = {{ pname }}_core_result;

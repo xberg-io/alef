@@ -116,6 +116,15 @@ fn replace_constructor_with_serde_rename(
     use crate::codegen::shared::binding_fields;
     use crate::core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
 
+    // When the type already has an explicit static `new()` method in its IR, do not
+    // emit a second field-based `#[new]` constructor — the static method will be emitted
+    // as `#[staticmethod] pub fn new(...)` and PyO3 forbids two `new` registrations in
+    // the same impl block (E0592 duplicate definitions).
+    let has_explicit_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
+    if has_explicit_new {
+        return impl_block.to_string();
+    }
+
     /// Check if a field should be emitted as Option<T> to accept None for BLK-5 fix.
     /// This applies when:
     /// - The parent type has_default=true

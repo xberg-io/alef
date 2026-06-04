@@ -610,6 +610,14 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
             lines.push("            },".to_string());
         }
     }
+    // Wildcard arm to handle feature-gated variants excluded from alef IR
+    // (e.g. variants marked `#[doc(hidden)]` or `#[alef(skip)]`).
+    // Without this, adding a cfg-gated variant to the source enum causes a
+    // non-exhaustive compile error in generated `From` impls.
+    lines.push(format!(
+        "            _ => ::std::todo!(\"unmapped {} variant\"),",
+        enum_def.name
+    ));
     lines.push("        }".to_string());
     lines.push("    }".to_string());
     lines.push("}".to_string());

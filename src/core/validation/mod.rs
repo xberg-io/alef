@@ -947,6 +947,52 @@ mod tests {
     }
 
     #[test]
+    fn api_surface_validation_allows_excluded_types_only_for_configured_bridged_traits() {
+        let mut api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            types: vec![TypeDef {
+                name: "Renderer".to_string(),
+                rust_path: "sample_lib::Renderer".to_string(),
+                is_trait: true,
+                methods: vec![method_def(
+                    "render",
+                    vec![ParamDef {
+                        name: "payload".to_string(),
+                        ty: TypeRef::Named("HiddenPayload".to_string()),
+                        ..ParamDef::default()
+                    }],
+                    TypeRef::String,
+                )],
+                ..TypeDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+        api.excluded_type_paths.insert(
+            "HiddenPayload".to_string(),
+            "sample_lib::internal::HiddenPayload".to_string(),
+        );
+
+        let unbridged = validate_api_surface(&api);
+        assert!(
+            unbridged
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == ValidationCode::UnknownNamedType),
+            "unconfigured trait methods must not treat excluded types as known"
+        );
+
+        let bridged = AHashSet::from(["Renderer"]);
+        let bridged_report = validate_api_surface_with_bridged_traits(&api, &bridged);
+        assert!(
+            !bridged_report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == ValidationCode::UnknownNamedType),
+            "configured bridged traits may substitute excluded types"
+        );
+    }
+
+    #[test]
     fn api_surface_validation_errors_for_ambiguous_bare_json_value() {
         let api = ApiSurface {
             crate_name: "sample-lib".to_string(),

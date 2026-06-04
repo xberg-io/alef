@@ -1029,7 +1029,7 @@ fn render_test_method(
     // to inferring from method name patterns for trait bridge registration/management methods.
     // Methods like `register_*`, `unregister_*`, `clear_*` are typically void-returning wrappers
     // around trait bridge operations that return meaningful values internally but expose no
-    // result to the caller (e.g., SampleCrateLib.RegisterOcrBackend returns void).
+    // result to the caller.
     let returns_void = if call_config.returns_void {
         true
     } else {
@@ -3858,7 +3858,7 @@ fn emit_csharp_stub_method(
 /// - Required methods are emitted with return-type defaults produced by `CSharpDefaults`.
 /// - Async methods return `Task<T>` and are `async`; sync methods are plain.
 /// - Type names come from `csharp_type_for_stub()` — no crate-domain names
-///   are hardcoded here. Non-visible types (like HiddenRecord, SyncExtractor)
+///   are hardcoded here. Non-visible types
 ///   are NOT referenced in test stubs.
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
@@ -4001,7 +4001,7 @@ mod tests {
             "batch_scrape".to_string(),
             CallConfig {
                 function: "BatchScrape".to_string(),
-                module: "KreuzBrowser".to_string(),
+                module: "ExampleBrowser".to_string(),
                 select_when: Some(SelectWhen {
                     input_has: Some("batch_urls".to_string()),
                     ..Default::default()
@@ -4013,7 +4013,7 @@ mod tests {
         let e2e_config = E2eConfig {
             call: CallConfig {
                 function: "Scrape".to_string(),
-                module: "KreuzBrowser".to_string(),
+                module: "ExampleBrowser".to_string(),
                 ..CallConfig::default()
             },
             calls,
@@ -4172,12 +4172,12 @@ mod tests {
 
         // Must not contain any hardcoded domain-specific names.
         for name in &[
-            "OcrBackend",
+            "ImageBackend",
             "DocumentExtractor",
             "ProcessImage",
             "ExtractBytes",
             "sample_crate",
-            concat!("Kreuz", "bergLib"),
+            "ConsumerLib",
         ] {
             assert!(
                 !emission.setup_block.contains(name),
@@ -4221,7 +4221,7 @@ mod tests {
         };
 
         let bridge = TraitBridgeConfig {
-            trait_name: "OcrBackend".to_string(),
+            trait_name: "ImageBackend".to_string(),
             super_trait: Some("Plugin".to_string()),
             ..Default::default()
         };
@@ -4261,20 +4261,20 @@ mod tests {
 
         // Must implement the interface
         assert!(
-            emission.setup_block.contains("IOcrBackend"),
-            "setup_block should reference IOcrBackend, got:\n{}",
+            emission.setup_block.contains("IImageBackend"),
+            "setup_block should reference IImageBackend, got:\n{}",
             emission.setup_block
         );
     }
 
-    /// Test that void-returning methods like register_ocr_backend are emitted as statements,
+    /// Test that void-returning registration methods are emitted as statements,
     /// not as variable assignments. The returns_void flag should prevent:
-    ///   var result = SampleCrateLib.RegisterOcrBackend(...);  // ❌ WRONG - CS0815 Cannot assign void
+    ///   var result = GeneratedBinding.RegisterBackend(...);  // WRONG - CS0815 Cannot assign void
     /// And instead emit:
-    ///   SampleCrateLib.RegisterOcrBackend(...);  // ✓ CORRECT
+    ///   GeneratedBinding.RegisterBackend(...);  // CORRECT
     #[test]
     fn test_void_returning_register_calls_emit_as_statements() {
-        // Create a call config with returns_void = true (as set in sample_crate alef.toml)
+        // Create a call config with returns_void = true.
         let call_config = CallConfig {
             function: "register_ocr_backend".to_string(),
             returns_void: true,

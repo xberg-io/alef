@@ -1086,9 +1086,75 @@ mod trait_bridge {
         ApiSurface {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
-            types: vec![],
+            types: vec![TypeDef {
+                name: "NodeContext".to_string(),
+                rust_path: "my_lib::NodeContext".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![FieldDef {
+                    name: "depth".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+            }],
             functions: vec![],
-            enums: vec![],
+            enums: vec![EnumDef {
+                name: "VisitResult".to_string(),
+                rust_path: "my_lib::VisitResult".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![EnumVariant {
+                    name: "Continue".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                }],
+                doc: String::new(),
+                cfg: None,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                is_copy: false,
+                has_serde: true,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                excluded_variants: vec![],
+            }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1149,6 +1215,41 @@ mod trait_bridge {
         }
     }
 
+    fn make_visitor_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![ParamDef {
+                name: "context".to_string(),
+                ty: TypeRef::Named("NodeContext".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }],
+            return_type: TypeRef::Named("VisitResult".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
     fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         TraitBridgeConfig {
             trait_name: trait_name.to_string(),
@@ -1167,8 +1268,8 @@ mod trait_bridge {
             bind_via: alef::core::config::BridgeBinding::FunctionParam,
             options_type: None,
             options_field: None,
-            context_type: None,
-            result_type: None,
+            context_type: Some("NodeContext".to_string()),
+            result_type: Some("VisitResult".to_string()),
         }
     }
 
@@ -1176,10 +1277,7 @@ mod trait_bridge {
 
     #[test]
     fn test_visitor_bridge_generates_rb_bridge_struct() {
-        let trait_def = make_trait_def(
-            "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
-        );
+        let trait_def = make_trait_def("HtmlVisitor", vec![make_visitor_method("visit_node")]);
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(
             &trait_def,
@@ -1199,10 +1297,7 @@ mod trait_bridge {
 
     #[test]
     fn test_visitor_bridge_does_not_generate_registration_fn() {
-        let trait_def = make_trait_def(
-            "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
-        );
+        let trait_def = make_trait_def("HtmlVisitor", vec![make_visitor_method("visit_node")]);
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(
             &trait_def,
@@ -1222,10 +1317,7 @@ mod trait_bridge {
 
     #[test]
     fn test_visitor_bridge_generates_trait_impl() {
-        let trait_def = make_trait_def(
-            "HtmlVisitor",
-            vec![make_method("visit_node", TypeRef::Unit, false, true)],
-        );
+        let trait_def = make_trait_def("HtmlVisitor", vec![make_visitor_method("visit_node")]);
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
         let code = gen_trait_bridge(
             &trait_def,
@@ -2119,8 +2211,22 @@ fn test_visitor_bridge_debug_not_duplicated() {
 
     let make_method_with_default = |name: &str| MethodDef {
         name: name.to_string(),
-        params: vec![],
-        return_type: TypeRef::Unit,
+        params: vec![ParamDef {
+            name: "context".to_string(),
+            ty: TypeRef::Named("NodeContext".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+            vec_inner_is_ref: false,
+        }],
+        return_type: TypeRef::Named("VisitResult".to_string()),
         is_async: false,
         is_static: false,
         error_type: None,
@@ -2177,16 +2283,82 @@ fn test_visitor_bridge_debug_not_duplicated() {
         bind_via: BridgeBinding::OptionsField,
         options_type: Some("ConversionOptions".to_string()),
         options_field: None,
-        context_type: None,
-        result_type: None,
+        context_type: Some("NodeContext".to_string()),
+        result_type: Some("VisitResult".to_string()),
     };
 
     let api = ApiSurface {
         crate_name: "sample_markdown_rs".to_string(),
         version: "1.0.0".to_string(),
-        types: vec![],
+        types: vec![TypeDef {
+            name: "NodeContext".to_string(),
+            rust_path: "sample_markdown_rs::visitor::NodeContext".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![FieldDef {
+                name: "depth".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
         functions: vec![],
-        enums: vec![],
+        enums: vec![EnumDef {
+            name: "VisitResult".to_string(),
+            rust_path: "sample_markdown_rs::visitor::VisitResult".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Continue".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

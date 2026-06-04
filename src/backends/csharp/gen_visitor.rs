@@ -246,10 +246,15 @@ pub fn gen_visitor_files(
     if let Some(result_type) = bridge_cfg.result_type.as_deref() {
         if trait_returns_named_type(trait_def, result_type) {
             if let Some(enum_def) = api.enums.iter().find(|enum_def| enum_def.name == result_type) {
-                files.push((
-                    format!("{}.cs", crate::codegen::naming::csharp_type_name(result_type)),
-                    gen_visit_result(namespace, enum_def),
-                ));
+                match gen_visit_result(namespace, enum_def, &bridge_cfg.trait_name) {
+                    Ok(content) => files.push((
+                        format!("{}.cs", crate::codegen::naming::csharp_type_name(result_type)),
+                        content,
+                    )),
+                    Err(err) => eprintln!(
+                        "[alef] gen_visitor(csharp): skip result file — configured result_type `{result_type}` is invalid: {err}"
+                    ),
+                }
             } else {
                 eprintln!(
                     "[alef] gen_visitor(csharp): skip result file — configured result_type `{result_type}` is absent from IR"
@@ -363,11 +368,13 @@ fn gen_node_context(namespace: &str, context_def: &crate::core::ir::TypeDef) -> 
     )
 }
 
-fn gen_visit_result(namespace: &str, enum_def: &crate::core::ir::EnumDef) -> String {
+fn gen_visit_result(namespace: &str, enum_def: &crate::core::ir::EnumDef, trait_name: &str) -> anyhow::Result<String> {
     use crate::backends::csharp::template_env::render;
     use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_variant_value};
     use minijinja::Value;
 
+    let result_metadata =
+        crate::codegen::visitor_result::visitor_result_metadata_from_enum_checked(enum_def, trait_name)?;
     let result_type = csharp_type_name(&enum_def.name);
     let unit_variants = enum_def
         .variants
@@ -406,17 +413,9 @@ fn gen_visit_result(namespace: &str, enum_def: &crate::core::ir::EnumDef) -> Str
             })
         })
         .collect::<Vec<_>>();
-    let default_wire_name = default_unit_variant(enum_def)
-        .map(|variant| {
-            wire_variant_value(
-                &variant.name,
-                variant.serde_rename.as_deref(),
-                enum_def.serde_rename_all.as_deref(),
-            )
-        })
-        .unwrap_or_default();
+    let default_wire_name = result_metadata.default_variant.wire_name;
 
-    render(
+    Ok(render(
         "visit_result.jinja",
         Value::from_serialize(serde_json::json!({
             "header": hash::header(CommentStyle::DoubleSlash),
@@ -426,39 +425,7 @@ fn gen_visit_result(namespace: &str, enum_def: &crate::core::ir::EnumDef) -> Str
             "payload_variants": payload_variants,
             "default_wire_name": default_wire_name,
         })),
-    )
-}
-
-fn default_unit_variant(enum_def: &crate::core::ir::EnumDef) -> Option<&crate::core::ir::EnumVariant> {
-    let unit_variants = enum_def
-        .variants
-        .iter()
-        .filter(|variant| variant.fields.is_empty() && !variant.originally_had_data_fields)
-        .collect::<Vec<_>>();
-    let default_variants = unit_variants
-        .iter()
-        .copied()
-        .filter(|variant| variant.is_default)
-        .collect::<Vec<_>>();
-
-    match default_variants.as_slice() {
-        [variant] => Some(*variant),
-        [] if unit_variants.len() == 1 => Some(unit_variants[0]),
-        [] => {
-            eprintln!(
-                "[alef] gen_visitor(csharp): result_type `{}` has no default unit variant; fallback JSON is empty",
-                enum_def.name
-            );
-            None
-        }
-        _ => {
-            eprintln!(
-                "[alef] gen_visitor(csharp): result_type `{}` has multiple default unit variants; fallback JSON is empty",
-                enum_def.name
-            );
-            None
-        }
-    }
+    ))
 }
 
 fn trait_requires_named_param(trait_def: &crate::core::ir::TypeDef, type_name: &str) -> bool {
@@ -492,7 +459,7 @@ fn named_type_name(ty: &crate::core::ir::TypeRef) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::gen_visitor_files;
+    use super::{callback_specs_from_trait, gen_visitor_files};
     use crate::core::config::TraitBridgeConfig;
     use crate::core::ir::{
         ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
@@ -534,6 +501,37 @@ mod tests {
         let files = gen_visitor_files("Sample", &api, &bridge_cfg, trait_def);
 
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn callback_specs_skip_only_configured_context_named_type() {
+        let trait_def = trait_def(
+            "MarkupVisitor",
+            vec![
+                method(
+                    "visit_node",
+                    vec![
+                        param("context", TypeRef::Named("RenderContext".to_string())),
+                        param("label", TypeRef::String),
+                    ],
+                    TypeRef::Named("FlowDecision".to_string()),
+                ),
+                method(
+                    "visit_with_payload",
+                    vec![
+                        param("context", TypeRef::Named("RenderContext".to_string())),
+                        param("payload", TypeRef::Named("Payload".to_string())),
+                    ],
+                    TypeRef::Named("FlowDecision".to_string()),
+                ),
+            ],
+        );
+
+        let callbacks = callback_specs_from_trait(&trait_def, "RenderContext");
+
+        assert_eq!(callbacks.len(), 1);
+        assert_eq!(callbacks[0].c_field, "visit_node");
+        assert_eq!(callbacks[0].extra[0].cs_name, "label");
     }
 
     fn api() -> ApiSurface {

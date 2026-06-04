@@ -32,9 +32,11 @@ pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
         "chunks"
         | "chunks_content"
         | "chunks_have_content"
+        | "chunks_have_heading_context"
         | "chunks_heading_context"
         | "chunks_have_embeddings"
-        | "first_chunk_heading" => Some(CHUNKS_RECIPE),
+        | "first_chunk_heading"
+        | "first_chunk_starts_with_heading" => Some(CHUNKS_RECIPE),
         "embeddings"
         | "embedding_dimensions"
         | "embeddings_valid"
@@ -42,16 +44,31 @@ pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
         | "embeddings_non_zero"
         | "embeddings_normalized" => Some(EMBEDDINGS_RECIPE),
         "keywords" | "keywords_count" => Some(KEYWORDS_RECIPE),
-        "root_child_count" | "has_error_nodes" | "error_count" | "tree_error_count" | "tree_to_sexp" => {
-            Some(TREE_RECIPE)
-        }
+        "root_child_count"
+        | "root_child_count_min"
+        | "root_node_type"
+        | "named_children_count"
+        | "has_error_nodes"
+        | "error_count"
+        | "tree_error_count"
+        | "tree_not_null"
+        | "tree_to_sexp" => Some(TREE_RECIPE),
         _ => None,
     }
 }
 
 pub(crate) fn required_method_recipe(method: &str) -> Option<&'static str> {
     match method {
-        "root_child_count" | "run_query" => Some(TREE_RECIPE),
+        "root_child_count"
+        | "root_node_type"
+        | "named_children_count"
+        | "has_error_nodes"
+        | "contains_node_type"
+        | "find_nodes_by_type"
+        | "error_count"
+        | "tree_error_count"
+        | "tree_to_sexp"
+        | "run_query" => Some(TREE_RECIPE),
         _ => None,
     }
 }
@@ -124,6 +141,54 @@ mod tests {
         };
 
         assert_eq!(required_recipe(&assertion), Some(EMBEDDINGS_RECIPE));
+    }
+
+    #[test]
+    fn chunk_synthetic_fields_require_chunks_recipe() {
+        for field in [
+            "chunks_have_content",
+            "chunks_have_embeddings",
+            "chunks_have_heading_context",
+            "first_chunk_starts_with_heading",
+        ] {
+            let assertion = Assertion {
+                assertion_type: "is_true".to_string(),
+                field: Some(field.to_string()),
+                ..Default::default()
+            };
+
+            assert_eq!(required_recipe(&assertion), Some(CHUNKS_RECIPE), "field: {field}");
+        }
+    }
+
+    #[test]
+    fn tree_fields_and_methods_require_tree_recipe() {
+        for field in [
+            "root_child_count",
+            "root_child_count_min",
+            "root_node_type",
+            "named_children_count",
+            "tree_not_null",
+            "tree_to_sexp",
+        ] {
+            let assertion = Assertion {
+                assertion_type: "not_empty".to_string(),
+                field: Some(field.to_string()),
+                ..Default::default()
+            };
+
+            assert_eq!(required_recipe(&assertion), Some(TREE_RECIPE), "field: {field}");
+        }
+
+        for method in ["run_query", "contains_node_type", "find_nodes_by_type"] {
+            let assertion = Assertion {
+                assertion_type: "method_result".to_string(),
+                method: Some(method.to_string()),
+                ..Default::default()
+            };
+
+            assert_eq!(required_recipe(&assertion), Some(TREE_RECIPE), "method: {method}");
+        }
     }
 
     #[test]

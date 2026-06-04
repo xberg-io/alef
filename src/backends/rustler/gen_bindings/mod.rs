@@ -1347,39 +1347,47 @@ impl Backend for RustlerBackend {
         });
 
         if has_visitor_bridges {
-            let visitor_result_metadata = config
-                .trait_bridges
-                .iter()
-                .find_map(|bridge_cfg| crate::codegen::visitor_result::visitor_result_metadata(api, bridge_cfg))
-                .unwrap_or_else(|| {
-                    crate::codegen::visitor_result::visitor_result_metadata_or_legacy(
-                        None,
-                        &crate::core::config::TraitBridgeConfig::default(),
-                    )
-                });
-            let unit_result_variants = visitor_result_metadata
-                .unit_variants
-                .iter()
-                .map(|variant| {
-                    let atom_name = variant
-                        .wire_name
-                        .chars()
-                        .all(|c| c == '_' || c.is_ascii_alphanumeric())
-                        .then(|| variant.wire_name.clone());
-                    minijinja::context! {
-                        wire_name => variant.wire_name.clone(),
-                        atom_name => atom_name,
+            let visitor_result_metadata = config.trait_bridges.iter().find_map(|bridge_cfg| {
+                match crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg) {
+                    Ok(metadata) => Some(metadata),
+                    Err(err) => {
+                        eprintln!(
+                            "[alef] gen_bindings(rustler): skip visitor helper metadata for trait bridge `{}`: {err}",
+                            bridge_cfg.trait_name
+                        );
+                        None
                     }
-                })
-                .collect::<Vec<_>>();
-            content.push_str(&template_env::render(
-                "elixir_visitor_helper_functions.jinja",
-                minijinja::context! {
-                    native_mod => &native_mod,
-                    default_result_wire_name => visitor_result_metadata.default_variant.wire_name,
-                    unit_result_variants => unit_result_variants,
-                },
-            ));
+                }
+            });
+            if let Some(visitor_result_metadata) = visitor_result_metadata {
+                let unit_result_variants = visitor_result_metadata
+                    .unit_variants
+                    .iter()
+                    .map(|variant| {
+                        let atom_name = variant
+                            .wire_name
+                            .chars()
+                            .all(|c| c == '_' || c.is_ascii_alphanumeric())
+                            .then(|| variant.wire_name.clone());
+                        minijinja::context! {
+                            wire_name => variant.wire_name.clone(),
+                            atom_name => atom_name,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                content.push_str(&template_env::render(
+                    "elixir_visitor_helper_functions.jinja",
+                    minijinja::context! {
+                        native_mod => &native_mod,
+                        default_result_wire_name => visitor_result_metadata.default_variant.wire_name,
+                        unit_result_variants => unit_result_variants,
+                    },
+                ));
+            } else {
+                eprintln!(
+                    "[alef] gen_bindings(rustler): skip visitor helper functions because no configured result enum metadata is available"
+                );
+            }
         }
 
         // Streaming-adapter method keys — these methods are emitted as start/next

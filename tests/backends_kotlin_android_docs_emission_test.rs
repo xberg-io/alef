@@ -29,6 +29,10 @@ sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
 package = "dev.example"
+
+[crates.package_metadata]
+repository = "https://github.com/example/demo"
+license = "MIT"
 "#;
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
     cfg.resolve().unwrap().remove(0)

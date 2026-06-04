@@ -345,7 +345,7 @@ pub fn gen_trait_bridge(
 /// Generate a visitor-style bridge wrapping a PHP `Zval` object reference.
 ///
 /// Every trait method checks if the PHP object has a matching camelCase method,
-/// then calls it and maps the PHP return value to `VisitResult`.
+/// then calls it and maps the PHP return value to the configured result enum.
 fn gen_visitor_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
@@ -392,7 +392,7 @@ fn gen_visitor_bridge(
     };
     let default_variant = result_metadata.default_variant.name.as_str();
 
-    // Helper: convert NodeContext to a PHP array (Zval)
+    // Helper: convert the configured context type to a PHP array (Zval).
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_nodecontext_helper.jinja",
         context! {
@@ -401,7 +401,7 @@ fn gen_visitor_bridge(
     ));
     out.push('\n');
 
-    // Helper: map a PHP return Zval to VisitResult.
+    // Helper: map a PHP return Zval to the configured result enum.
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_zval_to_visitresult.jinja",
         context! {
@@ -577,7 +577,7 @@ fn gen_visitor_method_php(
 
     // Call the PHP method via try_call_method which takes Vec<&dyn IntoZvalDyn>.
     // If the method does not exist, try_call_method returns Err(Error::Callable),
-    // which we treat as a "no-op, return Continue" (same as the default impl).
+    // which we treat as a no-op that returns the configured default result variant.
     if has_args {
         out.push_str("        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();\n");
     }

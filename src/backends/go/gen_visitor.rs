@@ -500,7 +500,7 @@ pub fn gen_visitor_file(
     // Shared helpers
     // -------------------------------------------------------------------------
 
-    // decodeNodeContext: decode from JSON string (VTable ABI passes ctx as *const c_char JSON)
+    // Decode the configured context type from JSON passed by the C vtable ABI.
     out.push_str(&crate::backends::go::template_env::render(
         "decode_node_context.jinja",
         minijinja::context! {
@@ -509,16 +509,8 @@ pub fn gen_visitor_file(
     ));
     out.push('\n');
 
-    // encodeVisitResult: write serde-native JSON into *out_result so the Rust trait bridge
-    // can deserialize it into the configured result type.
-    //
-    // Rust serde-derived enum serialisation:
-    //   Continue     → "Continue"
-    //   Skip         → "Skip"
-    //   PreserveHtml → "PreserveHtml"
-    //   Custom(s)    → {"Custom":"<s>"}
-    //   Error(s)     → {"Error":"<s>"}
-    //
+    // Encode the configured result enum into serde-native JSON so the Rust trait bridge
+    // can deserialize it without relying on backend-local variant names.
     // The return code still carries the numeric variant tag so callers that only
     // inspect the code (and don't read out_result) remain compatible.
     out.push_str(&crate::backends::go::template_env::render(

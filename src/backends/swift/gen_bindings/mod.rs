@@ -3348,7 +3348,7 @@ fn emit_swift_bridge_files(
 /// 2. A private adapter class `_{Trait}ProtocolAdapter` that wraps the user protocol and
 ///    translates RustString params → String, then serializes configured result enums to JSON.
 ///    This implements the internal `Swift{Trait}BoxDelegate` protocol defined in RustBridge.
-/// 3. A `public func make{TraitCamel}Handle(...)` factory that creates the opaque handle.
+/// 3. A `public func make{TraitCamel}{AliasCamel}(...)` factory that creates the opaque handle.
 ///
 /// NOTE: `Swift{Trait}Box` (with RustString-typed methods) is emitted into `Sources/RustBridge/`
 /// by `emit_inbound_box_files` because the swift-bridge @_cdecl shims reference it there.
@@ -3394,7 +3394,11 @@ fn emit_inbound_protocols(
         // The leading `_` signals "internal binding surface" without breaking
         // cross-module visibility that Swift requires for protocol conformance.
         let delegate_protocol_name = format!("_Swift{trait_name}BoxDelegate");
-        let factory_fn = format!("make{}Handle", trait_name.to_upper_camel_case());
+        let factory_fn = format!(
+            "make{}{}",
+            trait_name.to_upper_camel_case(),
+            type_alias.to_upper_camel_case()
+        );
 
         // --- 1. Protocol definition (user-facing, String params, configured return) ---
         out.push_str(&format!(
@@ -3546,7 +3550,7 @@ fn emit_inbound_protocols(
             "/// Wrap a `{protocol_name}` conformer in an opaque `{type_alias}` handle\n\
              /// that can be passed to `{options_fn}(...)` on the Rust side.\n\
              public func {factory_fn}(_ visitor: any {protocol_name}) -> {type_alias} {{\n\
-             \x20   return RustBridge.make{trait_name}Handle({box_name}({adapter_name}(visitor)))\n\
+             \x20   return RustBridge.{factory_fn}({box_name}({adapter_name}(visitor)))\n\
              }}\n\n",
         ));
 

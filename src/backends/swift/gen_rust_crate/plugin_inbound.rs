@@ -903,7 +903,8 @@ pub(crate) fn emit_options_field_factory(
         _ => format!("{source_crate}::{type_alias}"),
     };
 
-    let fn_name = format!("make_{trait_snake}_handle");
+    let type_alias_snake = heck::AsSnakeCase(type_alias).to_string();
+    let fn_name = format!("make_{trait_snake}_{type_alias_snake}");
     let swift_name = heck::AsLowerCamelCase(fn_name.as_str()).to_string();
 
     // extern "Rust" declaration (goes inside the ffi module).
@@ -933,7 +934,7 @@ pub(crate) fn emit_options_field_factory(
 
 /// Emit bidirectional `From` impls required by the `OptionsField` factory and options-helper.
 ///
-/// The factory (`make_{trait_snake}_handle`) calls `{type_alias}::from(__inner)` where
+/// The factory (`make_{trait_snake}_{type_alias_snake}`) calls `{type_alias}::from(__inner)` where
 /// `__inner: {inner_path}` — requires `impl From<inner_path> for type_alias`.
 ///
 /// The options-helper (`{options_snake}_from_json_with_{field}`) calls:

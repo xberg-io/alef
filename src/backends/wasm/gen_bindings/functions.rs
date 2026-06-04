@@ -417,6 +417,7 @@ pub(super) fn gen_function_with_emitted_dtos(
                                     core_path => &core_path,
                                     err_conv => &err_conv,
                                     has_default => has_default,
+                                    is_mut => p.is_mut,
                                 },
                             ));
                             serde_bindings.push_str("    ");
@@ -707,6 +708,7 @@ pub(super) fn gen_function_with_emitted_dtos(
                                     core_path => &core_path,
                                     err_conv => &err_conv,
                                     has_default => has_default,
+                                    is_mut => p.is_mut,
                                 },
                             ));
                             serde_bindings.push_str("    ");

@@ -1245,7 +1245,7 @@ fn render_test_method(
 
     // Resolve options_type for this call. Precedence: per-language call override,
     // then the call-level `options_type` (the binding-agnostic config parameter type,
-    // e.g. `EmbeddingConfig`), then the global per-language call override (fallback default).
+    // a call-specific options type), then the global per-language call override (fallback default).
     let call_options_type = recipe.options_type.or_else(|| {
         e2e_config
             .call

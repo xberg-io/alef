@@ -73,8 +73,24 @@ fn typed_default_fn(default: &DefaultValue, ty: &TypeRef) -> Option<(&'static st
             };
             Some((return_type, value.to_string()))
         }
-        (DefaultValue::FloatLiteral(value), TypeRef::Primitive(PrimitiveType::F32)) => Some(("f32", value.to_string())),
-        (DefaultValue::FloatLiteral(value), TypeRef::Primitive(PrimitiveType::F64)) => Some(("f64", value.to_string())),
+        (DefaultValue::FloatLiteral(value), TypeRef::Primitive(PrimitiveType::F32)) => {
+            let s = format!("{value}");
+            let body = if s.contains('.') || s.contains('e') {
+                s
+            } else {
+                format!("{s}.0")
+            };
+            Some(("f32", body))
+        }
+        (DefaultValue::FloatLiteral(value), TypeRef::Primitive(PrimitiveType::F64)) => {
+            let s = format!("{value}");
+            let body = if s.contains('.') || s.contains('e') {
+                s
+            } else {
+                format!("{s}.0")
+            };
+            Some(("f64", body))
+        }
         _ => None,
     }
 }
@@ -514,6 +530,7 @@ impl Backend for PhpBackend {
                         PhpParamTypeSets {
                             opaque: &opaque_types,
                             default: &default_types,
+                            enums: &enum_names,
                         },
                         &core_import,
                         &config.trait_bridges,
@@ -526,6 +543,7 @@ impl Backend for PhpBackend {
                         PhpParamTypeSets {
                             opaque: &opaque_types,
                             default: &default_types,
+                            enums: &enum_names,
                         },
                         &core_import,
                         &config.trait_bridges,

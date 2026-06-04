@@ -1179,8 +1179,8 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
 
-    // Select the function name: Go bindings now integrate visitor support into
-    // the main Convert() function via ConversionOptions.Visitor field.
+    // Select the function name: Go bindings integrate visitor support into
+    // the configured options type's visitor field.
     // (In other languages, there may be separate visitor_function overrides, but Go uses a single function.)
     let base_function_name = overrides
         .and_then(|o| o.function.as_deref())
@@ -3608,7 +3608,7 @@ fn build_go_method_call(
 /// Convert a `serde_json::Value` to a Go literal string.
 /// Recursively convert a JSON value for Go struct unmarshalling.
 ///
-/// The Go binding's `ConversionOptions` struct uses:
+/// The Go binding's configured options struct uses:
 /// - `snake_case` JSON field tags (e.g. `"code_block_style"` not `"codeBlockStyle"`)
 /// - lowercase/snake_case string values for enums (e.g. `"indented"`, `"atx_closed"`)
 ///
@@ -4180,7 +4180,7 @@ fn go_stub_default_with_context(
 /// exclude the entire method from the binding interface.
 ///
 /// For return types with error handling (has_error_type=true):
-/// - Excludes if Optional<ExcludedType> (e.g., Option<SyncExtractor>)
+/// - Excludes if Optional<ExcludedType>
 /// - Does NOT exclude directly excluded types (Result<ExcludedType> is handled by binding)
 ///
 /// For return types without error handling (has_error_type=false) or parameter types:
@@ -4193,7 +4193,7 @@ fn should_skip_method_with_type(
 ) -> bool {
     use crate::core::ir::TypeRef;
     match ty {
-        // Optional<ExcludedType> is always skipped (e.g., Option<SyncExtractor>)
+        // Optional<ExcludedType> is always skipped.
         TypeRef::Optional(inner) => {
             matches!(inner.as_ref(), TypeRef::Named(name) if excluded_types.contains(name.as_str()))
         }
@@ -4417,7 +4417,7 @@ mod trait_bridge_tests {
 
         // setup_block must not reference any sample_core-domain trait or method names.
         assert!(
-            !emission.setup_block.contains("OcrBackend"),
+            !emission.setup_block.contains("ImageBackend"),
             "setup_block must not hardcode domain trait names, got:\n{}",
             emission.setup_block
         );
@@ -4600,7 +4600,7 @@ mod trait_bridge_tests {
         let normal_method = make_method("get_config", vec![], TypeRef::Named("ParseConfig".to_string()), false);
 
         let trait_bridge = TraitBridgeConfig {
-            trait_name: "DocumentExtractor".to_string(),
+            trait_name: "RecordProvider".to_string(),
             super_trait: None,
             register_fn: Some("register_document_extractor".to_string()),
             ..TraitBridgeConfig::default()
@@ -4646,20 +4646,20 @@ mod trait_bridge_tests {
     }
 
     /// Verify that methods returning Optional<ExcludedType> are skipped
-    /// (e.g., as_sync_extractor() -> Option<&dyn SyncExtractor>).
+    /// (for example, an accessor returning an optional excluded trait object).
     #[test]
     fn test_go_stub_skips_optional_excluded_return_types() {
-        // Method returning Option<SyncExtractor> → should be SKIPPED
-        // (SyncExtractor is not exported in the binding)
+        // Method returning Option<InternalProvider> -> should be skipped
+        // (InternalProvider is not exported in the binding).
         let optional_excluded_method = make_method(
-            "as_sync_extractor",
+            "as_internal_provider",
             vec![],
-            TypeRef::Optional(Box::new(TypeRef::Named("SyncExtractor".to_string()))),
+            TypeRef::Optional(Box::new(TypeRef::Named("InternalProvider".to_string()))),
             false,
         );
 
         let trait_bridge = TraitBridgeConfig {
-            trait_name: "DocumentExtractor".to_string(),
+            trait_name: "RecordProvider".to_string(),
             super_trait: None,
             register_fn: Some("register_document_extractor".to_string()),
             ..TraitBridgeConfig::default()
@@ -4669,7 +4669,7 @@ mod trait_bridge_tests {
         let methods = vec![&optional_excluded_method];
 
         let mut excluded = std::collections::HashSet::new();
-        excluded.insert("SyncExtractor");
+        excluded.insert("InternalProvider");
 
         let enum_names = std::collections::HashSet::new();
         let emission =
@@ -4677,15 +4677,16 @@ mod trait_bridge_tests {
 
         // Method returning Optional<ExcludedType> must NOT appear in stub.
         assert!(
-            !emission.setup_block.contains("as_sync_extractor") && !emission.setup_block.contains("AsSyncExtractor"),
+            !emission.setup_block.contains("as_internal_provider")
+                && !emission.setup_block.contains("AsInternalProvider"),
             "method with Option<ExcludedType> return must be skipped, got:\n{}",
             emission.setup_block
         );
 
-        // SyncExtractor must not appear anywhere in the stub.
+        // InternalProvider must not appear anywhere in the stub.
         assert!(
-            !emission.setup_block.contains("SyncExtractor"),
-            "excluded type SyncExtractor must not appear in stub, got:\n{}",
+            !emission.setup_block.contains("InternalProvider"),
+            "excluded type InternalProvider must not appear in stub, got:\n{}",
             emission.setup_block
         );
     }

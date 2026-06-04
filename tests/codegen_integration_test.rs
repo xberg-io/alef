@@ -6237,7 +6237,10 @@ fn test_gen_async_body_none_pattern() {
 
     let result = binding_helpers::gen_async_body("process()", &cfg, false, "result", false, "", false, None);
 
-    assert!(result.contains("todo!"), "AsyncPattern::None should emit todo!()");
+    assert!(
+        result.contains("compile_error!"),
+        "AsyncPattern::None should emit compile-time diagnostic"
+    );
 }
 
 #[test]
@@ -6328,7 +6331,7 @@ fn test_gen_unimplemented_body_duration_return() {
 }
 
 #[test]
-fn test_gen_unimplemented_body_opaque_named_return_uses_todo() {
+fn test_gen_unimplemented_body_opaque_named_return_uses_compile_error() {
     let cfg = default_cfg();
     let params = vec![];
     let mut opaque_types = AHashSet::new();
@@ -6344,10 +6347,13 @@ fn test_gen_unimplemented_body_opaque_named_return_uses_todo() {
     );
 
     assert!(
-        result.contains("todo!"),
-        "opaque Named return should use todo! (no Default impl)"
+        result.contains("compile_error!"),
+        "opaque Named return should use compile-time diagnostic"
     );
-    assert!(result.contains("Not implemented"), "should contain error message");
+    assert!(
+        result.contains("non-delegatable function `get_opaque` returns opaque type `MyOpaque`"),
+        "should contain actionable diagnostic"
+    );
 }
 
 #[test]

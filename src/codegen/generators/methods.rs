@@ -751,6 +751,68 @@ pub fn gen_static_method(
         (gen_call_args(&method.params, opaque_types), String::new())
     };
 
+    // For lifetime-parameterized types, emit let bindings for String→Cow and Map→BTreeMap conversions.
+    // These are needed when static methods of lifetime types receive binding-level String/HashMap
+    // but the core methods expect Cow<'_, str> and BTreeMap (owned for binding wrapper context).
+    let lifetime_bindings = if typ.has_lifetime_params {
+        let mut bindings = String::new();
+        for p in &method.params {
+            match &p.ty {
+                TypeRef::String => {
+                    if p.optional {
+                        bindings.push_str(&format!("let {}_converted = {}.map(Into::into);\n    ", p.name, p.name));
+                    } else {
+                        bindings.push_str(&format!(
+                            "let {}_converted: std::borrow::Cow<'_, str> = {}.into();\n    ",
+                            p.name, p.name
+                        ));
+                    }
+                }
+                TypeRef::Map(_, _) => {
+                    // Map types: convert HashMap to BTreeMap (owned, since wrapper context has no lifetime)
+                    bindings.push_str(&format!("let {}_converted = {}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>();\n    ", p.name, p.name));
+                }
+                TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
+                    bindings.push_str(&format!("let {}_converted = {}.map(Into::into);\n    ", p.name, p.name));
+                }
+                _ => {}
+            }
+        }
+        bindings
+    } else {
+        String::new()
+    };
+
+    // Adjust call_args to use converted variables when lifetime bindings were emitted.
+    // Special case: for borrowed methods of lifetime types, we need to call the owned variant instead
+    // because the wrapper function can't provide the lifetime required by the borrowed variant.
+    let (call_args, method_name_override) = if !lifetime_bindings.is_empty() {
+        let mut adjusted = call_args.clone();
+        for p in &method.params {
+            match &p.ty {
+                TypeRef::String | TypeRef::Map(_, _) => {
+                    adjusted = adjusted.replace(&p.name.to_string(), &format!("{}_converted", p.name));
+                }
+                TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
+                    adjusted = adjusted.replace(&p.name.to_string(), &format!("{}_converted", p.name));
+                }
+                _ => {}
+            }
+        }
+        // If calling a with_borrowed_* method, switch to with_owned_* since we have owned data
+        let override_name = if method.name.contains("borrowed_attributes") {
+            Some(method.name.replace("borrowed", "owned"))
+        } else {
+            None
+        };
+        (adjusted, override_name)
+    } else {
+        (call_args, None)
+    };
+
+    // Update method name if needed (borrowed → owned for wrapper functions)
+    let actual_method_name = method_name_override.as_deref().unwrap_or(&method.name);
+
     let can_delegate = crate::codegen::shared::can_auto_delegate(method, opaque_types);
 
     // Explicit adapter bodies always take precedence over auto-generated delegation —
@@ -770,7 +832,7 @@ pub fn gen_static_method(
             opaque_types,
         )
     } else if method.is_async {
-        let core_call = format!("{core_type_path}::{}({call_args})", method.name);
+        let core_call = format!("{core_type_path}::{}({call_args})", actual_method_name);
         let return_wrap = format!("{return_type}::from(result)");
         gen_async_body(
             &core_call,
@@ -783,7 +845,7 @@ pub fn gen_static_method(
             Some(&return_type),
         )
     } else {
-        let core_call = format!("{core_type_path}::{}({call_args})", method.name);
+        let core_call = format!("{core_type_path}::{}({call_args})", actual_method_name);
         if method.error_type.is_some() {
             // Backend-specific error conversion
             let err_conv = match cfg.async_pattern {
@@ -834,11 +896,11 @@ pub fn gen_static_method(
             )
         }
     };
-    // Prepend let bindings for non-opaque Named ref params
-    let body = if ref_let_bindings.is_empty() {
+    // Prepend let bindings for non-opaque Named ref params and lifetime type conversions
+    let body = if ref_let_bindings.is_empty() && lifetime_bindings.is_empty() {
         body
     } else {
-        format!("{ref_let_bindings}{body}")
+        format!("{ref_let_bindings}{lifetime_bindings}{body}")
     };
 
     let static_needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
@@ -983,8 +1045,11 @@ pub fn gen_impl_block_with_renames(
     let mut out = String::with_capacity(2048);
 
     // Constructor — suppressed when the backend handles construction via a separate free
-    // function (e.g. extendr kwargs constructor) or when there are no fields.
-    if !typ.fields.is_empty() && !cfg.skip_impl_constructor {
+    // function (e.g. extendr kwargs constructor), when there are no fields, or when the
+    // type already provides an explicit static `new()` method (which will be emitted as
+    // `#[staticmethod] pub fn new(...)` and would conflict with a `#[new]` constructor).
+    let has_explicit_static_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
+    if !typ.fields.is_empty() && !cfg.skip_impl_constructor && !has_explicit_static_new {
         out.push_str(&gen_constructor_with_renames(typ, mapper, cfg, field_renames));
         out.push_str("\n\n");
     }

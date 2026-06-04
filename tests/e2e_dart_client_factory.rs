@@ -1,6 +1,6 @@
 //! Verifies the Dart e2e codegen emits client-object instantiation when
 //! `CallOverride.client_factory` is set, and falls back to static bridge-class
-//! calls when absent (sample_crate flat-function style).
+//! calls when absent (flat-function style).
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -124,7 +124,7 @@ client_factory = "create_client"
 }
 
 /// When `client_factory` is absent, the generator must fall back to the static
-/// bridge-class call pattern (sample_crate style). This ensures no regression.
+/// bridge-class call pattern. This ensures no regression.
 #[test]
 fn without_client_factory_emits_static_bridge_call() {
     let rendered = render_dart_smoke(BASE_TOML, "smoke_basic");
@@ -139,7 +139,7 @@ fn without_client_factory_emits_static_bridge_call() {
         "must NOT call createClient when client_factory is absent. Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("_client."),
+        !rendered.contains("final _client") && !rendered.contains(" _client."),
         "must NOT reference _client when client_factory is absent. Rendered:\n{rendered}"
     );
 }

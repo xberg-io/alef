@@ -282,7 +282,7 @@ pub fn render_test_file(
         );
     }
 
-    // When the rust override specifies an `options_type` (e.g. `ConversionOptions`),
+    // When the rust override specifies an `options_type`,
     // type annotations are emitted on json_object bindings so that `Default::default()`
     // and `serde_json::from_value(…)` can be resolved without a trailing positional arg.
     // Import the named type so it is in scope in every test function in this file.
@@ -499,7 +499,7 @@ pub fn render_test_function(
     // Extract additional overrides for argument shaping.
     let wrap_options_in_some = rust_overrides.is_some_and(|o| o.wrap_options_in_some);
     let extra_args: Vec<String> = call_recipe.extra_args.to_vec();
-    // options_type from the rust override (e.g. "ConversionOptions") — used to annotate
+    // options_type from the rust override — used to annotate
     // `Default::default()` and `serde_json::from_value(…)` bindings so Rust can infer
     // the concrete type without a trailing positional argument to guide inference.
     let options_type: Option<String> = call_recipe.options_type.map(str::to_string);
