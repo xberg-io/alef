@@ -667,7 +667,7 @@ impl Backend for WasmBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
-                );
+                )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);
                 }
@@ -1123,7 +1123,8 @@ sources = ["src/lib.rs"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let config = make_config();
         let files = WasmBackend.generate_bindings(&api, &config).unwrap();
         assert_eq!(files.len(), 2);
@@ -1161,7 +1162,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 
         let serde_lines = cargo_toml
@@ -1220,7 +1222,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let config = make_config();
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 
@@ -1249,7 +1252,8 @@ serde = { version = "1", features = ["derive", "rc"] }
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let config = make_config();
         let cargo_toml = super::gen_cargo_toml(&api, &config);
         assert!(
@@ -1300,7 +1304,8 @@ features = ["wasm-target"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let cargo_toml = super::gen_cargo_toml(&api, &config);
         assert!(
             cargo_toml.contains(r#"extra = ["test-lib/extra"]"#),
@@ -1338,7 +1343,8 @@ features = ["wasm-target"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let config = make_config();
         let cargo_toml = super::gen_cargo_toml(&api, &config);
 

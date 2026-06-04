@@ -69,11 +69,11 @@ const BASE_TOML: &str = r#"
 languages = ["dart"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.dart]
-pubspec_name = "sample_llm"
+pubspec_name = "demo_client"
 
 [crates.e2e]
 fixtures = "fixtures"

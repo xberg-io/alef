@@ -52,10 +52,10 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
-) -> String {
+) -> anyhow::Result<String> {
     // Skip if explicitly excluded for Ruby
     if bridge_cfg.exclude_languages.contains(&"ruby".to_string()) {
-        return String::new();
+        return Ok(String::new());
     }
 
     let trait_path = trait_type.rust_path.replace('-', "_");
@@ -98,8 +98,8 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
-        );
-        out
+        )?;
+        Ok(out)
     } else {
         // Plugin pattern: use the shared TraitBridgeGenerator infrastructure.
         // Use the host crate's canonical error type (e.g. SampleCrateError) so the
@@ -137,14 +137,14 @@ pub fn gen_trait_bridge(
             prefixed.push_str(" as _;\n");
         }
         prefixed.push_str(&output.code);
-        prefixed
+        Ok(prefixed)
     }
 }
 
 /// Generate a visitor-style bridge wrapping a Magnus `magnus::Value`.
 ///
 /// Every trait method checks if the Ruby object responds to a snake_case method,
-/// then calls it via `funcall` and maps the return value to `VisitResult`.
+/// then calls it via `funcall` and maps the return value to the configured result enum.
 #[allow(clippy::too_many_arguments)]
 fn gen_visitor_bridge(
     out: &mut String,
@@ -155,8 +155,14 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
     api: &ApiSurface,
-) {
-    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
+) -> anyhow::Result<()> {
+    let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+        api,
+        bridge_cfg,
+        core_crate,
+        crate::codegen::visitor_context::VisitorContextBackend::Magnus,
+    )?;
     let methods: Vec<String> = trait_type
         .methods
         .iter()
@@ -168,6 +174,8 @@ fn gen_visitor_bridge(
         "visitor_bridge.rs.jinja",
         minijinja::context! {
             core_crate => core_crate,
+            context_type_path => context_helper.type_path,
+            context_field_lines => context_helper.field_lines,
             struct_name => struct_name,
             trait_path => trait_path,
             methods => methods,
@@ -186,6 +194,7 @@ fn gen_visitor_bridge(
     }
     out.push_str(&rendered);
     out.push('\n');
+    Ok(())
 }
 
 /// Generate a single visitor method that checks Ruby respond_to and calls via funcall.
@@ -1096,4 +1105,24 @@ pub fn gen_options_field_bridge_function(
     out.push_str("}\n");
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let code = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&code);
+        assert!(code.contains("\"display_name\""));
+    }
 }

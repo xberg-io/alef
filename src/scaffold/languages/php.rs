@@ -169,12 +169,16 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // `extra.php-ext.download-url-method`. Keeping the dead block around misleads
     // maintainers into thinking it does something.
     let render_composer = |autoload_src: &str| -> String {
+        let license_json = meta
+            .license
+            .as_deref()
+            .map(|license| format!("  \"license\": \"{license}\",\n"))
+            .unwrap_or_default();
         format!(
             r#"{{
   "name": "{vendor}/{package_name}",
   "description": "{description}",
-  "license": "{license}",
-  "type": "php-ext",
+{license_json}  "type": "php-ext",
   "require": {{
     "php": ">=8.2"
   }},
@@ -207,7 +211,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             vendor = vendor,
             package_name = package_name,
             description = meta.description,
-            license = meta.license,
+            license_json = license_json,
             php_namespace = php_namespace,
             autoload_src = autoload_src,
             ext_name = ext_name,

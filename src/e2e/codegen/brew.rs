@@ -955,7 +955,7 @@ mod tests {
 
     /// Every leading-whitespace prefix in an emitted shell line must be a
     /// multiple of 2 spaces. shfmt's default indent step (and the `shfmt -i 2`
-    /// pre-commit hook used downstream by `sample-crawler`) rewrites any other
+    /// pre-commit hook used downstream by `demo-crawler`) rewrites any other
     /// indent step, which then causes the alef-emitted scripts to be rewritten
     /// by pre-commit hooks on every consumer run.
     fn assert_shfmt_canonical_indent(script: &str, context: &str) {

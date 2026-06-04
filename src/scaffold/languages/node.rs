@@ -404,7 +404,7 @@ fn generate_napi_platform_package_json(
     binary_name: &str,
     platform: &str,
     version: &str,
-    license: &str,
+    license: Option<&str>,
     repository_block: &str,
 ) -> String {
     let package_name = napi_platform_package_name(parent_package_name, platform);
@@ -413,12 +413,14 @@ fn generate_napi_platform_package_json(
         .map(|value| format!(",\n  \"libc\": [\"{value}\"]"))
         .unwrap_or_default();
     let binary_file = format!("{binary_name}.{platform}.node");
+    let license_block = license
+        .map(|value| format!(",\n  \"license\": \"{value}\""))
+        .unwrap_or_default();
 
     format!(
         r#"{{
   "name": "{package_name}",
-  "version": "{version}",
-  "license": "{license}"{repository_block},
+  "version": "{version}"{license_block}{repository_block},
   "main": "{binary_file}",
   "files": ["{binary_file}"],
   "os": ["{os}"],
@@ -440,6 +442,11 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .configured_repository
         .as_deref()
         .map(npm_repository_block)
+        .unwrap_or_default();
+    let license_block = meta
+        .license
+        .as_deref()
+        .map(|license| format!(",\n  \"license\": \"{license}\""))
         .unwrap_or_default();
     let excluded = excluded_node_platforms(config);
     let active_platforms = napi_platforms_filtered(&excluded);
@@ -465,8 +472,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         r#"{{
   "name": "{package_name}",
   "version": "{version}",
-  "description": "{description}",
-  "license": "{license}"{repository_block},
+  "description": "{description}"{license_block}{repository_block},
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {{
@@ -500,7 +506,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         package_name = package_name,
         version = version,
         description = meta.description,
-        license = meta.license,
+        license_block = license_block,
         repository_block = repository_block,
         crate_dir = crate_dir,
         optional_dependencies = optional_dependencies,
@@ -535,7 +541,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             &binary_name,
             platform,
             version,
-            &meta.license,
+            meta.license.as_deref(),
             &repository_block,
         ),
         generated_header: false,

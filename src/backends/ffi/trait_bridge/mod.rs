@@ -436,7 +436,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     fn sample_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
@@ -1038,7 +1039,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
 
         let code = gen_trait_bridge(
             &trait_def,
@@ -1371,7 +1373,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
 
         let code = gen_trait_bridge(
             &trait_def,
@@ -1589,7 +1592,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
 
         let code = gen_trait_bridge(
             &trait_def,

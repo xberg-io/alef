@@ -59,6 +59,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     // Build the enum defaults map - this should map "MyEnumType" -> "ActualDefault"
@@ -223,6 +224,7 @@ fn enum_default_variants_map_extracts_default_variants() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let map = enum_default_variants_map(&api);

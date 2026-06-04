@@ -1,6 +1,6 @@
 //! Regression: Rust e2e codegen must not emit `use {crate}::CrawlConfig;` (or other
 //! optional `use` statements) when the rendered test body never references the imported
-//! symbol. Under `-D unused_imports` (the sample_crawler CI policy), an unused import fails
+//! symbol. Under `-D unused_imports` (the demo_crawler CI policy), an unused import fails
 //! the build.
 //!
 //! The typical case is a handle-arg call where every fixture passes `input.config` as
@@ -54,7 +54,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["rust"]
 
 [[crates]]
-name = "sample_crawler"
+name = "demo_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -63,7 +63,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "sample_crawler"
+module = "demo_crawler"
 result_var = "result"
 async = true
 returns_result = true
@@ -99,12 +99,12 @@ fn omits_crawl_config_import_when_body_has_no_reference() {
     };
     let content = render(group);
     assert!(
-        !content.contains("use sample_crawler::CrawlConfig"),
+        !content.contains("use demo_crawler::CrawlConfig"),
         "CrawlConfig import emitted for a body that never references it (would trip -D unused_imports):\n{content}"
     );
     // The constructor import must still be emitted, because the body does call create_engine.
     assert!(
-        content.contains("use sample_crawler::create_engine"),
+        content.contains("use demo_crawler::create_engine"),
         "create_engine import missing from a body that uses it:\n{content}"
     );
 }
@@ -122,7 +122,7 @@ fn keeps_crawl_config_import_when_body_references_it() {
     };
     let content = render(group);
     assert!(
-        content.contains("use sample_crawler::CrawlConfig"),
+        content.contains("use demo_crawler::CrawlConfig"),
         "CrawlConfig import missing for a body that deserializes a config:\n{content}"
     );
 }

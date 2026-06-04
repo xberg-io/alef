@@ -1429,7 +1429,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
     // Determine the streaming item type for this call (used when draining the channel).
     // Find the first streaming adapter matching the function name.
     // Match on snake_case adapter name vs. snake_case function name; e2e codegen sees
-    // camelCase function names like `CrawlStream` but adapters declare `crawl_stream`.
+    // camelCase function names like `StreamItems` but adapters declare `crawl_stream`.
     use heck::ToSnakeCase;
     let fn_snake = function_name.to_snake_case();
     let base_snake = base_function_name.to_snake_case();
@@ -2658,9 +2658,9 @@ fn render_assertion(
                     return;
                 }
                 // ---- keywords / keywords_count ----
-                // Go ExtractionResult does not expose extracted_keywords; skip.
+                // Go ProcessingResult does not expose result_keywords; skip.
                 "keywords" | "keywords_count" => {
-                    let _ = writeln!(out, "\t// skipped: field '{f}' not available on Go ExtractionResult");
+                    let _ = writeln!(out, "\t// skipped: field '{f}' not available on Go ProcessingResult");
                     return;
                 }
                 _ => {}
@@ -4918,7 +4918,7 @@ mod tests {
                 function: "chat_stream".to_string(),
                 module: "github.com/example/mylib".to_string(),
                 result_var: "result".to_string(),
-                returns_result: false, // NOT true — like real sample-llm
+                returns_result: false, // NOT true — like real demo-client
                 r#async: true,
                 streaming: Some(crate::core::config::e2e::StreamingConfig::Recipe(
                     crate::core::config::e2e::StreamingRecipe {

@@ -121,6 +121,7 @@ fn record_components_carry_field_javadoc_in_multi_line_emit() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let dto = files
@@ -210,6 +211,7 @@ fn opaque_handle_instance_method_emits_javadoc_above_signature() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let class = files
@@ -262,6 +264,7 @@ fn free_function_javadoc_uses_generated_exception_name() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
@@ -334,6 +337,7 @@ fn plain_enum_variants_carry_summary_javadoc() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let mode = files
@@ -391,7 +395,8 @@ fn plain_enum_variant_multiline_summary_preserves_every_line() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let region = files
         .iter()
@@ -448,7 +453,8 @@ fn sealed_interface_variant_multiline_summary_preserves_every_line() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let policy = files
         .iter()
@@ -506,6 +512,7 @@ fn free_function_facade_emits_javadoc_above_static_method() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let combined = files.iter().map(|f| f.content.as_str()).collect::<String>();

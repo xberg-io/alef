@@ -225,7 +225,7 @@ impl PhpGetterMap {
                 // The owner declares this field — the per-type `getters` map is
                 // the authoritative answer. Returning early here prevents the
                 // global bare-name union (below) from flipping a scalar field
-                // (e.g. `ExtractionResult.content: String`) into a getter call
+                // (e.g. `ProcessingResult.content: String`) into a getter call
                 // just because some unrelated type declares a same-named field
                 // as non-scalar (e.g. `Chunk.content: Vec<Span>`).
                 return self.getters.get(t).is_some_and(|fields| fields.contains(field_name));
@@ -559,7 +559,7 @@ impl FieldResolver {
     /// Returns `true` when the resolved path's first segment is in `result_fields`,
     /// or when the path uses a single virtual namespace prefix (e.g. `"browser."`,
     /// `"interaction."`) whose second segment IS in `result_fields`.  The namespace
-    /// prefix pattern is common in sample-crawler-style fixtures where authors group
+    /// prefix pattern is common in demo-crawler-style fixtures where authors group
     /// related assertion fields under an organizational prefix that does not
     /// correspond to a real struct field on the return type.
     pub fn is_valid_for_result(&self, fixture_field: &str) -> bool {
@@ -2829,7 +2829,7 @@ mod tests {
     }
 
     // Regression: bare-name HashSet classification produced false getters when two
-    // types shared a field name with different scalarness (sample-crawler `content`
+    // types shared a field name with different scalarness (demo-crawler `content`
     // collision between CrawlConfig.content: ContentConfig and MarkdownResult.content: String).
     #[test]
     fn render_php_with_getters_distinguishes_same_field_name_on_different_types() {
@@ -3099,7 +3099,7 @@ mod tests {
     /// declares `content` as non-scalar (e.g. a chunk struct). The legacy
     /// fallback would flip `$result->content` to `$result->getContent()` based
     /// on the bare-name union — producing a "method does not exist" error
-    /// against the actual ExtractionResult class. The fix: when owner is known
+    /// against the actual ProcessingResult class. The fix: when owner is known
     /// and declares the field, trust the per-type getters map exclusively.
     #[test]
     fn render_php_needs_getter_returns_false_when_owner_has_no_getter_entry() {
@@ -3113,7 +3113,7 @@ mod tests {
         let all_fields: HashMap<String, HashSet<String>> = {
             let mut m = HashMap::new();
             m.insert(
-                "ExtractionResult".to_string(),
+                "ProcessingResult".to_string(),
                 ["content".to_string()].into_iter().collect(),
             );
             m.insert("Chunk".to_string(), ["content".to_string()].into_iter().collect());
@@ -3122,12 +3122,12 @@ mod tests {
         let map = PhpGetterMap {
             getters,
             field_types: HashMap::new(),
-            root_type: Some("ExtractionResult".to_string()),
+            root_type: Some("ProcessingResult".to_string()),
             all_fields,
         };
-        // ExtractionResult declares `content` but has no getters entry — must be
+        // ProcessingResult declares `content` but has no getters entry — must be
         // treated as scalar, NOT flipped to getter syntax via bare-name union.
-        assert!(!map.needs_getter(Some("ExtractionResult"), "content"));
+        assert!(!map.needs_getter(Some("ProcessingResult"), "content"));
         // Chunk DOES need getter syntax (entry exists).
         assert!(map.needs_getter(Some("Chunk"), "content"));
         // Unknown owner still uses the bare-name fallback (legacy behaviour).

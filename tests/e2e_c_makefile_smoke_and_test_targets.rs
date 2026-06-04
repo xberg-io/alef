@@ -20,7 +20,7 @@ fn build_config_with_mock() -> NewAlefConfig {
 languages = ["ffi"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
@@ -39,7 +39,7 @@ args = [
 ]
 
 [crates.e2e.call.overrides.c]
-header = "sample_llm.h"
+header = "demo_client.h"
 function = "sample_chat"
 prefix = "sample"
 "#;
@@ -190,7 +190,7 @@ fn c_makefile_without_mock_server_has_simple_smoke_and_test() {
 languages = ["ffi"]
 
 [[crates]]
-name = "sample-markdown-rs"
+name = "demo-markup-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]

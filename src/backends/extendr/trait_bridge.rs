@@ -309,7 +309,7 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &crate::core::ir::ApiSurface,
-) -> BridgeOutput {
+) -> anyhow::Result<BridgeOutput> {
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("R", bridge_cfg);
     let trait_path = trait_type.rust_path.replace('-', "_");
 
@@ -349,11 +349,11 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
-        );
-        BridgeOutput {
+        )?;
+        Ok(BridgeOutput {
             imports: vec![],
             code: out,
-        }
+        })
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = ExtendrBridgeGenerator {
@@ -386,7 +386,7 @@ pub fn gen_trait_bridge(
              unsafe impl Sync for {struct_name} {{}}\n"
         );
         output.code.push_str(&send_sync_impl);
-        output
+        Ok(output)
     }
 }
 
@@ -423,7 +423,7 @@ pub fn gen_send_robj_helper() -> &'static str {
 /// Generate a visitor-style bridge wrapping an `extendr_api::Robj` (a named list of functions).
 ///
 /// Every trait method checks if the list has a function with the snake_case method name,
-/// calls it via extendr's `.call()`, and maps the return value to `VisitResult`.
+/// calls it via extendr's `.call()`, and maps the return value to the configured result enum.
 #[allow(clippy::too_many_arguments)]
 fn gen_visitor_bridge(
     out: &mut String,
@@ -434,8 +434,14 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
     api: &ApiSurface,
-) {
-    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
+) -> anyhow::Result<()> {
+    let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+        api,
+        bridge_cfg,
+        core_crate,
+        crate::codegen::visitor_context::VisitorContextBackend::Extendr,
+    )?;
     let context_type = bridge_cfg.context_type.as_deref();
     let mut method_impls = String::with_capacity(4096);
     for method in &trait_type.methods {
@@ -449,11 +455,14 @@ fn gen_visitor_bridge(
         "visitor_bridge.jinja",
         minijinja::context! {
             core_crate => core_crate,
+            context_type_path => context_helper.type_path,
+            context_field_lines => context_helper.field_lines,
             struct_name => struct_name,
             trait_path => trait_path,
             method_impls => method_impls,
         },
     ));
+    Ok(())
 }
 
 /// Generate a single visitor method that checks if the R list has an element with this name
@@ -809,4 +818,24 @@ pub fn gen_bridge_function(
             body => body,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let output = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
+        assert!(output.code.contains("\"display_name\""));
+    }
 }

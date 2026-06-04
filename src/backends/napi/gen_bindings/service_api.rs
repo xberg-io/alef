@@ -1564,6 +1564,7 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
+}
     }
 
     #[test]

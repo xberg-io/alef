@@ -44,14 +44,19 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let meta = scaffold_meta(config);
 
     // Derive SCM URLs from repository URL
-    let repo_url = &meta.repository;
+    let repo_url = meta.repository.as_deref().unwrap_or_else(|| {
+        panic!("Kotlin Android scaffold requires package metadata repository; set package_metadata.repository or scaffold.repository")
+    });
     let repo_path = repo_url
         .strip_prefix("https://github.com/")
         .or_else(|| repo_url.strip_prefix("http://github.com/"))
         .unwrap_or(repo_url.trim_start_matches("https://"));
 
     // License URL mapping
-    let license_url = match meta.license.as_str() {
+    let license = meta.license.as_deref().unwrap_or_else(|| {
+        panic!("Kotlin Android scaffold requires package metadata license; set package_metadata.license or scaffold.license")
+    });
+    let license_url = match license {
         "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
         "MIT" => "https://opensource.org/licenses/MIT",
         "Apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
@@ -62,12 +67,12 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let licenses_block = if license_url.is_empty() {
         format!(
             "licenses {{\n            license {{\n                name.set(\"{}\")\n            }}\n        }}",
-            xml_escape(&meta.license)
+            xml_escape(license)
         )
     } else {
         format!(
             "licenses {{\n            license {{\n                name.set(\"{}\")\n                url.set(\"{}\")\n            }}\n        }}",
-            xml_escape(&meta.license),
+            xml_escape(license),
             xml_escape(license_url)
         )
     };

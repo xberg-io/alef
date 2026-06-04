@@ -51,6 +51,7 @@ pub fn is_critical_unsuppressible(code: ValidationCode) -> bool {
         code,
         ValidationCode::UnknownNamedType
             | ValidationCode::LossySanitizedSurface
+            | ValidationCode::UnsupportedGenericItem
             | ValidationCode::JsonValueResolutionAmbiguous
             | ValidationCode::BackendStubPath
     )
@@ -187,6 +188,36 @@ impl ValidationReport {
     }
 }
 
+/// Borrowed API surface that has passed central validation.
+///
+/// Public generation facades should accept this type so callers cannot
+/// accidentally feed lossy or unsupported IR directly into backend emission.
+#[derive(Debug, Clone, Copy)]
+pub struct ValidatedApiSurface<'a> {
+    api: &'a ApiSurface,
+}
+
+impl<'a> ValidatedApiSurface<'a> {
+    pub fn new(api: &'a ApiSurface, suppress_codes: &[String]) -> Result<Self, ValidationReport> {
+        let report = validate_api_surface(api);
+        let fatal = report
+            .errors()
+            .any(|diagnostic| is_critical_unsuppressible(diagnostic.code)
+                || !suppress_codes
+                    .iter()
+                    .any(|code| code == &diagnostic.code.to_string()));
+        if fatal {
+            Err(report)
+        } else {
+            Ok(Self { api })
+        }
+    }
+
+    pub fn api(&self) -> &'a ApiSurface {
+        self.api
+}
+}
+
 /// Validate the extracted public API surface before backend generation.
 pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
     let mut report = ValidationReport::new();
@@ -197,6 +228,15 @@ pub fn validate_api_surface(api: &ApiSurface) -> ValidationReport {
             Some(diagnostic.item_path),
             diagnostic.reason,
             diagnostic.suggested_fix,
+        )
+    }));
+    report.extend(api.unsupported_public_items.iter().map(|item| {
+        ValidationDiagnostic::error(
+            ValidationCode::UnsupportedGenericItem,
+            api.crate_name.clone(),
+            Some(item.item_path.clone()),
+            format!("{} `{}` is unsupported: {}", item.item_kind, item.item_path, item.reason),
+            item.suggested_fix.clone(),
         )
     }));
     report.extend(backend_readiness_diagnostics(api));
@@ -643,7 +683,7 @@ mod tests {
     use super::*;
     use crate::core::ir::{
         ApiSurface, EntrypointDef, EntrypointKind, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
-        HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeDef, TypeRef,
+        HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeDef, TypeRef, UnsupportedPublicItem,
     };
 
     fn function_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> FunctionDef {
@@ -740,7 +780,7 @@ mod tests {
                 ..TypeDef::default()
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -800,7 +840,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -811,6 +851,31 @@ mod tests {
                 && diagnostic.item_path.as_deref() == Some("function render param settings")
                 && diagnostic.reason.contains("RenderSettings")
         }));
+    }
+
+    #[test]
+    fn api_surface_validation_errors_for_unsupported_public_generics() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            unsupported_public_items: vec![UnsupportedPublicItem {
+                item_kind: "function".to_string(),
+                item_path: "sample_lib::render".to_string(),
+                reason: "public function has generic parameters".to_string(),
+                suggested_fix: "expose a concrete wrapper".to_string(),
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::UnsupportedGenericItem
+                && diagnostic.item_path.as_deref() == Some("sample_lib::render")
+                && diagnostic.reason.contains("generic parameters")
+        }));
+        assert!(is_critical_unsuppressible(ValidationCode::UnsupportedGenericItem));
     }
 
     #[test]
@@ -827,7 +892,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-        };
+};
         api.excluded_type_paths.insert(
             "HiddenPayload".to_string(),
             "sample_lib::internal::HiddenPayload".to_string(),
@@ -857,7 +922,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -883,7 +948,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -909,7 +974,7 @@ mod tests {
                 TypeRef::String,
             )],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -930,7 +995,7 @@ mod tests {
                 ..function_def("render", vec![], TypeRef::String)
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -964,7 +1029,7 @@ mod tests {
                 TypeRef::Named("Session".to_string()),
             )],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1007,7 +1072,7 @@ mod tests {
                 },
             ],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1042,7 +1107,7 @@ mod tests {
                 },
             ],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1087,7 +1152,7 @@ mod tests {
                 )
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1120,7 +1185,7 @@ mod tests {
                 ..TypeDef::default()
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1158,7 +1223,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1208,7 +1273,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1271,7 +1336,7 @@ mod tests {
                 ..TypeDef::default()
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 
@@ -1318,7 +1383,7 @@ mod tests {
                 doc: String::new(),
             }],
             ..ApiSurface::default()
-        };
+};
 
         let report = validate_api_surface(&api);
 

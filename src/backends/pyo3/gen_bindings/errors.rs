@@ -476,7 +476,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     /// `@property` stubs use `raise NotImplementedError` as the body so that ruff rule PIE790

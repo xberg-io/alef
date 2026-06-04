@@ -17,7 +17,7 @@ fn build_config() -> NewAlefConfig {
 languages = ["ffi"]
 
 [[crates]]
-name = "sample-markdown-rs"
+name = "demo-markup-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]

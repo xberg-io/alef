@@ -6,12 +6,12 @@
 //! `(field as List<String>).contains(value)` for collection-style assertions,
 //! to satisfy Kotlin's `@OnlyInputTypes` on `Collection.contains()`. This
 //! works for genuine `List<String>` fields, but for plain `String` fields
-//! (e.g. `result.text` on the sample-llm transcribe endpoint) the runtime
+//! (e.g. `result.text` on the demo-client transcribe endpoint) the runtime
 //! cast throws `ClassCastException: String cannot be cast to List`. The
 //! cast is now gated on `field_resolver.is_array(...)` / `is_collection_root`
 //! so non-collection fields fall through to `string.contains(substring)`.
 //!
-//! Regression originally reported via sample-llm v1.4 CI run:
+//! Regression originally reported via demo-client v1.4 CI run:
 //!   `TranscribeTest.test_transcribe_basic_audio`
 //! which asserted `result.text` contains a phrase and crashed at runtime.
 
@@ -89,7 +89,7 @@ fn base_toml() -> &'static str {
 languages = ["kotlin"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
@@ -172,7 +172,7 @@ fn contains_on_list_field_still_casts_to_list() {
 languages = ["kotlin"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]

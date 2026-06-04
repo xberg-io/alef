@@ -216,6 +216,7 @@ fn test_basic_rbs_stubs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config_with_stubs();
@@ -331,6 +332,7 @@ fn test_type_mapping_in_stubs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config_with_stubs();
@@ -458,6 +460,7 @@ fn test_enum_stubs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config_with_stubs_and_docs();
@@ -591,6 +594,7 @@ fn test_opaque_type_stubs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config_with_stubs();
@@ -643,6 +647,7 @@ fn test_rbs_stubs_without_config() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     // Create config WITHOUT stubs enabled
@@ -763,6 +768,7 @@ fn test_type_with_methods_and_fields() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config_with_stubs_and_docs();
@@ -876,6 +882,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config_with_stubs_and_docs();
@@ -939,6 +946,7 @@ fn test_module_naming_from_crate_name() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(
@@ -998,6 +1006,7 @@ fn test_rbs_includes_trait_registry_functions() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();

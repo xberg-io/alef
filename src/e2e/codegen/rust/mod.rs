@@ -56,7 +56,7 @@ impl E2eCodegen for RustE2eCodegen {
             .any(|a| a.arg_type == "json_object" || a.arg_type == "handle");
 
         // Check if any fixture in any group requires a mock HTTP server.
-        // This includes both sample-llm mock_response fixtures and sample_project http fixtures.
+        // This includes both demo-client mock_response fixtures and sample_project http fixtures.
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())

@@ -1536,7 +1536,7 @@ fn render_test_method(
     };
 
     // Streaming owner_type adapters are facade-exposed as INSTANCE methods on the
-    // owner handle (`engine.crawlStream(req)`), not as static facade methods — the
+    // owner handle (`engine.streamItems(req)`), not as static facade methods — the
     // Java facade deliberately emits no static streaming methods. Capture the owner
     // handle variable so the call is rendered as an instance-method invocation.
     let streaming_owner_handle: Option<String> =
@@ -1840,7 +1840,7 @@ fn build_args_and_setup(
             setup_lines.push(format!(
                 "java.util.List<String> {name} = java.util.Arrays.stream(new String[]{{{paths_literal}}}).map(p -> p.startsWith(\"http\") ? p : {name}Base + p).collect(java.util.stream.Collectors.toList());"
             ));
-            // Wrap in adapter request type if present (e.g., BatchCrawlStreamRequest).
+            // Wrap in adapter request type if present (e.g., BatchedStreamItemsRequest).
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}Req", arg.name);
                 setup_lines.push(format!("var {req_var} = new {req_type}({});", arg.name));
@@ -2128,7 +2128,7 @@ fn render_assertion(
     // Handle synthetic/virtual fields that are computed rather than direct record accessors.
     if let Some(f) = &assertion.field {
         match f.as_str() {
-            // ---- ExtractionResult chunk-level computed predicates ----
+            // ---- ProcessingResult chunk-level computed predicates ----
             "chunks_have_content" => {
                 let pred = format!(
                     "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().allMatch(c -> c.content() != null && !c.content().isBlank())"
@@ -2247,7 +2247,7 @@ fn render_assertion(
                 ));
                 return;
             }
-            // ---- Fields not present on the Java ExtractionResult ----
+            // ---- Fields not present on the Java ProcessingResult ----
             "keywords" | "keywords_count" => {
                 out.push_str(&crate::e2e::template_env::render(
                     "java/synthetic_assertion.jinja",
@@ -3201,7 +3201,7 @@ fn java_stub_default_with_context(
             "\"\"".to_string()
         }
         // For Named types that are NOT excluded, return null instead of trying to instantiate.
-        // Complex types like ExtractionResult don't have no-arg constructors, and stub
+        // Complex types like ProcessingResult don't have no-arg constructors, and stub
         // methods are only used for testing trait bridge registration, not for exercising
         // the actual functionality. Returning null is safe here.
         TypeRef::Named(_) => "null".to_string(),

@@ -151,7 +151,8 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn make_simple_api() -> ApiSurface {
@@ -184,7 +185,8 @@ fn make_simple_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn make_top_level_bytes_api() -> ApiSurface {
@@ -219,7 +221,8 @@ fn make_top_level_bytes_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// Snapshot the Bridge object emitted in JNI mode.
@@ -453,7 +456,8 @@ target = "jvm"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
@@ -565,7 +569,8 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// Snapshot: Bridge object emits `external fun` for both `chat` and `embeddings` methods.
@@ -697,7 +702,8 @@ fn make_api_with_speech_method() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// Snapshot: a method returning `Vec<u8>` produces `ByteArray` in the Bridge and
@@ -806,7 +812,8 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = KotlinBackend
         .generate_bindings(&api, &make_jni_config_no_streaming())
@@ -898,7 +905,8 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// Snapshot: a method returning `Unit` produces a Bridge `external fun` with no return type

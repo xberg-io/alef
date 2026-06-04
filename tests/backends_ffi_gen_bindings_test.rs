@@ -22,7 +22,8 @@ fn make_empty_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +159,8 @@ fn make_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 // ---------------------------------------------------------------------------
@@ -885,7 +887,8 @@ ffi = "crates/mylib-ffi/src/"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let backend = FfiBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1051,7 +1054,8 @@ ffi = "crates/mylib-ffi/src/"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let backend = FfiBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();

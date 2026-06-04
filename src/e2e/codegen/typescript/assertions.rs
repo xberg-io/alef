@@ -235,7 +235,7 @@ fn render_synthetic_field_assertion(
         }
         "keywords" | "keywords_count" => {
             out.push_str(&format!(
-                "    // skipped: field '{field}' not available on Node JsExtractionResult\n"
+                "    // skipped: field '{field}' not available on Node JsProcessingResult\n"
             ));
             true
         }

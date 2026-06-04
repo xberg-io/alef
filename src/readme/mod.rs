@@ -904,7 +904,8 @@ repository = "https://github.com/test/my-lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]

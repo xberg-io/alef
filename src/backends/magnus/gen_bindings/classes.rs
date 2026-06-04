@@ -1034,7 +1034,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let code = gen_struct(&typ, &mapper, "TestLib", &api, false, &[]);
         assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");
         assert!(code.contains("struct Config"), "must emit struct Config");

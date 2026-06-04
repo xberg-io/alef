@@ -1016,7 +1016,12 @@ fn main() -> Result<()> {
             println!("Generated {grand_total} API doc files");
             Ok(())
         }
-        Commands::SyncVersions { bump, set, no_regen, skip_swift_checksum } => {
+        Commands::SyncVersions {
+            bump,
+            set,
+            no_regen,
+            skip_swift_checksum,
+        } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
@@ -1034,7 +1039,13 @@ fn main() -> Result<()> {
                 } else {
                     eprintln!("Syncing versions from Cargo.toml");
                 }
-                pipeline::sync_versions(resolved_cfg, config_path, bump.as_deref(), no_regen, skip_swift_checksum)?;
+                pipeline::sync_versions(
+                    resolved_cfg,
+                    config_path,
+                    bump.as_deref(),
+                    no_regen,
+                    skip_swift_checksum,
+                )?;
             }
             println!("Version sync complete");
             Ok(())

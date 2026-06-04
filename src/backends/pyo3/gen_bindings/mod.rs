@@ -1181,7 +1181,7 @@ mod alef_json_str_opt {
                         &config.error_type_name(),
                         &config.error_constructor_expr(),
                         api,
-                    );
+                    )?;
                     for imp in &bridge.imports {
                         builder.add_import(imp);
                     }

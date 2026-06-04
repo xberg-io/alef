@@ -72,12 +72,17 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
             "Kotlin scaffold requires package metadata authors; set package_metadata.authors or scaffold.authors"
         );
     }
+    let license = meta.license.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Kotlin scaffold requires package metadata license; set package_metadata.license or scaffold.license"
+        )
+    })?;
     let repo_path = repo_url
         .strip_prefix("https://github.com/")
         .or_else(|| repo_url.strip_prefix("http://github.com/"))
         .unwrap_or_else(|| repo_url.trim_start_matches("https://"))
         .to_string();
-    let license_url = match meta.license.as_str() {
+    let license_url = match license {
         "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
         "MIT" => "https://opensource.org/licenses/MIT",
         "Apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
@@ -91,12 +96,12 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let licenses_block = if license_url.is_empty() {
         format!(
             "    licenses {{\n      license {{\n        name.set(\"{}\")\n      }}\n    }}\n",
-            kt(&meta.license)
+            kt(license)
         )
     } else {
         format!(
             "    licenses {{\n      license {{\n        name.set(\"{}\")\n        url.set(\"{}\")\n      }}\n    }}\n",
-            kt(&meta.license),
+            kt(license),
             kt(license_url)
         )
     };
@@ -307,7 +312,7 @@ gradle test
         package = kotlin_package,
         kotlin_artifact_id = kotlin_artifact_id,
         version = version,
-        license = meta.license,
+        license = license,
     );
 
     // ktlint's `filename` rule requires a file with a single top-level
@@ -385,6 +390,11 @@ fn scaffold_kotlin_native(_api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let project_name = format!("{}-native", config.name);
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let crate_name = &config.name;
+    let license_section = meta
+        .license
+        .as_deref()
+        .map(|license| format!("\n## License\n\n{license}\n"))
+        .unwrap_or_default();
     let readme = format!(
         r#"# {project_name}
 
@@ -397,14 +407,9 @@ cargo build --release -p {crate_name}-ffi
 cd packages/kotlin-native
 gradle build
 ```
-
-## License
-
-{license}
 "#,
         description = meta.description,
-        license = meta.license,
-    );
+    ) + &license_section;
     let build_gradle = format!(
         r#"plugins {{
     kotlin("multiplatform") version "{kotlin_plugin}"
@@ -462,6 +467,11 @@ fn scaffold_kotlin_multiplatform(
     let project_name = format!("{}-kmp", config.name);
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let crate_name = &config.name;
+    let license_section = meta
+        .license
+        .as_deref()
+        .map(|license| format!("\n## License\n\n{license}\n"))
+        .unwrap_or_default();
     let readme = format!(
         r#"# {project_name}
 
@@ -474,14 +484,9 @@ cargo build --release -p {crate_name}-ffi
 cd packages/kotlin-mpp
 gradle build
 ```
-
-## License
-
-{license}
 "#,
         description = meta.description,
-        license = meta.license,
-    );
+    ) + &license_section;
     let build_gradle = format!(
         r#"plugins {{
     kotlin("multiplatform") version "{kotlin_plugin}"

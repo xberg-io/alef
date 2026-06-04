@@ -70,9 +70,9 @@ pub(crate) fn cargo_package_header(
     };
     let edition_line = format!("edition = \"{edition}\"");
     let license_line = if ws.license {
-        "license.workspace = true".to_string()
+        Some("license.workspace = true".to_string())
     } else {
-        format!("license = \"{}\"", meta.license)
+        meta.license.as_ref().map(|license| format!("license = \"{license}\""))
     };
     let readme_line = if ws.readme {
         "readme.workspace = true".to_string()
@@ -96,17 +96,19 @@ pub(crate) fn cargo_package_header(
         format!("categories = [{}]", quoted.join(", "))
     };
 
-    let lines = vec![
+    let mut lines = vec![
         "[package]".to_string(),
         format!("name = \"{name}\""),
         version_line,
         edition_line,
-        license_line,
         format!("description = \"{}\"", meta.description),
         readme_line,
         keywords_line,
         categories_line,
     ];
+    if let Some(license_line) = license_line {
+        lines.insert(4, license_line);
+    }
     lines.join("\n")
 }
 
@@ -404,8 +406,8 @@ fn escape_toml_string(s: &str) -> String {
 
 pub struct ScaffoldMeta {
     pub description: String,
-    pub license: String,
-    pub repository: String,
+    pub license: Option<String>,
+    pub repository: Option<String>,
     pub configured_repository: Option<String>,
     pub homepage: String,
     pub documentation: String,
@@ -442,12 +444,8 @@ pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
             .unwrap_or_else(|| format!("Bindings for {}", config.name)),
         license: package
             .and_then(|p| p.license.clone())
-            .or_else(|| scaffold.and_then(|s| s.license.clone()))
-            .unwrap_or_else(|| "MIT".to_string()),
-        repository: package
-            .and_then(|p| p.repository.clone())
-            .or_else(|| scaffold.and_then(|s| s.repository.clone()))
-            .unwrap_or_else(|| format!("https://example.invalid/{}", config.name)),
+            .or_else(|| scaffold.and_then(|s| s.license.clone())),
+        repository: configured_repository.clone(),
         configured_repository,
         homepage: package
             .and_then(|p| p.homepage.clone())

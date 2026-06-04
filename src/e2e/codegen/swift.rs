@@ -239,7 +239,7 @@ impl E2eCodegen for SwiftE2eCodegen {
 /// imports, 100-char line width). Reformatting after every regen would force
 /// every consumer repo to either bake `swift-format` into their pre-commit set
 /// or eat noisy diffs. Marking the files as ignored is the same workaround the
-/// Swift binding backend uses for `SampleMarkdown.swift` (see
+/// Swift binding backend uses for `DemoMarkup.swift` (see
 /// `alef-backend-swift/src/gen_bindings.rs`) and keeps the file
 /// byte-identical between `alef generate` runs and `swift-format` hooks.
 const SWIFT_FORMAT_IGNORE_DIRECTIVE: &str = "// swift-format-ignore-file\n\n";
@@ -1183,6 +1183,9 @@ fn render_test_method(
         .map(|ty| format!("{}_from_json", ty.to_snake_case()).to_lower_camel_case());
     let unnamed_arg_indices: &[usize] = call_overrides.map(|o| &o.unnamed_arg_indices[..]).unwrap_or(&[]);
     let arg_name_map = call_overrides.map(|o| &o.arg_name_map);
+    let streaming_request_type = resolve_streaming_adapter(config, call_config, &function_name, client_factory)
+        .and_then(|adapter| adapter.request_type.as_deref())
+        .map(|request_type| request_type.rsplit("::").next().unwrap_or(request_type));
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1200,6 +1203,7 @@ fn render_test_method(
         type_defs,
         fixture,
         arg_name_map,
+        streaming_request_type,
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {
@@ -1419,6 +1423,7 @@ fn build_args_and_setup(
     type_defs: &[crate::core::ir::TypeDef],
     fixture: &Fixture,
     arg_name_map: Option<&std::collections::HashMap<String, String>>,
+    streaming_request_type: Option<&str>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1454,19 +1459,19 @@ fn build_args_and_setup(
             };
             setup_lines.push(format!("let {} = {url_expr}", arg.name));
 
-            // For Swift streaming functions (crawlStream, batchCrawlStream), wrap the URL
-            // in a CrawlStreamRequest or BatchCrawlStreamRequest object instead of passing
-            // it directly. These functions take a *Request type as the second parameter.
-            let is_streaming_fn = function_name.contains("crawlStream") || function_name.contains("CrawlStream");
-            if is_streaming_fn && idx > 0 {
-                // Determine the request type name from the function name.
-                let request_type = if function_name.contains("batch") || function_name.contains("Batch") {
-                    "BatchCrawlStreamRequest"
-                } else {
-                    "CrawlStreamRequest"
-                };
+            // Streaming adapters with request metadata take a request DTO instead
+            // of a bare mock URL. Use the adapter's request_type and this arg's
+            // configured name as the DTO field label.
+            if let Some(request_type) = streaming_request_type.filter(|_| idx > 0) {
+                let request_label = arg_name_map
+                    .and_then(|map| map.get(&arg.name).map(String::as_str))
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| arg.name.to_lower_camel_case());
                 let request_var = format!("{}Request", arg.name.to_lower_camel_case());
-                setup_lines.push(format!("let {request_var} = {request_type}(url: {})", arg.name));
+                setup_lines.push(format!(
+                    "let {request_var} = {request_type}({request_label}: {})",
+                    arg.name
+                ));
                 parts.push((idx, request_var));
             } else {
                 parts.push((idx, arg.name.clone()));
@@ -3771,7 +3776,7 @@ mod test_backend_tests {
                 make_param("image_bytes", TypeRef::Bytes),
                 make_param("mime_type", TypeRef::String),
             ],
-            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            return_type: TypeRef::Named("ProcessingResult".to_string()),
             is_async: true,
             is_static: false,
             error_type: Some("anyhow::Error".to_string()),

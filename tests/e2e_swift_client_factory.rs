@@ -84,7 +84,7 @@ const BASE_TOML: &str = r#"
 languages = ["swift"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -93,7 +93,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "sample_llm"
+module = "demo_client"
 result_var = "result"
 async = true
 

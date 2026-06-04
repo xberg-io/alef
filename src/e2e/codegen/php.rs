@@ -147,7 +147,7 @@ impl E2eCodegen for PhpCodegen {
         });
 
         // Check if any fixture needs a mock HTTP server (either http-shape or
-        // sample-llm mock_response-shape) so bootstrap.php spawns it.
+        // demo-client mock_response-shape) so bootstrap.php spawns it.
         let has_mock_server_fixtures = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
@@ -216,7 +216,7 @@ impl E2eCodegen for PhpCodegen {
         // different scalarness (e.g. `CrawlConfig.content: ContentConfig` vs
         // `MarkdownResult.content: String`). A bare-name union would force every
         // `->content` access to `->getContent()` even on types where it is a scalar
-        // property — see sample-crawler regression where `MarkdownResult::getContent()`
+        // property — see demo-crawler regression where `MarkdownResult::getContent()`
         // does not exist.
         let php_enum_names: HashSet<String> = enums.iter().map(|e| e.name.clone()).collect();
 
@@ -772,10 +772,10 @@ fn render_test_file(
     // Also collects:
     //   - per-arg `element_type` for `Vec<T>` arguments (e.g. `PageAction`).
     //   - streaming-adapter `request_type` for fixtures that invoke a streaming
-    //     adapter call (e.g. `CrawlStreamRequest`). Without this import the
-    //     generated `new CrawlStreamRequest($url)` resolves to
-    //     `SampleCrawler\E2e\CrawlStreamRequest` (the test namespace) and PHPUnit
-    //     errors with `Class "...\CrawlStreamRequest" not found`.
+    //     adapter call (e.g. `StreamItemsRequest`). Without this import the
+    //     generated `new StreamItemsRequest($url)` resolves to
+    //     `DemoCrawler\E2e\StreamItemsRequest` (the test namespace) and PHPUnit
+    //     errors with `Class "...\StreamItemsRequest" not found`.
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
         .flat_map(|f| {
@@ -1260,7 +1260,7 @@ fn render_test_method(
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
 
     // Streaming owner_type adapters are facade-exposed as INSTANCE methods on the
-    // owner handle (`$engine->crawlStream($req)`), not as static facade methods.
+    // owner handle (`$engine->streamItems($req)`), not as static facade methods.
     // Capture the owner handle variable so the call is rendered as an
     // instance-method invocation and the handle is omitted from the argument list.
     let streaming_owner_handle: Option<String> = if call_adapter.is_some_and(|a| {
@@ -2078,7 +2078,7 @@ fn render_assertion(
                 return;
             }
             // ---- keywords / keywords_count ----
-            // PHP ExtractionResult does not expose extracted_keywords; skip.
+            // PHP ProcessingResult does not expose result_keywords; skip.
             "keywords" | "keywords_count" => {
                 out.push_str(&crate::e2e::template_env::render(
                     "php/synthetic_assertion.jinja",
@@ -3033,7 +3033,7 @@ mod trait_bridge_tests {
         let extract_bytes = make_method(
             "extract_bytes",
             vec![("content", TypeRef::Bytes), ("mime_type", TypeRef::String)],
-            TypeRef::Named("ExtractionResult".to_string()),
+            TypeRef::Named("ProcessingResult".to_string()),
             false,
         );
 
@@ -3218,8 +3218,8 @@ mod composer_json_tests {
         let content = render_composer_json(
             "sample_crate/e2e-php",
             "SampleLlm\\\\E2e\\\\",
-            "sample_llm",
-            "sample_crate/sample-llm",
+            "demo_client",
+            "sample_crate/demo-client",
             "../../packages/php",
             "1.4.0-rc.32",
             DependencyMode::Registry,
@@ -3230,8 +3230,8 @@ mod composer_json_tests {
         // Composer's platform resolver to fail when the extension hasn't been
         // loaded into the current PHP process yet.
         assert!(
-            !content.contains(r#""ext-sample_llm":"#),
-            "registry composer.json must NOT require ext-sample_llm (PIE installs it), got:\n{content}"
+            !content.contains(r#""ext-demo_client":"#),
+            "registry composer.json must NOT require ext-demo_client (PIE installs it), got:\n{content}"
         );
         // Must declare the php platform require.
         assert!(
@@ -3241,7 +3241,7 @@ mod composer_json_tests {
         // Must NOT contain a direct package require (composer can't resolve it
         // before PIE has installed the .so).
         assert!(
-            !content.contains("sample_crate/sample-llm"),
+            !content.contains("sample_crate/demo-client"),
             "registry composer.json must not contain a direct package require, got:\n{content}"
         );
         // Must NOT carry minimum-stability / prefer-stable (not load-bearing with
@@ -3267,14 +3267,14 @@ mod composer_json_tests {
 
     #[test]
     fn registry_install_sh_contains_pie_install() {
-        let content = render_install_sh("sample_crate/sample-llm", "sample_llm", "1.4.0-rc.32");
+        let content = render_install_sh("sample_crate/demo-client", "demo_client", "1.4.0-rc.32");
         // The script uses $PIE as the resolved pie binary path.
         assert!(
             content.contains("\"$PIE\" install"),
             "install.sh must invoke pie via $PIE install, got:\n{content}"
         );
         assert!(
-            content.contains("sample_crate/sample-llm"),
+            content.contains("sample_crate/demo-client"),
             "install.sh must reference the package name, got:\n{content}"
         );
         assert!(

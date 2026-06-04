@@ -88,7 +88,8 @@ fn api_with_type(ty: TypeDef) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────

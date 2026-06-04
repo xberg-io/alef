@@ -5,28 +5,10 @@ use napi::JsValue;
 
 fn nodecontext_to_js_object<'e>(
     env: &'e napi::Env,
-    ctx: &{{ core_crate }}::visitor::NodeContext,
+    ctx: &{{ context_type_path }},
 ) -> napi::Result<napi::bindgen_prelude::Object<'e>> {
     let mut obj = napi::bindgen_prelude::Object::new(env)?;
-    obj.set_named_property("nodeType", env.create_string(&format!("{:?}", ctx.node_type))?)?;
-    obj.set_named_property("tagName", env.create_string(&ctx.tag_name)?)?;
-    obj.set_named_property("depth", env.create_uint32(ctx.depth as u32)?)?;
-    obj.set_named_property("indexInParent", env.create_uint32(ctx.index_in_parent as u32)?)?;
-    obj.set_named_property("isInline", ctx.is_inline)?;
-    let parent_tag = match &ctx.parent_tag {
-        Some(s) => env.create_string(s)?.to_unknown(),
-        None => {
-            // SAFETY: napi_get_null returns a valid napi_value for the given env.
-            let raw = unsafe { napi::bindgen_prelude::ToNapiValue::to_napi_value(env.raw(), napi::bindgen_prelude::Null)? };
-            unsafe { napi::bindgen_prelude::Unknown::from_raw_unchecked(env.raw(), raw) }
-        }
-    };
-    obj.set_named_property("parentTag", parent_tag)?;
-    let mut attrs = napi::bindgen_prelude::Object::new(env)?;
-    for (k, v) in &ctx.attributes {
-        attrs.set_named_property(k, env.create_string(v)?)?;
-    }
-    obj.set_named_property("attributes", attrs)?;
+{{ context_field_lines }}
     Ok(obj)
 }
 

@@ -1270,7 +1270,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
                         // FRB-generated client methods (the `client_factory` path, e.g.
-                        // sample-llm's `retrieveFile({required String fileId})`) declare
+                        // demo-client's `retrieveFile({required String fileId})`) declare
                         // every non-`config` parameter as named-required, so required
                         // string args must be passed with a `name:` label too. Facade
                         // methods (no `client_factory`) keep required args positional.
@@ -1500,7 +1500,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
 
     // Resolve client_factory: when set, tests create a client instance and call
     // methods on it rather than using static bridge-class calls. This mirrors the
-    // go/python/zig pattern for stateful clients (e.g. sample-llm).
+    // go/python/zig pattern for stateful clients (e.g. demo-client).
     let client_factory: Option<&str> = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
         e2e_config
             .call

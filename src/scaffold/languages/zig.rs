@@ -86,6 +86,11 @@ pub fn build(b: *std.Build) void {{
     let gitignore = "zig-cache/\nzig-out/\n.zig-cache/\n";
 
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.zig]\nindent_style = space\nindent_size = 4\n";
+    let license_section = meta
+        .license
+        .as_deref()
+        .map(|license| format!("\n## License\n\n{license}\n"))
+        .unwrap_or_default();
 
     let readme = format!(
         r#"# {module_name}
@@ -114,15 +119,10 @@ Add to your `build.zig.zon`:
     }},
 }},
 ```
-
-## License
-
-{license}
 "#,
         module_name = module_name,
         description = meta.description,
-        license = meta.license,
-    );
+    ) + &license_section;
 
     let example_zig = "const std = @import(\"std\");\n\npub fn main() !void {\n    var gpa = std.heap.GeneralPurposeAllocator(.{}){};\n    defer _ = gpa.deinit();\n    const allocator = gpa.allocator();\n\n    const stdout = std.io.getStdOut().writer();\n    try stdout.print(\"Example: module loaded successfully\\n\", .{});\n}\n";
 

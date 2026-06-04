@@ -79,7 +79,7 @@ const BASE_TOML_WITH_FLAT_OVERRIDE: &str = r#"
 languages = ["kotlin"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]
@@ -116,7 +116,7 @@ fn with_client_factory_emits_client_instantiation() {
 languages = ["kotlin"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin]

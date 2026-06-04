@@ -332,6 +332,11 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .as_deref()
         .map(|repository| format!("links: %{{\"GitHub\" => \"{repository}\"}},"))
         .unwrap_or_default();
+    let license = meta.license.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Elixir scaffold requires package metadata license; set package_metadata.license or scaffold.license"
+        )
+    })?;
 
     let content = format!(
         r#"defmodule {module}.MixProject do
@@ -375,7 +380,7 @@ end
         files_keyword = files_keyword,
         jason_dep = jason_dep,
         description = meta.description,
-        license = meta.license,
+        license = license,
         links = links_line,
         rustler_hex = tv::hex::RUSTLER,
         rustler_precompiled = tv::hex::RUSTLER_PRECOMPILED,

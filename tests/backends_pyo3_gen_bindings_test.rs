@@ -157,7 +157,8 @@ fn test_basic_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -274,7 +275,8 @@ fn public_api_converters_accept_json_string_for_dict_coercion() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
     let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
@@ -336,7 +338,8 @@ fn test_type_mapping() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -433,7 +436,8 @@ fn test_enum_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -481,7 +485,8 @@ fn test_generated_header() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -551,7 +556,8 @@ fn test_function_with_error_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -593,7 +599,8 @@ fn test_empty_api_surface() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -695,7 +702,8 @@ fn test_module_registration() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -791,7 +799,8 @@ fn test_async_function() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -856,7 +865,8 @@ fn test_async_function_with_error() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -968,7 +978,8 @@ fn test_methods_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1054,7 +1065,8 @@ fn test_async_method() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1126,7 +1138,8 @@ fn test_error_types() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1201,7 +1214,8 @@ fn test_opaque_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1275,7 +1289,8 @@ fn test_optional_and_vec_fields() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1361,7 +1376,8 @@ fn test_static_method() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1433,7 +1449,8 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1590,7 +1607,8 @@ fn test_return_type_exported_from_native_module_not_options() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -1848,7 +1866,8 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -2050,7 +2069,8 @@ fn make_api_surface() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 // ---------------------------------------------------------------------------
@@ -2765,7 +2785,8 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -2889,7 +2910,8 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -2971,7 +2993,8 @@ fn test_sanitized_field_gets_serde_skip() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -3041,7 +3064,8 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -3139,7 +3163,8 @@ fn test_api_py_uses_keyword_arguments() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -3240,7 +3265,8 @@ fn test_async_function_emits_async_def_and_await() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -3342,7 +3368,8 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -3516,7 +3543,8 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).expect("generate public API");
     let options_py = files.iter().find(|f| f.path.ends_with("options.py")).unwrap();
@@ -3691,7 +3719,8 @@ fn test_capsule_types_end_to_end() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     let mut capsule_map: HashMap<String, CapsuleTypeConfig> = HashMap::new();
@@ -3980,7 +4009,8 @@ fn test_capsule_types_in_methods() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     let mut capsule_map: HashMap<String, CapsuleTypeConfig> = HashMap::new();
@@ -4158,7 +4188,8 @@ fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = backend
         .generate_bindings(&api, &config)
@@ -4226,7 +4257,8 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = backend
         .generate_bindings(&api, &config)
@@ -4299,7 +4331,8 @@ fn test_options_py_escapes_python_keyword_variant_names() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = backend
         .generate_public_api(&api, &config)
@@ -4371,7 +4404,8 @@ fn test_api_py_void_function_no_redundant_return() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -4507,7 +4541,8 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
@@ -4645,7 +4680,8 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -4743,7 +4779,8 @@ fn test_adapter_wrapper_functions() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     // Add one adapter
@@ -4862,7 +4899,8 @@ fn test_async_method_adapter_wrapper() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.adapters = vec![alef::core::config::AdapterConfig {
@@ -4966,7 +5004,8 @@ fn test_serde_rename_in_constructor_and_properties() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -5061,7 +5100,8 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -5150,7 +5190,8 @@ fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -5235,7 +5276,8 @@ fn test_option_fields_in_constructor_signature() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -5332,7 +5374,8 @@ fn test_option_fields_on_has_default_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -5408,7 +5451,8 @@ fn test_option_fields_with_serde_rename_on_has_default() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend
@@ -5516,7 +5560,8 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config);
@@ -5624,7 +5669,8 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {

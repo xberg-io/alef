@@ -167,6 +167,7 @@ fn service_surface() -> ApiSurface {
         ..ApiSurface::default()
     }
 }
+}
 
 /// Every service-API-capable language backend. (jni is the JVM *native* contract validated
 /// by its own tests; wasm/gleam/kotlin-android do not implement service generation.)

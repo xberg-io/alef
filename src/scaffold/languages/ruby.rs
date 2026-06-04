@@ -171,6 +171,11 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .as_deref()
         .map(|repository| format!("  spec.homepage      = \"{repository}\"\n"))
         .unwrap_or_default();
+    let license_ruby = meta
+        .license
+        .as_deref()
+        .map(|license| format!("  spec.license       = \"{license}\"\n"))
+        .unwrap_or_default();
 
     let content = format!(
         r#"# frozen_string_literal: true
@@ -182,7 +187,7 @@ Gem::Specification.new do |spec|
   spec.summary       = "{description}"
   spec.description   = "{description}"
 {homepage}
-  spec.license       = "{license}"
+{license}
   spec.required_ruby_version = ">= 3.2.0"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
@@ -201,7 +206,7 @@ end
         authors = authors_ruby,
         description = meta.description,
         homepage = homepage_ruby,
-        license = meta.license,
+        license = license_ruby,
         metadata = metadata_ruby,
         rb_sys = tv::gem::RB_SYS,
         sorbet_runtime = tv::gem::SORBET_RUNTIME,

@@ -340,7 +340,7 @@ impl E2eCodegen for ZigE2eCodegen {
 /// Detect if a Zig package hash contains a stale embedded version.
 ///
 /// Zig package hashes are formatted as `<pkg_name>-<version>-<multihash>` where
-/// `pkg_name` is the snake_case module name (e.g., `liter_llm`, not `liter-llm`).
+/// `pkg_name` is the snake_case module name (e.g., `demo_client`, not `demo-client`).
 /// This function extracts the embedded version and compares it against
 /// the current package version. If they differ, the hash is stale and
 /// should be regenerated with `alef sync-versions`.
@@ -349,7 +349,7 @@ impl E2eCodegen for ZigE2eCodegen {
 /// Logs a warning in that case.
 fn detect_stale_zig_hash(hash: &str, current_version: &str, pkg_name: &str) -> bool {
     // Hash format: `{pkg_name}-{version}-{multihash}`
-    // Example: `liter_llm-1.4.0-rc.50-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
+    // Example: `demo_client-1.4.0-rc.50-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
     let prefix = format!("{pkg_name}-");
     if !hash.starts_with(&prefix) {
         return false;
@@ -3619,7 +3619,7 @@ mod zig_hash_tests {
     /// verbatim — no network fetch, no cache lookup.
     #[test]
     fn explicit_hash_override_is_used_verbatim() {
-        let url = "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0-linux-x86_64.tar.gz";
+        let url = "https://github.com/sample_crate-dev/demo-client/releases/download/v1.4.0/demo-client-zig-v1.4.0-linux-x86_64.tar.gz";
         let pinned = "1220abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
         let result = resolve_zig_hash(Some(pinned), url);
         assert_eq!(
@@ -3635,11 +3635,11 @@ mod zig_hash_tests {
         let hash = "12208badf00d";
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
-            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32.tar.gz"
+            "https://github.com/sample_crate-dev/demo-client/releases/download/v1.4.0-rc.32/demo-client-zig-v1.4.0-rc.32.tar.gz"
                 .to_string();
         platform_hashes.insert("generic".to_string(), (url, Some(hash.to_string())));
         let content = render_build_zig_zon(
-            "sample_llm",
+            "demo_client",
             "../../packages/zig",
             DependencyMode::Registry,
             "1.4.0-rc.32",
@@ -3656,7 +3656,7 @@ mod zig_hash_tests {
         );
         // Verify the single generic (no-suffix) URL is present.
         assert!(
-            content.contains("sample-llm-zig-v1.4.0-rc.32.tar.gz"),
+            content.contains("demo-client-zig-v1.4.0-rc.32.tar.gz"),
             "build.zig.zon must emit the generic source tarball URL (no platform suffix), got:\n{content}"
         );
     }
@@ -3706,11 +3706,11 @@ mod zig_hash_tests {
     fn build_zig_zon_omits_hash_when_no_hash() {
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
-            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0-rc.32/sample-llm-zig-v1.4.0-rc.32.tar.gz"
+            "https://github.com/sample_crate-dev/demo-client/releases/download/v1.4.0-rc.32/demo-client-zig-v1.4.0-rc.32.tar.gz"
                 .to_string();
         platform_hashes.insert("generic".to_string(), (url, None));
         let content = render_build_zig_zon(
-            "sample_llm",
+            "demo_client",
             "../../packages/zig",
             DependencyMode::Registry,
             "1.4.0-rc.32",
@@ -3732,7 +3732,7 @@ mod zig_hash_tests {
     fn build_zig_zon_emits_full_release_url_with_repo_segment_and_platform_suffix() {
         let mut platform_hashes = std::collections::BTreeMap::new();
         let url =
-            "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz"
+            "https://github.com/sample_crate-dev/demo-markup/releases/download/v3.5.1/demo-markup-rs-zig-v3.5.1.tar.gz"
                 .to_string();
         platform_hashes.insert("generic".to_string(), (url, None));
         let content = render_build_zig_zon(
@@ -3744,7 +3744,8 @@ mod zig_hash_tests {
             false,
         );
         // Verify the generic (no-suffix) URL is present with proper repo segment.
-        let expected_url = "https://github.com/sample_crate-dev/sample-markdown/releases/download/v3.5.1/sample-markdown-rs-zig-v3.5.1.tar.gz";
+        let expected_url =
+            "https://github.com/sample_crate-dev/demo-markup/releases/download/v3.5.1/demo-markup-rs-zig-v3.5.1.tar.gz";
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the generic source tarball URL with proper repo segment; got:\n{content}"
@@ -3760,37 +3761,31 @@ mod detect_stale_zig_hash_tests {
     #[test]
     fn detects_stale_hash_with_older_rc_version() {
         let result = detect_stale_zig_hash(
-            "liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "demo_client-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
             "1.4.0-rc.57",
-            "liter_llm",
+            "demo_client",
         );
-        assert!(
-            result,
-            "expected stale hash detection (rc.50 vs rc.57), but got false"
-        );
+        assert!(result, "expected stale hash detection (rc.50 vs rc.57), but got false");
     }
 
     /// Matching hash and version: hash contains rc.57, current version is rc.57 → false (fresh).
     #[test]
     fn accepts_matching_version_in_hash() {
         let result = detect_stale_zig_hash(
-            "liter_llm-1.4.0-rc.57-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "demo_client-1.4.0-rc.57-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
             "1.4.0-rc.57",
-            "liter_llm",
+            "demo_client",
         );
-        assert!(
-            !result,
-            "expected fresh hash (rc.57 matches), but got true (stale)"
-        );
+        assert!(!result, "expected fresh hash (rc.57 matches), but got true (stale)");
     }
 
     /// Matching stable version: hash contains 1.4.0, current version is 1.4.0 → false (fresh).
     #[test]
     fn accepts_matching_stable_version() {
         let result = detect_stale_zig_hash(
-            "liter_llm-1.4.0-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "demo_client-1.4.0-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
             "1.4.0",
-            "liter_llm",
+            "demo_client",
         );
         assert!(
             !result,
@@ -3804,7 +3799,7 @@ mod detect_stale_zig_hash_tests {
         let result = detect_stale_zig_hash(
             "wrong_pkg-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
             "1.4.0-rc.57",
-            "liter_llm",
+            "demo_client",
         );
         assert!(
             !result,
@@ -3827,10 +3822,10 @@ mod zig_build_tests {
         let test_filenames = vec!["basic_test.zig".to_string()];
         let content = render_build_zig(
             &test_filenames,
-            "sample_llm",
-            "sample_llm",
-            "sample_llm_ffi",
-            "../../crates/sample-llm-ffi",
+            "demo_client",
+            "demo_client",
+            "demo_client_ffi",
+            "../../crates/demo-client-ffi",
             ZigBuildFlags {
                 has_file_fixtures: false,
                 needs_mock_server: false,
@@ -3848,19 +3843,19 @@ mod zig_build_tests {
 
         // Must link the FFI from the dependency's bundled lib/ directory.
         assert!(
-            content.contains("sample_llm_dep.path(\"lib\")"),
+            content.contains("demo_client_dep.path(\"lib\")"),
             "registry mode build.zig must resolve FFI library path from fetched package's lib/ dir, got:\n{content}"
         );
 
         // Must link the C header from the dependency's bundled include/ directory.
         assert!(
-            content.contains("sample_llm_dep.path(\"include\")"),
+            content.contains("demo_client_dep.path(\"include\")"),
             "registry mode build.zig must resolve FFI header path from fetched package's include/ dir, got:\n{content}"
         );
 
         // Must explicitly link the FFI system library.
         assert!(
-            content.contains("linkSystemLibrary(\"sample_llm_ffi\""),
+            content.contains("linkSystemLibrary(\"demo_client_ffi\""),
             "registry mode build.zig must link the FFI system library, got:\n{content}"
         );
     }
@@ -3872,10 +3867,10 @@ mod zig_build_tests {
         let test_filenames = vec!["basic_test.zig".to_string()];
         let content = render_build_zig(
             &test_filenames,
-            "sample_llm",
-            "sample_llm",
-            "sample_llm_ffi",
-            "../../crates/sample-llm-ffi",
+            "demo_client",
+            "demo_client",
+            "demo_client_ffi",
+            "../../crates/demo-client-ffi",
             ZigBuildFlags {
                 has_file_fixtures: false,
                 needs_mock_server: false,
@@ -3893,7 +3888,7 @@ mod zig_build_tests {
 
         // Must link the FFI system library.
         assert!(
-            content.contains("linkSystemLibrary(\"sample_llm_ffi\""),
+            content.contains("linkSystemLibrary(\"demo_client_ffi\""),
             "local mode build.zig must link the FFI system library, got:\n{content}"
         );
     }

@@ -37,7 +37,7 @@ pub fn extract(
         crate_name: crate_name.to_string(),
         version: version.to_string(),
         ..ApiSurface::default()
-    };
+};
 
     let mut visited = Vec::<PathBuf>::new();
 

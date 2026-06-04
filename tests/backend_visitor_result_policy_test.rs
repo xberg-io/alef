@@ -142,7 +142,8 @@ fn api() -> ApiSurface {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn bridge_cfg() -> TraitBridgeConfig {

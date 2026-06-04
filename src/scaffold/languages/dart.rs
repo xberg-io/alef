@@ -154,6 +154,11 @@ dart analyze
 dart test"#
             .replace("{crate_name}", crate_name),
     };
+    let license_section = meta
+        .license
+        .as_deref()
+        .map(|license| format!("\n## License\n\n{license}\n"))
+        .unwrap_or_default();
 
     let readme = format!(
         r#"# {pubspec_name}
@@ -182,16 +187,11 @@ From the repository root:
 ```sh
 {build_commands}
 ```
-
-## License
-
-{license}
 "#,
         pubspec_name = pubspec_name,
         description = meta.description,
         version = version,
-        license = meta.license,
-    );
+    ) + &license_section;
 
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.dart]\nindent_style = space\nindent_size = 2\n";
 

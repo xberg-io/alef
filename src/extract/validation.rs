@@ -300,7 +300,7 @@ mod tests {
                 has_lifetime_params: false,
             }],
             ..ApiSurface::default()
-        };
+};
 
         let error = validate_no_sanitized_public_items(&api)
             .expect_err("sanitized public API items must fail validation")
@@ -380,7 +380,7 @@ mod tests {
                 binding_exclusion_reason: Some("test exclusion".to_string()),
             }],
             ..ApiSurface::default()
-        };
+};
 
         validate_no_sanitized_public_items(&api).expect("binding-excluded sanitized items must be allowed");
     }
@@ -428,7 +428,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-        };
+};
 
         let paths: Vec<_> = sanitized_public_api_diagnostics(&api)
             .into_iter()
@@ -477,7 +477,7 @@ mod tests {
                 excluded_variants: vec![],
             }],
             ..ApiSurface::default()
-        };
+};
 
         let diagnostics = sanitized_public_api_diagnostics(&api);
         assert!(

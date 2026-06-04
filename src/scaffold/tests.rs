@@ -60,7 +60,8 @@ fn test_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// Filter out project-level scaffold files (like .pre-commit-config.yaml)
@@ -2293,15 +2294,15 @@ fn test_scaffold_elixir_cargo_tokio_when_async_function() {
 
 /// Trait bridge module names must use PascalCase for hyphenated crate names.
 ///
-/// When the consumer crate name contains hyphens (e.g., `sample-markdown`), the
-/// Elixir trait bridge module name must be `SampleMarkdownHtmlVisitorBridge`, not
-/// `Sample_markdownHtmlVisitorBridge` (which is what `capitalize_first` produces).
+/// When the consumer crate name contains hyphens (e.g., `demo-markup`), the
+/// Elixir trait bridge module name must be `DemoMarkupHtmlVisitorBridge`, not
+/// `Demo_markupHtmlVisitorBridge` (which is what `capitalize_first` produces).
 #[test]
 fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_crate() {
     use crate::core::config::TraitBridgeConfig;
 
     let mut config = test_config();
-    config.name = "sample-markdown".to_string();
+    config.name = "demo-markup".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
         app_name: Some("sample_markdown".to_string()),
@@ -2346,15 +2347,13 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         .expect("Elixir scaffold must produce a trait bridge .ex file");
 
     assert!(
-        bridge_file
-            .content
-            .contains("defmodule SampleMarkdownHtmlVisitorBridge do"),
+        bridge_file.content.contains("defmodule DemoMarkupHtmlVisitorBridge do"),
         "trait bridge module name must be PascalCase for hyphenated crate names; got:\n{}",
         bridge_file.content
     );
     assert!(
-        !bridge_file.content.contains("Sample_markdown"),
-        "trait bridge module name must not contain capitalize_first artifact 'Sample_markdown'; got:\n{}",
+        !bridge_file.content.contains("Demo_markup"),
+        "trait bridge module name must not contain capitalize_first artifact 'Demo_markup'; got:\n{}",
         bridge_file.content
     );
 }
@@ -2364,7 +2363,7 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
     use crate::core::config::TraitBridgeConfig;
 
     let mut config = test_config();
-    config.name = "sample-markdown".to_string();
+    config.name = "demo-markup".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
         app_name: Some("sample_markdown".to_string()),
@@ -4259,7 +4258,8 @@ gem_name = "test_lib"
         excluded_trait_names: std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let result = super::languages::scaffold_ruby_cargo(&api, &config);
     assert!(result.is_ok(), "scaffold_ruby_cargo should succeed");

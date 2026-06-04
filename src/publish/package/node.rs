@@ -153,7 +153,7 @@ fn platform_to_os_cpu_libc(platform: &str) -> (&'static str, &'static str, Optio
 }
 
 struct PackageMetadata {
-    license: String,
+    license: Option<String>,
     repository_url: Option<String>,
 }
 
@@ -199,11 +199,15 @@ fn generate_sub_package_json(
             )
         })
         .unwrap_or_default();
+    let license_field = metadata
+        .license
+        .as_deref()
+        .map(|license| format!(",\n  \"license\": \"{license}\""))
+        .unwrap_or_default();
     format!(
         r#"{{
   "name": "{name}",
-  "version": "{version}",
-  "license": "{license}"{repository_field},
+  "version": "{version}"{license_field}{repository_field},
   "os": ["{os}"],
   "cpu": ["{cpu}"]{libc_field},
   "main": "{bin_file}",
@@ -212,7 +216,6 @@ fn generate_sub_package_json(
   "publishConfig": {{ "access": "public" }}
 }}
 "#,
-        license = metadata.license,
     )
 }
 

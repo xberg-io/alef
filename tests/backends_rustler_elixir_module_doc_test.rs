@@ -106,6 +106,7 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let generated = RustlerBackend.generate_public_api(&api, &config).unwrap();
     let content = find_module(&generated, "process_config");
@@ -172,6 +173,7 @@ fn test_struct_module_emits_moduledoc_false_when_doc_empty() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let generated = RustlerBackend.generate_public_api(&api, &config).unwrap();
     let content = find_module(&generated, "anon");
@@ -238,6 +240,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let generated = RustlerBackend.generate_public_api(&api, &config).unwrap();
     let content = find_module(&generated, "severity");
@@ -364,6 +367,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let generated = RustlerBackend.generate_public_api(&api, &config).unwrap();
     let content = find_module(&generated, "diagnostic");

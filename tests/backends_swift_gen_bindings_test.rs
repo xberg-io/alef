@@ -112,7 +112,8 @@ fn struct_with_primitive_fields_emits_public_struct() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // generate_bindings returns the main Swift file, the Rust bridge crate files,
@@ -175,7 +176,8 @@ fn rust_bridge_constructor_omits_binding_excluded_fields() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let rust_bridge = files
@@ -233,7 +235,8 @@ fn struct_with_optional_array_and_dict_fields() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -265,7 +268,8 @@ fn struct_with_serde_derives_codable() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -312,7 +316,8 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -353,7 +358,8 @@ fn empty_struct_emits_single_line() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -419,7 +425,8 @@ fn unit_only_enum_emits_lower_camel_cases() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -483,7 +490,8 @@ fn data_bearing_enum_emits_associated_values() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -563,7 +571,8 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -650,7 +659,8 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -724,7 +734,8 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -813,7 +824,8 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -868,7 +880,8 @@ fn sync_function_emits_public_static_func() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -914,7 +927,8 @@ fn async_function_emits_async_keyword() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -956,7 +970,8 @@ fn error_throwing_function_emits_throws() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -998,7 +1013,8 @@ fn async_throws_function_emits_both_qualifiers() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1055,7 +1071,8 @@ fn error_enum_conforms_to_error_protocol() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1104,7 +1121,8 @@ fn error_enum_named_error_is_renamed_to_module_error() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1222,7 +1240,8 @@ fn error_enum_with_methods_emits_extension_properties() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1322,7 +1341,8 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1376,7 +1396,8 @@ fn bytes_overload_with_string_return_appends_to_string_for_throws() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1416,7 +1437,8 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1460,7 +1482,8 @@ fn path_first_param_emits_string_path_overload() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1500,7 +1523,8 @@ fn no_bytes_or_path_functions_emits_no_wrapper_section() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1551,7 +1575,8 @@ fn async_bytes_function_emits_async_forwarder() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -1585,7 +1610,8 @@ fn output_path_uses_pascal_case_module_name() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // Six files: main Swift wrapper, Rust bridge crate files, RustBridgeC
@@ -1691,7 +1717,8 @@ fn make_streaming_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// The streaming wrapper must return an `AsyncThrowingStream<Item, Error>` so
@@ -1884,7 +1911,8 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -2001,7 +2029,8 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -2120,7 +2149,8 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -2226,7 +2256,8 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -2282,7 +2313,8 @@ fn first_class_struct_field_emits_doc_comment_above_let() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
     let swift = files
@@ -2334,7 +2366,8 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -2412,7 +2445,8 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -2472,7 +2506,8 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -2545,7 +2580,8 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -2631,7 +2667,8 @@ fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -2699,7 +2736,8 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -2752,7 +2790,8 @@ fn async_function_with_result_and_opaque_param_emits_forwarder() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
@@ -2815,7 +2854,8 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;

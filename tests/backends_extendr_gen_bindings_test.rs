@@ -239,7 +239,8 @@ fn test_basic_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -359,7 +360,8 @@ fn options_decoder_uses_configured_type_and_ir_shapes() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = backend.generate_public_api(&api, &make_options_field_config()).unwrap();
     let options_rs = files
@@ -421,7 +423,8 @@ fn test_type_mapping() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -507,7 +510,8 @@ fn test_enum_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -604,7 +608,8 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
     let content = &files[0].content;
@@ -713,7 +718,8 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
     let content = &files[0].content;
@@ -777,7 +783,8 @@ fn test_generated_header() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -875,7 +882,8 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
     let wrappers = files
@@ -984,7 +992,8 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1035,7 +1044,8 @@ mod trait_bridge {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
@@ -1455,7 +1465,8 @@ mod trait_bridge {
             excluded_trait_names: Default::default(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
 
         // Config with exclude_functions for R
         let mut config = super::make_config();

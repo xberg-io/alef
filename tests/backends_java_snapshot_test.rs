@@ -336,6 +336,7 @@ fn print_generated_java_code() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(

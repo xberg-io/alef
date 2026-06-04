@@ -58,7 +58,7 @@ const TOML: &str = r#"
 languages = ["java"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.java]

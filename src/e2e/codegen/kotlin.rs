@@ -2676,7 +2676,7 @@ mod tests {
         // Simulate a `BatchObject` type with `status: BatchStatus` (Named, not a struct).
         let batch_object_def = TypeDef {
             name: "BatchObject".to_string(),
-            rust_path: "sample_llm::BatchObject".to_string(),
+            rust_path: "demo_client::BatchObject".to_string(),
             original_rust_path: String::new(),
             fields: vec![
                 FieldDef {

@@ -35,6 +35,11 @@ pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyh
         .as_deref()
         .map(|repository| format!("URL: {repository}\nBugReports: {repository}/issues\n"))
         .unwrap_or_default();
+    let license = meta.license.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "R scaffold requires package metadata license; set package_metadata.license or scaffold.license"
+        )
+    })?;
 
     let content = format!(
         r#"Package: {package}
@@ -66,7 +71,7 @@ Config/testthat/edition: 3
         authors = authors_r,
         description = description,
         repository_lines = repository_lines,
-        license = meta.license,
+        license = license,
         rextendr = tv::cran::REXTENDR,
     );
 

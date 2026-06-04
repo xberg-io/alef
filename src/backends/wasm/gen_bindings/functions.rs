@@ -1417,7 +1417,8 @@ mod tests {
             excluded_trait_names: std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
 
         let out = gen_function_with_emitted_dtos(
             &func,
@@ -1779,7 +1780,8 @@ mod tests {
             excluded_trait_names: std::collections::HashSet::new(),
             handler_contracts: vec![],
             services: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
 
         // type_has_default should return false for unknown types
         assert!(

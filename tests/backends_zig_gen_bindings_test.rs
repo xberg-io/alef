@@ -152,6 +152,7 @@ fn struct_emits_zig_struct() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -199,6 +200,7 @@ fn trait_bridge_complex_return_is_explicitly_unsupported() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
@@ -248,6 +250,7 @@ fn string_param_allocates_z_string_and_frees() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -307,6 +310,7 @@ fn bytes_param_passes_ptr_and_len() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -359,6 +363,7 @@ fn vec_param_takes_json_slice() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -427,6 +432,7 @@ fn result_function_checks_last_error_code() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -483,6 +489,7 @@ fn async_function_is_emitted_as_sync() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -514,6 +521,7 @@ fn helpers_are_always_emitted() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -589,6 +597,7 @@ fn enum_emits_zig_enum_or_union() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -614,6 +623,7 @@ fn optional_field_uses_zig_optional_syntax() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -664,6 +674,7 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -758,6 +769,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -821,6 +833,7 @@ fn bool_return_emits_not_zero_conversion() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -894,6 +907,7 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -947,6 +961,7 @@ fn string_param_infallible_defers_free_after_c_call() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1034,6 +1049,7 @@ fn error_set_includes_out_of_memory_and_return_type_is_single_error_set() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1106,6 +1122,7 @@ fn string_param_fallible_defers_free_after_c_call() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1165,6 +1182,7 @@ fn string_return_uses_len_companion_and_pointer_slice() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1224,6 +1242,7 @@ fn optional_string_return_uses_len_companion_with_null_guard() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1296,6 +1315,7 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1373,6 +1393,7 @@ type = "*const std::ffi::c_char"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
@@ -1504,6 +1525,7 @@ type = "CrawlStreamRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
@@ -1698,6 +1720,7 @@ type = "CrawlStreamRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();

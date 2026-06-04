@@ -29,6 +29,25 @@ pub(crate) fn visitor_result_metadata(
     Some(visitor_result_metadata_from_enum(enum_def, &bridge_cfg.trait_name))
 }
 
+pub(crate) fn required_visitor_result_metadata(
+    api: &ApiSurface,
+    bridge_cfg: &TraitBridgeConfig,
+) -> anyhow::Result<VisitorResultMetadata> {
+    let result_type = bridge_cfg.result_type.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "trait bridge `{}` must configure result_type for visitor result conversion",
+            bridge_cfg.trait_name
+        )
+    })?;
+    let enum_def = api.enums.iter().find(|enum_def| enum_def.name == result_type).ok_or_else(|| {
+        anyhow::anyhow!(
+            "trait bridge `{}` configures result_type `{result_type}`, but no matching enum exists in the API surface",
+            bridge_cfg.trait_name
+        )
+    })?;
+    visitor_result_metadata_from_enum_checked(enum_def, &bridge_cfg.trait_name)
+}
+
 pub(crate) fn visitor_result_metadata_or_legacy(
     api: Option<&ApiSurface>,
     bridge_cfg: &TraitBridgeConfig,
@@ -38,6 +57,13 @@ pub(crate) fn visitor_result_metadata_or_legacy(
 }
 
 fn visitor_result_metadata_from_enum(enum_def: &EnumDef, trait_name: &str) -> VisitorResultMetadata {
+    visitor_result_metadata_from_enum_checked(enum_def, trait_name).unwrap_or_else(|err| panic!("{err}"))
+}
+
+fn visitor_result_metadata_from_enum_checked(
+    enum_def: &EnumDef,
+    trait_name: &str,
+) -> anyhow::Result<VisitorResultMetadata> {
     let unit_variants = enum_def
         .variants
         .iter()
@@ -75,12 +101,12 @@ fn visitor_result_metadata_from_enum(enum_def: &EnumDef, trait_name: &str) -> Vi
                 .unwrap_or_default(),
         },
         [] if unit_variants.len() == 1 => unit_variants[0].clone(),
-        [] => panic!(
+        [] => anyhow::bail!(
             "trait bridge `{trait_name}` result_type `{}` must have exactly one #[default] unit variant, \
              or exactly one unit variant, to derive the default callback result",
             enum_def.name
         ),
-        _ => panic!(
+        _ => anyhow::bail!(
             "trait bridge `{trait_name}` result_type `{}` has multiple #[default] unit variants; expected exactly one",
             enum_def.name
         ),
@@ -102,11 +128,11 @@ fn visitor_result_metadata_from_enum(enum_def: &EnumDef, trait_name: &str) -> Vi
         })
         .collect();
 
-    VisitorResultMetadata {
+    Ok(VisitorResultMetadata {
         default_variant,
         unit_variants,
         string_payload_variants,
-    }
+    })
 }
 
 pub(crate) fn default_result_expr(return_type: &str, metadata: &VisitorResultMetadata) -> String {

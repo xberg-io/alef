@@ -90,7 +90,7 @@ fn build_config(language: &str) -> (alef::e2e::config::E2eConfig, alef::core::co
 languages = ["{language}"]
 
 [[crates]]
-name = "sample_crawler"
+name = "demo_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -100,7 +100,7 @@ java_group_id = "dev.sample_crate"
 
 [crates.e2e.call]
 function = "scrape"
-module = "SampleCrawler"
+module = "DemoCrawler"
 result_var = "result"
 async = true
 returns_result = true
@@ -109,20 +109,20 @@ args = [
 ]
 
 [crates.e2e.call.overrides.ruby]
-module = "SampleCrawler"
+module = "DemoCrawler"
 
 [crates.e2e.call.overrides.php]
-module = "SampleCrawler"
+module = "DemoCrawler"
 
 [crates.e2e.call.overrides.csharp]
-class = "SampleCrawler"
+class = "DemoCrawler"
 
 [crates.e2e.call.overrides.elixir]
-module = "SampleCrawler"
+module = "DemoCrawler"
 returns_result = true
 
 [crates.e2e.call.overrides.go]
-import_alias = "sample_crawler"
+import_alias = "demo_crawler"
 "#
     );
     let cfg: NewAlefConfig = toml::from_str(&toml_src).expect("config parses");

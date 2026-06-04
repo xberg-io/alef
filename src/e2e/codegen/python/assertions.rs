@@ -162,7 +162,7 @@ fn render_synthetic_field(out: &mut String, assertion: &Assertion, result_var: &
         "keywords" | "keywords_count" => {
             let _ = writeln!(
                 out,
-                "    # skipped: field '{field}' not available on Python ExtractionResult"
+                "    # skipped: field '{field}' not available on Python ProcessingResult"
             );
             true
         }

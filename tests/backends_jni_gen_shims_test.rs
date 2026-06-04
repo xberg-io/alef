@@ -224,7 +224,8 @@ fn make_demo_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn make_demo_config() -> ResolvedCrateConfig {
@@ -847,7 +848,8 @@ fn real_ir_shape_optional_ref_result_async() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -968,7 +970,8 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -1044,7 +1047,8 @@ fn method_ref_receiver_emits_const_cast() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -1133,7 +1137,8 @@ fn method_slice_u8_param_receives_jbytearray() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -1223,7 +1228,8 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -1320,7 +1326,8 @@ fn method_pathbuf_param_receives_raw_string() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -1419,7 +1426,8 @@ fn method_slice_str_param_coerces_to_str_refs() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_demo_config();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
@@ -1721,7 +1729,8 @@ fn empty_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// For every `[[crates.trait_bridges]]` entry the JNI backend must emit

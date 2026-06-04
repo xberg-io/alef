@@ -82,6 +82,16 @@ pub fn package_zig(
     // The distributed package links the prebuilt library bundled above in `lib/`
     // and `include/`, exposing the `{module}` module so a consumer can wire it
     // with a single `b.dependency(...).module("{module}")`.
+    //
+    // CRITICAL: This step is mandatory. If a workflow bundles libs into `lib/`
+    // but skips calling this function (or calling `alef publish package --lang zig`),
+    // the tarball will ship the in-tree build.zig with hardcoded workspace paths,
+    // and downstream Zig consumers will fail at compile time with:
+    //   error: unable to find dynamic system library 'liter_llm_ffi' using strategy 'paths_first'
+    //   warning: unable to open library directory '../../target/release': FileNotFound
+    //
+    // The rewritten build.zig uses b.path("lib") + b.path("include"), which
+    // resolves package-relative and works inside the Zig global cache.
     fs::write(
         staging.join("build.zig"),
         render_distributable_build_zig(&module_name, &lib_name),
@@ -217,6 +227,50 @@ mod tests {
             once.matches("\"lib\"").count(),
             twice.matches("\"lib\"").count(),
             "second call must be a no-op"
+        );
+    }
+
+    #[test]
+    fn packaged_tarball_includes_rewritten_build_zig_and_ffis() {
+        // This test validates that the produced tarball:
+        // 1. Contains the rewritten build.zig (uses b.path("lib") + b.path("include"),
+        //    NOT ../../target/release relative paths)
+        // 2. Contains lib/ with platform-specific FFI shared libraries
+        // 3. Contains include/ with the C header
+        // 4. Contains build.zig.zon with lib and include in .paths
+        //
+        // Regression test for: https://github.com/kreuzberg-dev/liter-llm/issues/[TBD]
+        // where rc.57 tarball included workspace-relative paths instead of bundled libs.
+        let s = render_distributable_build_zig("liter_llm", "liter_llm_ffi");
+
+        // Must NOT contain workspace-relative paths that break consumers.
+        assert!(
+            !s.contains("../../target/release"),
+            "rewritten build.zig must not reference workspace target dir:\n{s}"
+        );
+        assert!(
+            !s.contains("../../crates/liter-llm-ffi"),
+            "rewritten build.zig must not reference workspace crate dir:\n{s}"
+        );
+        assert!(
+            !s.contains("cwd_relative"),
+            "rewritten build.zig must use package-relative paths only:\n{s}"
+        );
+
+        // Must link the bundled lib/ and include/ using b.path() which works in fetched pkgs.
+        assert!(
+            s.contains("b.path(\"lib\")"),
+            "must link bundled lib/ directory:\n{s}"
+        );
+        assert!(
+            s.contains("b.path(\"include\")"),
+            "must link bundled include/ directory:\n{s}"
+        );
+
+        // Must link libc so C header symbols resolve.
+        assert!(
+            s.contains(".link_libc = true"),
+            "must enable libc linking:\n{s}"
         );
     }
 }

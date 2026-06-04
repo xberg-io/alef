@@ -1121,7 +1121,8 @@ module = "github.com/test/test-lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let backend = GoBackend;
         let files = backend.generate_bindings(&api, &config).unwrap();
         assert!(!files.is_empty());

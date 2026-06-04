@@ -63,7 +63,7 @@ fn test_visitor_file_emits_prefixed_struct() {
     };
 
     let output = gen_visitor_file(
-        &ApiSurface::default(),
+        &visitor_metadata_api("NodeContext", "VisitResult", "Continue"),
         "mypkg",
         "htm",
         "my_lib.h",
@@ -138,7 +138,7 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
     };
 
     let output = gen_visitor_file(
-        &ApiSurface::default(),
+        &visitor_metadata_api("NodeContext", "VisitResult", "Continue"),
         "mypkg",
         "krz",
         "my_lib.h",
@@ -262,7 +262,7 @@ fn test_visitor_file_uses_ir_context_fields_and_result_enum_wire_names() {
         "WalkOutcome",
         vec![
             variant("Proceed", None, false),
-            variant("StopHere", None, false),
+            default_variant("StopHere", None, false),
             variant("ReplaceWith", Some("replacement"), true),
             variant("Diagnostic", Some("message"), true),
         ],
@@ -297,11 +297,53 @@ fn test_visitor_file_uses_ir_context_fields_and_result_enum_wire_names() {
     assert!(output.contains("type WalkOutcome struct"));
     assert!(output.contains("func WalkOutcomeProceed() WalkOutcome"));
     assert!(output.contains("func WalkOutcomeReplaceWith(replacement string) WalkOutcome"));
+    assert!(output.contains("return WalkOutcomeStopHere()"));
+    assert!(!output.contains("return WalkOutcomeContinue()"));
     assert!(output.contains("jsonStr = `\"stop_here\"`"));
     assert!(output.contains("jsonStr = `{\"replace_with\":` + string(b) + `}`"));
     assert!(!output.contains("PreserveHTML"));
     assert!(!output.contains("type NodeContext struct"));
     assert!(!output.contains("type VisitResult struct"));
+}
+
+#[test]
+fn test_visitor_file_fails_without_result_enum_metadata() {
+    let trait_def = trait_def(
+        "SyntaxVisitor",
+        vec![method(
+            "visit_token",
+            vec![param("_ctx", TypeRef::Named("ParseContext".to_string()), false)],
+            TypeRef::Named("WalkOutcome".to_string()),
+        )],
+    );
+    let mut api = ApiSurface::default();
+    api.types.push(context_type(
+        "ParseContext",
+        vec![field("rule_name", TypeRef::String, false)],
+    ));
+
+    let output = gen_visitor_file(
+        &api,
+        "parser",
+        "prs",
+        "parser.h",
+        "../ffi",
+        "..",
+        "SyntaxVisitor",
+        "visitor",
+        &trait_def,
+        &bridge_config(
+            "SyntaxVisitor",
+            "ParseOptions",
+            "visitor",
+            "SyntaxVisitorHandle",
+            Some("ParseContext"),
+            Some("WalkOutcome"),
+        ),
+        &bridge_function("parse", "source", "options", "ParseOptions", "ParseTree"),
+    );
+
+    assert!(output.is_empty());
 }
 
 fn bridge_config(
@@ -468,6 +510,38 @@ fn variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVaria
         binding_exclusion_reason: None,
         originally_had_data_fields: payload_field.is_some(),
     }
+}
+
+fn default_variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVariant {
+    EnumVariant {
+        is_default: true,
+        ..variant(name, payload_field, is_tuple)
+    }
+}
+
+fn visitor_metadata_api(context_name: &str, result_name: &str, default_name: &str) -> ApiSurface {
+    let mut api = ApiSurface::default();
+    api.types.push(context_type(
+        context_name,
+        vec![
+            field("tag_name", TypeRef::String, false),
+            field("depth", TypeRef::Primitive(alef::core::ir::PrimitiveType::Usize), false),
+        ],
+    ));
+    api.enums.push(result_enum(
+        result_name,
+        vec![
+            if default_name == "Continue" {
+                default_variant("Continue", None, false)
+            } else {
+                variant("Continue", None, false)
+            },
+            variant("Skip", None, false),
+            variant("Custom", Some("value"), true),
+        ],
+        None,
+    ));
+    api
 }
 
 fn param(name: &str, ty: TypeRef, optional: bool) -> ParamDef {

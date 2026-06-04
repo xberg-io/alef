@@ -157,6 +157,11 @@ public enum RustBridgePlaceholder {{}}
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.swift]\nindent_style = space\nindent_size = 2\n";
 
     let swiftformat = "lineLength = 120\nindent = 2\nusesTabs = false\n";
+    let license_section = meta
+        .license
+        .as_deref()
+        .map(|license| format!("\n## License\n\n{license}\n"))
+        .unwrap_or_default();
 
     let readme = format!(
         r#"# {module}
@@ -184,16 +189,11 @@ Before the Cargo build output exists, Alef emits placeholder RustBridge files so
 the generated package layout is complete. After Cargo produces swift-bridge
 artifacts, rerunning Alef replaces the placeholders with the generated Swift and
 C bridge sources.
-
-## License
-
-{license}
 "#,
         module = module,
         description = meta.description,
         binding_crate = binding_crate_name,
-        license = meta.license,
-    );
+    ) + &license_section;
 
     // 2-space indentation matches `swift-format` defaults.
     let demo_swift = format!(
@@ -231,8 +231,9 @@ struct Demo {{
     // binaryTarget manifest with an unsafe-flags variant, breaking remote
     // SwiftPM consumers (`error: the target 'RustBridge' in product
     // '{module}' contains unsafe build flags`).
-    let root_package_swift = format!(
-        r#"// swift-tools-version: 6.0
+    let root_package_swift = meta.repository.as_deref().map(|repository| {
+        format!(
+            r#"// swift-tools-version: 6.0
 // Root-level Package.swift — alef-generated for published distributions.
 //
 // This manifest uses `.binaryTarget` for pre-built XCFramework/artifact bundles.
@@ -268,18 +269,14 @@ let package = Package(
   ]
 )
 "#,
-        module = module,
-        min_macos = min_macos_major,
-        min_ios = min_ios_major,
-        repository = meta.repository.trim_end_matches('/'),
-    );
+            module = module,
+            min_macos = min_macos_major,
+            min_ios = min_ios_major,
+            repository = repository.trim_end_matches('/'),
+        )
+    });
 
-    Ok(vec![
-        GeneratedFile {
-            path: PathBuf::from("Package.swift"),
-            content: root_package_swift,
-            generated_header: false,
-        },
+    let mut files = vec![
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
             content: package_swift,
@@ -330,7 +327,18 @@ let package = Package(
             content: demo_swift,
             generated_header: false,
         },
-    ])
+    ];
+    if let Some(root_package_swift) = root_package_swift {
+        files.insert(
+            0,
+            GeneratedFile {
+                path: PathBuf::from("Package.swift"),
+                content: root_package_swift,
+                generated_header: false,
+            },
+        );
+    }
+    Ok(files)
 }
 
 /// Build the content for `Sources/RustBridgeC/RustBridgeC.h`.

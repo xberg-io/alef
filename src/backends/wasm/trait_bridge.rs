@@ -342,7 +342,7 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
-) -> BridgeOutput {
+) -> anyhow::Result<BridgeOutput> {
     // Build type name → rust_path lookup, converting to owned HashMap<String, String>
     let type_paths: HashMap<String, String> = api
         .types
@@ -381,7 +381,7 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
-        );
+        )?;
         BridgeOutput {
             imports: vec![],
             code: out,
@@ -419,16 +419,16 @@ pub fn gen_trait_bridge(
         body = bridge.code,
     );
 
-    BridgeOutput {
+    Ok(BridgeOutput {
         imports: bridge.imports,
         code: gated,
-    }
+    })
 }
 
 /// Generate a visitor-style bridge wrapping a `wasm_bindgen::JsValue` object.
 ///
 /// Every trait method checks if the JS object has a matching camelCase property,
-/// then calls it via `js_sys::Reflect` and maps the return value to `VisitResult`.
+/// then calls it via `js_sys::Reflect` and maps the return value to the configured result enum.
 #[allow(clippy::too_many_arguments)]
 fn gen_visitor_bridge(
     out: &mut String,
@@ -439,8 +439,14 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &HashMap<String, String>,
     api: &ApiSurface,
-) {
-    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
+) -> anyhow::Result<()> {
+    let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+        api,
+        bridge_cfg,
+        core_crate,
+        crate::codegen::visitor_context::VisitorContextBackend::Wasm,
+    )?;
     let methods: Vec<_> = trait_type
         .methods
         .iter()
@@ -456,6 +462,8 @@ fn gen_visitor_bridge(
 
     let ctx = minijinja::context! {
         core_crate => core_crate.to_string(),
+        context_type_path => context_helper.type_path,
+        context_field_lines => context_helper.field_lines,
         struct_name => struct_name.to_string(),
         trait_path => trait_path.to_string(),
         methods => methods,
@@ -463,6 +471,7 @@ fn gen_visitor_bridge(
     let rendered = crate::backends::wasm::template_env::render("gen_visitor_bridge", ctx);
     out.push_str(&rendered);
     out.push('\n');
+    Ok(())
 }
 
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
@@ -955,6 +964,23 @@ pub(crate) fn wasm_bridge_module_name(bridge_cfg: &TraitBridgeConfig) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let output = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
+        assert!(output.code.contains("displayName"));
+    }
 
     #[test]
     fn visitor_handle_constructor_uses_configured_bridge_names() {

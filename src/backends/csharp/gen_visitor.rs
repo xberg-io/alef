@@ -598,7 +598,8 @@ mod tests {
             excluded_trait_names: Default::default(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     fn bridge_cfg(context_type: Option<&str>, result_type: Option<&str>) -> TraitBridgeConfig {

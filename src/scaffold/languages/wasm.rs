@@ -34,14 +34,18 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             )
         })
         .unwrap_or_default();
+    let license_block = meta
+        .license
+        .as_deref()
+        .map(|license| format!(",\n  \"license\": \"{license}\""))
+        .unwrap_or_default();
 
     let pkg_json = format!(
         r#"{{
   "name": "{wasm_pkg_name}",
   "version": "{version}",
   "private": false,
-  "description": "{description}",
-  "license": "{license}"{repository_block},
+  "description": "{description}"{license_block}{repository_block},
   "publishConfig": {{
     "access": "public"
   }},
@@ -73,7 +77,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         wasm_pkg_name = wasm_pkg_name,
         version = version,
         description = meta.description,
-        license = meta.license,
+        license_block = license_block,
         repository_block = repository_block,
         core_crate_file = core_crate_file,
     );

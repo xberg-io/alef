@@ -342,28 +342,10 @@ pub fn {{ func_name }}_with_visitor({{ vis_params_str }}) -> Result<(), String> 
         "visitor_bridge_helper.rs.jinja",
         r#"fn nodecontext_to_elixir_map<'a>(
     env: rustler::Env<'a>,
-    ctx: &{{ core_crate }}::visitor::NodeContext,
+    ctx: &{{ context_type_path }},
 ) -> rustler::Term<'a> {
     let mut pairs: Vec<(rustler::Term<'a>, rustler::Term<'a>)> = Vec::new();
-    {
-        let node_type_debug = format!("{:?}", ctx.node_type);
-        let node_type_snake: String = node_type_debug.chars().enumerate()
-            .flat_map(|(i, c)| {
-                if c.is_uppercase() && i > 0 { vec!['_', c.to_lowercase().next().unwrap()] }
-                else if c.is_uppercase() { vec![c.to_lowercase().next().unwrap()] }
-                else { vec![c] }
-            }).collect();
-        pairs.push((rustler::types::atom::Atom::from_str(env, "node_type").unwrap().to_term(env), rustler::types::atom::Atom::from_str(env, &node_type_snake).unwrap().to_term(env)));
-    }
-    pairs.push((rustler::types::atom::Atom::from_str(env, "tag_name").unwrap().to_term(env), ctx.tag_name.encode(env)));
-    pairs.push((rustler::types::atom::Atom::from_str(env, "depth").unwrap().to_term(env), (ctx.depth as i64).encode(env)));
-    pairs.push((rustler::types::atom::Atom::from_str(env, "index_in_parent").unwrap().to_term(env), (ctx.index_in_parent as i64).encode(env)));
-    pairs.push((rustler::types::atom::Atom::from_str(env, "is_inline").unwrap().to_term(env), ctx.is_inline.encode(env)));
-    let parent_tag_term = match &ctx.parent_tag { Some(s) => s.encode(env), None => rustler::types::atom::Atom::from_str(env, "nil").unwrap().to_term(env) };
-    pairs.push((rustler::types::atom::Atom::from_str(env, "parent_tag").unwrap().to_term(env), parent_tag_term));
-    let attrs_pairs: Vec<(rustler::Term<'a>, rustler::Term<'a>)> = ctx.attributes.iter().map(|(k, v)| (k.encode(env), v.encode(env))).collect();
-    let attrs_map = rustler::Term::map_from_pairs(env, &attrs_pairs).unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env, "nil").unwrap().to_term(env));
-    pairs.push((rustler::types::atom::Atom::from_str(env, "attributes").unwrap().to_term(env), attrs_map));
+{{ context_field_lines }}
     rustler::Term::map_from_pairs(env, &pairs).unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env, "nil").unwrap().to_term(env))
 }
 

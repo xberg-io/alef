@@ -1,20 +1,10 @@
 fn nodecontext_to_robj(
-    ctx: &{{ core_crate }}::visitor::NodeContext,
+    ctx: &{{ context_type_path }},
 ) -> extendr_api::Robj {
     use extendr_api::prelude::*;
-    let attrs_pairs: Vec<(&str, extendr_api::Robj)> = ctx.attributes.iter()
-        .map(|(k, v)| (k.as_str(), extendr_api::Robj::from(v.as_str())))
-        .collect();
-    let attrs: extendr_api::Robj = List::from_pairs(attrs_pairs).into();
-    list!(
-        node_type = format!("{:?}", ctx.node_type),
-        tag_name = ctx.tag_name.as_str(),
-        depth = ctx.depth as i32,
-        index_in_parent = ctx.index_in_parent as i32,
-        is_inline = ctx.is_inline,
-        parent_tag = ctx.parent_tag.as_deref().unwrap_or(""),
-        attributes = attrs,
-    ).into()
+    let mut pairs: Vec<(&str, extendr_api::Robj)> = Vec::new();
+{{ context_field_lines }}
+    List::from_pairs(pairs).into()
 }
 
 pub struct {{ struct_name }} {

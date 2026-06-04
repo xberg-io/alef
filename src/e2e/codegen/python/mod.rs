@@ -395,7 +395,7 @@ result_var = "result"
         let codegen = PythonE2eCodegen;
         let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
         // conftest.py, tests/__init__.py, pyproject.toml
-        // (NO root __init__.py — would shadow the published `sample_llm` package
+        // (NO root __init__.py — would shadow the published `demo_client` package
         // during `uv sync`'s editable install of the e2e project.)
         assert_eq!(files.len(), 3, "expected 3 config files, got: {}", files.len());
         let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();

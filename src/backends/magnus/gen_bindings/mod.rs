@@ -446,7 +446,7 @@ impl Backend for MagnusBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
-                );
+                )?;
                 let bridge_debug_count = bridge_code.matches("impl std::fmt::Debug").count();
                 if bridge_debug_count != 1 {
                     eprintln!(
@@ -1168,7 +1168,8 @@ gem_name = "test_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]

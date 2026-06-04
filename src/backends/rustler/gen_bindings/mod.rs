@@ -377,7 +377,7 @@ impl Backend for RustlerBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
-                );
+                )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);
                 }
@@ -1976,7 +1976,8 @@ app_name = "my_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     /// The generated lib.rs must be placed in `{name}_nif/src/lib.rs` by default —

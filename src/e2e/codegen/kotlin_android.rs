@@ -933,10 +933,10 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_includes_jackson_module_kotlin() {
         let output = render_build_gradle_kotlin_android(
-            "sample-llm",
+            "demo-client",
             "dev.sample_crate.samplellm.android",
             "1.0.0",
-            "dev.sample_crate:sample-llm-android:1.0.0",
+            "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
         );
@@ -974,7 +974,7 @@ mod tests {
     /// causes `Plugin [id: 'com.android.library'] was not found` at config time.
     #[test]
     fn settings_gradle_kotlin_android_declares_plugin_repositories() {
-        let output = render_settings_gradle_kotlin_android("sample-llm");
+        let output = render_settings_gradle_kotlin_android("demo-client");
         assert!(
             output.contains("pluginManagement"),
             "settings.gradle.kts must declare pluginManagement block, got:\n{output}"
@@ -988,7 +988,7 @@ mod tests {
             "pluginManagement repositories must include gradlePluginPortal(), got:\n{output}"
         );
         assert!(
-            output.contains("rootProject.name = \"sample-llm-e2e\""),
+            output.contains("rootProject.name = \"demo-client-e2e\""),
             "rootProject.name must be derived from pkg_name, got:\n{output}"
         );
     }
@@ -1002,9 +1002,9 @@ mod tests {
     /// characters: [/, \\, :, <, >, \", ?, *, |]".
     #[test]
     fn settings_gradle_kotlin_android_strips_maven_group_from_project_name() {
-        let output = render_settings_gradle_kotlin_android("dev.sample_crate:sample-markdown-android");
+        let output = render_settings_gradle_kotlin_android("dev.sample_crate:demo-markup-android");
         assert!(
-            output.contains("rootProject.name = \"sample-markdown-android-e2e\""),
+            output.contains("rootProject.name = \"demo-markup-android-e2e\""),
             "rootProject.name must strip Maven group prefix, got:\n{output}"
         );
         let project_name_line = output
@@ -1080,10 +1080,10 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_local_mode_excludes_aar_verification_task() {
         let output = render_build_gradle_kotlin_android(
-            "sample-llm",
+            "demo-client",
             "dev.sample_crate.samplellm.android",
             "1.0.0",
-            "dev.sample_crate:sample-llm-android:1.0.0",
+            "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
         );
@@ -1387,7 +1387,7 @@ mod test_backend_tests {
                 make_param("content", TypeRef::Bytes),
                 make_param("mime_type", TypeRef::String),
             ],
-            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            return_type: TypeRef::Named("ProcessingResult".to_string()),
             is_async: true,
             is_static: false,
             error_type: Some("anyhow::Error".to_string()),
@@ -1428,7 +1428,7 @@ mod test_backend_tests {
             "string param must map to String in Kotlin, got:\n{output}"
         );
         assert!(
-            output.contains("): ExtractionResult"),
+            output.contains("): ProcessingResult"),
             "return type must be concrete not Any, got:\n{output}"
         );
     }

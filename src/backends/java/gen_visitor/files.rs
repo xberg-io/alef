@@ -621,7 +621,8 @@ pub(super) mod tests {
             excluded_trait_names: Default::default(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     fn type_def(name: &str, is_trait: bool, methods: Vec<MethodDef>, fields: Vec<FieldDef>) -> TypeDef {

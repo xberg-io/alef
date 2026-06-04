@@ -18,7 +18,8 @@ fn make_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {

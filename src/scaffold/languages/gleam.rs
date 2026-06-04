@@ -10,6 +10,11 @@ pub(crate) fn scaffold_gleam(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let meta = scaffold_meta(config);
     let version = &api.version;
     let gleam_app = gleam_app_name(config);
+    let license = meta.license.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Gleam scaffold requires package metadata license; set package_metadata.license or scaffold.license"
+        )
+    })?;
 
     let gleam_toml = format!(
         r#"name = "{app_name}"
@@ -27,7 +32,7 @@ gleeunit = "{gleeunit}"
         app_name = gleam_app,
         version = version,
         description = meta.description,
-        license = meta.license,
+        license = license,
         stdlib = hex::GLEAM_STDLIB_VERSION_RANGE,
         gleeunit = hex::GLEEUNIT_VERSION_RANGE,
     );
@@ -94,7 +99,7 @@ Add to your `gleam.toml`:
         gleam_app = gleam_app,
         description = meta.description,
         dependency_ref = gleam_dependency_ref(&meta),
-        license = meta.license,
+        license = license,
     );
 
     let example_gleam = format!(

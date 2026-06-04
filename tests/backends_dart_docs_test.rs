@@ -48,6 +48,7 @@ fn test_dartdoc_emitted_for_bridge_function() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config();

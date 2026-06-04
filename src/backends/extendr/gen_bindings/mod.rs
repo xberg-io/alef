@@ -732,7 +732,7 @@ impl Backend for ExtendrBackend {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
-                );
+                )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);
                 }
@@ -3457,7 +3457,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]
@@ -3631,7 +3632,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -3750,7 +3752,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -3884,7 +3887,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]
@@ -4048,7 +4052,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -4128,7 +4133,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -4212,7 +4218,8 @@ package_name = "testlib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()
@@ -4524,7 +4531,8 @@ exclude_languages = ["r"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let files = backend.generate_public_api(&api, &config).unwrap();
         let wrappers = files
             .iter()

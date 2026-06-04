@@ -274,6 +274,11 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .as_deref()
         .map(|repository| format!("urls.repository = \"{repository}\"\n"))
         .unwrap_or_default();
+    let license_toml = meta
+        .license
+        .as_deref()
+        .map(|license| format!("license = \"{license}\"\nlicense-files = [ \"LICENSE\" ]\n"))
+        .unwrap_or_default();
 
     let dev_group_entries = [
         format!("\"mypy{}\"", canonicalize_pep440_specifier(tv::pypi::MYPY)),
@@ -300,9 +305,7 @@ requires = [ "{maturin_build_requires}" ]
 name = "{pip_name}"
 version = "{version}"
 description = "{description}"
-{keywords}license = "{license}"
-license-files = [ "LICENSE" ]
-{authors}requires-python = ">=3.10"
+{keywords}{license_toml}{authors}requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
@@ -390,7 +393,7 @@ overrides = [
         pip_name = pip_name,
         version = version,
         description = meta.description,
-        license = meta.license,
+        license_toml = license_toml,
         authors = authors_toml,
         keywords = keywords_toml,
         homepage = homepage_toml,

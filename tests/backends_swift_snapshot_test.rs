@@ -186,7 +186,8 @@ fn make_basic_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn make_basic_config() -> ResolvedCrateConfig {
@@ -288,7 +289,8 @@ fn snapshot_conversion_struct_with_named_types() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -369,7 +371,8 @@ fn snapshot_conversion_enum_with_data() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -429,7 +432,8 @@ fn snapshot_conversion_vec_of_named() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -627,7 +631,8 @@ fn snapshot_trait_bridge_inbound() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -752,7 +757,8 @@ fn snapshot_tuple_field_as_vec() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -819,7 +825,8 @@ fn snapshot_streaming_adapter() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -897,7 +904,8 @@ fn snapshot_first_class_struct_optional_field() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1070,7 +1078,8 @@ fn snapshot_trait_bridge_inbound_options_field() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let toml = r#"
 [workspace]
@@ -1168,7 +1177,8 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1318,7 +1328,8 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1422,7 +1433,8 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1531,7 +1543,8 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1659,7 +1672,8 @@ fn snapshot_enum_variant_optional_field() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -1773,7 +1787,8 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_basic_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();

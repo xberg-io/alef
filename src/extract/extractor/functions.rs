@@ -103,17 +103,9 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         }
     }
 
-    let mut params = extract_params(&item.sig.inputs);
+    let params = extract_params(&item.sig.inputs);
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let sanitized = params.iter().any(|p| p.sanitized);
-
-    // Monomorphize: replace generic type param names (e.g. `T`) with `String`.
-    if !type_param_names.is_empty() {
-        for param in &mut params {
-            monomorphize_type_ref(&mut param.ty, &type_param_names);
-        }
-        monomorphize_type_ref(&mut return_type, &type_param_names);
-    }
 
     Some(FunctionDef {
         rust_path,

@@ -195,7 +195,8 @@ module_name = "_test_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+                unsupported_public_items: Vec::new(),
+};
         let config = make_config();
         let result = gen_module_init("_test_lib", &api, &config);
         assert!(result.contains("#[pymodule]"));

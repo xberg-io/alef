@@ -151,6 +151,7 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = JavaBackend
@@ -226,6 +227,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = JavaBackend
@@ -304,6 +306,7 @@ fn bool_function_uses_i32_ffi_layout_and_boolean_wrapper_result() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = JavaBackend
@@ -381,6 +384,7 @@ fn string_return_uses_len_companion_and_bounded_decode() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = JavaBackend
@@ -507,6 +511,7 @@ fn named_param_from_json_is_checked_before_primary_call() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = JavaBackend
@@ -658,6 +663,7 @@ fn test_basic_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(
@@ -843,6 +849,7 @@ package = "dev.example"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -901,6 +908,7 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -941,6 +949,7 @@ fn test_package_default_when_unconfigured() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     // No java package and no scaffold repository configured
@@ -1168,6 +1177,7 @@ fn test_optional_field_defaults_in_builder() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(
@@ -1330,6 +1340,7 @@ fn test_no_standalone_builder_java_file_emitted() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("com.example");
@@ -1444,6 +1455,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = backend
@@ -1678,6 +1690,7 @@ type = "ChatCompletionRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let backend = JavaBackend;
@@ -1813,6 +1826,7 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(
@@ -1944,6 +1958,7 @@ fn test_dto_emits_as_record_with_fields_only() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("com.test");
@@ -2008,6 +2023,7 @@ fn test_opaque_handle_type_remains_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("com.test");
@@ -2142,6 +2158,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("com.test");
@@ -2283,6 +2300,7 @@ type = "EventRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let backend = JavaBackend;
@@ -2400,6 +2418,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = backend
@@ -2517,6 +2536,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = backend
@@ -2721,6 +2741,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -2903,6 +2924,7 @@ type = "EventRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let backend = JavaBackend;
@@ -2989,6 +3011,7 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -3093,6 +3116,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -3208,6 +3232,7 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config_with_builder_always("dev.test");
@@ -3292,6 +3317,7 @@ fn json_util_centralizes_from_json_deserialization() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -3374,6 +3400,7 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("dev.test");
@@ -3444,6 +3471,7 @@ fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(
@@ -3741,6 +3769,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = resolved_one(
@@ -3876,6 +3905,7 @@ fn test_facade_no_java_lang_imports() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_test_config("com.example");
@@ -4049,6 +4079,7 @@ type = "CrawlRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let result = backend.generate_bindings(&api, &config);

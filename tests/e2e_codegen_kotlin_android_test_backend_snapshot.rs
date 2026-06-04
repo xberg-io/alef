@@ -83,14 +83,14 @@ fn snapshot_emit_test_backend_implements_interface() {
         ..Default::default()
     };
 
-    // async fn extract_bytes(&self, content: ByteArray, mime_type: String) -> ExtractionResult
+    // async fn extract_bytes(&self, content: ByteArray, mime_type: String) -> ProcessingResult
     let extract = make_method(
         "extract_bytes",
         vec![
             make_param("content", TypeRef::Bytes),
             make_param("mime_type", TypeRef::String),
         ],
-        TypeRef::Named("ExtractionResult".to_string()),
+        TypeRef::Named("ProcessingResult".to_string()),
         true,
         false,
     );
@@ -138,7 +138,7 @@ fn snapshot_emit_test_backend_implements_interface() {
 
     // Return type must be concrete.
     assert!(
-        emission.setup_block.contains("): ExtractionResult"),
+        emission.setup_block.contains("): ProcessingResult"),
         "return type must be concrete not Any, got:\n{}",
         emission.setup_block
     );

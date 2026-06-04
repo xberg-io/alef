@@ -5677,7 +5677,8 @@ mod tests {
             version: "0.1.0".to_string(),
             types: vec![trait_def],
             ..Default::default()
-        };
+unsupported_public_items: Vec::new(),
+};
         let toml = r#"
 [workspace]
 languages = ["swift"]

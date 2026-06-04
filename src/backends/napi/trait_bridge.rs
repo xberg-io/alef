@@ -304,7 +304,7 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
-) -> BridgeOutput {
+) -> anyhow::Result<BridgeOutput> {
     // Build type name → rust_path lookup (converted to String-owned HashMap)
     let type_paths: HashMap<String, String> = api
         .types
@@ -341,8 +341,8 @@ pub fn gen_trait_bridge(
             core_import,
             &type_paths,
             api,
-        );
-        BridgeOutput { imports: vec![], code }
+        )?;
+        Ok(BridgeOutput { imports: vec![], code })
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = NapiBridgeGenerator {
@@ -359,14 +359,14 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
-        gen_bridge_all(&spec, &generator)
+        Ok(gen_bridge_all(&spec, &generator))
     }
 }
 
 /// Generate a visitor-style bridge wrapping a `napi::bindgen_prelude::Object`.
 ///
 /// Every trait method checks if the JS object has a matching camelCase property,
-/// then calls it with converted arguments and maps the JS return value to `VisitResult`.
+/// then calls it with converted arguments and maps the JS return value to the configured result enum.
 fn gen_visitor_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
@@ -375,8 +375,14 @@ fn gen_visitor_bridge(
     core_crate: &str,
     type_paths: &HashMap<String, String>,
     api: &ApiSurface,
-) -> String {
-    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
+) -> anyhow::Result<String> {
+    let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+        api,
+        bridge_cfg,
+        core_crate,
+        crate::codegen::visitor_context::VisitorContextBackend::Napi,
+    )?;
     let mut method_impls = String::with_capacity(4096);
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
@@ -393,15 +399,17 @@ fn gen_visitor_bridge(
         );
     }
 
-    crate::backends::napi::template_env::render(
+    Ok(crate::backends::napi::template_env::render(
         "visitor_bridge.jinja",
         minijinja::context! {
             core_crate => core_crate,
+            context_type_path => context_helper.type_path,
+            context_field_lines => context_helper.field_lines,
             struct_name => struct_name,
             trait_path => trait_path,
             method_impls => method_impls,
         },
-    )
+    ))
 }
 
 /// Build the Function args tuple type string for a given number of Unknown args.
@@ -1058,4 +1066,24 @@ fn render_bridge_function_body(
             return_wrap => return_wrap,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let output = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
+        assert!(output.code.contains("displayName"));
+    }
 }

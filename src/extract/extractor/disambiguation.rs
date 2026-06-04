@@ -252,7 +252,7 @@ mod tests {
 
     fn empty_surface() -> ApiSurface {
         ApiSurface::default()
-    }
+}
 
     #[test]
     fn pair_collision_renames_second_with_parent_prefix() {

@@ -1471,6 +1471,7 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
+}
     }
 
     /// `gen_service_ex` emits a module named after the service owner.

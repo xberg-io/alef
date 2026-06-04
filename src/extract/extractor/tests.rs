@@ -16,7 +16,8 @@ fn extract_from_source(source: &str) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let mut visited = Vec::new();
     let mut rwa = ahash::AHashSet::new();
     extract_items(
@@ -489,7 +490,8 @@ fn test_merge_surface_no_duplicates() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let src = ApiSurface {
         crate_name: "test".into(),
@@ -549,7 +551,8 @@ fn test_merge_surface_no_duplicates() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     merge_surface(&mut dst, src, None);
     assert_eq!(dst.types.len(), 2);
@@ -570,7 +573,8 @@ fn test_merge_surface_filtered() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let src = ApiSurface {
         crate_name: "test".into(),
@@ -630,7 +634,8 @@ fn test_merge_surface_filtered() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     merge_surface_filtered(&mut dst, src, &["Wanted".to_string()], None);
     assert_eq!(dst.types.len(), 1);
@@ -2778,7 +2783,8 @@ fn test_merge_surface_includes_functions_and_enums() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let src = ApiSurface {
         crate_name: "src".into(),
@@ -2823,7 +2829,8 @@ fn test_merge_surface_includes_functions_and_enums() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     super::reexports::merge_surface(&mut dst, src, None);
     assert_eq!(dst.functions.len(), 1);
@@ -2846,7 +2853,8 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let src = ApiSurface {
         crate_name: "src".into(),
@@ -2929,7 +2937,8 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];
     super::reexports::merge_surface_filtered(&mut dst, src, &names, None);

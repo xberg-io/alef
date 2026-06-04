@@ -92,13 +92,13 @@ const TOML_WITH_JAVA_CLIENT_FACTORY: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
 package = "dev.sample_crate.samplellm.android"
 namespace = "dev.sample_crate.samplellm.android"
-artifact_id = "sample-llm-android"
+artifact_id = "demo-client-android"
 group_id = "dev.sample_crate"
 
 [crates.e2e]
@@ -125,7 +125,7 @@ options_type = "ChatCompletionRequest"
 options_via = "from_json"
 
 [crates.e2e.packages.kotlin_android]
-name = "sample-llm"
+name = "demo-client"
 "#;
 
 /// alef.toml with explicit enum_fields declaring finish_reason as enum-typed.
@@ -135,13 +135,13 @@ const TOML_WITH_ENUM_FIELDS: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
 package = "dev.sample_crate.samplellm.android"
 namespace = "dev.sample_crate.samplellm.android"
-artifact_id = "sample-llm-android"
+artifact_id = "demo-client-android"
 group_id = "dev.sample_crate"
 
 [crates.e2e]
@@ -171,7 +171,7 @@ options_via = "from_json"
 enum_fields = { "choices.finish_reason" = "FinishReason" }
 
 [crates.e2e.packages.kotlin_android]
-name = "sample-llm"
+name = "demo-client"
 "#;
 
 /// alef.toml for kotlin_android streaming e2e via chatStream call.
@@ -180,13 +180,13 @@ const TOML_WITH_STREAMING: &str = r#"
 languages = ["kotlin_android"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.kotlin_android]
 package = "dev.sample_crate.samplellm.android"
 namespace = "dev.sample_crate.samplellm.android"
-artifact_id = "sample-llm-android"
+artifact_id = "demo-client-android"
 group_id = "dev.sample_crate"
 
 [crates.e2e]
@@ -213,7 +213,7 @@ options_type = "ChatCompletionRequest"
 options_via = "from_json"
 
 [crates.e2e.packages.kotlin_android]
-name = "sample-llm"
+name = "demo-client"
 "#;
 
 fn render_kotlin_android_chat(toml: &str, fixture: Fixture) -> String {

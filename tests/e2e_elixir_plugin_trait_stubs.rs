@@ -60,7 +60,7 @@ fn make_fixture(id: &str, input: serde_json::Value) -> Fixture {
 #[test]
 fn elixir_stub_emits_super_trait_name_and_initialize() {
     let bridge = make_trait_bridge("DocumentExtractor", Some("Plugin"));
-    let extract_method = make_method("extract_bytes", TypeRef::Named("ExtractionResult".to_string()), false);
+    let extract_method = make_method("extract_bytes", TypeRef::Named("ProcessingResult".to_string()), false);
     let methods = vec![&extract_method];
     let fixture = make_fixture("my_extractor", json!({ "extractor": { "name": "test-extractor" } }));
 

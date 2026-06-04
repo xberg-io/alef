@@ -17,7 +17,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["wasm"]
 
 [[crates]]
-name = "sample_crawler"
+name = "demo_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -26,7 +26,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "sample_crawler"
+module = "demo_crawler"
 result_var = "result"
 async = true
 returns_result = true

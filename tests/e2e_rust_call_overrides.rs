@@ -107,7 +107,7 @@ fn build_config(extra_call_override: &str) -> NewAlefConfig {
 languages = ["rust"]
 
 [[crates]]
-name = "sample-markdown-rs"
+name = "demo-markup-rs"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -225,7 +225,7 @@ fn extra_args_are_appended_after_configured_args() {
 
 #[test]
 fn wrap_options_in_some_combined_with_extra_args_and_returns_result() {
-    // The full sample-markdown shape: owned options slot, trailing visitor slot,
+    // The full demo-markup shape: owned options slot, trailing visitor slot,
     // and a fallible return that triggers `.expect("should succeed")`.
     let config = build_config(
         r#"

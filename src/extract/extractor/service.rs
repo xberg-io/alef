@@ -678,7 +678,7 @@ mod tests {
         let file_path = dir.path().join("lib.rs");
         std::fs::write(&file_path, src).expect("write test source");
         extractor::extract(&[file_path.as_path()], "test_crate", "0.1.0", None).expect("extraction must succeed")
-    }
+}
 
     /// Like [`extract_source`] but keeps the temp dir alive and returns the source
     /// path, so the service pass can re-parse it to recover generic registration

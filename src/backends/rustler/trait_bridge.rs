@@ -219,7 +219,7 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
-) -> BridgeOutput {
+) -> anyhow::Result<BridgeOutput> {
     // Build type name → rust_path lookup: convert to owned HashMap<String, String>
     let type_paths: HashMap<String, String> = api
         .types
@@ -261,11 +261,11 @@ pub fn gen_trait_bridge(
                 bridge_cfg,
                 api,
             },
-        );
-        BridgeOutput {
+        )?;
+        Ok(BridgeOutput {
             imports: vec![],
             code: out,
-        }
+        })
     } else {
         // Plugin-style bridge: use the IR-driven TraitBridgeGenerator infrastructure
         let generator = RustlerBridgeGenerator {
@@ -286,7 +286,7 @@ pub fn gen_trait_bridge(
         // Note: trait support NIFs (complete_trait_call/fail_trait_call) must be emitted
         // only once, not per-bridge. They are now emitted in gen_bindings/mod.rs after
         // trait bridge generation to avoid duplicate NIF definitions.
-        output
+        Ok(output)
     }
 }
 
@@ -309,7 +309,7 @@ struct VisitorBridgeCtx<'a> {
 /// process and blocks on a channel waiting for the reply from `visitor_reply/2`.
 /// When conversion finishes, the thread sends `{:ok, result_json}` or `{:error, reason}`
 /// to the caller.
-fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
+fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -> anyhow::Result<()> {
     let VisitorBridgeCtx {
         trait_type,
         struct_name,
@@ -319,10 +319,17 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         bridge_cfg,
         api,
     } = ctx;
-    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
-    // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
+    let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+        api,
+        bridge_cfg,
+        core_crate,
+        crate::codegen::visitor_context::VisitorContextBackend::Rustler,
+    )?;
+    // Helper: convert configured visitor context to a Rustler NifMap term inside an OwnedEnv
     let ctx_helper = minijinja::context! {
-        core_crate => core_crate
+        context_type_path => context_helper.type_path,
+        context_field_lines => context_helper.field_lines,
     };
     out.push_str(&crate::backends::rustler::template_env::render(
         "visitor_bridge_helper.rs.jinja",
@@ -345,7 +352,7 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         ctx_struct,
     ));
 
-    // Manual Debug impl (required by HtmlVisitor bound: std::fmt::Debug)
+    // Manual Debug impl for visitor traits that require std::fmt::Debug.
     let ctx_debug = minijinja::context! {
         struct_name => struct_name
     };
@@ -396,6 +403,7 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
     }
     out.push_str("}\n");
     out.push('\n');
+    Ok(())
 }
 
 /// Generate a single async visitor method that sends a callback message to the Elixir
@@ -1083,4 +1091,24 @@ pub fn gen_bridge_field_function(
     ));
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let output = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
+        assert!(output.code.contains("\"display_name\""));
+    }
 }

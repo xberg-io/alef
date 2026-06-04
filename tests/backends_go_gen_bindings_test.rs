@@ -164,7 +164,8 @@ fn test_basic_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -269,7 +270,8 @@ fn bytes_params_are_pinned_before_c_calls() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = GoBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = files
@@ -408,7 +410,8 @@ module = "github.com/test/test-lib"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = backend.generate_bindings(&api, &config).unwrap();
     let binding_go = files.iter().find(|file| file.path.ends_with("binding.go")).unwrap();
@@ -461,7 +464,8 @@ fn test_type_mapping() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -563,7 +567,8 @@ fn test_enum_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -609,7 +614,8 @@ fn test_generated_header() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -738,7 +744,8 @@ fn test_methods_generation() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -824,7 +831,8 @@ fn test_error_types() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -893,7 +901,8 @@ fn test_async_function() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -949,7 +958,8 @@ fn test_opaque_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1038,7 +1048,8 @@ fn test_default_config() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
 
@@ -1132,7 +1143,8 @@ fn test_optional_primitive_uses_cgo_types() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config).unwrap();
@@ -1210,7 +1222,8 @@ fn test_optional_return_type_no_double_pointer() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let result = backend.generate_bindings(&api, &config).unwrap();
@@ -1337,7 +1350,8 @@ fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 #[test]
@@ -1469,7 +1483,8 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = GoBackend.generate_bindings(&api, &config).unwrap();
     let binding = files
@@ -2107,7 +2122,8 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let result = backend.generate_bindings(&api, &config);
@@ -2215,7 +2231,8 @@ fn test_opaque_error_type_uses_value_semantics() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
@@ -2319,7 +2336,8 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
@@ -2800,7 +2818,8 @@ module = "github.com/example/mylib"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let backend = GoBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
     let binding_go = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();

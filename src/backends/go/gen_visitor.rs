@@ -34,9 +34,6 @@ use crate::core::{
 };
 use serde_json;
 
-const DEFAULT_CONTEXT_TYPE: &str = "NodeContext";
-const DEFAULT_RESULT_TYPE: &str = "VisitResult";
-
 /// Derive the cbindgen-generated C type name for a Rust FFI type.
 ///
 /// cbindgen prepends the uppercased `ffi_prefix` to the Rust struct name verbatim.
@@ -107,6 +104,7 @@ struct VisitorAssociatedTypes {
 struct VisitorCodecMetadata {
     context_fields: Vec<ContextFieldMetadata>,
     result_variants: Vec<ResultVariantMetadata>,
+    default_result_helper_name: String,
     default_result_wire_name: String,
 }
 
@@ -125,6 +123,7 @@ struct ResultVariantMetadata {
     name: String,
     wire_name: String,
     has_payload: bool,
+    is_default: bool,
     payload_name: String,
     payload_go_name: String,
 }
@@ -133,14 +132,20 @@ fn visitor_associated_types(
     trait_def: &crate::core::ir::TypeDef,
     bridge_cfg: &TraitBridgeConfig,
 ) -> Option<VisitorAssociatedTypes> {
-    let context_type = bridge_cfg
-        .context_type
-        .as_deref()
-        .or_else(|| infer_context_type(trait_def))?;
-    let result_type = bridge_cfg
-        .result_type
-        .as_deref()
-        .or_else(|| infer_result_type(trait_def))?;
+    let Some(context_type) = bridge_cfg.context_type.as_deref() else {
+        eprintln!(
+            "[alef] gen_visitor(go): trait bridge `{}` must configure context_type",
+            bridge_cfg.trait_name
+        );
+        return None;
+    };
+    let Some(result_type) = bridge_cfg.result_type.as_deref() else {
+        eprintln!(
+            "[alef] gen_visitor(go): trait bridge `{}` must configure result_type",
+            bridge_cfg.trait_name
+        );
+        return None;
+    };
 
     let has_matching_method = trait_def.methods.iter().any(|method| {
         method.trait_source.is_none()
@@ -155,29 +160,6 @@ fn visitor_associated_types(
         context_type: context_type.to_string(),
         result_type: result_type.to_string(),
     })
-}
-
-fn infer_context_type(trait_def: &crate::core::ir::TypeDef) -> Option<&str> {
-    trait_def
-        .methods
-        .iter()
-        .filter(|method| method.trait_source.is_none())
-        .flat_map(|method| method.params.iter())
-        .find_map(|param| {
-            let name = named_type_name(&param.ty)?;
-            (name == DEFAULT_CONTEXT_TYPE).then_some(name)
-        })
-}
-
-fn infer_result_type(trait_def: &crate::core::ir::TypeDef) -> Option<&str> {
-    trait_def
-        .methods
-        .iter()
-        .filter(|method| method.trait_source.is_none())
-        .find_map(|method| {
-            let name = named_type_name(&method.return_type)?;
-            (name == DEFAULT_RESULT_TYPE).then_some(name)
-        })
 }
 
 /// Build a `Vec<CallbackSpec>` from a trait's IR definition for the Go backend.
@@ -365,8 +347,14 @@ pub fn gen_visitor_file(
         );
         return String::new();
     }
+    let Some(codec_metadata) = visitor_codec_metadata(api, &associated_types) else {
+        eprintln!(
+            "[alef] gen_visitor(go): bridge `{}` requires IR metadata for context_type `{}` and result_type `{}`",
+            bridge_cfg.trait_name, associated_types.context_type, associated_types.result_type
+        );
+        return String::new();
+    };
     let mut out = String::with_capacity(32_768);
-    let codec_metadata = visitor_codec_metadata(api, &associated_types);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
@@ -493,7 +481,7 @@ pub fn gen_visitor_file(
                 params => param_str,
                 blank_ids => blank_ids,
                 return_type => spec.result_type.as_str(),
-                default_result_fn => result_helper_name(&spec.result_type, "Continue"),
+                default_result_fn => codec_metadata.default_result_helper_name.as_str(),
             },
         ));
         out.push('\n');
@@ -779,28 +767,33 @@ fn result_helper_name(result_type: &str, variant: &str) -> String {
     format!("{result_type}{variant}")
 }
 
-fn visitor_codec_metadata(api: &ApiSurface, associated_types: &VisitorAssociatedTypes) -> VisitorCodecMetadata {
+fn visitor_codec_metadata(api: &ApiSurface, associated_types: &VisitorAssociatedTypes) -> Option<VisitorCodecMetadata> {
     let context_fields = api
         .types
         .iter()
         .find(|type_def| type_def.name == associated_types.context_type)
-        .map(context_fields_from_type)
-        .unwrap_or_else(default_context_fields);
-    let result_variants = api
+        .map(context_fields_from_type)?;
+    let enum_def = api
         .enums
         .iter()
-        .find(|enum_def| enum_def.name == associated_types.result_type)
-        .map(|enum_def| result_variants_from_enum(enum_def, &associated_types.result_type))
-        .unwrap_or_else(|| default_result_variants(&associated_types.result_type));
-    let default_result_wire_name = result_variants
-        .first()
-        .map(|variant| variant.wire_name.clone())
-        .unwrap_or_else(|| "Continue".to_string());
-    VisitorCodecMetadata {
+        .find(|enum_def| enum_def.name == associated_types.result_type)?;
+    let result_variants = result_variants_from_enum(enum_def, &associated_types.result_type);
+    let unit_variants = result_variants
+        .iter()
+        .filter(|variant| !variant.has_payload)
+        .collect::<Vec<_>>();
+    let default_result_variant = result_variants
+        .iter()
+        .find(|variant| variant.is_default)
+        .or_else(|| (unit_variants.len() == 1).then_some(unit_variants[0]))?;
+    let default_result_helper_name = default_result_variant.helper_name.clone();
+    let default_result_wire_name = default_result_variant.wire_name.clone();
+    Some(VisitorCodecMetadata {
         context_fields,
-        result_variants,
+        default_result_helper_name,
         default_result_wire_name,
-    }
+        result_variants,
+    })
 }
 
 fn context_fields_from_type(type_def: &TypeDef) -> Vec<ContextFieldMetadata> {
@@ -824,35 +817,6 @@ fn context_fields_from_type(type_def: &TypeDef) -> Vec<ContextFieldMetadata> {
             }
         })
         .collect()
-}
-
-fn default_context_fields() -> Vec<ContextFieldMetadata> {
-    [
-        ("NodeType", "NodeType", "node_type", "Coarse-grained node type tag."),
-        ("TagName", "string", "tag_name", "Element tag name."),
-        ("Depth", "uint", "depth", "Traversal depth."),
-        ("IndexInParent", "uint", "index_in_parent", "0-based sibling index."),
-        (
-            "ParentTag",
-            "*string",
-            "parent_tag",
-            "Parent element tag name, or nil at the root.",
-        ),
-        (
-            "IsInline",
-            "bool",
-            "is_inline",
-            "True when this element is treated as inline.",
-        ),
-    ]
-    .into_iter()
-    .map(|(go_name, go_type, json_name, doc)| ContextFieldMetadata {
-        doc: doc.to_string(),
-        go_name: go_name.to_string(),
-        go_type: go_type.to_string(),
-        json_name: json_name.to_string(),
-    })
-    .collect()
 }
 
 fn result_variants_from_enum(enum_def: &EnumDef, result_type: &str) -> Vec<ResultVariantMetadata> {
@@ -889,35 +853,12 @@ fn result_variants_from_enum(enum_def: &EnumDef, result_type: &str) -> Vec<Resul
                     enum_def.serde_rename_all.as_deref(),
                 ),
                 has_payload,
+                is_default: variant.is_default,
                 payload_go_name: crate::codegen::naming::go_param_name(&payload_name),
                 payload_name,
             }
         })
         .collect()
-}
-
-fn default_result_variants(result_type: &str) -> Vec<ResultVariantMetadata> {
-    [
-        ("Continue", "Continue", false, "value"),
-        ("Skip", "Skip", false, "value"),
-        ("PreserveHTML", "PreserveHtml", false, "value"),
-        ("Custom", "Custom", true, "custom"),
-        ("Error", "Error", true, "message"),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(
-        |(code, (name, wire_name, has_payload, payload_name))| ResultVariantMetadata {
-            code: code as i32,
-            helper_name: result_helper_name(result_type, name),
-            name: name.to_string(),
-            wire_name: wire_name.to_string(),
-            has_payload,
-            payload_name: payload_name.to_string(),
-            payload_go_name: crate::codegen::naming::go_param_name(payload_name),
-        },
-    )
-    .collect()
 }
 
 fn named_type_name(ty: &TypeRef) -> Option<&str> {

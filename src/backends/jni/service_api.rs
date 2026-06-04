@@ -944,6 +944,7 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
+}
     }
 
     /// Construct a fixture with registration variants for testing variant emission.
@@ -966,7 +967,7 @@ mod tests {
             }
         }
         surface
-    }
+}
 
     /// `gen_service_rs` emits the JNI handler bridge struct.
     #[test]

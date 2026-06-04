@@ -176,7 +176,14 @@ fn validate_extracted_api(api: &ApiSurface, suppress_codes: &[String]) -> anyhow
     if !fatal.is_empty() {
         let formatted = fatal
             .iter()
-            .map(|d| format!("- [{}] {}", d.code, d.reason))
+            .map(|d| {
+                let path = d
+                    .item_path
+                    .as_deref()
+                    .map(|p| format!(" item `{p}`"))
+                    .unwrap_or_default();
+                format!("- [{}]{path} {}", d.code, d.reason)
+            })
             .collect::<Vec<_>>()
             .join("\n");
         anyhow::bail!("{}", formatted);
@@ -218,7 +225,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         crate_name: default_name.to_string(),
         version: version.clone(),
         ..ApiSurface::default()
-    };
+};
 
     for (crate_name, sources) in &groups {
         let api = crate::extract::extractor::extract(sources, crate_name, &version, workspace_root)
@@ -229,6 +236,7 @@ fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Res
         merged.errors.extend(api.errors);
         merged.excluded_type_paths.extend(api.excluded_type_paths);
         merged.excluded_trait_names.extend(api.excluded_trait_names);
+        merged.unsupported_public_items.extend(api.unsupported_public_items);
     }
 
     // Re-run the return-type marking against the merged surface so that a
@@ -1406,7 +1414,7 @@ mod tests {
                 binding_exclusion_reason: None,
             }],
             ..ApiSurface::default()
-        };
+};
 
         let err = validate_extracted_api(&api, &["unknown_named_type".to_string()]).expect_err("must stay fatal");
 
@@ -1558,7 +1566,8 @@ mod tests {
             excluded_trait_names: std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     /// Regression for a batch-result include bug: a function listed in

@@ -64,7 +64,7 @@ const BASE_TOML: &str = r#"
 languages = ["gleam"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -73,7 +73,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "sample_llm"
+module = "demo_client"
 result_var = "result"
 
 [[crates.e2e.call.args]]
@@ -91,7 +91,7 @@ const WITH_CLIENT_FACTORY_TOML: &str = r#"
 languages = ["gleam"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -100,7 +100,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "sample_llm"
+module = "demo_client"
 result_var = "result"
 
 [[crates.e2e.call.args]]
@@ -143,7 +143,7 @@ fn without_client_factory_emits_flat_function_call() {
     let rendered = render_gleam_smoke(BASE_TOML, "smoke_basic");
 
     assert!(
-        rendered.contains("sample_llm.chat("),
+        rendered.contains("demo_client.chat("),
         "must call module-level function directly. Rendered:\n{rendered}"
     );
     assert!(

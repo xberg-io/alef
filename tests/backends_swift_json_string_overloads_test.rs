@@ -139,6 +139,7 @@ fn json_string_overloads_emitted_for_serde_config() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config();
@@ -205,6 +206,7 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config();
@@ -275,6 +277,7 @@ fn json_string_overloads_emitted_for_async_and_sync_functions() {
         excluded_trait_names: Default::default(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let config = make_config();

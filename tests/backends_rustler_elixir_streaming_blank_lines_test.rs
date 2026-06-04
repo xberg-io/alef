@@ -61,7 +61,8 @@ fn empty_api(crate_name: &str) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn find_module<'a>(files: &'a [alef::core::backend::GeneratedFile], app_name: &str) -> &'a str {

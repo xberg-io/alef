@@ -137,7 +137,8 @@ fn cargo_toml_contains_swift_bridge_version() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -172,7 +173,8 @@ fn cargo_toml_contains_crate_name_and_version() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -202,7 +204,8 @@ fn cargo_toml_has_cdylib_and_staticlib() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -232,7 +235,8 @@ fn cargo_toml_contains_swift_extra_dependencies() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let toml = r#"
 [workspace]
 languages = ["swift"]
@@ -284,7 +288,8 @@ fn lib_rs_contains_bridge_module() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -323,7 +328,8 @@ fn lib_rs_has_extern_rust_block_per_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -364,7 +370,8 @@ fn lib_rs_type_has_constructor_and_getters() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -421,7 +428,8 @@ fn lib_rs_has_free_function_shim() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -473,7 +481,8 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -531,7 +540,8 @@ fn lib_rs_result_function_has_map_err_chain() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -563,7 +573,8 @@ fn build_rs_calls_parse_bridges() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let build = files.iter().find(|f| f.path.ends_with("build.rs")).unwrap();
@@ -595,7 +606,8 @@ fn emit_returns_three_files() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     assert_eq!(files.len(), 3, "expected 3 generated files, got {}", files.len());
@@ -631,7 +643,8 @@ fn lib_rs_has_generated_header_comment() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -662,7 +675,8 @@ fn lib_rs_has_wrapper_newtype_for_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -693,7 +707,8 @@ fn lib_rs_enum_extern_block_and_wrapper() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -742,7 +757,8 @@ fn lib_rs_struct_with_enum_field_returns_string() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -883,7 +899,8 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let cfg = config_with_bridge("Validator");
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
@@ -951,7 +968,8 @@ fn trait_bridge_async_method_emits_block_on() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let cfg = config_with_bridge("Processor");
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
@@ -1001,7 +1019,8 @@ fn inbound_plugin_impl_uses_qualified_super_trait_config_path() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let cfg = config_with_plugin_bridge("OcrBackend", "demo::plugin_api::Plugin");
 
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
@@ -1034,7 +1053,8 @@ fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let cfg = config_with_plugin_bridge("OcrBackend", "Plugin");
 
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
@@ -1081,7 +1101,8 @@ fn cargo_toml_has_license_field() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -1106,7 +1127,8 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -1135,7 +1157,8 @@ fn cargo_toml_includes_serde_json_dep() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -1206,7 +1229,8 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -1270,7 +1294,8 @@ fn make_minimal_trait_api(trait_name: &str) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 /// When `unregister_fn` and `clear_fn` are both configured, the generated lib.rs
@@ -1439,7 +1464,8 @@ type = "ChatCompletionRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1589,7 +1615,8 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1627,7 +1654,8 @@ fn no_streaming_adapters_emits_no_extra_blocks() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1730,7 +1758,8 @@ fn option_named_return_on_method_uses_map_not_serde_json() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1802,7 +1831,8 @@ fn bytes_ref_param_on_method_passes_borrowed_slice() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1854,7 +1884,8 @@ fn path_param_on_method_converts_to_pathbuf() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1931,7 +1962,8 @@ fn named_ref_param_on_method_passes_borrow_of_inner() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -1988,7 +2020,8 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -2022,7 +2055,8 @@ fn cargo_toml_two_features_stay_single_line() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let toml = r#"
 [workspace]
 languages = ["swift"]
@@ -2068,7 +2102,8 @@ fn cargo_toml_three_features_use_multi_line() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let toml = r#"
 [workspace]
 languages = ["swift"]
@@ -2125,7 +2160,8 @@ fn cargo_toml_multi_line_features_is_valid_toml() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
     let toml = r#"
 [workspace]
 languages = ["swift"]

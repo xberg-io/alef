@@ -107,6 +107,7 @@ fn struct_with_primitive_fields_emits_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -163,6 +164,7 @@ fn struct_with_optional_vec_map_fields() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -195,6 +197,7 @@ fn empty_struct_emits_empty_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -255,6 +258,7 @@ fn unit_enum_emits_dart_enum() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -323,6 +327,7 @@ fn data_bearing_enum_emits_sealed_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -375,6 +380,7 @@ fn simple_sync_function_emits_static_method() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -440,6 +446,7 @@ fn default_config_param_uses_default_constructor_for_empty_default_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -519,6 +526,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -568,6 +576,7 @@ fn async_function_emits_future_return_and_async_keyword() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -622,6 +631,7 @@ fn error_returning_function_emits_doc_comment() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -690,6 +700,7 @@ fn error_type_emits_sealed_class_hierarchy() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -727,6 +738,7 @@ fn bytes_field_adds_typed_data_import() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -754,6 +766,7 @@ fn output_path_uses_module_name() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let mut config = make_config();
     config.name = "my-lib".to_string();
@@ -861,6 +874,7 @@ fn no_trait_bridges_emit_empty_traits_dart_stub() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -898,6 +912,7 @@ fn single_trait_bridge_emits_traits_dart_with_abstract_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend
@@ -946,6 +961,7 @@ fn traits_dart_path_is_under_lib_src() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend
@@ -996,6 +1012,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let mut config = make_config();
@@ -1086,6 +1103,7 @@ fn excluded_trait_bridge_emits_empty_traits_dart_stub() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let mut config = make_config();
@@ -1145,6 +1163,7 @@ fn traits_dart_includes_typed_data_import_for_bytes_param() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend
@@ -1185,6 +1204,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend
@@ -1280,6 +1300,7 @@ fn dart_traits_preserve_excluded_named_type_as_explicit_bridge_type() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let config = make_config_with_bridge("DocumentExtractor");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -1332,6 +1353,7 @@ fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configure
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     let config = make_config_with_full_bridge("OcrBackend");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -1392,6 +1414,7 @@ fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
     // make_config_with_bridge leaves register_fn / unregister_fn / clear_fn all None
     let config = make_config_with_bridge("Validator");
@@ -1466,6 +1489,7 @@ fn enum_variant_named_default_is_escaped() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1525,6 +1549,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1605,6 +1630,7 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();

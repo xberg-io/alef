@@ -110,7 +110,8 @@ pub(crate) fn empty_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 pub(crate) fn make_test_config() -> crate::core::config::ResolvedCrateConfig {
@@ -140,5 +141,6 @@ pub(crate) fn make_minimal_api(version: &str) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }

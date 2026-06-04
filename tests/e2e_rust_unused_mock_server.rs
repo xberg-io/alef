@@ -1,6 +1,6 @@
 //! Regression: Rust e2e codegen must not emit `let mock_server = ...` for fixtures
 //! that never reference `mock_server.url` in their bodies. Under `-D warnings` (the
-//! sample_crawler CI policy), an unused variable triggers `unused_variables` and fails
+//! demo_crawler CI policy), an unused variable triggers `unused_variables` and fails
 //! the build.
 //!
 //! Error-path fixtures are the typical case: the mock server is needed to hold the
@@ -68,7 +68,7 @@ const CONFIG_TOML: &str = r#"
 languages = ["rust"]
 
 [[crates]]
-name = "sample_crawler"
+name = "demo_crawler"
 sources = ["src/lib.rs"]
 
 [crates.e2e]
@@ -77,7 +77,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "scrape"
-module = "sample_crawler"
+module = "demo_crawler"
 result_var = "result"
 async = true
 returns_result = true

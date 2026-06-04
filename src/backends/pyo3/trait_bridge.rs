@@ -366,7 +366,7 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
-) -> BridgeOutput {
+) -> anyhow::Result<BridgeOutput> {
     // Build type name → rust_path lookup for qualifying Named types in signatures
     let type_paths: HashMap<String, String> = api
         .types
@@ -396,8 +396,16 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let trait_path = trait_type.rust_path.replace('-', "_");
         let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
-        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths, api);
-        BridgeOutput { imports: vec![], code }
+        let code = gen_visitor_bridge(
+            trait_type,
+            bridge_cfg,
+            &struct_name,
+            &trait_path,
+            core_import,
+            &type_paths,
+            api,
+        )?;
+        Ok(BridgeOutput { imports: vec![], code })
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = Pyo3BridgeGenerator {
@@ -414,7 +422,7 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
-        gen_bridge_all(&spec, &generator)
+        Ok(gen_bridge_all(&spec, &generator))
     }
 }
 
@@ -430,22 +438,24 @@ fn gen_visitor_bridge(
     bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
+    core_crate: &str,
     type_paths: &HashMap<String, String>,
     api: &ApiSurface,
-) -> String {
-    let result_metadata = crate::codegen::visitor_result::visitor_result_metadata_or_legacy(Some(api), bridge_cfg);
-    let core_crate = trait_path
-        .split("::")
-        .next()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| panic!("trait_path '{trait_path}' must be a qualified path of the form 'crate_name::...'; configure the crate name in alef.toml"))
-        .to_string();
+) -> anyhow::Result<String> {
+    let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
+    let context_helper = crate::codegen::visitor_context::visitor_context_helper(
+        api,
+        bridge_cfg,
+        core_crate,
+        crate::codegen::visitor_context::VisitorContextBackend::Pyo3,
+    )?;
 
-    // Emit a helper function for converting NodeContext to a Python dict.
+    // Emit a helper function for converting the configured visitor context to a Python dict.
     let helper_fn = crate::backends::pyo3::template_env::render(
         "trait_bridge/nodecontext_to_py_dict.jinja",
         minijinja::context! {
-            core_crate => core_crate,
+            context_type_path => context_helper.type_path,
+            context_field_lines => context_helper.field_lines,
         },
     );
 
@@ -482,7 +492,7 @@ fn gen_visitor_bridge(
     ));
     out.push_str(&methods_code);
     out.push_str("}\n");
-    out
+    Ok(out)
 }
 
 /// Generate a single visitor-style trait method that tries Python dispatch, falls back to default.
@@ -491,7 +501,7 @@ fn gen_visitor_bridge(
 /// 1. Checks if the Python object has an attribute with this method's name.
 /// 2. If yes, calls the method with converted arguments and converts the Python return value
 ///    to the appropriate Rust return type.
-/// 3. If no (attribute absent), returns the trait default (typically `VisitResult::Continue`).
+/// 3. If no (attribute absent), returns the configured default result variant.
 fn gen_visitor_method(
     out: &mut String,
     method: &MethodDef,
@@ -556,7 +566,7 @@ fn gen_visitor_method(
 
 /// Build Python call argument expressions for a visitor method.
 ///
-/// - `NodeContext` params: converted to a Python dict via `nodecontext_to_py_dict`
+/// - configured context params: converted to a Python dict via `nodecontext_to_py_dict`
 /// - `&str` params: passed directly (PyO3 handles `&str` → Python str coercion)
 /// - `Option<&str>` params: passed as `Option<&str>` (PyO3 maps `None` → Python `None`)
 /// - `bool` and integer params: passed directly
@@ -981,6 +991,26 @@ pub fn gen_bridge_function(
             body => body,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn visitor_bridge_uses_configured_context_and_result_metadata() {
+        let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+        let output = super::gen_trait_bridge(
+            &trait_type,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge should generate");
+
+        crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
+        assert!(output.code.contains("\"display_name\""));
+    }
 }
 
 /// Generate a PyO3 function wrapper for a bridge whose handle lives as a field

@@ -74,7 +74,7 @@ const BASE_TOML: &str = r#"
 languages = ["ffi", "zig"]
 
 [[crates]]
-name = "sample-llm"
+name = "demo-client"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
@@ -86,7 +86,7 @@ output = "e2e"
 
 [crates.e2e.call]
 function = "chat"
-module = "sample_llm"
+module = "demo_client"
 result_var = "result"
 
 [[crates.e2e.call.args]]
@@ -98,7 +98,7 @@ type = "json_object"
 /// When `client_factory` is set, the generated test must:
 ///   1. create a client via the named factory function
 ///   2. call the method on the client instance (_client.chat)
-///   3. NOT call the module-level function directly (sample_llm.chat)
+///   3. NOT call the module-level function directly (demo_client.chat)
 #[test]
 fn with_client_factory_emits_client_instantiation() {
     let toml = format!(
@@ -120,8 +120,8 @@ result_is_json_struct = true
         "must call chat on client instance. Rendered:\n{rendered}"
     );
     assert!(
-        !rendered.contains("sample_llm.chat("),
-        "must NOT call sample_llm.chat directly when client_factory is set. Rendered:\n{rendered}"
+        !rendered.contains("demo_client.chat("),
+        "must NOT call demo_client.chat directly when client_factory is set. Rendered:\n{rendered}"
     );
     assert!(
         rendered.contains("MOCK_SERVER_URL"),
@@ -140,7 +140,7 @@ fn without_client_factory_emits_flat_function_call() {
     let rendered = render_zig_smoke(BASE_TOML, "smoke_basic");
 
     assert!(
-        rendered.contains("sample_llm.chat("),
+        rendered.contains("demo_client.chat("),
         "must call module-level function directly. Rendered:\n{rendered}"
     );
     assert!(

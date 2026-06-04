@@ -89,7 +89,8 @@ fn surface_for_type(typ: TypeDef) -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn binding_content(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
@@ -224,7 +225,8 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let content = binding_content(&api, &make_config());
 
@@ -359,7 +361,8 @@ fn option_string_return_null_checks_and_boxes_value() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    };
+        unsupported_public_items: Vec::new(),
+};
 
     let content = binding_content(&api, &make_config());
 

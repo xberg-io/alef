@@ -1105,7 +1105,7 @@ fn render_test_method(
             if let Some(req_type) = &adapter_request_type_owned {
                 // Find the urls argument part in args_str and wrap it in the request type
                 // The args_str typically looks like "engine, urls" where urls is List<string>
-                // We need to change it to "req" where req is a BatchCrawlStreamRequest wrapping urls
+                // We need to change it to "req" where req is a BatchedStreamItemsRequest wrapping urls
                 let parts: Vec<&str> = args_str.split(", ").collect();
                 if parts.len() >= 2 {
                     let urls_var = parts[parts.len() - 1]; // Last arg is the URLs
@@ -3652,7 +3652,7 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if cs_override.and_then(|o| o.client_factory.as_deref()).is_some() {
         return true;
     }
-    // C# binding provides a default class name (e.g., SampleCrawlerLib) if not overridden,
+    // C# binding provides a default class name (e.g., DemoCrawlerLib) if not overridden,
     // so any function name makes a callable available.
     cs_override.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty()
 }
@@ -3755,7 +3755,7 @@ fn csharp_type_for_stub_visible(
 }
 
 /// Emit the correct default value for a C# test stub return type.
-/// When the original type is non-visible (e.g., InternalDocument), it's mapped to `string`,
+/// When the original type is non-visible (e.g., HiddenRecord), it's mapped to `string`,
 /// so we need to return the appropriate default for the visible type, not the original.
 fn emit_csharp_stub_default(
     original_type: &crate::core::ir::TypeRef,
@@ -3810,10 +3810,10 @@ fn emit_csharp_stub_method(
     // (never emit `async Task<T>`). Always use the actual return type.
     let ret_ty = csharp_type_for_stub_visible(&method.return_type, excluded_types);
     // Use the visible type to determine the default value, not the original type
-    // (e.g., InternalDocument → string → "")
+    // (e.g., HiddenRecord → string → "")
     let default_val = emit_csharp_stub_default(&method.return_type, &ret_ty, defaults, excluded_types);
 
-    // Build parameter list using visible types (internal types like InternalDocument
+    // Build parameter list using visible types (internal types like HiddenRecord
     // are mapped to string to avoid stub referencing non-public types).
     let params: Vec<String> = method
         .params
@@ -3858,7 +3858,7 @@ fn emit_csharp_stub_method(
 /// - Required methods are emitted with return-type defaults produced by `CSharpDefaults`.
 /// - Async methods return `Task<T>` and are `async`; sync methods are plain.
 /// - Type names come from `csharp_type_for_stub()` — no crate-domain names
-///   are hardcoded here. Non-visible types (like InternalDocument, SyncExtractor)
+///   are hardcoded here. Non-visible types (like HiddenRecord, SyncExtractor)
 ///   are NOT referenced in test stubs.
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,

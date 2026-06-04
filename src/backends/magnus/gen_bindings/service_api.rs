@@ -1417,6 +1417,7 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
+}
     }
 
     /// `gen_service_rb` emits a class named after the service owner.

@@ -1669,7 +1669,7 @@ fn build_args_and_setup(
             }
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}_req", arg.name);
-                // Derive the module qualifier from module_name (e.g. "SampleCrawler")
+                // Derive the module qualifier from module_name (e.g. "DemoCrawler")
                 let mod_qualifier = ruby_module_name(module_name);
                 setup_lines.push(format!(
                     "{req_var} = {mod_qualifier}::{req_type}.new(url: {})",
@@ -2130,10 +2130,10 @@ fn render_assertion(
                 return;
             }
             // ---- keywords / keywords_count ----
-            // Ruby ExtractionResult does not expose extracted_keywords; skip.
+            // Ruby ProcessingResult does not expose result_keywords; skip.
             "keywords" | "keywords_count" => {
                 out.push_str(&format!(
-                    "    # skipped: field '{f}' not available on Ruby ExtractionResult\n"
+                    "    # skipped: field '{f}' not available on Ruby ProcessingResult\n"
                 ));
                 return;
             }
@@ -2584,7 +2584,7 @@ fn build_ruby_method_call(
 }
 
 /// Convert a module path (e.g., "sample_markdown") to Ruby PascalCase module name
-/// (e.g., "SampleMarkdown").
+/// (e.g., "DemoMarkup").
 fn ruby_module_name(module_path: &str) -> String {
     use heck::ToUpperCamelCase;
     module_path.to_upper_camel_case()
@@ -2990,7 +2990,7 @@ mod trait_bridge_tests {
         let extract_bytes = make_method(
             "extract_bytes",
             vec![("content", TypeRef::Bytes), ("mime_type", TypeRef::String)],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("HiddenRecord".to_string()),
             false,
         );
 
@@ -3004,8 +3004,8 @@ mod trait_bridge_tests {
             emission.setup_block
         );
         assert!(
-            !emission.setup_block.contains("InternalDocument.new"),
-            "setup_block must not reference undefined constant InternalDocument, got:\n{}",
+            !emission.setup_block.contains("HiddenRecord.new"),
+            "setup_block must not reference undefined constant HiddenRecord, got:\n{}",
             emission.setup_block
         );
     }
@@ -3023,7 +3023,7 @@ mod trait_bridge_tests {
         let extract_bytes = make_method(
             "extract_bytes",
             vec![("content", TypeRef::Bytes)],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("HiddenRecord".to_string()),
             false,
         );
 
@@ -3068,7 +3068,7 @@ mod trait_bridge_tests {
                 ("mime_type", TypeRef::String),
                 ("config", TypeRef::Named("ExtractionConfig".to_string())),
             ],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("HiddenRecord".to_string()),
             false,
         );
 

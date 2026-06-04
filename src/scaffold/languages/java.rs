@@ -23,6 +23,11 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             "Java scaffold requires package metadata authors; set package_metadata.authors or scaffold.authors"
         );
     }
+    let license = meta.license.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Java scaffold requires package metadata license; set package_metadata.license or scaffold.license"
+        )
+    })?;
 
     // Derive SCM URLs from repository URL
     let repo_path = repo_url
@@ -56,7 +61,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     };
 
     // License URL mapping
-    let license_url = match meta.license.as_str() {
+    let license_url = match license {
         "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
         "MIT" => "https://opensource.org/licenses/MIT",
         "Apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
@@ -363,7 +368,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                     </rulesets>
                     <!--
                         CPD threshold raised above the default 100 tokens because alef-generated
-                        streaming method bodies (`crawlStream`, `batchCrawlStream`, etc.) share
+                        streaming method bodies (`streamItems`, `batchStreamItems`, etc.) share
                         an identical iterator-driving loop by design (per-stream-handle JNI
                         externs differ, the surrounding plumbing is the same). The shared block
                         is ~106 tokens — well within the default. 200 is the smallest threshold
@@ -493,7 +498,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         version = version,
         description = meta.description,
         repository = repo_url,
-        license = meta.license,
+        license = license,
         license_url = license_url_xml,
         developers = developers_xml,
         repo_path = repo_path,

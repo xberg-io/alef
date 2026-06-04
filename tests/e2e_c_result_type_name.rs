@@ -30,7 +30,7 @@ fn build_c_config_with_prefix_override() -> NewAlefConfig {
 languages = ["ffi"]
 
 [[crates]]
-name = "sample-markdown-rs"
+name = "demo-markup-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
@@ -122,7 +122,7 @@ fn c_result_type_explicit_override_wins() {
 languages = ["ffi"]
 
 [[crates]]
-name = "sample-markdown-rs"
+name = "demo-markup-rs"
 sources = ["src/lib.rs"]
 
 [crates.ffi]

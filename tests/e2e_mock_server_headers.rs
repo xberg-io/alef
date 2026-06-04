@@ -2,7 +2,7 @@
 //! module honor fixture-declared response headers.
 //!
 //! Both shapes are checked:
-//!   * `MockResponse.headers` (sample-llm `mock_response.headers`)
+//!   * `MockResponse.headers` (demo-client `mock_response.headers`)
 //!   * `HttpExpectedResponse.headers` (consumer `http.expected_response.headers`)
 //!
 //! The generated source is inspected for the iteration code that applies each
@@ -51,7 +51,7 @@ fn mock_server_binary_route_struct_has_headers_field() {
 #[test]
 fn mock_server_binary_deserializes_headers_from_both_schemas() {
     let bin = render_mock_server_binary();
-    // sample-llm shape: `mock_response.headers`
+    // demo-client shape: `mock_response.headers`
     assert!(
         bin.contains("struct MockResponse") && bin.contains("headers: HashMap<String, String>"),
         "Mock-server binary must deserialize `mock_response.headers`"

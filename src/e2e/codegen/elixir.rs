@@ -42,8 +42,8 @@ impl E2eCodegen for ElixirCodegen {
             .cloned()
             .unwrap_or_else(|| call.module.clone());
         // Convert module path to Elixir PascalCase if it looks like snake_case
-        // (e.g., "sample_markdown" -> "SampleMarkdown").
-        // If the override already contains "." (e.g., "Elixir.SampleMarkdown"), use as-is.
+        // (e.g., "sample_markdown" -> "DemoMarkup").
+        // If the override already contains "." (e.g., "Elixir.DemoMarkup"), use as-is.
         let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase()) {
             raw_module.clone()
         } else {

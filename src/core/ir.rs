@@ -71,6 +71,22 @@ pub struct ApiSurface {
     /// Populated alongside [`Self::services`]. Empty when no services are configured.
     #[serde(default)]
     pub handler_contracts: Vec<HandlerContractDef>,
+    /// Public Rust items that Alef saw during extraction but intentionally did not
+    /// lower into the binding IR because their shape is not safely representable.
+    ///
+    /// Validation turns these into hard diagnostics instead of letting public
+    /// items disappear silently before generation.
+    #[serde(default)]
+    pub unsupported_public_items: Vec<UnsupportedPublicItem>,
+}
+
+/// A public item that was discovered but not extracted into binding IR.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UnsupportedPublicItem {
+    pub item_kind: String,
+    pub item_path: String,
+    pub reason: String,
+    pub suggested_fix: String,
 }
 
 /// Describes an owner/builder type that acts as a service configurator and runner.

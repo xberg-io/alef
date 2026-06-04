@@ -1145,6 +1145,7 @@ mod tests {
             handler_contracts: vec![contract],
             ..ApiSurface::default()
         }
+}
     }
 
     /// `gen_service_php` emits a class named after the service owner.
@@ -1291,7 +1292,7 @@ mod tests {
             services: vec![service],
             handler_contracts: vec![],
             ..ApiSurface::default()
-        };
+};
 
         let output = gen_service_php(&api, "my_crate");
         assert!(
@@ -1388,7 +1389,7 @@ mod tests {
             services: vec![service],
             handler_contracts: vec![],
             ..ApiSurface::default()
-        };
+};
 
         let output = gen_service_php(&api, "my_crate");
 
@@ -1489,7 +1490,7 @@ mod tests {
             services: vec![service],
             handler_contracts: vec![],
             ..ApiSurface::default()
-        };
+};
 
         let output = gen_service_php(&api, "my_crate");
 
@@ -1590,7 +1591,7 @@ mod tests {
             services: vec![service],
             handler_contracts: vec![],
             ..ApiSurface::default()
-        };
+};
 
         let output = gen_service_php(&api, "my_crate");
 
@@ -1801,7 +1802,7 @@ mod tests {
             services: vec![service],
             handler_contracts: vec![],
             ..ApiSurface::default()
-        };
+};
 
         let output = gen_service_php(&api, "my_crate");
 

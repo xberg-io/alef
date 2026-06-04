@@ -121,6 +121,7 @@ fn struct_emits_data_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -169,6 +170,7 @@ fn function_emits_object_member() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -236,6 +238,7 @@ fn unit_enum_emits_enum_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -262,6 +265,7 @@ fn optional_field_uses_kotlin_nullable() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -303,6 +307,7 @@ fn async_function_emits_suspend() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -361,6 +366,7 @@ fn unit_error_variant_emits_sealed_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -404,6 +410,7 @@ fn error_variant_with_fields_emits_data_class() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -502,6 +509,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     // emit_error_type_pub is the public re-export of emit_error_type_with_imports.
@@ -553,6 +561,7 @@ fn function_imports_native_facade() {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -658,6 +667,7 @@ type = "ChatCompletionRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -813,6 +823,7 @@ type = "ChatCompletionRequest"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -920,6 +931,7 @@ target = "jvm"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -1041,6 +1053,7 @@ target = "jvm"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -1189,6 +1202,7 @@ target = "jvm"
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

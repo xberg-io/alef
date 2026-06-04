@@ -1166,7 +1166,8 @@ result_type = "VisitResult"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     /// Like `sample_api()` but includes an `HtmlVisitor` trait with representative methods.
@@ -1688,7 +1689,7 @@ result_type = "VisitResult"
             binding_exclusion_reason: None,
         });
         api
-    }
+}
 
     fn visitor_result_string_field(name: &str) -> FieldDef {
         FieldDef {
@@ -1819,7 +1820,8 @@ sources = ["src/lib.rs"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]
@@ -2006,7 +2008,8 @@ sources = ["src/lib.rs"]
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]
@@ -2482,6 +2485,166 @@ visitor_callbacks = true
     }
 
     #[test]
+    fn test_legacy_visitor_callbacks_use_configured_context_and_result_metadata() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "prs"
+visitor_callbacks = true
+
+[[crates.trait_bridges]]
+trait_name = "SyntaxVisitor"
+type_alias = "SyntaxVisitorHandle"
+param_name = "visitor"
+options_type = "ParseOptions"
+context_type = "ParseContext"
+result_type = "WalkOutcome"
+"#,
+        );
+        let mut api = sample_api();
+        api.types.push(TypeDef {
+            name: "SyntaxVisitor".to_string(),
+            rust_path: "my_lib::syntax::SyntaxVisitor".to_string(),
+            methods: vec![MethodDef {
+                name: "visit_token".to_string(),
+                params: vec![
+                    ParamDef {
+                        name: "context".to_string(),
+                        ty: TypeRef::Named("ParseContext".to_string()),
+                        is_ref: true,
+                        ..ParamDef::default()
+                    },
+                    ParamDef {
+                        name: "token".to_string(),
+                        ty: TypeRef::String,
+                        is_ref: true,
+                        ..ParamDef::default()
+                    },
+                ],
+                return_type: TypeRef::Named("WalkOutcome".to_string()),
+                receiver: Some(ReceiverKind::RefMut),
+                doc: "Visit parser tokens.".to_string(),
+                ..MethodDef::default()
+            }],
+            is_trait: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "ParseContext".to_string(),
+            rust_path: "my_lib::syntax::ParseContext".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "rule_name".to_string(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "byte_offset".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Usize),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "source_path".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "is_recovery".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "ParseOptions".to_string(),
+            rust_path: "my_lib::ParseOptions".to_string(),
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "ParseTree".to_string(),
+            rust_path: "my_lib::ParseTree".to_string(),
+            is_clone: true,
+            is_return_type: true,
+            ..TypeDef::default()
+        });
+        api.enums.push(EnumDef {
+            name: "WalkOutcome".to_string(),
+            rust_path: "my_lib::syntax::WalkOutcome".to_string(),
+            variants: vec![
+                EnumVariant {
+                    name: "Proceed".to_string(),
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "StopHere".to_string(),
+                    is_default: true,
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "ReplaceWith".to_string(),
+                    fields: vec![visitor_result_string_field("replacement")],
+                    ..EnumVariant::default()
+                },
+            ],
+            has_serde: true,
+            ..EnumDef::default()
+        });
+        api.functions.push(FunctionDef {
+            name: "parse".to_string(),
+            rust_path: "my_lib::parse".to_string(),
+            params: vec![
+                ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::String,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("ParseOptions".to_string()))),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "visitor".to_string(),
+                    ty: TypeRef::Named("SyntaxVisitorHandle".to_string()),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::Named("ParseTree".to_string()),
+            error_type: Some("ParseError".to_string()),
+            sanitized: true,
+            ..FunctionDef::default()
+        });
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(lib.content.contains("pub struct PrsContext"));
+        assert!(lib.content.contains("pub rule_name: *const std::ffi::c_char"));
+        assert!(lib.content.contains("pub byte_offset: usize"));
+        assert!(lib.content.contains("pub source_path: *const std::ffi::c_char"));
+        assert!(lib.content.contains("pub is_recovery: i32"));
+        assert!(lib.content.contains("PRS_VISIT_STOP_HERE"));
+        assert!(lib.content.contains("my_lib::syntax::WalkOutcome::StopHere"));
+        assert!(lib.content.contains("WalkOutcome::ReplaceWith(msg)"));
+        assert!(lib.content.contains("context: &my_lib::syntax::ParseContext"));
+        assert!(!lib.content.contains("VisitResult"));
+        assert!(!lib.content.contains("my_lib::visitor::NodeContext"));
+    }
+
+    #[test]
     fn test_visitor_callbacks_call_with_ctx() {
         let api = visitor_api();
         let config = visitor_config_htm();
@@ -2595,7 +2758,8 @@ visitor_callbacks = true
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -2707,7 +2871,8 @@ visitor_callbacks = true
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     /// Non-Clone opaque Named-type fields must not emit `.clone()` in the
@@ -3154,7 +3319,8 @@ core_import = "my_custom_lib"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -3275,7 +3441,8 @@ type = "ChatRequest"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let backend = FfiBackend;
 
         let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3404,7 +3571,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let backend = FfiBackend;
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
@@ -3500,7 +3668,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     /// The FFI wrapper for a function with `Option<&AHashMap<Cow<'static, str>, Value>>` must:
@@ -3588,7 +3757,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -3777,7 +3947,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -3863,7 +4034,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        };
+unsupported_public_items: Vec::new(),
+};
         let config = sample_config();
         let backend = FfiBackend;
 
@@ -4029,7 +4201,8 @@ type = "*const std::ffi::c_char"
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]

@@ -56,7 +56,8 @@ fn make_empty_api() -> ApiSurface {
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
-    }
+        unsupported_public_items: Vec::new(),
+}
 }
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -165,7 +166,8 @@ fn each_function_gets_lookup_function_call() {
             make_function("get_version", vec![], TypeRef::String, None),
         ],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -199,7 +201,8 @@ fn string_params_marshal_via_to_native_utf8_and_calloc_free() {
             None,
         )],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -229,7 +232,8 @@ fn result_returning_functions_check_last_error_code() {
             Some("ParseError".to_string()),
         )],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -258,7 +262,8 @@ fn async_functions_emit_todo_comment_in_ffi_mode() {
     let api = ApiSurface {
         functions: vec![f],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -318,7 +323,8 @@ fn unit_enum_emits_dart_enum() {
     let api = ApiSurface {
         enums: vec![en],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -404,7 +410,8 @@ fn product_type_single_field_emits_freezed_with_factory() {
             vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32), false)],
         )],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -447,7 +454,8 @@ fn product_type_multi_field_emits_freezed_with_named_params() {
             ],
         )],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
@@ -480,7 +488,8 @@ fn ffi_file_includes_part_of_directives_for_freezed() {
     let api = ApiSurface {
         types: vec![make_type("Data", vec![make_field("value", TypeRef::String, false)])],
         ..make_empty_api()
-    };
+unsupported_public_items: Vec::new(),
+};
     let config = make_config_ffi();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();

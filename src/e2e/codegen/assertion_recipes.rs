@@ -29,7 +29,12 @@ pub(crate) fn required_recipe(assertion: &Assertion) -> Option<&'static str> {
 
 pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
     match field {
-        "chunks_have_embeddings" => Some(CHUNKS_RECIPE),
+        "chunks"
+        | "chunks_content"
+        | "chunks_have_content"
+        | "chunks_heading_context"
+        | "chunks_have_embeddings"
+        | "first_chunk_heading" => Some(CHUNKS_RECIPE),
         "embeddings"
         | "embedding_dimensions"
         | "embeddings_valid"
@@ -37,7 +42,9 @@ pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
         | "embeddings_non_zero"
         | "embeddings_normalized" => Some(EMBEDDINGS_RECIPE),
         "keywords" | "keywords_count" => Some(KEYWORDS_RECIPE),
-        "root_child_count" => Some(TREE_RECIPE),
+        "root_child_count" | "has_error_nodes" | "error_count" | "tree_error_count" | "tree_to_sexp" => {
+            Some(TREE_RECIPE)
+        }
         _ => None,
     }
 }

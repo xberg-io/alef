@@ -630,7 +630,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &config.error_type_name(),
                     &config.error_constructor_expr(),
                     api,
-                );
+                )?;
                 for imp in &bridge.imports {
                     builder.add_import(imp);
                 }

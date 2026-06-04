@@ -240,7 +240,8 @@ mod tests {
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
-        }
+                unsupported_public_items: Vec::new(),
+}
     }
 
     #[test]
@@ -384,7 +385,7 @@ mod tests {
         let lib_rs = dir.path().join("lib.rs");
         std::fs::write(&lib_rs, lib_rs_source).expect("write lib.rs");
         crate::extract::extractor::extract(&[lib_rs.as_path()], "sample_crate", "0.0.0", None).expect("extract failed")
-    }
+}
 
     #[test]
     fn e2e_c1_deep_path_caught_by_validate() {

@@ -897,9 +897,9 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, c
                 return;
             }
             // ---- keywords / keywords_count ----
-            // R ExtractionResult does not expose extracted_keywords; skip.
+            // R ProcessingResult does not expose result_keywords; skip.
             "keywords" | "keywords_count" => {
-                let _ = writeln!(out, "  # skipped: field '{f}' not available on R ExtractionResult");
+                let _ = writeln!(out, "  # skipped: field '{f}' not available on R ProcessingResult");
                 return;
             }
             _ => {}
