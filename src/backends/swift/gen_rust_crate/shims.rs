@@ -483,9 +483,13 @@ pub(crate) fn emit_function_shim(
                 // when the IR says `String`, or `Vec<&str>` when the IR says `Vec<String>`.
                 // Apply coercions to match the declared return type.
                 match &f.return_type {
-                    TypeRef::String | TypeRef::Path => format!("{source}.to_string()"),
-                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path) => {
+                    TypeRef::String => format!("{source}.to_string()"),
+                    TypeRef::Path => format!("{source}.display().to_string()"),
+                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
                         format!("{source}.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()")
+                    }
+                    TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
+                        format!("{source}.into_iter().map(|s| s.display().to_string()).collect::<Vec<_>>()")
                     }
                     _ => source,
                 }

@@ -264,8 +264,8 @@ pub fn emit_trait_bridge_wrapper(
         for p in &method.params {
             let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
             let name = p.name.to_snake_case();
-            // Declare `mut` when the trait method takes `&mut` (is_mut=true on a Named type).
-            let needs_mut = p.is_mut && matches!(p.ty, TypeRef::Named(_));
+            // Declare `mut` when the trait method takes `&mut` (is_mut=true for any type).
+            let needs_mut = p.is_mut;
             if needs_mut {
                 sig_params.push(format!("mut {name}: {bridge_ty}"));
             } else {
@@ -340,6 +340,9 @@ pub(crate) fn trait_call_arg(
     if needs_json_bridge(&p.ty) {
         let native_ty = crate::backends::swift::gen_rust_crate::type_bridge::swift_bridge_rust_type(&p.ty);
         let deser = format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+        if p.is_mut {
+            return format!("&mut {deser}");
+        }
         if p.is_ref {
             return format!("&{deser}");
         }
@@ -432,7 +435,8 @@ pub(crate) fn emit_trait_method_body(
             format!("serde_json::to_string(&({expr})).expect(\"serializable return\")")
         } else {
             match &method.return_type {
-                TypeRef::String | TypeRef::Path => format!("{expr}.to_string()"),
+                TypeRef::String => format!("{expr}.to_string()"),
+                TypeRef::Path => format!("{expr}.display().to_string()"),
                 TypeRef::Named(name) => {
                     if !visible_type_names.contains(name.as_str()) {
                         // Excluded/foreign type — not wrapped as a swift-bridge newtype.
