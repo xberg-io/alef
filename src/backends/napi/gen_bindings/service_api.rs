@@ -732,7 +732,14 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // fallible computation produces the wire `Result` and the adapter converts it into the
     // dispatch return type — keeping the generator ignorant of the library's response model.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
-    let wire_output = format!("Result<{resp_path}, {box_err}>");
+    // Fully qualify `Result` as `std::result::Result` so the bare `Result`
+    // resolved through `use napi::bindgen_prelude::*` (which re-exports
+    // `napi::Result<T, S = Status>`) does not shadow it. Without the
+    // qualification the wire_output annotation parses as
+    // `napi::Result<Response, Box<dyn Error>>` =
+    // `std::result::Result<Response, napi::Error<Box<dyn Error>>>`, which
+    // fails the `S: AsRef<str>` bound on `napi::Error<S>`.
+    let wire_output = format!("std::result::Result<{resp_path}, {box_err}>");
     let output_type = contract
         .dispatch_return_type
         .clone()

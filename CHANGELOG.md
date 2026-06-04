@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.26] - 2026-06-04
+
+### Fixed
+
+- fix(napi): fully qualify the wire_output Result as `std::result::Result` in
+  `gen_handler_bridge`. The generated bridge module does `use napi::bindgen_prelude::*`,
+  which re-exports `napi::Result<T, S = Status>` and shadows std's `Result`. Without
+  qualification the emitted `let outcome: Result<Response, Box<dyn Error>>` annotation
+  parsed as `napi::Result<Response, Box<dyn Error>>` = `Result<Response, napi::Error<Box<...>>>`,
+  failing the `S: AsRef<str>` bound on `napi::Error<S>` and breaking compilation of every
+  napi binding that uses a service. (`src/backends/napi/gen_bindings/service_api.rs`)
+
 ## [0.22.25] - 2026-06-04
 
 ### Fixed
