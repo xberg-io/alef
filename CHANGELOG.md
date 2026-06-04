@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.25] - 2026-06-04
+
+### Fixed
+
+- fix(scaffold/ruby): also pin the cargo `rb-sys` dep in the NIF Cargo.toml to `">=0.9, <0.9.128"`. v0.22.24 fixed the Ruby gem `rb_sys` (the dock-tool gem) but the cargo `rb-sys` crate (Magnus' transitive Rust-side Ruby C-API binding) still resolved to 0.9.128, which ships a broken mingw cross sysroot — `<ruby/defines.h>` pulls `<sys/select.h>`, which clang cannot find under rb-sys-dock's x64-mingw-ucrt cross sysroot. The dep is now always emitted (was previously gated on `has_services`) so transitive resolution from magnus is overridden by the explicit pin. Cargo accepts comma-separated compound version requirements. (`src/scaffold/languages/ruby.rs`)
+
 ## [0.22.24] - 2026-06-04
 
 ### Fixed
