@@ -584,6 +584,20 @@ pub(super) fn gen_method_wrapper(
         ));
     }
 
+    // For is_ref BTreeMap params, emit a named let binding so the temporary BTreeMap is not
+    // dropped before the function call. An inline `&collect(...)` would produce a reference to a
+    // temporary that is dropped at end-of-statement — rejected when the callee returns a
+    // lifetime-parameterized type (e.g. NodeContext<'a>) that borrows from the map.
+    for p in &method.params {
+        if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
+            let rs = format!("{}_rs", p.name);
+            let btree = format!("{}_btree", p.name);
+            out.push_str(&format!(
+                "    let {btree} = {rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>();\n"
+            ));
+        }
+    }
+
     // Build the call expression — pass &ref for String/Bytes params, owned for Path/Named
     let is_owned_receiver = method.receiver.as_ref() == Some(&ReceiverKind::Owned);
     let arg_names: Vec<String> = method
@@ -683,13 +697,14 @@ pub(super) fn gen_method_wrapper(
                 TypeRef::Map(_, _) if !p.optional => {
                     // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
                     // Otherwise pass the map owned.
-                    // When map_is_btree=true, the core expects BTreeMap but the local `rs` is a
-                    // HashMap (from JSON deserialization). Convert inline: the temporary BTreeMap
-                    // lives for the duration of the function call statement (Rust temp extension).
+                    // When map_is_btree=true with is_ref=true, a named let binding was emitted
+                    // above (`let {name}_btree = ...`) so reference it here instead of using
+                    // an inline &collect() temporary (which would be dropped before the call
+                    // when the callee returns a lifetime-parameterized type).
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref && p.map_is_btree {
-                        format!("&{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
+                        format!("&{}_btree", p.name)
                     } else if p.is_ref {
                         format!("&{rs}")
                     } else if p.map_is_btree {
@@ -1032,6 +1047,20 @@ pub(super) fn gen_free_function(
         ));
     }
 
+    // For is_ref BTreeMap params, emit a named let binding so the temporary BTreeMap is not
+    // dropped before the function call. An inline `&collect(...)` would produce a reference to a
+    // temporary that is dropped at end-of-statement — rejected when the callee returns a
+    // lifetime-parameterized type (e.g. NodeContext<'a>) that borrows from the map.
+    for p in &func.params {
+        if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
+            let rs = format!("{}_rs", p.name);
+            let btree = format!("{}_btree", p.name);
+            out.push_str(&format!(
+                "    let {btree} = {rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>();\n"
+            ));
+        }
+    }
+
     // Call — pass &ref for String/Bytes/Named params, owned for Path
     let arg_names: Vec<String> = func
         .params
@@ -1126,13 +1155,14 @@ pub(super) fn gen_free_function(
                 TypeRef::Map(_, _) if !p.optional => {
                     // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
                     // Otherwise pass the map owned.
-                    // When map_is_btree=true, the core expects BTreeMap but the local `rs` is a
-                    // HashMap (from JSON deserialization). Convert inline: the temporary BTreeMap
-                    // lives for the duration of the function call statement (Rust temp extension).
+                    // When map_is_btree=true with is_ref=true, a named let binding was emitted
+                    // above (`let {name}_btree = ...`) so reference it here instead of using
+                    // an inline &collect() temporary (which would be dropped before the call
+                    // when the callee returns a lifetime-parameterized type).
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref && p.map_is_btree {
-                        format!("&{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
+                        format!("&{}_btree", p.name)
                     } else if p.is_ref {
                         format!("&{rs}")
                     } else if p.map_is_btree {

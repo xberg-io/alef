@@ -1163,8 +1163,26 @@ pub fn gen_from_lifetime_type_constructor(
                         "val.{binding_field}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>()"
                     )
                 }
-                TypeRef::Named(_) => {
-                    if field.optional {
+                TypeRef::Named(type_name) => {
+                    // When the binding stores the enum as a String (PHP enum_string_names),
+                    // use serde_json deserialization to convert String → Enum.
+                    // The core→binding path serialises via `serde_json::to_value(enum_val)`
+                    // which yields `Value::String("VariantName")`. Reverse with
+                    // `from_value(Value::String(...))` rather than `from_str` (which would
+                    // require a JSON-quoted string like `"\"VariantName\"`). We use
+                    // `.expect(...)` because an unrecognised variant name indicates a bug
+                    // in the calling code — there is no safe fallback and the enum may not
+                    // implement Default.
+                    let is_enum_string = config
+                        .enum_string_names
+                        .is_some_and(|names| names.contains(type_name.as_str()));
+                    if is_enum_string {
+                        if field.optional {
+                            format!("val.{binding_field}.map(|s| serde_json::from_value(serde_json::Value::String(s)).expect(\"valid {type_name}\"))")
+                        } else {
+                            format!("serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).expect(\"valid {type_name}\")")
+                        }
+                    } else if field.optional {
                         format!("val.{binding_field}.map(Into::into)")
                     } else {
                         format!("val.{binding_field}.into()")
