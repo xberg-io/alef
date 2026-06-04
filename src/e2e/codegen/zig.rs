@@ -78,10 +78,10 @@ impl E2eCodegen for ZigE2eCodegen {
         let crate_name = &config.name;
 
         // Detect if the explicit hash is stale: if it contains an embedded version
-        // string (format: `<crate>-X.Y.Z-<hash>`) and that version doesn't match
+        // string (format: `<pkg_name>-X.Y.Z-<hash>`) and that version doesn't match
         // the current pkg_version, warn and recommend regeneration.
         let hash_is_stale = if let Some(ref h) = explicit_hash {
-            detect_stale_zig_hash(h, &pkg_version, crate_name)
+            detect_stale_zig_hash(h, &pkg_version, &pkg_name)
         } else {
             false
         };
@@ -339,17 +339,18 @@ impl E2eCodegen for ZigE2eCodegen {
 
 /// Detect if a Zig package hash contains a stale embedded version.
 ///
-/// Zig package hashes are formatted as `<crate>-<version>-<multihash>`.
+/// Zig package hashes are formatted as `<pkg_name>-<version>-<multihash>` where
+/// `pkg_name` is the snake_case module name (e.g., `liter_llm`, not `liter-llm`).
 /// This function extracts the embedded version and compares it against
 /// the current package version. If they differ, the hash is stale and
 /// should be regenerated with `alef sync-versions`.
 ///
 /// Returns `true` if the hash is stale (embedded version != current version).
 /// Logs a warning in that case.
-fn detect_stale_zig_hash(hash: &str, current_version: &str, crate_name: &str) -> bool {
-    // Hash format: `{crate_name}-{version}-{multihash}`
-    // Example: `demo_crate-1.4.0-rc.42-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
-    let prefix = format!("{crate_name}-");
+fn detect_stale_zig_hash(hash: &str, current_version: &str, pkg_name: &str) -> bool {
+    // Hash format: `{pkg_name}-{version}-{multihash}`
+    // Example: `liter_llm-1.4.0-rc.50-Jfgk_NcsAQBpkv3XrckgE9vZmwDERDOandv0Ud6LXpHH`
+    let prefix = format!("{pkg_name}-");
     if !hash.starts_with(&prefix) {
         return false;
     }
@@ -3747,6 +3748,67 @@ mod zig_hash_tests {
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the generic source tarball URL with proper repo segment; got:\n{content}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod detect_stale_zig_hash_tests {
+    use super::detect_stale_zig_hash;
+
+    /// Stale hash detection: hash contains rc.50, current version is rc.57 → true (stale).
+    #[test]
+    fn detects_stale_hash_with_older_rc_version() {
+        let result = detect_stale_zig_hash(
+            "liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "1.4.0-rc.57",
+            "liter_llm",
+        );
+        assert!(
+            result,
+            "expected stale hash detection (rc.50 vs rc.57), but got false"
+        );
+    }
+
+    /// Matching hash and version: hash contains rc.57, current version is rc.57 → false (fresh).
+    #[test]
+    fn accepts_matching_version_in_hash() {
+        let result = detect_stale_zig_hash(
+            "liter_llm-1.4.0-rc.57-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "1.4.0-rc.57",
+            "liter_llm",
+        );
+        assert!(
+            !result,
+            "expected fresh hash (rc.57 matches), but got true (stale)"
+        );
+    }
+
+    /// Matching stable version: hash contains 1.4.0, current version is 1.4.0 → false (fresh).
+    #[test]
+    fn accepts_matching_stable_version() {
+        let result = detect_stale_zig_hash(
+            "liter_llm-1.4.0-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "1.4.0",
+            "liter_llm",
+        );
+        assert!(
+            !result,
+            "expected fresh hash (1.4.0 matches stable), but got true (stale)"
+        );
+    }
+
+    /// Malformed hash (wrong pkg_name prefix) → false (no prefix match, silent fail).
+    #[test]
+    fn returns_false_for_wrong_pkg_name_prefix() {
+        let result = detect_stale_zig_hash(
+            "wrong_pkg-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9",
+            "1.4.0-rc.57",
+            "liter_llm",
+        );
+        assert!(
+            !result,
+            "expected no detection for mismatched pkg_name prefix, but got true"
         );
     }
 }
