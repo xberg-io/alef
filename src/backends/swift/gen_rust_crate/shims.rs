@@ -653,6 +653,7 @@ mod tests {
     fn function(params: Vec<ParamDef>) -> FunctionDef {
         FunctionDef {
             name: "interact".to_string(),
+            // TODO(alef-generic-cleanup): Replace sample_crawler Swift shim fixtures with neutral examples.
             rust_path: "sample_crawler::interact".to_string(),
             original_rust_path: String::new(),
             params,

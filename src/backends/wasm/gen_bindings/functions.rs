@@ -1369,6 +1369,7 @@ mod tests {
     fn async_function(params: Vec<ParamDef>) -> FunctionDef {
         FunctionDef {
             name: "interact".to_string(),
+            // TODO(alef-generic-cleanup): Replace sample_crawler WASM regression paths with neutral fixtures.
             rust_path: "sample_crawler::interact".to_string(),
             original_rust_path: String::new(),
             params,
@@ -1650,6 +1651,7 @@ mod tests {
         // and other non-marshalable fields to appear in the generated Input DTO.
         // The generated From impl then emitted serde_json::from_str into the trait
         // object, producing uncompilable Rust in consumer wasm bindings.
+        // TODO(alef-generic-cleanup): Replace sample_crawler/CrawlConfig WASM fixture names with neutral ones.
         use crate::core::ir::{CoreWrapper, FieldDef};
 
         let make_field = |name: &str, ty: TypeRef, binding_excluded: bool, sanitized: bool| FieldDef {

@@ -2630,6 +2630,7 @@ mod tests {
     use ahash::AHashSet;
     use std::collections::HashSet;
 
+    // TODO(alef-generic-cleanup): Replace CrawlConfig/sample_crate/sample_llm fixture names with neutral examples.
     fn make_config_type_with_duration_default() -> TypeDef {
         TypeDef {
             name: "CrawlConfig".to_string(),
@@ -2781,6 +2782,7 @@ mod tests {
             &AHashSet::default(),
             &HashSet::default(),
         );
+        // TODO(alef-generic-cleanup): Replace SampleCrawler/SampleLlmRs owner names with neutral test owners.
         // `model` is single-word: Jackson still requires @JsonProperty on the builder setter
         // to map JSON fields to setters correctly.
         assert!(

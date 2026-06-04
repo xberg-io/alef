@@ -138,6 +138,7 @@ fn targets_with_many_platforms_wraps_at_keyword() {
     // uses a multi-line list literal so each target fits within the consumer's
     // line_length (120 chars). This is a regression test for kreuzcrawl, which
     // has 7 targets that would exceed 120 chars on a single ~w(...) line.
+    // TODO(alef-generic-cleanup): Replace kreuzberg-dev/kreuzcrawl native-module fixture with neutral names.
     //
     // Multi-line list format ensures mix format wraps each target on its own line,
     // and no single line in the targets list exceeds the 120-char limit.

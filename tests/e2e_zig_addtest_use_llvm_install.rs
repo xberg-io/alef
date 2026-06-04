@@ -39,6 +39,7 @@ use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 
 /// Config for a mock-server-only consumer (no file_path / bytes args).
 /// Represents demo_crawler-style: all fixtures reach a URL, no local files.
+/// TODO(alef-generic-cleanup): Replace demo_crawler/sample_crate/test_documents Zig fixture names.
 const CONFIG_TOML: &str = r#"
 [workspace]
 languages = ["zig"]

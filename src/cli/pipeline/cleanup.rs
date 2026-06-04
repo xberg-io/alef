@@ -192,6 +192,7 @@ mod tests {
         fs::create_dir_all(&package_dir).expect("create dir");
 
         // Simulate a vendored cgo header: has a "DO NOT EDIT" comment but no alef:hash.
+        // TODO(alef-generic-cleanup): Replace sample_crawler.h with a neutral vendored-header fixture.
         let vendored = package_dir.join("sample_crawler.h");
         fs::write(
             &vendored,

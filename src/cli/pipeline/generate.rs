@@ -1306,6 +1306,7 @@ mod write_scaffold_normalize_tests {
         std::fs::create_dir_all(&include_dir).expect("mkdir");
 
         // A vendored cgo header: has a "DO NOT EDIT" comment but no alef:hash line.
+        // TODO(alef-generic-cleanup): Replace sample_crawler.h with a neutral vendored-header fixture.
         let vendored = include_dir.join("sample_crawler.h");
         std::fs::write(
             &vendored,

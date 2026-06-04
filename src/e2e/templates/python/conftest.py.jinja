@@ -84,6 +84,7 @@ from pathlib import Path
 # Ensure the package is importable.
 # The {{ module }} package is expected to be installed in the current environment.
 
+# TODO(alef-generic-cleanup): Generalize the test_documents/pdf/fake_memo.pdf and pdfium fixture cluster.
 # Change to the test_documents directory so that fixture file paths like
 # "pdf/fake_memo.pdf" resolve correctly when running pytest from e2e/python/.
 _TEST_DOCUMENTS = Path(__file__).parent.parent.parent / "test_documents"

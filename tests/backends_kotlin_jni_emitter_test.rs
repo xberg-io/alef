@@ -80,6 +80,7 @@ ffi_style = "jni"
     )
 }
 
+// TODO(alef-generic-cleanup): Replace dev.sample_crate Kotlin/JNI owner fixtures with neutral package names.
 fn make_jni_api_with_client_and_function() -> ApiSurface {
     let foo_function = FunctionDef {
         name: "foo".into(),

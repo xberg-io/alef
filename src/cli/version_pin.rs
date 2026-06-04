@@ -321,6 +321,7 @@ mod tests {
 
     #[test]
     fn precommit_sync_bumps_alef_rev_and_leaves_other_repos_untouched() {
+        // TODO(alef-generic-cleanup): Replace sample_crate-dev/alef pre-commit fixture URLs with neutral URLs.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join(".pre-commit-config.yaml");
         fs::write(
@@ -345,6 +346,7 @@ mod tests {
 
     #[test]
     fn precommit_sync_preserves_quoted_rev_style() {
+        // TODO(alef-generic-cleanup): Replace sample_crate-dev/alef pre-commit fixture URLs with neutral URLs.
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join(".pre-commit-config.yaml");
         fs::write(

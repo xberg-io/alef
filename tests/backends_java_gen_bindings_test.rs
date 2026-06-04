@@ -3952,6 +3952,7 @@ fn test_facade_no_java_lang_imports() {
 fn test_streaming_adapter_item_to_json_handle_emitted_unconditionally() {
     let backend = JavaBackend;
 
+    // TODO(alef-generic-cleanup): Replace dev.kreuzberg.kreuzcrawl regression fixture with neutral names.
     let config = resolved_one(
         r#"
 [workspace]

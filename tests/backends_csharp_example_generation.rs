@@ -26,6 +26,7 @@ namespace = "SampleCrate"
 fn test_generated_code_example() {
     let backend = CsharpBackend;
 
+    // TODO(alef-generic-cleanup): Replace sample_crate/ExtractionConfig/OCR example fixtures with neutral names.
     let api = ApiSurface {
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),

@@ -6,6 +6,7 @@
 /// path is ignored. Returns `None` when the URL is missing a host or path segment.
 ///
 /// Examples:
+/// TODO(alef-generic-cleanup): Replace sample_core-dev/sample_crate-dev examples with neutral repositories.
 /// - `https://github.com/sample_core-dev/sample_core` → `Some("com.github.sample_core_dev")`
 /// - `https://github.com/sample_project-rs/sample_project`     → `Some("com.github.sample_project_rs")`
 /// - `https://gitlab.com/foo/bar`                → `Some("com.gitlab.foo")`

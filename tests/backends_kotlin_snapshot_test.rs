@@ -205,6 +205,7 @@ target = "jvm"
     )
 }
 
+// TODO(alef-generic-cleanup): Replace dev.sample_crate owner snapshots with neutral package fixtures.
 #[test]
 fn snapshot_basic_struct_function_enum_error() {
     let api = make_basic_api();

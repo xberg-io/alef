@@ -245,6 +245,7 @@ namespace = "dev.sample_crate.demo"
     )
 }
 
+// TODO(alef-generic-cleanup): Replace dev.sample_crate JNI owner snapshots with neutral package fixtures.
 /// Build a demo config with a streaming adapter.
 fn make_demo_config_with_streaming() -> ResolvedCrateConfig {
     let mut config = make_demo_config();

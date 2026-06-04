@@ -2917,6 +2917,7 @@ mod tests {
     }
 
     fn citation_author_person() -> CitationAuthor {
+        // TODO(alef-generic-cleanup): Replace sample_crate.dev/sample-markdown citation fixtures with neutral data.
         CitationAuthor {
             family_names: Some("Hirschfeld".to_string()),
             given_names: Some("Na'aman".to_string()),
