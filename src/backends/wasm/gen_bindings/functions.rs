@@ -105,7 +105,7 @@ pub(super) fn gen_input_dto_for_type_with_cfg(
                 ty => &dto_ty,
                 core_name => &f.name,
                 serde_rename => &camel_case_name,
-                conv => dto_field_conversion(&f.ty, f.sanitized),
+                conv => dto_field_conversion(&f.ty, f.sanitized, f.optional),
                 cfg => field_cfg,
                 is_skipped => is_skipped,
             }
@@ -186,8 +186,19 @@ fn type_ref_to_dto_type(ty: &crate::core::ir::TypeRef, core_import: &str) -> Str
 /// When a field is sanitized (e.g., `Option<ConcurrencyConfig>` represented as
 /// `Option<String>` for JSON serialization), use JSON deserialization instead
 /// of `.into()`, which doesn't impl for the target type.
-fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool) -> String {
+fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool, optional: bool) -> String {
     use crate::core::ir::TypeRef;
+    // When the core field is `Option<T>`, the conversion expression must produce
+    // `Option<T>` (not `T`). For `.into()`-based conversions this is papered over
+    // by the blanket `Option<T>: From<T>` impl, but for `collect()` and explicit
+    // constructors there is no such conversion — wrap the result in `Some(...)`.
+    let wrap_optional = |expr: &str| -> String {
+        if optional {
+            format!("Some({expr})")
+        } else {
+            expr.to_string()
+        }
+    };
     match ty {
         TypeRef::Duration => "Into::into(std::time::Duration::from_millis(v))".to_string(),
         TypeRef::Path => "Into::into(std::path::PathBuf::from(v))".to_string(),
@@ -200,8 +211,9 @@ fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool) -> Strin
         }
         // Vec<T>: the core field may be a Set (HashSet, AHashSet, BTreeSet) which has no
         // `From<Vec<T>>` impl. Leave `collect()` target-inferred from the core field so
-        // Vec and set assignments both compile.
-        TypeRef::Vec(_) => "v.into_iter().collect()".to_string(),
+        // Vec and set assignments both compile. When the core field is `Option<Vec<T>>`,
+        // wrap in `Some(...)` so the assignment matches the target type.
+        TypeRef::Vec(_) => wrap_optional("v.into_iter().collect()"),
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)) => {
             "v.map(|items| items.into_iter().collect())".to_string()
         }
@@ -1568,11 +1580,11 @@ mod tests {
         let ty_string = TypeRef::String;
 
         // Non-sanitized String field: use .into()
-        let conv_normal = dto_field_conversion(&ty_string, false);
+        let conv_normal = dto_field_conversion(&ty_string, false, false);
         assert_eq!(conv_normal, "v.into()", "non-sanitized String should use .into()");
 
         // Sanitized String field: use JSON deserialization
-        let conv_sanitized = dto_field_conversion(&ty_string, true);
+        let conv_sanitized = dto_field_conversion(&ty_string, true, false);
         assert_eq!(
             conv_sanitized, "serde_json::from_str(&v).unwrap_or_default()",
             "sanitized String should use JSON deserialization: {conv_sanitized}"
@@ -1586,7 +1598,7 @@ mod tests {
         // Into::into is ambiguous for Vec<T>; forcing collect::<Vec<_>>() fails for sets.
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
 
-        let conv = dto_field_conversion(&ty, false);
+        let conv = dto_field_conversion(&ty, false, false);
 
         assert_eq!(conv, "v.into_iter().collect()");
         assert!(
@@ -1603,13 +1615,27 @@ mod tests {
     fn dto_optional_vec_field_conversion_uses_target_inferred_collect() {
         let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
 
-        let conv = dto_field_conversion(&ty, false);
+        let conv = dto_field_conversion(&ty, false, false);
 
         assert_eq!(conv, "v.map(|items| items.into_iter().collect())");
         assert!(
             !conv.contains("collect::<Vec<_>>()"),
             "optional collection target must be inferred from the core field: {conv}"
         );
+    }
+
+    #[test]
+    fn dto_vec_field_conversion_wraps_some_when_core_is_optional() {
+        // Regression: when the core field is `Option<Vec<T>>`, the IR sets `f.ty = Vec<T>`
+        // and `f.optional = true`. The template unwraps the DTO Option to `v: Vec<T>` and
+        // assigns to `out.field: Option<Vec<T>>`. Bare `v.into_iter().collect()` produces
+        // `Vec<T>` (or `HashSet<T>`), failing the `Option<Vec<T>>` target. The conversion
+        // must wrap in `Some(...)` so the assignment matches.
+        let ty = TypeRef::Vec(Box::new(TypeRef::String));
+
+        let conv = dto_field_conversion(&ty, false, true);
+
+        assert_eq!(conv, "Some(v.into_iter().collect())");
     }
 
     #[test]
