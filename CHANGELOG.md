@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/rust): emit `Cargo.toml` with alphabetically sorted `[dependencies]` and `[package.metadata.cargo-machete]` immediately after `[package]`, matching cargo-sort canonical form so `prek run --all-files` is idempotent. (`src/e2e/codegen/rust/cargo_toml.rs`)
+- fix(ffi/scaffold): drop spurious blank line in umbrella FFI `Cargo.toml` between `repository = "…"` and `[package.metadata.cargo-machete]`. The `repository_line` variable previously included a trailing `\n` that, combined with the format string separator, produced two consecutive blank lines; `cargo sort` removed one, causing prek oscillation on every run. (`src/scaffold/languages/ffi.rs`)
+- fix(csharp/dart): remove production fallback stubs/defaulting from generated bindings. Dart no longer emits a
+  `SyncExtractor` stub in `traits.dart`; C# no longer promotes required `config` parameters to nullable or defaults
+  them with `new T()` by name; and C# streaming adapter symbols now use the configured `owner_type` instead of the
+  hardcoded `crawl_engine_handle` fallback. (`src/backends/dart/gen_bindings/dart_traits.rs`,
+  `src/backends/csharp/gen_bindings`)
 - fix(e2e/java): correct the default register_method from `registerRoute` to `registerAppRoute` in the harness codegen. The Java binding's route-registration method is `registerAppRoute()`, not the generic `registerRoute()`, causing generated HarnessMain to fail compilation with a symbol-not-found error.
 
 ## [0.22.28] - 2026-06-04

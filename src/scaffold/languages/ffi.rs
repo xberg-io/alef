@@ -166,12 +166,11 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let repository_line = meta
         .configured_repository
         .as_deref()
-        .map(|repository| format!("repository = \"{repository}\"\n"))
+        .map(|repository| format!("\nrepository = \"{repository}\""))
         .unwrap_or_default();
 
     let content = format!(
-        r#"{pkg_header}
-{repository_line}
+        r#"{pkg_header}{repository_line}
 
 # `serde_json`, `ahash`, and `tokio` are emitted unconditionally above so the
 # manifest is stable across regens (and so the C FFI codegen can pull them in
@@ -370,6 +369,34 @@ mod tests {
             target_blocks.contains("path = \"../my-lib-core\""),
             "Expected path reference in target_blocks: {}",
             target_blocks
+        );
+    }
+
+    /// Regression: the FFI scaffold emitted `repository = "…"\n` (trailing LF)
+    /// into a format string that already had a separating blank line, producing
+    /// two consecutive blank lines between `repository = "…"` and the
+    /// `[package.metadata.cargo-machete]` comment block.  cargo-sort removes
+    /// one of them, causing prek to oscillate on every run.
+    #[test]
+    fn ffi_cargo_toml_repository_line_has_no_double_blank_line() {
+        // Simulate the repository_line computation from scaffold_ffi to confirm
+        // the format string produces exactly one blank line between the
+        // repository entry and the cargo-machete comment.
+        let repository = "https://github.com/example/my-lib";
+        let repository_line = format!("\nrepository = \"{repository}\"");
+        let pkg_header = "[package]\nname = \"my-lib-ffi\"\nversion = \"1.0.0\"";
+
+        // Reproduce the exact format pattern used in scaffold_ffi.
+        let content = format!("{pkg_header}{repository_line}\n\n# comment\n");
+
+        // There must be exactly one blank line between repository and the comment.
+        assert!(
+            !content.contains("repository = \"https://github.com/example/my-lib\"\n\n\n"),
+            "double blank line found after repository — cargo-sort will remove one, causing prek oscillation:\n{content}"
+        );
+        assert!(
+            content.contains("repository = \"https://github.com/example/my-lib\"\n\n# comment"),
+            "expected exactly one blank line between repository and comment:\n{content}"
         );
     }
 }

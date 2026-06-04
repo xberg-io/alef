@@ -7,6 +7,11 @@ use crate::core::template_versions as tv;
 ///
 /// Generates all dependency lines based on which test features are needed
 /// (mock server, HTTP tests, tokio, trait-bridge stubs, etc.).
+///
+/// The emitted file is idempotent under `cargo sort`: dependencies are in
+/// alphabetical order and `[package.metadata.cargo-machete]` appears
+/// immediately after `[package]`, which is the canonical position that
+/// `cargo sort` would choose if it ran on the file.
 #[allow(clippy::too_many_arguments)]
 pub fn render_cargo_toml(
     crate_name: &str,
@@ -57,11 +62,6 @@ pub fn render_cargo_toml(
     // mock server binary is present (it uses serde_json::Value for fixture bodies),
     // or when http integration tests are generated (they serialize fixture bodies).
     let effective_needs_serde_json = needs_serde_json || needs_mock_server || needs_http_tests;
-    let serde_line = if effective_needs_serde_json {
-        "\nserde_json = \"1\""
-    } else {
-        ""
-    };
     // An empty `[workspace]` table makes the e2e crate its own workspace root, so
     // it never gets pulled into a parent crate's workspace. This means consumers
     // don't have to remember to add `e2e/rust` to `workspace.exclude`, and
@@ -71,32 +71,8 @@ pub fn render_cargo_toml(
     // The standalone binary additionally needs serde (derive) and walkdir.
     // Http integration tests require axum-test for the test server.
     let needs_axum = needs_mock_server || needs_http_tests;
-    let mock_lines = if needs_axum {
-        let mut lines = format!(
-            "\naxum = \"{axum}\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\nwalkdir = \"{walkdir}\"",
-            axum = tv::cargo::AXUM,
-            walkdir = tv::cargo::WALKDIR,
-        );
-        if needs_mock_server {
-            lines.push_str(&format!(
-                "\ntokio-stream = \"{tokio_stream}\"",
-                tokio_stream = tv::cargo::TOKIO_STREAM
-            ));
-        }
-        if needs_http_tests {
-            lines.push_str("\naxum-test = \"20\"\nbytes = \"1\"");
-        }
-        if needs_tower_http {
-            lines.push_str(&format!(
-                "\ntower-http = {{ version = \"{tower_http}\", features = [\"cors\", \"fs\"] }}\ntempfile = \"{tempfile}\"",
-                tower_http = tv::cargo::TOWER_HTTP,
-                tempfile = tv::cargo::TEMPFILE,
-            ));
-        }
-        lines
-    } else {
-        String::new()
-    };
+
+    // Build the cargo-machete ignore list.
     let mut machete_ignored: Vec<&str> = Vec::new();
     if effective_needs_serde_json {
         machete_ignored.push("\"serde_json\"");
@@ -123,54 +99,111 @@ pub fn render_cargo_toml(
         machete_ignored.push("\"anyhow\"");
         machete_ignored.push("\"async-trait\"");
     }
+
+    // Build metadata and bin sections as self-contained block strings.
+    // [package.metadata.cargo-machete] must appear immediately after [package]
+    // and before [[bin]] — that is the canonical position cargo-sort would
+    // choose, so emitting them in this order keeps the output idempotent.
     let machete_section = if machete_ignored.is_empty() {
         String::new()
     } else {
         format!(
-            "\n[package.metadata.cargo-machete]\nignored = [{}]\n",
+            "[package.metadata.cargo-machete]\nignored = [{}]",
             machete_ignored.join(", ")
         )
     };
-    let tokio_line = if needs_tokio {
-        "\ntokio = { version = \"1\", features = [\"full\"] }"
-    } else {
-        ""
-    };
-    // Trait-bridge stubs use `#[async_trait]` on impl blocks (required when the
-    // trait itself is `#[async_trait]`-decorated).  `anyhow` is kept as a direct
-    // dep for any crates that still reference `anyhow::Error` in fixture code.
-    let anyhow_line = if needs_anyhow {
-        format!(
-            "\nanyhow = \"1\"\nasync-trait = \"{async_trait}\"",
-            async_trait = tv::cargo::ASYNC_TRAIT,
-        )
+    let bin_section = if needs_mock_server || needs_http_tests {
+        String::from("[[bin]]\nname = \"mock-server\"\npath = \"src/main.rs\"")
     } else {
         String::new()
     };
-    let bin_section = if needs_mock_server || needs_http_tests {
-        "\n[[bin]]\nname = \"mock-server\"\npath = \"src/main.rs\"\n"
-    } else {
-        ""
-    };
+
     // E2e package version tracks the consumer crate version so `alef sync-versions`
     // doesn't rewrite the generated file on every prek run. Fall back to "0.1.0" only
     // when no consumer version is known (test fixtures, etc.).
     let pkg_version = version.unwrap_or("0.1.0");
     let header = hash::header(CommentStyle::Hash);
-    format!(
-        r#"{header}
-[workspace]
 
-[package]
-name = "{e2e_name}"
-version = "{pkg_version}"
-edition = "2021"
-license = "MIT"
-publish = false
-{bin_section}
-[dependencies]
-{dep_spec}{serde_line}{anyhow_line}{mock_lines}{tokio_line}
-{machete_section}"#
+    // Collect all dependency entries into a sortable Vec so the emitted
+    // [dependencies] block is alphabetically ordered.  cargo-sort rewrites any
+    // non-alphabetical block, causing prek to oscillate between alef's order
+    // and cargo-sort's canonical order on every run.
+    let mut dep_entries: Vec<(String, String)> = Vec::new();
+    dep_entries.push((dep_name.to_string(), dep_spec.clone()));
+    if effective_needs_serde_json {
+        dep_entries.push(("serde_json".to_string(), "serde_json = \"1\"".to_string()));
+    }
+    if needs_anyhow {
+        dep_entries.push(("anyhow".to_string(), "anyhow = \"1\"".to_string()));
+        dep_entries.push((
+            "async-trait".to_string(),
+            format!("async-trait = \"{async_trait}\"", async_trait = tv::cargo::ASYNC_TRAIT),
+        ));
+    }
+    if needs_axum {
+        dep_entries.push(("axum".to_string(), format!("axum = \"{axum}\"", axum = tv::cargo::AXUM)));
+        dep_entries.push((
+            "serde".to_string(),
+            "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
+        ));
+        dep_entries.push((
+            "walkdir".to_string(),
+            format!("walkdir = \"{walkdir}\"", walkdir = tv::cargo::WALKDIR),
+        ));
+        if needs_mock_server {
+            dep_entries.push((
+                "tokio-stream".to_string(),
+                format!(
+                    "tokio-stream = \"{tokio_stream}\"",
+                    tokio_stream = tv::cargo::TOKIO_STREAM
+                ),
+            ));
+        }
+        if needs_http_tests {
+            dep_entries.push(("axum-test".to_string(), "axum-test = \"20\"".to_string()));
+            dep_entries.push(("bytes".to_string(), "bytes = \"1\"".to_string()));
+        }
+        if needs_tower_http {
+            dep_entries.push((
+                "tower-http".to_string(),
+                format!(
+                    "tower-http = {{ version = \"{tower_http}\", features = [\"cors\", \"fs\"] }}",
+                    tower_http = tv::cargo::TOWER_HTTP
+                ),
+            ));
+            dep_entries.push((
+                "tempfile".to_string(),
+                format!("tempfile = \"{tempfile}\"", tempfile = tv::cargo::TEMPFILE),
+            ));
+        }
+    }
+    if needs_tokio {
+        dep_entries.push((
+            "tokio".to_string(),
+            "tokio = { version = \"1\", features = [\"full\"] }".to_string(),
+        ));
+    }
+    dep_entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let dep_block = dep_entries
+        .iter()
+        .map(|(_, line)| line.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Assemble the middle block (between [package] and [dependencies]).
+    // Each present section is separated by exactly one blank line.
+    let mut middle_sections: Vec<&str> = Vec::new();
+    if !machete_section.is_empty() {
+        middle_sections.push(&machete_section);
+    }
+    if !bin_section.is_empty() {
+        middle_sections.push(&bin_section);
+    }
+    let middle_block = middle_sections.join("\n\n");
+    let middle_separator = if middle_block.is_empty() { "" } else { "\n\n" };
+
+    format!(
+        "{header}\n[workspace]\n\n[package]\nname = \"{e2e_name}\"\nversion = \"{pkg_version}\"\nedition = \"2021\"\nlicense = \"MIT\"\npublish = false{middle_separator}{middle_block}\n\n[dependencies]\n{dep_block}\n"
     )
 }
 
@@ -251,6 +284,78 @@ mod tests {
             !out.contains("Issues & docs:"),
             "e2e Cargo.toml must not contain 'Issues & docs:' — cargo-sort strips it, \
              causing prek to loop forever:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_cargo_toml_deps_are_alphabetically_sorted() {
+        // Regression: alef emitted deps in code order (consumer crate first,
+        // then serde_json, axum, serde, walkdir, tokio-stream, tokio).
+        // cargo-sort rewrites unsorted blocks causing prek to oscillate.
+        let out = render_cargo_toml(
+            "my-crate",
+            "my_crate",
+            "../../crates/my-crate",
+            true,  // needs_serde_json
+            true,  // needs_mock_server
+            false, // needs_http_tests
+            true,  // needs_tokio
+            false, // needs_tower_http
+            false, // needs_anyhow
+            DependencyMode::Local,
+            Some("1.2.3"),
+            &[],
+        );
+        // Extract the [dependencies] block and verify key order.
+        let deps_start = out.find("[dependencies]\n").expect("missing [dependencies]");
+        let deps_block = &out[deps_start + "[dependencies]\n".len()..];
+        let dep_keys: Vec<&str> = deps_block
+            .lines()
+            .take_while(|l| !l.starts_with('['))
+            .filter(|l| !l.is_empty())
+            .map(|l| l.split_once(" = ").map(|(k, _)| k).unwrap_or(l))
+            .collect();
+        let mut sorted = dep_keys.clone();
+        sorted.sort();
+        assert_eq!(
+            dep_keys, sorted,
+            "dependencies must be in alphabetical order (cargo-sort canonical), got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_cargo_toml_machete_section_precedes_bin_section() {
+        // Regression: older alef put [package.metadata.cargo-machete] at the
+        // end of the file.  cargo-sort moves it to immediately after [package],
+        // before [[bin]], causing prek to oscillate.
+        let out = render_cargo_toml(
+            "my-crate",
+            "my_crate",
+            "../../crates/my-crate",
+            true,  // needs_serde_json → triggers machete section
+            true,  // needs_mock_server → triggers [[bin]] section
+            false, // needs_http_tests
+            true,  // needs_tokio
+            false, // needs_tower_http
+            false, // needs_anyhow
+            DependencyMode::Local,
+            Some("1.2.3"),
+            &[],
+        );
+        let machete_pos = out
+            .find("[package.metadata.cargo-machete]")
+            .expect("[package.metadata.cargo-machete] missing");
+        let bin_pos = out.find("[[bin]]").expect("[[bin]] missing");
+        let deps_pos = out.find("[dependencies]").expect("[dependencies] missing");
+        assert!(
+            machete_pos < bin_pos,
+            "[package.metadata.cargo-machete] must precede [[bin]] — cargo-sort canonical order:\n{out}"
+        );
+        assert!(bin_pos < deps_pos, "[[bin]] must precede [dependencies]:\n{out}");
+        // Must not appear at the end (after [dependencies]).
+        assert!(
+            machete_pos < deps_pos,
+            "[package.metadata.cargo-machete] must not appear after [dependencies]:\n{out}"
         );
     }
 }
