@@ -381,7 +381,7 @@ fn render_build_gradle_kotlin_android(
             Triple(parts[0], parts[1], parts[2])
         }}
         val aarFileName = "${{artifactId}}-${{version}}.aar"
-        val mavenUrl = "https://repo1.maven.org/maven2/${{groupId.replace('.', '/')}}//${{artifactId}}//${{version}}//${{aarFileName}}"
+        val mavenUrl = "https://repo1.maven.org/maven2/${{groupId.replace('.', '/')}}/${{artifactId}}/${{version}}/${{aarFileName}}"
         val aarFile = layout.buildDirectory.file("tmp/${{aarFileName}}").get().asFile
 
         println("Downloading AAR from Maven Central: ${{mavenUrl}}")
