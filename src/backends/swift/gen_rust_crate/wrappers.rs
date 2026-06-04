@@ -903,22 +903,52 @@ pub(crate) fn emit_type_method_shims(
                         "serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or(serde_json::Value::Null)"
                     );
                 }
-                // Enum parameters: bridged as String, must be JSON-deserialized.
-                // Check if the Named type is an enum before trying to access .0.
+                // Enum parameters: bridged as plain wire strings (e.g. "person"), NOT as
+                // JSON-encoded strings (e.g. "\"person\"").  serde_json::from_str fails on
+                // unquoted strings; use `From<String>` instead which every alef unit enum
+                // implements.  Vec<EnumType> params with is_ref=true must also be converted
+                // element-wise and then sliced to &[T].
+                if let TypeRef::Vec(vec_inner) = &p.ty {
+                    if let TypeRef::Named(n) = vec_inner.as_ref() {
+                        if enum_names.contains(n.as_str()) {
+                            let source_enum_ty = type_paths
+                                .get(n.as_str())
+                                .map(|p| p.replace('-', "_"))
+                                .unwrap_or_else(|| n.clone());
+                            let map_expr = format!(
+                                "{name}.into_iter().map(|s| <{source_enum_ty} as ::std::convert::From<String>>::from(s)).collect::<Vec<_>>()"
+                            );
+                            if p.is_ref {
+                                // Core expects `&[EnumType]`; bind converted Vec locally.
+                                return format!(
+                                    "{{ let __converted = {map_expr}; __converted.as_slice() }}"
+                                );
+                            }
+                            if p.optional {
+                                let opt_map = format!(
+                                    "{name}.map(|values| values.into_iter().map(|s| <{source_enum_ty} as ::std::convert::From<String>>::from(s)).collect::<Vec<_>>())"
+                                );
+                                return opt_map;
+                            }
+                            return map_expr;
+                        }
+                    }
+                }
                 if let TypeRef::Named(n) = &p.ty {
                     if enum_names.contains(n.as_str()) {
-                        // Enum parameter comes in as String; deserialize back to source enum.
-                        // The bridge enum wrapper defines From<SourceEnum> for BridgeEnum,
-                        // so we deserialize to SourceEnum and convert via From.
+                        // Single enum parameter: swift delivers a plain wire string.
                         let source_enum_ty = type_paths
                             .get(n.as_str())
                             .map(|p| p.replace('-', "_"))
                             .unwrap_or_else(|| n.clone());
-                        let deser = format!("::serde_json::from_str::<{source_enum_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+                        let from_expr =
+                            format!("<{source_enum_ty} as ::std::convert::From<String>>::from({name})");
                         if p.optional {
-                            return format!("{name}.map(|json| ::serde_json::from_str::<{source_enum_ty}>(&json).expect(\"valid JSON for {name}\"))");
+                            return format!(
+                                "{name}.map(|s| <{source_enum_ty} as ::std::convert::From<String>>::from(s))"
+                            );
                         }
-                        return deser;
+                        return from_expr;
                     }
                 }
                 if needs_json_bridge(&p.ty) {

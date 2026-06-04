@@ -67,6 +67,20 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
         ));
     }
 
+    // When the source enum has feature-gated variants excluded from the bridge
+    // (e.g. `FormatMetadata::Code` under `#[cfg(feature = "tree-sitter")]`),
+    // those variants live in `excluded_variants` but not in `variants`.  The
+    // generated match arms only cover `variants`, making the impl non-exhaustive
+    // (E0004) when compiled with `--all-features`.  Emit a wildcard arm so the
+    // match is always exhaustive regardless of which feature flags are active.
+    // The `#![allow(unreachable_patterns)]` at the crate root suppresses the
+    // redundant-arm warning when all variants are in fact covered.
+    if !en.excluded_variants.is_empty() {
+        out.push_str(
+            "            _ => unreachable!(\"bridge enum variant not exposed in binding\"),\n",
+        );
+    }
+
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");

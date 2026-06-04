@@ -142,13 +142,17 @@ pub(crate) fn swift_call_arg(
     if let TypeRef::Named(n) = &p.ty {
         if enum_names.contains(n.as_str()) {
             let native_ty = source_type(n);
-            let deser = format!("::serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
+            // Swift bridges enum values as plain wire strings (e.g. "person"), not as
+            // JSON-encoded strings (e.g. "\"person\"").  Using serde_json::from_str on
+            // an unquoted string fails.  Use `From<String>` instead, which every alef
+            // unit enum is required to implement.
+            let from_expr = format!("<{native_ty} as ::std::convert::From<String>>::from({name})");
             if p.optional {
                 return format!(
-                    "{name}.map(|json| ::serde_json::from_str::<{native_ty}>(&json).expect(\"valid JSON for {name}\"))"
+                    "{name}.map(|s| <{native_ty} as ::std::convert::From<String>>::from(s))"
                 );
             }
-            return deser;
+            return from_expr;
         }
     }
 
@@ -156,13 +160,24 @@ pub(crate) fn swift_call_arg(
         if let TypeRef::Named(n) = inner.as_ref() {
             if enum_names.contains(n.as_str()) {
                 let native_ty = source_type(n);
+                // Same rationale: Swift delivers plain wire strings; convert each via
+                // `From<String>`.  The resulting `Vec<EnumType>` is then passed as a
+                // slice reference (`&converted`) when `is_ref` is true.
                 let map_expr = format!(
-                    "values.into_iter().map(|json| ::serde_json::from_str::<{native_ty}>(&json).expect(\"valid JSON for {name}\")).collect::<Vec<_>>()"
+                    "values.into_iter().map(|s| <{native_ty} as ::std::convert::From<String>>::from(s)).collect::<Vec<_>>()"
                 );
-                if p.optional {
-                    return format!("{name}.map(|values| {map_expr})");
+                let converted = if p.optional {
+                    format!("{name}.map(|values| {map_expr})")
+                } else {
+                    format!("{{ let values = {name}; {map_expr} }}")
+                };
+                if p.is_ref && !p.optional {
+                    // Core expects `&[EnumType]`; bind the Vec to a local and slice it.
+                    return format!(
+                        "{{ let __converted = {{ let values = {name}; {map_expr} }}; __converted.as_slice() }}"
+                    );
                 }
-                return format!("{{ let values = {name}; {map_expr} }}");
+                return converted;
             }
         }
     }
@@ -319,7 +334,20 @@ pub(crate) fn emit_function_shim(
                 bridge_ty
             };
             let name = swift_ident(&p.name.to_snake_case());
-            format!("{name}: {bridge_ty}")
+            // When the core function takes `&mut T` (is_ref=true, is_mut=true) the shim
+            // receives the value by move (bridge types are always owned) and then borrows
+            // it mutably as `&mut {name}.0`.  The borrow requires the local binding to be
+            // declared `mut`, so emit `mut {name}` for by-move Named struct params that
+            // will be mutably borrowed in the call.
+            let needs_mut = p.is_ref
+                && p.is_mut
+                && !p.optional
+                && matches!(&p.ty, TypeRef::Named(n) if !enum_names.contains(n.as_str()));
+            if needs_mut {
+                format!("mut {name}: {bridge_ty}")
+            } else {
+                format!("{name}: {bridge_ty}")
+            }
         })
         .collect();
     let params_str = params.join(", ");
@@ -662,12 +690,16 @@ mod tests {
             &handle_returned_types,
         );
         assert!(shim.contains("actions: Vec<String>"));
-        assert!(shim.contains("::serde_json::from_str::<sample_crawler::PageAction>"));
+        // Enum params are converted via From<String>, not JSON deserialization.
+        // Swift delivers plain wire strings (e.g. "click"), not JSON-encoded strings
+        // (e.g. "\"click\""), so serde_json::from_str would fail on unquoted input.
+        assert!(shim.contains("From<String>"));
+        assert!(shim.contains("sample_crawler::PageAction"));
         assert!(!shim.contains(".0"));
     }
 
     #[test]
-    fn direct_enum_params_bridge_as_json_strings() {
+    fn direct_enum_params_bridge_as_from_string() {
         let f = function(vec![param("action", TypeRef::Named("PageAction".to_string()))]);
         let enum_names = HashSet::from(["PageAction"]);
         let type_paths = HashMap::from([("PageAction".to_string(), "sample_crawler::PageAction".to_string())]);
@@ -683,7 +715,9 @@ mod tests {
             &handle_returned_types,
         );
         assert!(shim.contains("action: String"));
-        assert!(shim.contains("::serde_json::from_str::<sample_crawler::PageAction>"));
+        // Enum params must use From<String>, not JSON deserialization.
+        assert!(shim.contains("From<String>"));
+        assert!(shim.contains("sample_crawler::PageAction"));
         assert!(!shim.contains("unimplemented!"));
     }
 }
