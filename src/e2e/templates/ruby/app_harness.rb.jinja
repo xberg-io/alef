@@ -6,10 +6,10 @@
    handlers that return expected responses, and serves on a configured port.
 
    Context variables (passed from Ruby codegen):
-   - imports: list of module names to import (e.g., ["my_pkg"])
-   - app_class: class name for SUT app (e.g., "MyPkg::App")
-   - method_enum_module: module path for Method enum (e.g., "MyPkg::Method")
-   - register_route_method: app method to register routes (e.g., "register_route")
+   - imports: list of module names to import (e.g., ["spikard"])
+   - app_class: full constant path to app class (e.g., "Spikard::App")
+   - method_enum_module: module path for Method enum (e.g., "Spikard::Method")
+   - register_route_method: app method to register routes (e.g., "route")
    - run_method: serve entrypoint (e.g., "run")
    - host: binding host (e.g., "127.0.0.1")
    - port: binding port (e.g., 8002)
@@ -26,10 +26,10 @@ module AppHarness
   FIXTURES_JSON = {{ fixtures_json }}
   FIXTURES = JSON.parse(FIXTURES_JSON, symbolize_names: true)
 
-  # Create and configure the app. The leading `::` anchors the lookup at the
-  # top-level constant namespace so the surrounding `module AppHarness` block
-  # does not shadow a configured `App` symbol that lives outside the module.
-  APP = ::{{ app_class }}.new
+  # Create and configure the app. The app_class config must include the full
+  # constant path (e.g., "Spikard::App") so it resolves correctly within the
+  # AppHarness module block.
+  APP = {{ app_class }}.new
 
   # Register a handler for each fixture.
   FIXTURES.each do |fixture_id, fixture|
