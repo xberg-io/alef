@@ -6,9 +6,9 @@
    handlers that return expected responses, and serves on a configured port.
 
    Context variables (passed from Ruby codegen):
-   - imports: list of module names to import (e.g., ["spikard"])
-   - app_class: full constant path to app class (e.g., "Spikard::App")
-   - method_enum_module: module path for Method enum (e.g., "Spikard::Method")
+   - imports: list of module names to import (e.g., ["sample_app"])
+   - app_class: full constant path to app class (e.g., "SampleApp::App")
+   - method_enum_module: module path for Method enum (e.g., "SampleApp::Method")
    - register_route_method: app method to register routes (e.g., "route")
    - run_method: serve entrypoint (e.g., "run")
    - host: binding host (e.g., "127.0.0.1")
@@ -27,7 +27,7 @@ module AppHarness
   FIXTURES = JSON.parse(FIXTURES_JSON, symbolize_names: true)
 
   # Create and configure the app. The app_class config must include the full
-  # constant path (e.g., "Spikard::App") so it resolves correctly within the
+  # constant path (e.g., "SampleApp::App") so it resolves correctly within the
   # AppHarness module block.
   APP = {{ app_class }}.new
 

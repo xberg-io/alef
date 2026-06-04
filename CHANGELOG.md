@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fix(dart/frb): ensure handler callback closures are marked as `async` when containing `await handler(...)` calls. FRB emits service method code that replaces `handler.executeSync()` / `handler.executeNormal()` with direct `await handler(...)` invocation, but the containing closure signature was not marked `async`, causing Dart compile error "await can only be used in async methods". The post-processor now detects closures with `await handler` in their body and adds the `async` keyword to their signature. Fixes all instances at lines 465, 498, 535, etc. in generated `frb_generated.dart`. (`src/backends/dart/frb_rewrite.rs`)
+- fix(e2e/ruby): remove downstream-specific module names from the generated app harness template comments. (`src/e2e/templates/ruby/app_harness.rb.jinja`)
+- fix(e2e/typescript): synthesize multipart fixture bodies with file metadata for binary schema fields instead of treating every part as plain text. (`src/e2e/codegen/typescript/test_file.rs`)
 
 ## [0.22.27] - 2026-06-04
 

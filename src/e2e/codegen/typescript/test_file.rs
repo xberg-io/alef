@@ -1931,7 +1931,8 @@ fn synthesize_multipart_body_from_schema(schema: &Option<serde_json::Value>) -> 
             let disposition = if is_binary {
                 format!(
                     "Content-Disposition: form-data; name=\"{}\"; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n<file content>",
-                    escape_js(key), escape_js(key)
+                    escape_js(key),
+                    escape_js(key)
                 )
             } else {
                 format!(
