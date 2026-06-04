@@ -764,7 +764,7 @@ pub fn build(b: *std.Build) void {
     //   * `module_name`      — the Zig `@import("...")` identifier other test
     //                          files use to import the binding module.
     // Callers pass these in resolved form so this function never embeds a
-    // downstream crate's name.
+    // binding crate's name.
     let mut content = String::from(
         "const std = @import(\"std\");\nconst builtin = @import(\"builtin\");\n\npub fn build(b: *std.Build) void {\n",
     );
@@ -3065,8 +3065,13 @@ fn render_assertion(
         }
         "greater_than" => {
             if let Some(val) = &assertion.value {
-                let zig_val = json_to_zig(val);
-                let _ = writeln!(out, "    try testing.expect({field_expr} > {zig_val});");
+                // Skip comparisons like `len > -1` when the value is negative: they are always-true
+                // tautologies for unsigned types and create invalid Zig code (@as(usize, -1)).
+                let is_negative = matches!(val, serde_json::Value::Number(n) if n.as_i64().is_some_and(|i| i < 0));
+                if !is_negative {
+                    let zig_val = json_to_zig(val);
+                    let _ = writeln!(out, "    try testing.expect({field_expr} > {zig_val});");
+                }
             }
         }
         "less_than" => {
@@ -3077,8 +3082,13 @@ fn render_assertion(
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
-                let zig_val = json_to_zig(val);
-                let _ = writeln!(out, "    try testing.expect({field_expr} >= {zig_val});");
+                // Skip comparisons like `len >= -1` when the value is negative: they are always-true
+                // tautologies for unsigned types and create invalid Zig code (@as(usize, -1)).
+                let is_negative = matches!(val, serde_json::Value::Number(n) if n.as_i64().is_some_and(|i| i < 0));
+                if !is_negative {
+                    let zig_val = json_to_zig(val);
+                    let _ = writeln!(out, "    try testing.expect({field_expr} >= {zig_val});");
+                }
             }
         }
         "less_than_or_equal" => {
