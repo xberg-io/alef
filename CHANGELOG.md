@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/swift**: replace the read-only `ProcessInfo.processInfo.environment["SUT_URL"] = "…"` assignment in the generated harness with a nested `withCString { … setenv(key, url, 1) }` block. The swift compiler rejects subscript-assignment on `ProcessInfo`'s read-only dictionary; the C `setenv` actually mutates the process environment so subsequent `getenv("SUT_URL")` / `ProcessInfo` lookups see the URL. (`src/e2e/codegen/swift.rs:677-682`)
+
 - **extract/functions**: skip private functions at the extraction boundary. Previously `extract_function()` only checked visibility at the call site, so private helpers could slip into the IR in edge cases where the call-site filter didn't fire — and once in the IR, any backend (FFI, Go, Python, …) would emit wrappers / C-header declarations for symbols that don't exist in the consumer's compiled crate, producing `undefined symbol` link errors. Now `extract_function` defensively returns `None` whenever `!is_pub(item.vis)`, ensuring private items can never be associated with any type or emitted by any backend. (`src/extract/extractor/functions.rs:50`)
 
 - **e2e/elixir**: register routes at `/fixtures/{fixture_id}` only, dropping the spurious `route` field concatenation. The previous template emitted `"/fixtures/#{fixture_id}#{route}"`, producing paths like `/fixtures/abc/api/data` while every test request just hits `/fixtures/abc` — all routes returned 404. The handler's `route` field describes the intended target route the fixture simulates (for assertion/reference), not the path to register on the SUT. (`src/e2e/templates/elixir/app_harness.exs.jinja:55`)
