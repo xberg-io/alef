@@ -271,7 +271,7 @@ pub mod maven {
     pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.1";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
-    pub const KOTLIN_JVM_PLUGIN: &str = "2.1.20";
+    pub const KOTLIN_JVM_PLUGIN: &str = "2.2.0";
 
     // renovate: datasource=maven depName=com.android.tools.build:gradle
     pub const ANDROID_GRADLE_PLUGIN: &str = "8.13.0";
