@@ -1032,16 +1032,9 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     // Helper function for list access
     code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
     code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
-    code.push_str("    if let Some(names) = list.names() {\n");
-    code.push_str("        for (name, val) in names.into_iter().zip(list.iter()) {\n");
-    code.push_str("            if *name == key {\n");
-    code.push_str("                return Some(val);\n");
-    code.push_str("            }\n");
-    code.push_str("        }\n");
-    code.push_str("        None\n");
-    code.push_str("    } else {\n");
-    code.push_str("        None\n");
-    code.push_str("    }\n");
+    code.push_str("    list.names().and_then(|names| {\n");
+    code.push_str("        names.into_iter().zip(list.iter()).find(|(n, _)| *n == key).map(|(_, v)| v)\n");
+    code.push_str("    })\n");
     code.push_str("}\n\n");
 
     // Generate enum-specific decoders
