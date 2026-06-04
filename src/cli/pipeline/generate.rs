@@ -2,6 +2,7 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::hash;
 use crate::core::ir::ApiSurface;
+use crate::core::validation::ValidatedApiSurface;
 use anyhow::Context as _;
 use base64::Engine;
 use rayon::prelude::*;
@@ -18,7 +19,8 @@ pub fn generate(
     languages: &[Language],
     clean: bool,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    validate_generation_api(api, config)?;
+    let validated_api = validate_generation_api(api, config)?;
+    let api = validated_api.api();
 
     // Validate that Go/Java/C# have FFI in the languages list
     let has_ffi = languages.contains(&Language::Ffi);
@@ -76,7 +78,8 @@ pub fn generate_stubs(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    validate_generation_api(api, config)?;
+    let validated_api = validate_generation_api(api, config)?;
+    let api = validated_api.api();
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
@@ -100,7 +103,8 @@ pub fn generate_service_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    validate_generation_api(api, config)?;
+    let validated_api = validate_generation_api(api, config)?;
+    let api = validated_api.api();
 
     if api.services.is_empty() {
         return Ok(vec![]);
@@ -138,7 +142,8 @@ pub fn generate_public_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    validate_generation_api(api, config)?;
+    let validated_api = validate_generation_api(api, config)?;
+    let api = validated_api.api();
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
         .par_iter()
@@ -154,7 +159,10 @@ pub fn generate_public_api(
     Ok(results)
 }
 
-fn validate_generation_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<()> {
+fn validate_generation_api<'a>(
+    api: &'a ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> anyhow::Result<ValidatedApiSurface<'a>> {
     let validation_report = crate::core::validation::validate_api_surface(api);
     for diagnostic in validation_report.warnings() {
         tracing::warn!("{diagnostic}");
@@ -181,12 +189,19 @@ fn validate_generation_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     if !fatal.is_empty() {
         let formatted = fatal
             .iter()
-            .map(|diagnostic| format!("- [{}] {}", diagnostic.code, diagnostic.reason))
+            .map(|diagnostic| {
+                let path = diagnostic
+                    .item_path
+                    .as_deref()
+                    .map(|p| format!(" item `{p}`"))
+                    .unwrap_or_default();
+                format!("- [{}]{path} {}", diagnostic.code, diagnostic.reason)
+            })
             .collect::<Vec<_>>()
             .join("\n");
         anyhow::bail!("{formatted}");
     }
-    Ok(())
+    ValidatedApiSurface::new(api, &config.suppress_validation_codes).map_err(|report| anyhow::anyhow!(report.format_errors()))
 }
 
 /// Apply `0o755` permissions to a file whose content begins with a shebang line.
