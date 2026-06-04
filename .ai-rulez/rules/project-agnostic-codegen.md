@@ -8,6 +8,4 @@ Consumer-specific differences must be modeled through generic configuration such
 
 Regression tests may describe the generic behavior being protected, but fixtures and expected output should use neutral sample names rather than real consumer project names.
 
-TODO(alef-generic-cleanup): remove remaining domain-shaped examples and scaffold/e2e defaults after they are fixture/config-driven.
-
 Generated snapshots, docs, and guidance must also use neutral fixture names. Do not preserve consumer domain types such as product-specific config, result, visitor, handle, or backend names in expected output; rename them to generic fixture concepts before accepting snapshots.

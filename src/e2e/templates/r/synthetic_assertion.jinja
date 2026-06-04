@@ -1,6 +1,6 @@
-{#- R synthetic field assertion template
-    TODO(alef-generic-cleanup): move domain-shaped synthetic assertion kinds to fixture/config data.
-
+{#- R synthetic field assertion template.
+   Domain-shaped synthetic assertion kinds are rendered only after fixture or
+   call config enables the matching assertion recipe.
    Context variables:
    - assertion_kind: "bool_pred", "embeddings", "embedding_dimensions", "keywords", "skipped", or "result_is_simple"
    - assertion_type: assertion type ("is_true", "is_false", "count_equals", etc.)
