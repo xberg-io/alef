@@ -476,17 +476,13 @@ fn gen_registration_variant_method_ts(
             );
         }
         RegistrationVariantStyle::Hybrid => {
-            // Both forms
-            emit_variant_direct_method(
-                out,
-                variant_name,
-                &variant_params_no_handler,
-                base_method,
-                &metadata_array.0,
-                &metadata_array.1,
-                variant,
-            );
-            emit_variant_decorator_factory(
+            // Both forms — emit as TypeScript method overloads (two declaration
+            // signatures + one implementation that branches on the optional
+            // `handler` argument). Emitting them as two separate method bodies
+            // produced `Identifier 'get' has already been declared` oxlint
+            // errors because JavaScript classes do not support runtime method
+            // overloading the way Rust traits do.
+            emit_variant_hybrid_overloaded(
                 out,
                 variant_name,
                 &variant_params_no_handler,
@@ -557,6 +553,68 @@ fn emit_variant_decorator_factory(
         "  {variant_name}({sig}): (fn: (...args: any[]) => any) => (...args: any[]) => any {{\n"
     ));
     out.push_str(wrapper_code);
+    out.push_str("    return (fn: (...args: any[]) => any) => {\n");
+    out.push_str(&format!(
+        "      this._registrations.push([\"{base_method}\", {metadata_array}, fn]);\n"
+    ));
+    out.push_str("      return fn;\n");
+    out.push_str("    };\n");
+    out.push_str("  }\n\n");
+}
+
+/// Emit BOTH hybrid forms as TypeScript method overloads — two signature
+/// declarations and one implementation body that branches on whether the
+/// optional `handler` argument was supplied.
+fn emit_variant_hybrid_overloaded(
+    out: &mut String,
+    variant_name: &str,
+    variant_params: &[String],
+    base_method: &str,
+    wrapper_code: &str,
+    metadata_array: &str,
+    variant: &crate::core::ir::RegistrationVariant,
+) {
+    let direct_params = {
+        let mut p = variant_params.to_vec();
+        p.push("handler: (...args: any[]) => any".to_string());
+        p.join(", ")
+    };
+    let factory_params = variant_params.join(", ");
+    let impl_params = {
+        let mut p = variant_params.to_vec();
+        p.push("handler?: (...args: any[]) => any".to_string());
+        p.join(", ")
+    };
+
+    // Combined JSDoc — describe both forms.
+    out.push_str("  /**\n");
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
+    } else {
+        out.push_str(&format!(
+            "   * Register a {} callback. Call with `handler` for direct registration; omit\n",
+            variant_name
+        ));
+        out.push_str("   * `handler` to receive a decorator factory that accepts it lazily.\n");
+    }
+    out.push_str("   */\n");
+
+    // Two TypeScript overload signature declarations.
+    out.push_str(&format!("  {variant_name}({direct_params}): this;\n"));
+    out.push_str(&format!(
+        "  {variant_name}({factory_params}): (fn: (...args: any[]) => any) => (...args: any[]) => any;\n"
+    ));
+    // One unified implementation that handles both shapes at runtime.
+    out.push_str(&format!(
+        "  {variant_name}({impl_params}): this | ((fn: (...args: any[]) => any) => (...args: any[]) => any) {{\n"
+    ));
+    out.push_str(wrapper_code);
+    out.push_str("    if (handler !== undefined) {\n");
+    out.push_str(&format!(
+        "      this._registrations.push([\"{base_method}\", {metadata_array}, handler]);\n"
+    ));
+    out.push_str("      return this;\n");
+    out.push_str("    }\n");
     out.push_str("    return (fn: (...args: any[]) => any) => {\n");
     out.push_str(&format!(
         "      this._registrations.push([\"{base_method}\", {metadata_array}, fn]);\n"
