@@ -788,6 +788,14 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     enums: &[EnumDef],
 ) -> String {
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+
+    // Types with lifetime parameters (e.g. `NodeContext<'a>`) have private fields that
+    // make struct-literal construction impossible. Delegate to the `From` impl (generated
+    // separately via `gen_from_binding_to_core_cfg`) which uses the appropriate constructor.
+    if typ.has_lifetime_params {
+        return format!("let core_self = {core_path}::from(self.clone());\n        ");
+    }
+
     let mut out = crate::backends::php::template_env::render(
         "php_lossy_binding_struct_begin.jinja",
         context! {
