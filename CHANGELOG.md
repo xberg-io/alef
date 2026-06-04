@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/java): correct the default register_method from `registerRoute` to `registerAppRoute` in the harness codegen. The Java binding's route-registration method is `registerAppRoute()`, not the generic `registerRoute()`, causing generated HarnessMain to fail compilation with a symbol-not-found error.
+
 ## [0.22.28] - 2026-06-04
 
 ### Fixed
