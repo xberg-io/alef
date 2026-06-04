@@ -511,13 +511,12 @@ pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGe
     if body.is_empty() { None } else { Some(body) }
 }
 
-/// Resolve the FQN of a host-crate plugin function (e.g.
-/// `sample_core::plugins::ocr::unregister_ocr_backend`) given the bridge's
+/// Resolve the FQN of a host-crate registry function (e.g.
+/// `sample_core::registry::widgets::unregister_widget_backend`) given the bridge's
 /// `registry_getter` path. The convention used by host crates is:
 ///
-/// TODO(alef-generic-cleanup): Replace sample_core/plugins/ocr registry convention examples with generic metadata.
-/// - `registry_getter = "sample_core::plugins::registry::get_ocr_backend_registry"`
-/// - top-level fn      = `sample_core::plugins::ocr::unregister_ocr_backend`
+/// - `registry_getter = "sample_core::registry::get_widget_backend_registry"`
+/// - top-level fn      = `sample_core::registry::widgets::unregister_widget_backend`
 ///
 /// We rewrite `::registry::get_*_registry` to `::<sub>::<fn_name>` where
 /// `<sub>` is the trait submodule name (extracted from `_*_registry`).

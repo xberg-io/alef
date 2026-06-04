@@ -755,11 +755,8 @@ fn categorize_type(ty: &TypeDef) -> &'static str {
         "Metadata Types"
     } else if name.ends_with("Config") || name.ends_with("Options") || name.ends_with("Settings") || ty.has_default {
         "Configuration Types"
-    } else if name.contains("Node") || name.contains("Table") || name.contains("Grid") || name.contains("Document") {
-        // TODO(alef-generic-cleanup): Replace Document/Ocr/Tesseract/Paddle grouping heuristics with neutral categories.
-        "Document Structure"
-    } else if name.contains("Ocr") || name.contains("Tesseract") || name.contains("Paddle") {
-        "OCR Types"
+    } else if name.contains("Node") || name.contains("Table") || name.contains("Grid") {
+        "Structured Data Types"
     } else {
         "Other Types"
     }
@@ -793,8 +790,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         "Result Types",
         "Configuration Types",
         "Metadata Types",
-        "Document Structure",
-        "OCR Types",
+        "Structured Data Types",
         "Other Types",
     ];
 

@@ -87,11 +87,10 @@ pub(crate) fn cargo_package_header(
         let quoted: Vec<String> = meta.keywords.iter().map(|k| format!("\"{k}\"")).collect();
         format!("keywords = [{}]", quoted.join(", "))
     };
-    // TODO(alef-generic-cleanup): make the default category fixture/config-driven instead of text-processing.
     let categories_line = if ws.categories {
         "categories.workspace = true".to_string()
     } else if meta.categories.is_empty() {
-        "categories = [\"text-processing\"]".to_string()
+        "categories = []".to_string()
     } else {
         let quoted: Vec<String> = meta.categories.iter().map(|k| format!("\"{k}\"")).collect();
         format!("categories = [{}]", quoted.join(", "))
@@ -255,7 +254,6 @@ pub fn scaffold(
     // LICENSE file is present at the workspace root.
     files.extend(scaffold_license_files(config, languages));
 
-    // TODO(alef-generic-cleanup): make scaffold metadata assumptions like toolchain channel configurable.
     // rust-toolchain.toml — pin Rust version, include wasm32 target when wasm is configured
     if !std::path::Path::new("rust-toolchain.toml").exists() {
         let targets = if languages.contains(&Language::Wasm) {
@@ -420,7 +418,6 @@ pub struct ScaffoldMeta {
     pub categories: Vec<String>,
 }
 
-// TODO(alef-generic-cleanup): audit scaffold metadata fallbacks so every ecosystem uses explicit config.
 pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
     let scaffold = config.scaffold.as_ref();
     let package = config.package_metadata.as_ref();
