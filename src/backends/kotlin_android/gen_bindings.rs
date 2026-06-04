@@ -75,6 +75,15 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
             }
         }
     }
+    // Mirror the FFI backend's `contains('<')` filter for workspace-declared opaque types
+    // with generic-parameter rust_paths — the FFI backend skips `_new`/`_free` symbols for
+    // them, so Kotlin Android JNI external-fun declarations against those symbols would
+    // throw `UnsatisfiedLinkError` at runtime.
+    for (name, path) in &config.opaque_types {
+        if path.contains('<') {
+            effective_excluded_types.insert(name.clone());
+        }
+    }
 
     // Build an `enum_name → default_variant` map so the data-class emitter
     // can synthesise constructor defaults for Named enum fields (e.g.

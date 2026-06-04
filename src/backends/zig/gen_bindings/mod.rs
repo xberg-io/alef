@@ -86,6 +86,17 @@ impl Backend for ZigBackend {
         // Extend exclude_types with service-bound types flagged binding_excluded
         // (service owners and handler-contract types are emitted via service_api path)
         exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+        // Mirror the FFI backend's `contains('<')` filter for workspace-declared opaque
+        // types with generic-parameter rust_paths — the FFI backend skips `_new`/`_free`
+        // symbols for them, so Zig `extern fn` declarations against those symbols would
+        // fail to link.
+        exclude_types.extend(
+            config
+                .opaque_types
+                .iter()
+                .filter(|(_, path)| path.contains('<'))
+                .map(|(name, _)| name.clone()),
+        );
 
         let type_is_visible = |name: &str| !exclude_types.contains(name);
         let method_is_visible = |method: &crate::core::ir::MethodDef| {

@@ -70,6 +70,18 @@ fn effective_exclude_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> Ha
     }
     // Also exclude types marked as binding_excluded (service-owned types emitted via service API)
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+    // Mirror the FFI backend's `contains('<')` filter: workspace-declared opaque types whose
+    // `rust_path` carries generic parameters cannot be represented in the C ABI, so the FFI
+    // backend skips emitting `_new`/`_free` symbols. C# P/Invoke imports those symbols, so
+    // the C# backend must follow the same rule to avoid `EntryPointNotFoundException` at
+    // runtime (or DllNotFoundException-shaped linker errors during AOT build).
+    exclude_types.extend(
+        config
+            .opaque_types
+            .iter()
+            .filter(|(_, path)| path.contains('<'))
+            .map(|(name, _)| name.clone()),
+    );
     exclude_types
 }
 
