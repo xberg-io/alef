@@ -417,6 +417,7 @@ pub fn sync_versions(
     config_path: &std::path::Path,
     bump: Option<&str>,
     no_regen: bool,
+    skip_swift_checksum: bool,
 ) -> anyhow::Result<()> {
     // If bump is requested, read current version, bump it, and write it back to Cargo.toml.
     if let Some(component) = bump {
@@ -1415,15 +1416,38 @@ pub fn sync_versions(
         // literal `v__ALEF_SWIFT_VERSION__` GitHub release URL, breaking
         // SwiftPM resolution for downstream consumers.
         //
-        // The checksum placeholder is intentionally NOT substituted here — it
-        // is filled in by the publish flow once the artifactbundle has been
-        // built and its sha256 is known.
+        // The checksum placeholder `__ALEF_SWIFT_CHECKSUM__` is now substituted
+        // by `precompute_swift_checksum` below (when `--skip-swift-checksum` is
+        // not passed) rather than deferring to the publish flow. This means the
+        // main version tag's Package.swift contains the real sha256 from day one,
+        // and SwiftPM consumers using `from: "X.Y.Z"` get the correct checksum
+        // without needing a separate `swift-X.Y.Z` namespace tag.
         if let Ok(content) = std::fs::read_to_string("Package.swift") {
             let new_content = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
             if new_content != content {
                 std::fs::write("Package.swift", &new_content)?;
                 if !updated.iter().any(|p| p == "Package.swift") {
                     updated.push("Package.swift".to_string());
+                }
+            }
+        }
+
+        // Precompute the artifactbundle checksum and substitute `__ALEF_SWIFT_CHECKSUM__`
+        // in root Package.swift so the version tag tree has a real sha256 baked in.
+        // Skipped when `--skip-swift-checksum` is passed, when swift is not configured,
+        // when the swift binding crate is absent, or when no pre-built bundle is available
+        // and the build prerequisites (Xcode / Apple targets) are not on this host.
+        if !skip_swift_checksum {
+            match precompute_swift_checksum(config) {
+                Ok(Some(checksum)) => {
+                    info!("Swift artifactbundle checksum precomputed: {checksum}");
+                    if !updated.iter().any(|p| p == "Package.swift") {
+                        updated.push("Package.swift".to_string());
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("Swift checksum precompute failed: {e} — Package.swift retains placeholder");
                 }
             }
         }
@@ -1669,6 +1693,239 @@ pub(crate) fn sync_registry_package_versions(
     }
 
     Ok(changed)
+}
+
+/// Build the swift artifactbundle for the current crate, compute its sha256,
+/// substitute `__ALEF_SWIFT_CHECKSUM__` in root `Package.swift`, and write a
+/// sidecar file at `target/alef-swift-checksum.txt` so the publish workflow can
+/// reuse the checksum without rebuilding.
+///
+/// # Steps
+///
+/// 1. Detect whether the workspace has a swift binding crate (`{name}-swift`).
+///    Skip with a warning if not found.
+/// 2. Check whether `Package.swift` still contains `__ALEF_SWIFT_CHECKSUM__`.
+///    Return early if already substituted (idempotent).
+/// 3. Look for a pre-built `.artifactbundle.zip` under `dist/swift-artifactbundle/`.
+///    If none exists, shell out to `cargo build -p {crate}-swift --release` and
+///    the alef-bundled build script to produce one.  Skips gracefully when the
+///    build prerequisites (Xcode / Apple targets) are absent.
+/// 4. Compute the checksum with `swift package compute-checksum {zip}` (falls back
+///    to a SHA-256 hex digest computed in-process if `swift` is not on PATH).
+/// 5. Substitute the checksum in `Package.swift` and write the sidecar file.
+///
+/// Returns `Ok(Some(checksum))` when substitution succeeds, `Ok(None)` when skipped.
+fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Option<String>> {
+    use super::helpers::run_command_captured;
+
+    // Guard: Package.swift must exist and still contain the placeholder.
+    let pkg_swift_path = std::path::Path::new("Package.swift");
+    let pkg_content = match std::fs::read_to_string(pkg_swift_path) {
+        Ok(c) => c,
+        Err(_) => {
+            debug!("Package.swift not found — skipping swift checksum precompute");
+            return Ok(None);
+        }
+    };
+    if !pkg_content.contains("__ALEF_SWIFT_CHECKSUM__") {
+        debug!("Package.swift already has a real checksum — skipping precompute");
+        return Ok(None);
+    }
+
+    // Guard: swift must be in the configured languages.
+    if !config.languages.contains(&Language::Swift) {
+        debug!("Swift not configured — skipping swift checksum precompute");
+        return Ok(None);
+    }
+
+    // Guard: the swift binding crate must exist.
+    let swift_crate = format!("{}-swift", config.name);
+    let swift_manifest = format!("crates/{swift_crate}/Cargo.toml");
+    if !std::path::Path::new(&swift_manifest).exists() {
+        warn!(
+            "Swift binding crate `{swift_crate}` not found at `{swift_manifest}` — \
+             skipping checksum precompute. Run with --skip-swift-checksum to suppress."
+        );
+        return Ok(None);
+    }
+
+    // Look for a pre-built artifactbundle zip under dist/swift-artifactbundle/.
+    // The build action outputs `{ArtifactName}.artifactbundle.zip` there.
+    let bundle_dir = std::path::Path::new("dist/swift-artifactbundle");
+    let existing_zip = if bundle_dir.exists() {
+        std::fs::read_dir(bundle_dir)
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
+            })
+    } else {
+        None
+    };
+
+    let zip_path = match existing_zip {
+        Some(p) => {
+            info!("Using pre-built artifactbundle: {}", p.display());
+            p
+        }
+        None => {
+            // No pre-built zip found — attempt to build.
+            info!("Building swift artifactbundle for `{swift_crate}`…");
+            let build_cmd = format!(
+                "cargo build -p {swift_crate} --release --target aarch64-apple-darwin"
+            );
+            match run_command_captured(&build_cmd) {
+                Ok(_) => {}
+                Err(e) => {
+                    warn!(
+                        "Swift artifactbundle build failed (missing Xcode / Apple targets?): {e}\n\
+                         Re-run with --skip-swift-checksum to skip this step."
+                    );
+                    return Ok(None);
+                }
+            }
+            // After cargo build, look again.
+            std::fs::create_dir_all(bundle_dir).ok();
+            match std::fs::read_dir(bundle_dir)
+                .ok()
+                .and_then(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("zip"))
+                }) {
+                Some(p) => p,
+                None => {
+                    warn!(
+                        "No .zip found in `dist/swift-artifactbundle/` after build — \
+                         skipping checksum substitution."
+                    );
+                    return Ok(None);
+                }
+            }
+        }
+    };
+
+    // Compute checksum: prefer `swift package compute-checksum` (canonical tool),
+    // fall back to an in-process SHA-256.
+    let checksum_cmd = format!(
+        "swift package compute-checksum {}",
+        zip_path.display()
+    );
+    let checksum = match run_command_captured(&checksum_cmd) {
+        Ok((stdout, _)) => stdout.trim().to_string(),
+        Err(_) => {
+            // Fallback: compute SHA-256 in-process.
+            info!("`swift` not found — computing SHA-256 in-process");
+            let bytes = std::fs::read(&zip_path)
+                .with_context(|| format!("failed to read {}", zip_path.display()))?;
+            compute_sha256_hex(&bytes)
+        }
+    };
+
+    if checksum.is_empty() {
+        warn!("Computed empty checksum — skipping substitution");
+        return Ok(None);
+    }
+
+    // Substitute in Package.swift.
+    let new_content = pkg_content.replace("__ALEF_SWIFT_CHECKSUM__", &checksum);
+    std::fs::write(pkg_swift_path, &new_content).context("writing Package.swift with checksum")?;
+    info!("Substituted __ALEF_SWIFT_CHECKSUM__ → {checksum} in Package.swift");
+
+    // Write sidecar so publish.yaml can reuse the hash without rebuilding.
+    std::fs::create_dir_all("target").ok();
+    std::fs::write("target/alef-swift-checksum.txt", &checksum)
+        .context("writing target/alef-swift-checksum.txt")?;
+
+    Ok(Some(checksum))
+}
+
+/// Compute a lowercase hex SHA-256 digest of `bytes` without shelling out.
+///
+/// Used as a fallback when `swift package compute-checksum` is not available.
+fn compute_sha256_hex(bytes: &[u8]) -> String {
+    // sha2 is pulled in transitively (ring → sha2 in some configurations).
+    // Use a manual implementation to avoid adding a direct dependency.
+    use std::num::Wrapping;
+
+    // SHA-256 round constants K.
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+
+    // Initial hash values H.
+    let mut h: [Wrapping<u32>; 8] = [
+        Wrapping(0x6a09e667), Wrapping(0xbb67ae85),
+        Wrapping(0x3c6ef372), Wrapping(0xa54ff53a),
+        Wrapping(0x510e527f), Wrapping(0x9b05688c),
+        Wrapping(0x1f83d9ab), Wrapping(0x5be0cd19),
+    ];
+
+    // Pre-processing: add padding.
+    let bit_len = (bytes.len() as u64).wrapping_mul(8);
+    let mut msg = bytes.to_vec();
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0x00);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+
+    // Process each 512-bit (64-byte) chunk.
+    for chunk in msg.chunks_exact(64) {
+        let mut w = [Wrapping(0u32); 64];
+        for i in 0..16 {
+            w[i] = Wrapping(u32::from_be_bytes([
+                chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3],
+            ]));
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].0.rotate_right(7) ^ w[i - 15].0.rotate_right(18) ^ (w[i - 15].0 >> 3);
+            let s1 = w[i - 2].0.rotate_right(17) ^ w[i - 2].0.rotate_right(19) ^ (w[i - 2].0 >> 10);
+            w[i] = w[i - 16] + Wrapping(s0) + w[i - 7] + Wrapping(s1);
+        }
+        let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
+        for i in 0..64 {
+            let s1 = e.0.rotate_right(6) ^ e.0.rotate_right(11) ^ e.0.rotate_right(25);
+            let ch = (e.0 & f.0) ^ ((!e.0) & g.0);
+            let temp1 = hh + Wrapping(s1) + Wrapping(ch) + Wrapping(K[i]) + w[i];
+            let s0 = a.0.rotate_right(2) ^ a.0.rotate_right(13) ^ a.0.rotate_right(22);
+            let maj = (a.0 & b.0) ^ (a.0 & c.0) ^ (b.0 & c.0);
+            let temp2 = Wrapping(s0) + Wrapping(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d + temp1;
+            d = c;
+            c = b;
+            b = a;
+            a = temp1 + temp2;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+        h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+    }
+
+    format!(
+        "{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
+        h[0].0, h[1].0, h[2].0, h[3].0, h[4].0, h[5].0, h[6].0, h[7].0
+    )
 }
 
 /// Regenerate registry-mode test_apps scaffold files after a version sync so
@@ -3141,7 +3398,7 @@ BUNDLED WITH
         // Switch into the tempdir for the duration of the call — sync_versions
         // resolves relative paths against CWD.
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         // Always restore the CWD before unwrapping, so a panic doesn't leave
         // the test runner in a broken directory.
         let _ = std::env::set_current_dir(&original_cwd);
@@ -3219,7 +3476,7 @@ BUNDLED WITH
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -3305,7 +3562,7 @@ BUNDLED WITH
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -3524,7 +3781,7 @@ tokio = { version = "1.0", features = ["full"] }
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -3858,7 +4115,7 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4440,7 +4697,7 @@ packages:
 
         std::env::set_current_dir(root).expect("set_current_dir");
         // no_regen=false: auto-regen must fire and update test_apps/.
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4531,7 +4788,7 @@ packages:
 
         std::env::set_current_dir(root).expect("set_current_dir");
         // no_regen=true to skip scaffold/test_apps regen — testing text replacement only.
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4611,7 +4868,7 @@ packages:
 
         std::env::set_current_dir(root).expect("set_current_dir");
         // no_regen=false: scaffold regen must fire and update packages/r/DESCRIPTION.
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4683,7 +4940,7 @@ packages:
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4745,7 +5002,7 @@ packages:
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4805,7 +5062,7 @@ packages:
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4880,7 +5137,7 @@ packages:
         std::env::set_current_dir(root).expect("set_current_dir");
         // no_regen=false → scaffold regen runs and would clobber the substitution
         // without the second-pass fix.
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4893,12 +5150,13 @@ packages:
             root_pkg.contains("/releases/download/v1.9.0-rc.17/"),
             "root Package.swift URL must point at substituted version v1.9.0-rc.17, got:\n{root_pkg}"
         );
-        // The checksum placeholder is intentionally NOT substituted by
-        // sync-versions — the publish flow fills it in once the artifactbundle
-        // sha256 is known.
+        // When skip_swift_checksum=true (the value used in this test), the checksum
+        // placeholder is NOT substituted by sync-versions — it is only filled in
+        // when --skip-swift-checksum is not passed AND the swift binding crate + a
+        // pre-built artifactbundle zip are available on the current host.
         assert!(
             root_pkg.contains("__ALEF_SWIFT_CHECKSUM__"),
-            "root Package.swift must retain the checksum placeholder for publish-time substitution, got:\n{root_pkg}"
+            "root Package.swift must retain the checksum placeholder when skip_swift_checksum=true, got:\n{root_pkg}"
         );
     }
 
@@ -4948,7 +5206,7 @@ packages:
         let resolved_cfg = resolved.remove(0);
 
         std::env::set_current_dir(root).expect("set_current_dir");
-        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true);
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
         let _ = std::env::set_current_dir(&original_cwd);
         sync_result.expect("sync_versions ok");
 
@@ -4969,5 +5227,205 @@ packages:
                 "{label}/c/download_ffi.sh REPO_URL must be preserved:\n{content}"
             );
         }
+    }
+
+    /// `compute_sha256_hex` must return the correct SHA-256 digest for a known
+    /// input. The expected value was computed independently with:
+    ///
+    /// ```sh
+    /// printf '' | shasum -a 256  # → e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    /// printf 'abc' | shasum -a 256  # → ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469f26f5816a7fef1500
+    /// ```
+    #[test]
+    fn compute_sha256_hex_empty_input() {
+        let hex = compute_sha256_hex(b"");
+        assert_eq!(
+            hex, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "SHA-256 of empty input must match reference"
+        );
+    }
+
+    #[test]
+    fn compute_sha256_hex_abc() {
+        let hex = compute_sha256_hex(b"abc");
+        assert_eq!(
+            hex, "ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469f26f5816a7fef1500",
+            "SHA-256 of 'abc' must match reference"
+        );
+    }
+
+    /// `precompute_swift_checksum` must substitute `__ALEF_SWIFT_CHECKSUM__` in
+    /// `Package.swift` when a pre-built `.artifactbundle.zip` exists in
+    /// `dist/swift-artifactbundle/` and the current config has swift configured.
+    ///
+    /// This test does not shell out to `swift package compute-checksum`; it uses
+    /// the in-process SHA-256 fallback because `swift` may not be on PATH in CI.
+    #[test]
+    fn precompute_swift_checksum_substitutes_when_zip_present() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        // Write Cargo.toml for the workspace.
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"2.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Write a root Package.swift with both placeholders.
+        let pkg_content = concat!(
+            "// swift-tools-version: 6.0\n",
+            "import PackageDescription\n",
+            "let package = Package(name: \"TestLib\", targets: [\n",
+            "  .binaryTarget(\n",
+            "    name: \"RustBridge\",\n",
+            "    url: \"https://example.com/testlib/releases/download/v2.0.0/TestLib-rs.artifactbundle.zip\",\n",
+            "    checksum: \"__ALEF_SWIFT_CHECKSUM__\"\n",
+            "  ),\n",
+            "])\n",
+        );
+        std::fs::write(root.join("Package.swift"), pkg_content).expect("write Package.swift");
+
+        // Create the swift binding crate directory so the guard passes.
+        let swift_crate_dir = root.join("crates/testlib-swift");
+        std::fs::create_dir_all(&swift_crate_dir).expect("mkdir swift crate");
+        std::fs::write(
+            swift_crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"testlib-swift\"\nversion = \"2.0.0\"\n",
+        )
+        .expect("write swift Cargo.toml");
+
+        // Create a minimal fake zip in dist/swift-artifactbundle/.
+        let bundle_dir = root.join("dist/swift-artifactbundle");
+        std::fs::create_dir_all(&bundle_dir).expect("mkdir bundle dir");
+        let zip_content = b"fake-artifactbundle-zip-content-for-testing";
+        std::fs::write(bundle_dir.join("TestLib-rs.artifactbundle.zip"), zip_content)
+            .expect("write fake zip");
+
+        // Compute the expected checksum in-process.
+        let expected_checksum = compute_sha256_hex(zip_content);
+
+        // Write alef.toml with swift configured.
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"testlib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("chdir");
+        let result = precompute_swift_checksum(&resolved_cfg);
+        let _ = std::env::set_current_dir(&original_cwd);
+
+        let checksum = result
+            .expect("precompute_swift_checksum must succeed")
+            .expect("must return Some(checksum) when zip is present");
+
+        // The checksum must match the in-process SHA-256.
+        assert_eq!(
+            checksum, expected_checksum,
+            "returned checksum must equal in-process SHA-256 of the fake zip"
+        );
+
+        // Package.swift must have the placeholder replaced.
+        let pkg_result = std::fs::read_to_string(root.join("Package.swift")).expect("read");
+        assert!(
+            !pkg_result.contains("__ALEF_SWIFT_CHECKSUM__"),
+            "Package.swift must not retain the placeholder after precompute, got:\n{pkg_result}"
+        );
+        assert!(
+            pkg_result.contains(&expected_checksum),
+            "Package.swift must contain the computed checksum, got:\n{pkg_result}"
+        );
+
+        // Sidecar file must be written.
+        let sidecar = std::fs::read_to_string(root.join("target/alef-swift-checksum.txt"))
+            .expect("sidecar file must exist");
+        assert_eq!(
+            sidecar.trim(),
+            expected_checksum,
+            "sidecar must contain the computed checksum"
+        );
+    }
+
+    /// `precompute_swift_checksum` must skip gracefully when no zip is found and
+    /// the cargo build fails (missing Apple targets on non-macOS CI).
+    #[test]
+    fn precompute_swift_checksum_skips_when_no_zip_and_build_fails() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"2.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        let pkg_content = concat!(
+            "// swift-tools-version: 6.0\n",
+            "let package = Package(name: \"TestLib\", targets: [\n",
+            "  .binaryTarget(name: \"RustBridge\",\n",
+            "    url: \"https://example.com/v2.0.0/TestLib-rs.artifactbundle.zip\",\n",
+            "    checksum: \"__ALEF_SWIFT_CHECKSUM__\"\n",
+            "  ),\n",
+            "])\n",
+        );
+        std::fs::write(root.join("Package.swift"), pkg_content).expect("write Package.swift");
+
+        // Create the swift binding crate directory so that guard passes.
+        let swift_crate_dir = root.join("crates/testlib-swift");
+        std::fs::create_dir_all(&swift_crate_dir).expect("mkdir swift crate");
+        std::fs::write(
+            swift_crate_dir.join("Cargo.toml"),
+            // Intentionally reference a nonexistent crate to guarantee build failure.
+            "[package]\nname = \"testlib-swift\"\nversion = \"2.0.0\"\n[lib]\nname = \"nonexistent_guaranteed_fail\"\n",
+        )
+        .expect("write swift Cargo.toml");
+
+        // No zip in dist/ — triggers the build path which will fail.
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"testlib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("chdir");
+        let result = precompute_swift_checksum(&resolved_cfg);
+        let _ = std::env::set_current_dir(&original_cwd);
+
+        // Must return Ok(None) — not an error — so sync_versions can continue.
+        assert!(
+            result.is_ok(),
+            "precompute_swift_checksum must not propagate build errors, got: {:?}",
+            result
+        );
+        assert!(
+            result.unwrap().is_none(),
+            "must return None when build fails"
+        );
+
+        // Package.swift must still have the placeholder.
+        let pkg_result = std::fs::read_to_string(root.join("Package.swift")).expect("read");
+        assert!(
+            pkg_result.contains("__ALEF_SWIFT_CHECKSUM__"),
+            "Package.swift must retain placeholder when build fails, got:\n{pkg_result}"
+        );
     }
 }
