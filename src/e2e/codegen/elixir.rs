@@ -311,9 +311,9 @@ fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2e
         let host = &e2e_config.harness.host;
         let port = e2e_config.harness.port;
         format!(
-            r#"# Start a named Finch pool before ExUnit. When tests call Req with
-# connect_options: [protocols: [:http1]], they bypass Req's default lazy
-# init and require an explicit Finch supervisor to be running.
+            r#"# Start a named Finch pool before ExUnit. Tests pass finch: AlefE2EFinch
+# to Req.get/post/etc, which requires an explicit Finch supervisor to be running
+# before ExUnit starts.
 {{:ok, _}} = Finch.start_link(name: AlefE2EFinch)
 
 ExUnit.start()
@@ -380,9 +380,9 @@ end
 "#
         )
     } else if has_http_tests {
-        r#"# Start a named Finch pool before ExUnit. When tests call Req with
-# connect_options: [protocols: [:http1]], they bypass Req's default lazy
-# init and require an explicit Finch supervisor to be running.
+        r#"# Start a named Finch pool before ExUnit. Tests pass finch: AlefE2EFinch
+# to Req.get/post/etc, which requires an explicit Finch supervisor to be running
+# before ExUnit starts.
 {:ok, _} = Finch.start_link(name: AlefE2EFinch)
 
 ExUnit.start()
@@ -761,13 +761,6 @@ const FINCH_UNSUPPORTED_METHODS: &[&str] = &["TRACE", "CONNECT"];
 /// All others must be called via `Req.request(method: :METHOD, ...)`.
 const REQ_CONVENIENCE_METHODS: &[&str] = &["get", "post", "put", "patch", "delete", "head"];
 
-/// Req option that forces the HTTP/1 protocol on the underlying Finch/Mint
-/// connection. The shared e2e mock server is a plain HTTP/1.1 server, so Req's
-/// default HTTP/2 negotiation fails with `:pool_not_available` (no HTTP/2 Finch
-/// pool is started). Pinning the connection to HTTP/1 makes every request use
-/// the available HTTP/1 pool.
-const REQ_HTTP1_OPT: &str = "connect_options: [protocols: [:http1]]";
-
 /// Thin renderer that emits ExUnit `describe` + `test` blocks targeting a mock
 /// server via `Req`. Satisfies [`client::TestClientRenderer`] so the shared
 /// [`client::http_call::render_http_test`] driver drives the call sequence.
@@ -807,11 +800,11 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
     /// Emit a `Req` request to the mock server using `mock_server_url()/fixtures/<id>`.
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         let method = ctx.method.to_lowercase();
-        // Force HTTP/1 on every request: the mock server is HTTP/1.1 and Req's
-        // default HTTP/2 negotiation fails with `:pool_not_available`. Also provide
-        // the finch: AlefE2EFinch option so the test uses the named Finch pool started
-        // in test_helper.exs instead of Req's default lazy init.
-        let mut opts: Vec<String> = vec![REQ_HTTP1_OPT.to_string(), "finch: AlefE2EFinch".to_string()];
+        // Provide the finch: AlefE2EFinch option so the test uses the named Finch pool started
+        // in test_helper.exs instead of Req's default lazy init. The custom Finch pool is
+        // configured to use HTTP/1 protocols, so we omit connect_options to avoid Req's
+        // "cannot set both :finch and :connect_options" error in 0.5.18+.
+        let mut opts: Vec<String> = vec!["finch: AlefE2EFinch".to_string()];
 
         if let Some(body) = ctx.body {
             let elixir_val = json_to_elixir(body);
