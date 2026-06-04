@@ -277,7 +277,52 @@ mavenPublishing {{
 
     let gitignore = "build/\n.gradle/\n.idea/\n*.iml\n";
 
-    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.kt]\nindent_style = space\nindent_size = 4\n\n[*.gradle.kts]\nindent_style = space\nindent_size = 2\n";
+    // ktlint and the alef kotlin emitter disagree on parameter/argument splitting
+    // heuristics, line length, expression-bodied functions, and chain-method
+    // continuation. The emitted code is canonical from the alef side, so we
+    // disable the ktlint rules that conflict — mirroring the kotlin_android
+    // `.editorconfig` overrides (`src/backends/kotlin_android/gen_editorconfig.rs`).
+    // Without these, `gradle ktlintMainSourceSetCheck` rejects every multi-param
+    // generated method with `standard:class-signature`,
+    // `standard:function-signature`, `standard:parameter-list-wrapping`,
+    // `standard:max-line-length`, etc.
+    let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\ntrim_trailing_whitespace = true\n\n\
+[*.kt]\nindent_style = space\nindent_size = 4\n\
+ktlint_standard_class-signature = disabled\n\
+ktlint_standard_function-signature = disabled\n\
+ktlint_standard_function-expression-body = disabled\n\
+ktlint_standard_no-empty-class-body = disabled\n\
+ktlint_standard_no-empty-first-line-in-method-block = disabled\n\
+ktlint_standard_indent = disabled\n\
+ktlint_standard_string-template-indent = disabled\n\
+ktlint_standard_filename = disabled\n\
+ktlint_standard_multiline-expression-wrapping = disabled\n\
+ktlint_standard_chain-method-continuation = disabled\n\
+ktlint_standard_multiline-if-else = disabled\n\
+ktlint_standard_parameter-list-wrapping = disabled\n\
+ktlint_standard_argument-list-wrapping = disabled\n\
+ktlint_standard_max-line-length = disabled\n\
+ktlint_standard_function-literal = disabled\n\
+ktlint_standard_trailing-comma-on-call-site = disabled\n\
+ktlint_standard_trailing-comma-on-declaration-site = disabled\n\n\
+[*.gradle.kts]\nindent_style = space\nindent_size = 2\n\
+ktlint_standard_class-signature = disabled\n\
+ktlint_standard_function-signature = disabled\n\
+ktlint_standard_function-expression-body = disabled\n\
+ktlint_standard_no-empty-class-body = disabled\n\
+ktlint_standard_no-empty-first-line-in-method-block = disabled\n\
+ktlint_standard_indent = disabled\n\
+ktlint_standard_string-template-indent = disabled\n\
+ktlint_standard_filename = disabled\n\
+ktlint_standard_multiline-expression-wrapping = disabled\n\
+ktlint_standard_chain-method-continuation = disabled\n\
+ktlint_standard_multiline-if-else = disabled\n\
+ktlint_standard_parameter-list-wrapping = disabled\n\
+ktlint_standard_argument-list-wrapping = disabled\n\
+ktlint_standard_max-line-length = disabled\n\
+ktlint_standard_function-literal = disabled\n\
+ktlint_standard_trailing-comma-on-call-site = disabled\n\
+ktlint_standard_trailing-comma-on-declaration-site = disabled\n";
 
     let gradle_properties = "org.gradle.parallel=true\nkotlin.code.style=official\n";
 
