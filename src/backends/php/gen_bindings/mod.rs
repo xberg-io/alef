@@ -1179,34 +1179,19 @@ impl Backend for PhpBackend {
                 context! { method_name => &method_name },
             ));
 
-            // Determine optionality for each param, then reorder: required first, optional second.
-            // PHP 8.1 deprecates required parameters after optional ones, so we must sort.
-            // Store indices to track original IR order.
-            // We need visible_params twice (for signature reordering and for native call args in IR order),
-            // so we clone the references.
-            let visible_params_clone = visible_params.clone();
-            let mut params_with_optionality_and_idx: Vec<(usize, &crate::core::ir::ParamDef, bool)> =
-                visible_params_clone
-                    .into_iter()
-                    .enumerate()
-                    .map(|(idx, p)| {
-                        // Make param optional if:
-                        // 1. It's explicitly optional OR
-                        // 2. IR says its named type has a no-arg constructor
-                        let should_be_optional = p.optional || is_optional_default_constructible_param(p);
-                        (idx, p, should_be_optional)
-                    })
-                    .collect();
-
-            // Sort: required params first (false), then optional params (true).
-            // This ensures PHP 8.1+ doesn't complain about required params after optional ones.
-            params_with_optionality_and_idx.sort_by_key(|(_, _, is_optional)| *is_optional);
-
-            let params: Vec<String> = params_with_optionality_and_idx
+            // Build wrapper signature in RUST parameter order (not reordered).
+            // E2e test generator expects Rust param order, so the wrapper must match.
+            // This aligns PHP bindings with Python, Ruby, Go, etc. which also preserve
+            // Rust parameter order.
+            // PHP 8.1 syntax rule: required params must come before optional ones.
+            // But in this case, optional-default-constructible params (like CrawlConfig)
+            // can have `= null` defaults, allowing them to appear after required ones.
+            let params: Vec<String> = visible_params
                 .iter()
-                .map(|(_, p, should_be_optional)| {
+                .map(|p| {
                     let ptype = php_type(&p.ty);
-                    if *should_be_optional {
+                    let should_be_optional = p.optional || is_optional_default_constructible_param(p);
+                    if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
                         format!("{} ${}", ptype, p.name)
