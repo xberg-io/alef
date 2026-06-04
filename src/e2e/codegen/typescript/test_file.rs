@@ -1912,13 +1912,15 @@ fn emit_cache_isolation_setup(out: &mut String) {
 }
 
 /// Synthesize a minimal multipart/form-data body from a JSON schema.
+/// RFC 2388 requires boundaries to be prefixed with CRLF and the final boundary
+/// to end with CRLF followed by `--` (i.e., `\r\n--boundary--\r\n`).
 fn synthesize_multipart_body_from_schema(schema: &Option<serde_json::Value>) -> serde_json::Value {
     let Some(schema_val) = schema else {
         return serde_json::Value::String(String::new());
     };
 
-    let mut parts = Vec::new();
-    parts.push("--alef-boundary".to_string());
+    let mut body = String::new();
+    let boundary = "alef-boundary";
 
     if let Some(props) = schema_val.get("properties").and_then(|p| p.as_object()) {
         for (key, prop_schema) in props {
@@ -1929,25 +1931,28 @@ fn synthesize_multipart_body_from_schema(schema: &Option<serde_json::Value>) -> 
                 .map(|f| f == "binary")
                 .unwrap_or(false);
 
-            let disposition = if is_binary {
-                format!(
+            body.push_str(&format!("--{}\r\n", boundary));
+
+            if is_binary {
+                body.push_str(&format!(
                     "Content-Disposition: form-data; name=\"{}\"; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n<file content>",
                     escape_js(key),
                     escape_js(key)
-                )
+                ));
             } else {
-                format!(
+                body.push_str(&format!(
                     "Content-Disposition: form-data; name=\"{}\"\r\n\r\ntest_value",
                     escape_js(key)
-                )
-            };
+                ));
+            }
 
-            parts.push(format!("{}\r\n--alef-boundary", disposition));
+            body.push_str("\r\n");
         }
     }
 
-    parts.push("--".to_string());
-    serde_json::Value::String(parts.join("\r\n"))
+    // RFC 2388: final boundary must be terminated with `--` and CRLF
+    body.push_str(&format!("--{}--\r\n", boundary));
+    serde_json::Value::String(body)
 }
 
 #[cfg(test)]
