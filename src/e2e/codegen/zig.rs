@@ -84,10 +84,10 @@ impl E2eCodegen for ZigE2eCodegen {
         } else {
             false
         };
-        // Resolve content multihash for registry mode (single generic source tarball).
-        // For registry mode, we emit one dependency entry pointing to the generic
-        // `{crate_name}-zig-v{version}.tar.gz` tarball (published by alef, contains
-        // source code + prebuilt FFI library for all platforms).
+        // Resolve content multihash for registry mode.
+        // In registry mode, we emit multi-target lazy dependencies (Zig 0.13+), one per platform.
+        // Each target gets a separate `.url` and `.hash`. The build.zig script selects the
+        // right one based on the target triple via `b.lazyDependency(name, .{})`.
         // For local mode, we emit a single path-based dependency.
         let platform_hashes = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             if hash_is_stale {
@@ -111,10 +111,25 @@ impl E2eCodegen for ZigE2eCodegen {
             };
             let github_repo = github_repo_owned.trim_end_matches('/');
             let mut hashes = BTreeMap::new();
-            let url = format!("{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz");
-            let hash = resolve_zig_hash(Some(explicit_hash), &url);
-            // Store a single entry; render_build_zig_zon will extract it as the sole dependency.
-            hashes.insert("generic".to_string(), (url, hash));
+
+            // Define all supported platforms from the publish workflow matrix.
+            let platforms = vec![
+                "linux-x86_64",
+                "linux-aarch64",
+                "macos-arm64",
+                "macos-x86_64",
+                "windows-x86_64",
+            ];
+
+            for platform in platforms {
+                let url = format!(
+                    "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}-{platform}.tar.gz"
+                );
+                // Use the single explicit hash from alef.toml for all platforms
+                // (the hash is computed per-platform during publish, but we store a generic one in config).
+                let hash = resolve_zig_hash(Some(explicit_hash), &url);
+                hashes.insert(platform.to_string(), (url, hash));
+            }
             hashes
         } else {
             BTreeMap::new()
@@ -143,7 +158,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // Whether any active fixture uses file-based args (`file_path` or
         // `bytes`). Only when true do the generated tests need the working
         // directory to be `test_documents/` at run time. Consumers whose
-        // fixtures are mock-server-only (e.g. sample-crawler) have no
+        // fixtures are mock-server-only have no
         // `test_documents/` directory, so emitting `setCwd` for them causes
         // `FileNotFound` at spawn time because zig tries to `chdir` into a
         // directory that does not exist before execing the test binary.
@@ -212,7 +227,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // The Zig backend does not yet support streaming free functions (the
         // generated binding exposes only the unary entry points). Skip any
         // fixture whose resolved call is marked `streaming = true` so we don't
-        // emit calls like `sample-crawler.crawl_stream(...)` that fail to compile
+        // emit streaming calls that fail to compile
         // against a binding that lacks them. Streaming support tracked
         // separately — see streaming-audit notes ("Zig: last-chunk-only").
         let mut test_filenames: Vec<String> = Vec::new();
@@ -532,32 +547,42 @@ fn render_build_zig_zon(
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Emit a single generic source tarball (no platform suffix).
-            // This matches the alef-published artifact pattern:
-            // `{crate_name}-zig-v{version}.tar.gz` (source + bundled FFI for this build platform).
-            // The build.zig script links against the prebuilt FFI library included in the tarball.
-            let (url, hash) = platform_hashes
-                .values()
-                .next()
-                .map(|(url, hash)| (url.as_str(), hash.as_ref()))
-                .unwrap_or(("", None));
-            // When hash is stale (embedded version != current crate version)
-            // we omit the `.hash` field entirely. Zig will reject the .zon as
-            // missing-hash and print the actual computed multihash in its
-            // error; pasting that back via `alef sync-versions` (or hand-edit
-            // of alef.toml's `[crates.e2e.registry.packages.zig].hash`) is
-            // the recovery path. Leaving a syntactically-broken `.hash =
-            // // STALE` line bricks every downstream `zig build`, so this
-            // branch must produce a still-parseable .zon.
-            match hash {
-                Some(h) if hash_is_stale => format!(
-                    "        // STALE hash (embedded version != current); regenerate via `alef sync-versions`\n        // expected to match crate v{version}, was: {h}\n        .{pkg_name} = .{{\n            .url = \"{url}\",\n        }},"
-                ),
-                Some(h) => format!(
-                    "        .{pkg_name} = .{{\n            .url = \"{url}\",\n            .hash = \"{h}\",\n        }},"
-                ),
-                None => format!("        .{pkg_name} = .{{\n            .url = \"{url}\",\n        }},"),
+            // Emit multi-target lazy dependencies (Zig 0.13+), one per platform.
+            // Each platform variant is declared with .lazy = true so Zig only fetches
+            // the one matching the consumer's target triple. The build.zig script
+            // selects the right one based on the target via `b.lazyDependency(name, .{})`.
+            let mut entries = Vec::new();
+            for (platform, (url, hash_opt)) in platform_hashes {
+                let dep_name = format!("{}_{}", pkg_name, platform.replace('-', "_"));
+                let entry = match hash_opt {
+                    Some(h) if hash_is_stale => {
+                        format!(
+                            "        // STALE hash (embedded version != current); regenerate via `alef sync-versions`\n        // expected to match crate v{version}, was: {h}\n        .{dep_name} = .{{\n            .url = \"{url}\",\n            .lazy = true,\n        }},",
+                            version = version,
+                            url = url,
+                            h = h,
+                            dep_name = dep_name
+                        )
+                    }
+                    Some(h) => {
+                        format!(
+                            "        .{dep_name} = .{{\n            .url = \"{url}\",\n            .hash = \"{h}\",\n            .lazy = true,\n        }},",
+                            dep_name = dep_name,
+                            url = url,
+                            h = h
+                        )
+                    }
+                    None => {
+                        format!(
+                            "        .{dep_name} = .{{\n            .url = \"{url}\",\n            .lazy = true,\n        }},",
+                            dep_name = dep_name,
+                            url = url
+                        )
+                    }
+                };
+                entries.push(entry);
             }
+            entries.join("\n")
         }
         crate::e2e::config::DependencyMode::Local => {
             // Zig 0.16+ requires named dependencies. Use the package name as the key.
@@ -642,11 +667,27 @@ pub fn build(b: *std.Build) void {{
     const target = b.standardTargetOptions(.{{}});
     const optimize = b.standardOptimizeOption(.{{}});
 
-    // Fetch the published Zig package from the registry.
-    const {module_name}_module = b.dependency("{pkg_name}", .{{
+    // Fetch the published Zig package from the registry (multi-target lazy dependency).
+    const target_os = target.result.os.tag;
+    const target_arch = target.result.cpu.arch;
+
+    const {pkg_name}_dep_name = if (target_os == .linux and target_arch == .x86_64)
+        "{pkg_name}_linux_x86_64"
+    else if (target_os == .linux and target_arch == .aarch64)
+        "{pkg_name}_linux_aarch64"
+    else if (target_os == .macos and target_arch == .aarch64)
+        "{pkg_name}_macos_arm64"
+    else if (target_os == .macos and target_arch == .x86_64)
+        "{pkg_name}_macos_x86_64"
+    else if (target_os == .windows and target_arch == .x86_64)
+        "{pkg_name}_windows_x86_64"
+    else
+        @compileError("unsupported target: " ++ target.result.cpu.arch.genericName() ++ " on " ++ @tagName(target_os));
+
+    const {module_name}_module = (b.lazyDependency({pkg_name}_dep_name, .{{
         .target = target,
         .optimize = optimize,
-    }}).module("{module_name}");
+    }}) orelse return).module("{module_name}");
 
     const test_step = b.step("test", "Run tests");
 }}
@@ -683,18 +724,39 @@ pub fn build(b: *std.Build) void {
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
     match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Registry mode: consume the published Zig package declared in
-            // build.zig.zon. The tarball is a single generic source distribution
-            // (contains source code + prebuilt FFI library for consumption).
-            // When the fetched package's build.zig has not yet been updated to the
-            // distributable version (which links FFI from lib/include inside the
-            // tarball), we add FFI linking here as a fallback. This ensures
-            // compatibility with both old and new published versions.
-            content.push_str("\n    // Fetch the published Zig package from the registry.\n");
-            let _ = writeln!(content, "    const {pkg_name}_dep = b.dependency(\"{pkg_name}\", .{{");
+            // Registry mode: use multi-target lazy dependencies (Zig 0.13+).
+            // Each platform variant is declared with .lazy = true so Zig only fetches
+            // the one matching this build's target triple. The build script selects the
+            // right dependency name based on the target via `b.lazyDependency(name, .{})`.
+            content.push_str(
+                "\n    // Fetch the published Zig package from the registry (multi-target lazy dependency).\n",
+            );
+            content.push_str("    // Select the appropriate platform variant based on the target triple.\n");
+            content.push_str("    const target_os = target.result.os.tag;\n");
+            content.push_str("    const target_arch = target.result.cpu.arch;\n");
+            content.push('\n');
+            content.push_str(&format!(
+                "    const {pkg_name}_dep_name = if (target_os == .linux and target_arch == .x86_64)\n"
+            ));
+            content.push_str(&format!("        \"{pkg_name}_linux_x86_64\"\n"));
+            content.push_str("    else if (target_os == .linux and target_arch == .aarch64)\n");
+            content.push_str(&format!("        \"{pkg_name}_linux_aarch64\"\n"));
+            content.push_str("    else if (target_os == .macos and target_arch == .aarch64)\n");
+            content.push_str(&format!("        \"{pkg_name}_macos_arm64\"\n"));
+            content.push_str("    else if (target_os == .macos and target_arch == .x86_64)\n");
+            content.push_str(&format!("        \"{pkg_name}_macos_x86_64\"\n"));
+            content.push_str("    else if (target_os == .windows and target_arch == .x86_64)\n");
+            content.push_str(&format!("        \"{pkg_name}_windows_x86_64\"\n"));
+            content.push_str("    else\n");
+            content.push_str("        @compileError(\"unsupported target: \" ++ target.result.cpu.arch.genericName() ++ \" on \" ++ @tagName(target_os));\n");
+            content.push('\n');
+            let _ = writeln!(
+                content,
+                "    const {pkg_name}_dep = b.lazyDependency({pkg_name}_dep_name, .{{"
+            );
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
-            let _ = writeln!(content, "    }});");
+            let _ = writeln!(content, "    }}) orelse return;");
             let _ = writeln!(
                 content,
                 "    const {module_name}_module = {pkg_name}_dep.module(\"{module_name}\");"
@@ -818,8 +880,8 @@ pub fn build(b: *std.Build) void {
         // must happen at the build-step level.
         //
         // IMPORTANT: `setCwd` is only emitted when `has_file_fixtures` is
-        // true. For consumers whose fixtures are mock-server-only (e.g.
-        // sample-crawler), there is no `test_documents/` directory. Zig's
+        // true. For consumers whose fixtures are mock-server-only, there is
+        // no `test_documents/` directory. Zig's
         // RunStep chdirs into the path before execing the test binary; if
         // the directory does not exist, `chdir(2)` returns ENOENT and the
         // spawn fails with `FileNotFound` — even though the binary itself

@@ -6,6 +6,8 @@ use crate::publish::platform::RustTarget;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 /// Package C FFI artifacts into a distributable tarball.
 ///
@@ -42,7 +44,11 @@ pub fn package_c_ffi(
     // Copy shared library.
     let shared_lib = target.shared_lib_name(&lib_name);
     let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)?;
-    fs::copy(&shared_src, lib_dir.join(&shared_lib))?;
+    let shared_dst = lib_dir.join(&shared_lib);
+    fs::copy(&shared_src, &shared_dst)?;
+
+    // Fix macOS dylib install_name from absolute build path to @rpath-relative.
+    fix_macos_dylib_id(&shared_dst, &shared_lib)?;
 
     // Copy static library (optional — might not exist).
     let static_lib = target.static_lib_name(&lib_name);
@@ -110,6 +116,24 @@ fn publish_lang_config(config: &ResolvedCrateConfig) -> crate::core::config::pub
         }
     }
     crate::core::config::publish::PublishLanguageConfig::default()
+}
+
+#[cfg(target_os = "macos")]
+fn fix_macos_dylib_id(path: &Path, shared_lib: &str) -> Result<()> {
+    let status = Command::new("install_name_tool")
+        .arg("-id")
+        .arg(format!("@rpath/{shared_lib}"))
+        .arg(path)
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("install_name_tool failed for {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fix_macos_dylib_id(_path: &Path, _shared_lib: &str) -> Result<()> {
+    Ok(())
 }
 
 fn generate_pc_file(name: &str, version: &str, lib_name: &str, _header: &str) -> String {

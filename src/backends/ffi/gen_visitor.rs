@@ -13,13 +13,39 @@
 /// All compatible visitor trait methods are covered. The callback struct field
 /// order matches the trait definition order (and therefore the Go binding's
 /// expected layout).
-use heck::{ToPascalCase, ToSnakeCase, ToUpperCamelCase};
+use heck::{ToPascalCase, ToSnakeCase};
 
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
 
 const VISITOR_CONTEXT_TYPE_NAME: &str = "NodeContext";
 const VISITOR_RESULT_TYPE_NAME: &str = "VisitResult";
+
+struct VisitorProtocol<'a> {
+    context_type: &'a str,
+    result_type: &'a str,
+}
+
+impl<'a> VisitorProtocol<'a> {
+    fn from_bridge(bridge_cfg: Option<&'a TraitBridgeConfig>) -> Self {
+        Self {
+            context_type: bridge_cfg
+                .and_then(|cfg| cfg.context_type.as_deref())
+                .unwrap_or(VISITOR_CONTEXT_TYPE_NAME),
+            result_type: bridge_cfg
+                .and_then(|cfg| cfg.result_type.as_deref())
+                .unwrap_or(VISITOR_RESULT_TYPE_NAME),
+        }
+    }
+
+    fn context_path(&self, core_import: &str) -> String {
+        format!("{core_import}::visitor::{}", self.context_type)
+    }
+
+    fn result_path(&self, core_import: &str) -> String {
+        format!("{core_import}::visitor::{}", self.result_type)
+    }
+}
 
 /// The integer codes that map to `VisitResult` variants crossing the FFI boundary.
 ///
@@ -71,36 +97,40 @@ pub(crate) struct CallbackSpec {
 /// Methods with unsupported parameter types are skipped with a warning.
 /// Parameters whose type is `TypeRef::Named(_)` (the context threaded via FFI's
 /// separate channel) are silently skipped — they do not become C parameters.
-pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef) -> Vec<CallbackSpec> {
+pub(crate) fn callback_specs_from_trait(
+    trait_def: &crate::core::ir::TypeDef,
+    bridge_cfg: Option<&TraitBridgeConfig>,
+) -> Vec<CallbackSpec> {
     use crate::core::ir::{PrimitiveType, TypeRef};
 
+    let protocol = VisitorProtocol::from_bridge(bridge_cfg);
     let mut specs = Vec::with_capacity(trait_def.methods.len());
     'methods: for m in &trait_def.methods {
         if m.trait_source.is_some() {
             continue;
         }
-        if !matches!(&m.return_type, TypeRef::Named(name) if name == VISITOR_RESULT_TYPE_NAME) {
+        if !matches!(&m.return_type, TypeRef::Named(name) if name == protocol.result_type) {
             eprintln!(
                 "[alef] gen_visitor(ffi): skip method `{}` — visitor callbacks require `{}` return type",
-                m.name, VISITOR_RESULT_TYPE_NAME
+                m.name, protocol.result_type
             );
             continue;
         }
         if !m
             .params
             .iter()
-            .any(|p| matches!(&p.ty, TypeRef::Named(name) if name == VISITOR_CONTEXT_TYPE_NAME))
+            .any(|p| matches!(&p.ty, TypeRef::Named(name) if name == protocol.context_type))
         {
             eprintln!(
                 "[alef] gen_visitor(ffi): skip method `{}` — visitor callbacks require `{}` parameter",
-                m.name, VISITOR_CONTEXT_TYPE_NAME
+                m.name, protocol.context_type
             );
             continue;
         }
         let mut params = Vec::new();
         for p in &m.params {
             // Skip the context parameter — it is threaded via FFI's separate channel.
-            if matches!(&p.ty, TypeRef::Named(name) if name == VISITOR_CONTEXT_TYPE_NAME) {
+            if matches!(&p.ty, TypeRef::Named(name) if name == protocol.context_type) {
                 continue;
             }
             let param_name = p.name.trim_start_matches('_').to_string();
@@ -220,10 +250,10 @@ fn gen_struct_fields(specs: &[CallbackSpec], pascal_prefix: &str) -> String {
 }
 
 /// Build the Rust trait parameter list for a callback (the `&str`, `bool`, etc. side).
-fn rust_param_list(spec: &CallbackSpec, core_import: &str) -> String {
+fn rust_param_list(spec: &CallbackSpec, core_import: &str, protocol: &VisitorProtocol<'_>) -> String {
     let mut parts = vec![
         "&mut self".to_string(),
-        format!("ctx: &{core_import}::visitor::NodeContext"),
+        format!("ctx: &{}", protocol.context_path(core_import)),
     ];
     for p in &spec.params {
         match p {
@@ -242,14 +272,15 @@ fn rust_param_list(spec: &CallbackSpec, core_import: &str) -> String {
 ///
 /// Produces local CString bindings, the `call_with_ctx` invocation, and the
 /// callback argument forwarding.
-fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
+fn gen_impl_body(spec: &CallbackSpec, core_import: &str, protocol: &VisitorProtocol<'_>) -> String {
     let mut bindings = String::new();
     let mut cb_args = Vec::new();
+    let result_path = protocol.result_path(core_import);
 
     for p in &spec.params {
         match p {
             ParamKind::Str(n) => {
-                bindings.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {core_import}::visitor::VisitResult::Continue,\n        }};\n") }));
+                bindings.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {result_path}::Continue,\n        }};\n") }));
                 cb_args.push(format!("{n}_cs.as_ptr()"));
             }
             ParamKind::OptStr(n) => {
@@ -284,16 +315,22 @@ fn gen_impl_body(spec: &CallbackSpec, core_import: &str) -> String {
     };
 
     format!(
-        "        let Some(cb) = self.callbacks.{name} else {{\n            return {core_import}::visitor::VisitResult::Continue;\n        }};\n        let user_data = self.callbacks.user_data;\n{bindings}        // SAFETY: cb is a valid function pointer; all temporaries live for this call.\n        unsafe {{\n            call_with_ctx(ctx, |c_ctx, out_custom, out_len| {{\n                cb(c_ctx, user_data, {args_str})\n            }})\n        }}",
+        "        let Some(cb) = self.callbacks.{name} else {{\n            return {result_path}::Continue;\n        }};\n        let user_data = self.callbacks.user_data;\n{bindings}        // SAFETY: cb is a valid function pointer; all temporaries live for this call.\n        unsafe {{\n            call_with_ctx(ctx, |c_ctx, out_custom, out_len| {{\n                cb(c_ctx, user_data, {args_str})\n            }})\n        }}",
         name = spec.name,
     )
 }
 
 /// Generate all visitor trait impl methods.
-fn gen_impl_methods(specs: &[CallbackSpec], pascal_prefix: &str, core_import: &str) -> String {
+fn gen_impl_methods(
+    specs: &[CallbackSpec],
+    pascal_prefix: &str,
+    core_import: &str,
+    protocol: &VisitorProtocol<'_>,
+) -> String {
     let mut out = String::new();
+    let result_path = protocol.result_path(core_import);
     for spec in specs {
-        out.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {core_import}::visitor::VisitResult {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, core_import), body = gen_impl_body(spec, core_import)) }));
+        out.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {result_path} {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, core_import, protocol), body = gen_impl_body(spec, core_import, protocol)) }));
     }
     // Close the impl block — caller opens it.
     let _ = pascal_prefix; // used by caller
@@ -317,17 +354,18 @@ fn visitor_ref_args(spec: &CallbackSpec) -> String {
 }
 
 /// Generate all `VisitorRef` forwarding methods.
-fn gen_visitor_ref_methods(specs: &[CallbackSpec], core_import: &str) -> String {
+fn gen_visitor_ref_methods(specs: &[CallbackSpec], core_import: &str, protocol: &VisitorProtocol<'_>) -> String {
     let mut out = String::new();
+    let result_path = protocol.result_path(core_import);
     for spec in specs {
-        let params = rust_param_list(spec, core_import);
+        let params = rust_param_list(spec, core_import, protocol);
         let args = visitor_ref_args(spec);
         out.push_str(&crate::backends::ffi::template_env::render(
             "vtable_delegation_method.jinja",
             minijinja::context! {
                 method_name => spec.name.as_str(),
                 all_params => params,
-                ret => format!("{}::visitor::VisitResult", core_import),
+                ret => result_path.as_str(),
                 arg_list => args,
             },
         ));
@@ -356,11 +394,12 @@ pub fn gen_visitor_bindings(
 ) -> String {
     let pascal_prefix = prefix.to_pascal_case();
     let visit_prefix = prefix.to_uppercase();
-    let specs = callback_specs_from_trait(trait_def);
+    let protocol = VisitorProtocol::from_bridge(bridge_cfg);
+    let specs = callback_specs_from_trait(trait_def, bridge_cfg);
     if specs.is_empty() {
         eprintln!(
             "[alef] gen_visitor_bindings(ffi): trait `{}` has no `{}`/`{}` visitor callback methods, skipping visitor callbacks",
-            trait_def.name, VISITOR_CONTEXT_TYPE_NAME, VISITOR_RESULT_TYPE_NAME
+            trait_def.name, protocol.context_type, protocol.result_type
         );
         return String::new();
     }
@@ -371,14 +410,11 @@ pub fn gen_visitor_bindings(
         .and_then(|func| visitor_options_param(func, bridge_cfg))
         .and_then(|param| named_type_ref(&param.ty))
         .or_else(|| bridge_cfg.and_then(|cfg| cfg.options_type.as_deref()));
-    let options_type_fallback;
-    let options_type = match options_type {
-        Some(options_type) => options_type,
-        None => {
-            let trait_stem = trait_def.name.strip_suffix("Visitor").unwrap_or(&trait_def.name);
-            options_type_fallback = format!("{trait_stem}Options");
-            &options_type_fallback
-        }
+    let Some(options_type) = options_type else {
+        eprintln!(
+            "[alef] gen_visitor_bindings(ffi): visitor callbacks require a configured or IR-derived options type, skipping visitor callbacks"
+        );
+        return String::new();
     };
     let options_field = bridge_cfg
         .and_then(|cfg| cfg.resolved_options_field())
@@ -386,31 +422,23 @@ pub fn gen_visitor_bindings(
     let options_path = format!("{core_import}::{options_type}");
 
     let struct_fields = gen_struct_fields(&specs, &pascal_prefix);
-    let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import);
-    let visitor_ref_methods = gen_visitor_ref_methods(&specs, core_import);
+    let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import, &protocol);
+    let visitor_ref_methods = gen_visitor_ref_methods(&specs, core_import, &protocol);
 
-    let visitor_function = function
-        .map(|func| {
-            visitor_function_spec(
-                prefix,
-                func,
-                core_import,
-                bridge_cfg,
-                embed_visitor_in_options,
-                options_field,
-            )
-        })
-        .unwrap_or_else(|| {
-            LegacyVisitorFunctionSpec::conversion(
-                prefix,
-                core_import,
-                &options_path,
-                embed_visitor_in_options,
-                options_field,
-            )
-        });
+    let visitor_function = function.and_then(|func| {
+        visitor_function_spec(
+            prefix,
+            func,
+            core_import,
+            bridge_cfg,
+            embed_visitor_in_options,
+            options_field,
+        )
+    });
+    let context_path = protocol.context_path(core_import);
+    let result_path = protocol.result_path(core_import);
 
-    format!(
+    let mut out = format!(
         r#"// ---------------------------------------------------------------------------
 // Visitor / callback FFI — {callback_count} {trait_name} methods
 // ---------------------------------------------------------------------------
@@ -428,7 +456,7 @@ pub const {visit_prefix}_VISIT_ERROR: i32 = 4;
 
 /// Opaque context passed to every C callback.
 ///
-/// Fields reflect `NodeContext` from the Rust core. All string pointers are
+/// Fields reflect `{context_type}` from the Rust core. All string pointers are
 /// valid only for the duration of the callback invocation.
 #[repr(C)]
 pub struct {pascal_prefix}NodeContext {{
@@ -512,8 +540,8 @@ impl std::fmt::Debug for {pascal_prefix}Visitor {{
     }}
 }}
 
-/// Map a `VisitResult` integer code + optional custom string pointer back to
-/// the Rust `VisitResult` enum.
+/// Map a visit-result integer code + optional custom string pointer back to
+/// the Rust result enum.
 ///
 /// # Safety
 ///
@@ -523,8 +551,8 @@ impl std::fmt::Debug for {pascal_prefix}Visitor {{
 unsafe fn decode_visit_result(
     code: i32,
     custom_ptr: *mut std::ffi::c_char,
-) -> {core_import}::visitor::VisitResult {{
-    use {core_import}::visitor::VisitResult;
+) -> {result_path} {{
+    use {result_path} as VisitResult;
     match code {{
         {VISIT_RESULT_SKIP} => VisitResult::Skip,
         {VISIT_RESULT_PRESERVE_HTML} => VisitResult::PreserveHtml,
@@ -546,15 +574,15 @@ unsafe fn decode_visit_result(
     }}
 }}
 
-/// Build a temporary `{pascal_prefix}NodeContext` from a Rust `NodeContext`, invoke
-/// the provided callback, and decode the `VisitResult`.
+/// Build a temporary `{pascal_prefix}NodeContext` from a Rust `{context_type}`, invoke
+/// the provided callback, and decode the result.
 ///
-/// The `NodeContext` passed to the C callback is only valid for the duration
+/// The context passed to the C callback is only valid for the duration
 /// of this function call.
 unsafe fn call_with_ctx<F>(
-    ctx: &{core_import}::visitor::NodeContext,
+    ctx: &{context_path},
     callback: F,
-) -> {core_import}::visitor::VisitResult
+) -> {result_path}
 where
     F: FnOnce(
         *const {pascal_prefix}NodeContext,
@@ -700,15 +728,20 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         pascal_prefix = pascal_prefix,
         callback_count = callback_count,
         trait_name = trait_name,
-        core_import = core_import,
+        context_type = protocol.context_type,
+        context_path = context_path,
+        result_path = result_path,
         trait_path = trait_path,
         options_path = options_path,
         options_field = options_field,
         struct_fields = struct_fields,
         impl_methods = impl_methods,
         visitor_ref_methods = visitor_ref_methods,
-    ) + &format!(
-        r#"
+    );
+
+    if let Some(visitor_function) = visitor_function {
+        out.push_str(&format!(
+            r#"
 /// Run conversion using a callback-based visitor.
 ///
 /// Returns a heap-allocated result on success, or null on failure.
@@ -757,16 +790,19 @@ pub unsafe extern "C" fn {with_visitor_fn_name}(
     }}
 }}
 "#,
-        prefix = prefix,
-        with_visitor_fn_name = visitor_function.fn_name,
-        pascal_prefix = pascal_prefix,
-        trait_path = trait_path,
-        visitor_ref_methods = visitor_ref_methods,
-        params = visitor_function.ffi_params,
-        param_conversions = visitor_function.param_conversions,
-        return_type = visitor_function.return_type,
-        call = visitor_function.call,
-    )
+            prefix = prefix,
+            with_visitor_fn_name = visitor_function.fn_name,
+            pascal_prefix = pascal_prefix,
+            trait_path = trait_path,
+            visitor_ref_methods = visitor_ref_methods,
+            params = visitor_function.ffi_params,
+            param_conversions = visitor_function.param_conversions,
+            return_type = visitor_function.return_type,
+            call = visitor_function.call,
+        ));
+    }
+
+    out
 }
 
 /// Generate `{prefix}_convert` — the real no-visitor implementation of the core `convert`
@@ -785,9 +821,13 @@ pub fn gen_convert_no_visitor(
     bridge_cfg: Option<&TraitBridgeConfig>,
     function: Option<&FunctionDef>,
 ) -> String {
-    let visitor_function = function
-        .map(|func| no_visitor_function_spec(prefix, func, core_import, bridge_cfg))
-        .unwrap_or_else(|| LegacyNoVisitorFunctionSpec::conversion(prefix, core_import));
+    let Some(function) = function else {
+        eprintln!(
+            "[alef] gen_convert_no_visitor(ffi): visitor callbacks require a matching public function, skipping no-visitor wrapper"
+        );
+        return String::new();
+    };
+    let visitor_function = no_visitor_function_spec(prefix, function, core_import, bridge_cfg);
     format!(
         r#"/// Run conversion.
 ///
@@ -837,81 +877,12 @@ struct LegacyVisitorFunctionSpec {
     call: String,
 }
 
-impl LegacyVisitorFunctionSpec {
-    fn conversion(
-        prefix: &str,
-        core_import: &str,
-        options_path: &str,
-        embed_visitor_in_options: bool,
-        options_field: &str,
-    ) -> Self {
-        let call = if embed_visitor_in_options {
-            format!(
-                "    let mut options_with_visitor: Option<{options_path}> = options_rs;\n\
-                 if visitor_handle.is_some() {{\n\
-                     let opts = options_with_visitor.get_or_insert_with({options_path}::default);\n\
-                     opts.{options_field} = visitor_handle;\n\
-                 }}\n\
-                 match {core_import}::convert(&html_str, options_with_visitor) {{"
-            )
-        } else {
-            format!("    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{")
-        };
-        Self {
-            fn_name: format!("{prefix}_convert_with_visitor"),
-            ffi_params: format!("html: *const std::ffi::c_char,\n    options: *const {options_path},"),
-            param_conversions: legacy_html_options_conversions(options_path),
-            return_type: format!("{core_import}::{}Result", prefix.to_upper_camel_case()),
-            call,
-        }
-    }
-}
-
 struct LegacyNoVisitorFunctionSpec {
     fn_name: String,
     ffi_params: String,
     param_conversions: String,
     return_type: String,
     call: String,
-}
-
-impl LegacyNoVisitorFunctionSpec {
-    fn conversion(prefix: &str, core_import: &str) -> Self {
-        let options_path = format!("{core_import}::options::{}Options", prefix.to_upper_camel_case());
-        Self {
-            fn_name: format!("{prefix}_convert"),
-            ffi_params: format!("html: *const std::ffi::c_char,\n    options: *const {options_path},"),
-            param_conversions: legacy_html_options_conversions(&options_path),
-            return_type: format!("{core_import}::{}Result", prefix.to_upper_camel_case()),
-            call: format!("    match {core_import}::convert(html_str, options_rs, None) {{"),
-        }
-    }
-}
-
-fn legacy_html_options_conversions(options_path: &str) -> String {
-    format!(
-        r#"    if html.is_null() {{
-        set_last_error(1, "Null pointer passed for html");
-        return std::ptr::null_mut();
-    }}
-
-    // SAFETY: null check above guarantees html is a valid pointer.
-    let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
-        Ok(s) => s,
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in html parameter");
-            return std::ptr::null_mut();
-        }}
-    }};
-
-    let options_rs: Option<{options_path}> = if options.is_null() {{
-        None
-    }} else {{
-        // SAFETY: options is a valid pointer guaranteed by the caller.
-        Some(unsafe {{ &*options }}.clone())
-    }};
-"#
-    )
 }
 
 fn visitor_function_spec(
@@ -921,7 +892,7 @@ fn visitor_function_spec(
     bridge_cfg: Option<&TraitBridgeConfig>,
     embed_visitor_in_options: bool,
     options_field: &str,
-) -> LegacyVisitorFunctionSpec {
+) -> Option<LegacyVisitorFunctionSpec> {
     let mut param_conversions = String::new();
     let mut call_args = Vec::new();
     let mut ffi_params = Vec::new();
@@ -944,14 +915,10 @@ fn visitor_function_spec(
                 .and_then(|param| named_type_ref(&param.ty))
                 .map(|name| rust_named_path(core_import, name))
             else {
-                let fallback_options_path = format!("{core_import}::{}Options", func.name.to_upper_camel_case());
-                return LegacyVisitorFunctionSpec::conversion(
-                    prefix,
-                    core_import,
-                    &fallback_options_path,
-                    true,
-                    options_field,
+                eprintln!(
+                    "[alef] gen_visitor_bindings(ffi): options-field visitor wrapper requires an options parameter, skipping with-visitor wrapper"
                 );
+                return None;
             };
             for arg in &mut call_args {
                 if arg == &options_local {
@@ -983,7 +950,7 @@ fn visitor_function_spec(
         )
     };
 
-    LegacyVisitorFunctionSpec {
+    Some(LegacyVisitorFunctionSpec {
         fn_name: format!("{}_{}_with_visitor", prefix, func.name.to_snake_case()),
         ffi_params: if ffi_params.is_empty() {
             String::new()
@@ -993,7 +960,7 @@ fn visitor_function_spec(
         param_conversions,
         return_type: return_type_path(&func.return_type, core_import),
         call,
-    }
+    })
 }
 
 fn no_visitor_function_spec(
@@ -1195,6 +1162,23 @@ mod tests {
         }
     }
 
+    fn bridge_config(
+        trait_name: &str,
+        options_type: &str,
+        context_type: Option<&str>,
+        result_type: Option<&str>,
+    ) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            type_alias: Some("VisitorHandle".to_string()),
+            param_name: Some("visitor".to_string()),
+            options_type: Some(options_type.to_string()),
+            context_type: context_type.map(str::to_string),
+            result_type: result_type.map(str::to_string),
+            ..TraitBridgeConfig::default()
+        }
+    }
+
     #[test]
     fn visitor_bindings_use_trait_name_and_callback_count_from_ir() {
         let trait_def = visitor_trait(
@@ -1209,11 +1193,14 @@ mod tests {
             )],
         );
 
-        let code = gen_visitor_bindings("md", "my_lib", false, &trait_def, None, None);
+        let bridge_cfg = bridge_config("MarkdownVisitor", "RenderOptions", None, None);
+        let code = gen_visitor_bindings("md", "my_lib", false, &trait_def, Some(&bridge_cfg), None);
 
         assert!(code.contains("// Visitor / callback FFI — 1 MarkdownVisitor methods"));
         assert!(code.contains("dyn MarkdownVisitor + Send"));
+        assert!(code.contains("options: *mut my_lib::RenderOptions"));
         assert!(code.contains("`MD_VISIT_CUSTOM` (3) or `MD_VISIT_ERROR` (4)"));
+        assert!(!code.contains("fn md_convert_with_visitor"));
         assert!(!code.contains("all 42 HtmlVisitor methods"));
         assert!(!code.contains("dyn HtmlVisitor + Send"));
         assert!(!code.contains("`HTM_VISIT_CUSTOM`"));
@@ -1233,8 +1220,39 @@ mod tests {
             )],
         );
 
-        let code = gen_visitor_bindings("pln", "my_lib", false, &trait_def, None, None);
+        let bridge_cfg = bridge_config("PlainVisitor", "PlainOptions", None, None);
+        let code = gen_visitor_bindings("pln", "my_lib", false, &trait_def, Some(&bridge_cfg), None);
 
         assert!(code.is_empty());
+    }
+
+    #[test]
+    fn visitor_bindings_use_configured_context_and_result_type_names() {
+        let trait_def = visitor_trait(
+            "RenderVisitor",
+            vec![method(
+                "visit_text",
+                vec![
+                    param("context", TypeRef::Named("RenderContext".to_string()), true),
+                    param("text", TypeRef::String, true),
+                ],
+                TypeRef::Named("RenderDecision".to_string()),
+            )],
+        );
+        let bridge_cfg = bridge_config(
+            "RenderVisitor",
+            "RenderOptions",
+            Some("RenderContext"),
+            Some("RenderDecision"),
+        );
+
+        let code = gen_visitor_bindings("doc", "my_lib", false, &trait_def, Some(&bridge_cfg), None);
+
+        assert!(code.contains("ctx: &my_lib::visitor::RenderContext"));
+        assert!(code.contains(") -> my_lib::visitor::RenderDecision"));
+        assert!(code.contains("use my_lib::visitor::RenderDecision as VisitResult"));
+        assert!(code.contains("return my_lib::visitor::RenderDecision::Continue"));
+        assert!(!code.contains("ctx: &my_lib::visitor::NodeContext"));
+        assert!(!code.contains(") -> my_lib::visitor::VisitResult"));
     }
 }

@@ -58,6 +58,12 @@ PROJECT_NAMES = {
     "lllm": ("lllm",),
 }
 
+DOWNSTREAM_SAMPLE_NAMES = {
+    "sample-llm": ("sample", "llm"),
+    "sample-markdown": ("sample", "markdown"),
+    "sample-crawler": ("sample", "crawler"),
+}
+
 ALEF_INFRASTRUCTURE_ALLOWLIST = (
     "kreuzberg-dev/actions",
     "kreuzberg-dev/alef",
@@ -111,6 +117,7 @@ def build_embedded_domain_type_pattern(name: str) -> Pattern[str]:
 
 
 PATTERNS = {name: build_pattern(parts) for name, parts in PROJECT_NAMES.items()}
+SAMPLE_PATTERNS = {name: build_pattern(parts) for name, parts in DOWNSTREAM_SAMPLE_NAMES.items()}
 INFRASTRUCTURE_PATTERNS = tuple(
     re.compile(re.escape(allowed), re.IGNORECASE) for allowed in ALEF_INFRASTRUCTURE_ALLOWLIST
 )
@@ -162,7 +169,7 @@ def is_production_generator_path(path: Path) -> bool:
     src_index = parts.index("src")
     if len(parts) <= src_index + 1:
         return False
-    if parts[src_index + 1] in {"backends", "codegen"}:
+    if parts[src_index + 1] in {"backends", "codegen", "publish", "scaffold"}:
         return True
     return len(parts) > src_index + 2 and parts[src_index + 1] == "e2e" and parts[src_index + 2] == "codegen"
 
@@ -245,6 +252,15 @@ def project_violations_for_line(path: Path, line_number: int, line: str) -> list
     ]
 
 
+def sample_project_violations_for_line(path: Path, line_number: int, line: str) -> list[str]:
+    masked_line = normalize_for_project_mentions(mask_allowed_infrastructure(line))
+    return [
+        f"{path}:{line_number}: forbidden downstream sample fixture mention `{name}`"
+        for name, pattern in SAMPLE_PATTERNS.items()
+        if pattern.search(masked_line)
+    ]
+
+
 def domain_type_violations_for_line(path: Path, line_number: int, line: str) -> list[str]:
     violations: list[str] = []
     for patterns in (DOMAIN_TYPE_PATTERNS, SPLIT_DOMAIN_TYPE_PATTERNS, EMBEDDED_DOMAIN_TYPE_PATTERNS):
@@ -281,6 +297,7 @@ def violations_for_file(path: Path) -> list[str]:
             and (is_domain_type_special_case(line) or is_split_domain_type_literal(line))
         ):
             violations.extend(domain_type_violations_for_line(path, line_number, line))
+            violations.extend(sample_project_violations_for_line(path, line_number, line))
         rust_cfg_test_depth = advance_rust_cfg_test_region(line, rust_cfg_test_depth, started)
     return violations
 

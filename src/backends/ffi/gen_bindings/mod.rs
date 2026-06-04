@@ -844,38 +844,35 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             }
         }
     } else if visitor_callbacks_enabled {
-        // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
-        // the visitor bindings with {prefix}_options_set_visitor_handle.
-        // Use the first is_trait type in the IR to drive callback spec generation.
+        // FunctionParam path: emit a no-visitor wrapper and a visitor wrapper only when
+        // config identifies the bridge parameter and the matching public function.
         let configured_bridge = function_param_bridge_for_visitor_callbacks(api, &config.trait_bridges);
-        let visitor_trait_def = configured_bridge
-            .and_then(|(bridge, _)| {
-                api.types
-                    .iter()
-                    .find(|t| t.is_trait && t.name == bridge.trait_name)
-                    .or_else(|| api.types.iter().find(|t| t.is_trait))
-            })
-            .or_else(|| api.types.iter().find(|t| t.is_trait));
-        if let Some(vtd) = visitor_trait_def {
-            let bridge_cfg = configured_bridge.map(|(bridge, _)| bridge);
-            let visitor_function = configured_bridge.map(|(_, func)| func);
-            builder.add_item(&crate::backends::ffi::gen_visitor::gen_convert_no_visitor(
-                prefix,
-                &core_import,
-                bridge_cfg,
-                visitor_function,
-            ));
-            builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
-                prefix,
-                &core_import,
-                false,
-                vtd,
-                bridge_cfg,
-                visitor_function,
-            ));
+        if let Some((bridge_cfg, visitor_function)) = configured_bridge {
+            let visitor_trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
+            if let Some(vtd) = visitor_trait_def {
+                builder.add_item(&crate::backends::ffi::gen_visitor::gen_convert_no_visitor(
+                    prefix,
+                    &core_import,
+                    Some(bridge_cfg),
+                    Some(visitor_function),
+                ));
+                builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings(
+                    prefix,
+                    &core_import,
+                    false,
+                    vtd,
+                    Some(bridge_cfg),
+                    Some(visitor_function),
+                ));
+            } else {
+                eprintln!(
+                    "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but configured trait `{}` is not present in IR, skipping visitor callbacks",
+                    bridge_cfg.trait_name
+                );
+            }
         } else {
             eprintln!(
-                "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but no trait type found in IR, skipping visitor callbacks"
+                "[alef] gen_visitor_bindings(ffi): visitor_callbacks=true but no FunctionParam trait bridge matched a public function, skipping visitor callbacks"
             );
         }
     }
@@ -968,6 +965,13 @@ sources = ["src/lib.rs"]
 [crates.ffi]
 prefix = "htm"
 visitor_callbacks = true
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "VisitorHandle"
+param_name = "visitor"
+context_type = "NodeContext"
+result_type = "VisitResult"
 "#,
         )
     }
@@ -985,6 +989,13 @@ sources = ["src/lib.rs"]
 [crates.ffi]
 prefix = "ml"
 visitor_callbacks = true
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "VisitorHandle"
+param_name = "visitor"
+context_type = "NodeContext"
+result_type = "VisitResult"
 "#,
         )
     }
@@ -1587,6 +1598,58 @@ visitor_callbacks = true
             is_variant_wrapper: false,
             has_lifetime_params: false,
         });
+        api.types.push(TypeDef {
+            name: "RenderSettings".to_string(),
+            rust_path: "my_lib::RenderSettings".to_string(),
+            fields: vec![],
+            is_clone: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "RenderedDocument".to_string(),
+            rust_path: "my_lib::RenderedDocument".to_string(),
+            fields: vec![],
+            is_clone: true,
+            is_return_type: true,
+            ..TypeDef::default()
+        });
+        api.functions.push(FunctionDef {
+            name: "render_document".to_string(),
+            rust_path: "my_lib::render_document".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::String,
+                    is_ref: false,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "settings".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("RenderSettings".to_string()))),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "visitor".to_string(),
+                    ty: TypeRef::Named("VisitorHandle".to_string()),
+                    optional: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::Named("RenderedDocument".to_string()),
+            is_async: false,
+            error_type: Some("RenderError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: true,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
         api
     }
 
@@ -2162,6 +2225,34 @@ header_name = "mylib.h"
     }
 
     #[test]
+    fn test_visitor_callbacks_without_matching_bridge_do_not_emit_fallback_conversion_api() {
+        let api = visitor_api();
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "doc"
+visitor_callbacks = true
+"#,
+        );
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(!lib.content.contains("VisitorCallbacks"));
+        assert!(!lib.content.contains("doc_convert"));
+        assert!(!lib.content.contains("DocOptions"));
+        assert!(!lib.content.contains("DocResult"));
+    }
+
+    #[test]
     fn test_visitor_callbacks_enabled() {
         let api = visitor_api();
         let config = visitor_config_htm();
@@ -2236,12 +2327,12 @@ header_name = "mylib.h"
         // Public FFI entry points for visitor management
         assert!(lib.content.contains("htm_visitor_create"));
         assert!(lib.content.contains("htm_visitor_free"));
-        assert!(lib.content.contains("htm_convert_with_visitor"));
+        assert!(lib.content.contains("htm_render_document_with_visitor"));
 
         // Functions should be extern "C"
         assert!(lib.content.contains("extern \"C\" fn htm_visitor_create"));
         assert!(lib.content.contains("extern \"C\" fn htm_visitor_free"));
-        assert!(lib.content.contains("extern \"C\" fn htm_convert_with_visitor"));
+        assert!(lib.content.contains("extern \"C\" fn htm_render_document_with_visitor"));
     }
 
     #[test]
@@ -2278,7 +2369,7 @@ header_name = "mylib.h"
         assert!(lib.content.contains("MlNodeContext"));
         assert!(lib.content.contains("ml_visitor_create"));
         assert!(lib.content.contains("ml_visitor_free"));
-        assert!(lib.content.contains("ml_convert_with_visitor"));
+        assert!(lib.content.contains("ml_render_document_with_visitor"));
         assert!(lib.content.contains("ML_VISIT_CONTINUE"));
     }
 

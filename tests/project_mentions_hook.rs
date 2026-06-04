@@ -66,6 +66,48 @@ fn reports_dash_underscore_space_and_collapsed_variants() {
 }
 
 #[test]
+fn reports_downstream_sample_pattern_mentions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let backend_dir = dir.path().join("src").join("backends").join("sample");
+    fs::create_dir_all(&backend_dir).expect("create backend dir");
+    let llm = backend_dir.join("sample_llm.rs");
+    let markdown = backend_dir.join("sample_markdown.rs");
+    let crawler = backend_dir.join("sample_crawler.rs");
+
+    fs::write(&llm, "let fallback = configured.unwrap_or(\"sample-llm\");\n").expect("write llm fixture");
+    fs::write(
+        &markdown,
+        "if crate_name == \"SampleMarkdown\" { emit_special_case(); }\n",
+    )
+    .expect("write markdown fixture");
+    fs::write(
+        &crawler,
+        "match fixture_name { \"sample_crawler\" => emit_special_case(), _ => {} }\n",
+    )
+    .expect("write crawler fixture");
+
+    let output = run_hook(&[&llm, &markdown, &crawler]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject downstream sample patterns"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream sample fixture mention `sample-llm`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("forbidden downstream sample fixture mention `sample-markdown`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("forbidden downstream sample fixture mention `sample-crawler`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn reports_forbidden_names_embedded_in_identifiers() {
     let dir = tempfile::tempdir().expect("tempdir");
     let facade = dir.path().join("facade.rs");
@@ -328,6 +370,73 @@ fn reports_string_literal_fallbacks_in_e2e_codegen() {
     assert!(
         stderr.contains("forbidden downstream domain type `ConversionOptions`"),
         "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn reports_downstream_domain_types_in_scaffold_and_publish_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let scaffold_dir = dir.path().join("src").join("scaffold");
+    let publish_dir = dir.path().join("src").join("publish");
+    fs::create_dir_all(&scaffold_dir).expect("create scaffold dir");
+    fs::create_dir_all(&publish_dir).expect("create publish dir");
+    let scaffold_file = scaffold_dir.join("template.rs");
+    let publish_file = publish_dir.join("metadata.rs");
+
+    fs::write(
+        &scaffold_file,
+        "if type_name == \"EmbeddingConfig\" { emit_special_case(); }\n",
+    )
+    .expect("write scaffold fixture");
+    fs::write(
+        &publish_file,
+        "let default_type = configured.unwrap_or(\"ExtractionConfig\");\n",
+    )
+    .expect("write publish fixture");
+
+    let output = run_hook(&[&scaffold_file, &publish_file]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject downstream domain types in production scaffold and publish code"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream domain type `EmbeddingConfig`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("forbidden downstream domain type `ExtractionConfig`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn accepts_downstream_domain_type_names_in_scaffold_cfg_test_modules() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let scaffold_dir = dir.path().join("src").join("scaffold");
+    fs::create_dir_all(&scaffold_dir).expect("create scaffold dir");
+    let file = scaffold_dir.join("template.rs");
+    fs::write(
+        &file,
+        concat!(
+            "#[cfg(test)]\n",
+            "mod tests {\n",
+            "    #[test]\n",
+            "    fn accepts_policy_fixture() {\n",
+            "        assert_eq!(\"InternalDocument\", \"InternalDocument\");\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
