@@ -55,6 +55,70 @@ fn sanitize_doc_for_csharp(doc: &str) -> String {
         .join("\n")
 }
 
+/// Generate a static wrapper method for a streaming method on an opaque type.
+/// Delegates to the instance method on the opaque handle class.
+fn gen_opaque_streaming_static_wrapper(
+    method: &MethodDef,
+    opaque_type_name: &str,
+    meta: &StreamingMethodMeta,
+    _exception_name: &str,
+) -> String {
+    let mut out = String::new();
+
+    let class_name = csharp_type_name(opaque_type_name);
+    let method_name = to_csharp_name(&method.name);
+    let item_type = csharp_type_name(&meta.item_type);
+
+    // Emit XML doc comment
+    out.push_str("    /// <summary>\n");
+    out.push_str(&format!("    /// {}\n", &method.doc));
+    out.push_str("    /// </summary>\n");
+    out.push_str(&format!("    /// <param name=\"engine\">Opaque handle to {}</param>\n", opaque_type_name));
+    for param in &method.params {
+        let param_name = param.name.to_lower_camel_case();
+        out.push_str(&format!("    /// <param name=\"{param_name}\"></param>\n"));
+    }
+
+    // Static method signature: takes opaque handle + params, returns IAsyncEnumerable<ItemType>
+    out.push_str("    public static ");
+    if method.is_async {
+        out.push_str(&format!("async IAsyncEnumerable<{item_type}> {method_name}Async("));
+    } else {
+        out.push_str(&format!("IAsyncEnumerable<{item_type}> {method_name}("));
+    }
+
+    out.push_str(&format!("{class_name} engine"));
+    for param in &method.params {
+        let param_name = param.name.to_lower_camel_case();
+        let param_type = csharp_type(&param.ty);
+        out.push_str(&format!(", {param_type} {param_name}"));
+    }
+    out.push_str(")\n");
+    out.push_str("    {\n");
+
+    // Delegate to the instance method on the engine handle
+    if method.is_async {
+        out.push_str("        await foreach (var item in engine.");
+    } else {
+        out.push_str("        foreach (var item in engine.");
+    }
+    out.push_str(&format!("{method_name}("));
+    for (i, param) in method.params.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        let param_name = param.name.to_lower_camel_case();
+        out.push_str(&param_name);
+    }
+    out.push_str("))\n");
+    out.push_str("        {\n");
+    out.push_str("            yield return item;\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    out
+}
+
 /// Generate a wrapper method for a streaming adapter.
 /// Emits a public async method that returns IAsyncEnumerable<ItemType>.
 fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: &str, _api: &ApiSurface) -> String {
