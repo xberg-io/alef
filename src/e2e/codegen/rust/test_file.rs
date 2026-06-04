@@ -270,7 +270,11 @@ pub fn render_test_file(
                 &fixture.input,
             );
             let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
-            if recipe.args.iter().any(|a| a.arg_type == "json_object" && a.element_type.is_none()) {
+            if recipe
+                .args
+                .iter()
+                .any(|a| a.arg_type == "json_object" && a.element_type.is_none())
+            {
                 if let Some(opts_type) = recipe.options_type {
                     if body_references_symbol(&body_buf, opts_type) {
                         crate_imports.insert(opts_type.to_string());

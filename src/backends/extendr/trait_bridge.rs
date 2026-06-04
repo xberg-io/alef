@@ -451,10 +451,7 @@ fn gen_visitor_bridge(
     )?;
     let context_type = bridge_cfg.context_type.as_deref();
     let mut method_impls = String::with_capacity(4096);
-    for method in &trait_type.methods {
-        if method.trait_source.is_some() {
-            continue;
-        }
+    for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method_extendr(&mut method_impls, method, context_type, type_paths, &result_metadata);
     }
 

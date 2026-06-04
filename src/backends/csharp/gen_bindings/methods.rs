@@ -73,7 +73,10 @@ fn gen_opaque_streaming_static_wrapper(
     out.push_str("    /// <summary>\n");
     out.push_str(&format!("    /// {}\n", &method.doc));
     out.push_str("    /// </summary>\n");
-    out.push_str(&format!("    /// <param name=\"engine\">Opaque handle to {}</param>\n", opaque_type_name));
+    out.push_str(&format!(
+        "    /// <param name=\"engine\">Opaque handle to {}</param>\n",
+        opaque_type_name
+    ));
     for param in &method.params {
         let param_name = param.name.to_lower_camel_case();
         out.push_str(&format!("    /// <param name=\"{param_name}\"></param>\n"));

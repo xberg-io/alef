@@ -1,8 +1,9 @@
-use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
+use crate::core::config::{AdapterPattern, BridgeBinding, ResolvedCrateConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToSnakeCase;
+use std::collections::BTreeSet;
 
 use super::marshal::{gen_ffi_layout_with_enums, gen_function_descriptor, is_bytes_result, is_ffi_string_return};
 
@@ -842,7 +843,15 @@ pub(crate) fn gen_native_lib(
 
     // Generate visitor FFI method handles when a trait bridge is configured.
     let visitor_handles = if has_visitor_pattern {
-        crate::backends::java::gen_visitor::gen_native_lib_visitor_handles(prefix)
+        let options_fields: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter(|bridge| bridge.bind_via == BridgeBinding::OptionsField)
+            .filter_map(|bridge| bridge.resolved_options_field().map(str::to_string))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        crate::backends::java::gen_visitor::gen_native_lib_visitor_handles(prefix, &options_fields)
     } else {
         String::new()
     };

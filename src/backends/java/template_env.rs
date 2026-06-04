@@ -41,6 +41,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "native_lib_visitor_handles.jinja",
         include_str!("templates/native_lib_visitor_handles.jinja"),
     ),
+    (
+        "native_lib_options_set_visitor_handle.jinja",
+        include_str!("templates/native_lib_options_set_visitor_handle.jinja"),
+    ),
     ("visitor_files.jinja", include_str!("templates/visitor_files.jinja")),
     ("exception_class.jinja", include_str!("templates/exception_class.jinja")),
     ("json_util.jinja", include_str!("templates/json_util.jinja")),

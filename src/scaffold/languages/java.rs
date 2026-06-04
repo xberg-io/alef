@@ -29,11 +29,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         )
     })?;
 
-    // Derive SCM URLs from repository URL
-    let repo_path = repo_url
-        .strip_prefix("https://github.com/")
-        .or_else(|| repo_url.strip_prefix("http://github.com/"))
-        .unwrap_or(repo_url.trim_start_matches("https://"));
+    let scm = scm_urls(repo_url);
 
     let group_id = config.java_group_id();
 
@@ -96,8 +92,8 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     </licenses>
 {developers}
     <scm>
-        <connection>scm:git:git://github.com/{repo_path}.git</connection>
-        <developerConnection>scm:git:ssh://github.com:{repo_path}.git</developerConnection>
+        <connection>{scm_connection}</connection>
+        <developerConnection>{scm_developer_connection}</developerConnection>
         <url>{repository}</url>
     </scm>
 
@@ -501,7 +497,8 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         license = license,
         license_url = license_url_xml,
         developers = developers_xml,
-        repo_path = repo_path,
+        scm_connection = scm.connection,
+        scm_developer_connection = scm.developer_connection,
     );
 
     // Generated Java code preserves Rust snake_case identifiers for FFI fidelity.
@@ -680,4 +677,28 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             generated_header: false,
         },
     ])
+}
+
+struct ScmUrls {
+    connection: String,
+    developer_connection: String,
+}
+
+fn scm_urls(repository: &str) -> ScmUrls {
+    let normalized = repository.trim_end_matches(".git");
+    let without_scheme = normalized
+        .strip_prefix("https://")
+        .or_else(|| normalized.strip_prefix("http://"))
+        .unwrap_or(normalized);
+    let (host, path) = without_scheme.split_once('/').unwrap_or((without_scheme, ""));
+    let suffix = if path.is_empty() {
+        String::new()
+    } else {
+        format!("/{path}.git")
+    };
+
+    ScmUrls {
+        connection: format!("scm:git:git://{host}{suffix}"),
+        developer_connection: format!("scm:git:ssh://git@{host}{suffix}"),
+    }
 }

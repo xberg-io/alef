@@ -170,12 +170,11 @@ fn gen_visitor_bridge(
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Magnus,
     )?;
-    let methods: Vec<String> = trait_type
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none())
-        .map(|m| gen_visitor_method_magnus(m, bridge_cfg, type_paths, &result_metadata))
-        .collect();
+    let methods: Vec<String> =
+        crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg)
+            .into_iter()
+            .map(|m| gen_visitor_method_magnus(m, bridge_cfg, type_paths, &result_metadata))
+            .collect();
 
     let rendered = crate::backends::magnus::template_env::render(
         "visitor_bridge.rs.jinja",

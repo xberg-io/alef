@@ -76,9 +76,7 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     // The `#![allow(unreachable_patterns)]` at the crate root suppresses the
     // redundant-arm warning when all variants are in fact covered.
     if !en.excluded_variants.is_empty() {
-        out.push_str(
-            "            _ => unreachable!(\"bridge enum variant not exposed in binding\"),\n",
-        );
+        out.push_str("            _ => unreachable!(\"bridge enum variant not exposed in binding\"),\n");
     }
 
     out.push_str("        }\n");

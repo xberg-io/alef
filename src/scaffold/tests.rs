@@ -1197,6 +1197,34 @@ fn test_scaffold_java_production_features() {
 }
 
 #[test]
+fn test_scaffold_java_scm_uses_configured_non_github_host() {
+    let config = minimal_config_from_toml(
+        r#"
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://gitlab.example.com/acme/my-lib"
+authors = ["Alice"]
+keywords = ["test"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
+    let files = language_files(&all_files);
+    let pom = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/java/pom.xml"))
+        .expect("pom.xml must be emitted");
+
+    assert!(pom.content.contains("scm:git:git://gitlab.example.com/acme/my-lib.git"));
+    assert!(
+        pom.content
+            .contains("scm:git:ssh://git@gitlab.example.com/acme/my-lib.git")
+    );
+    assert!(!pom.content.contains("github.com/acme/my-lib"));
+}
+
+#[test]
 fn test_scaffold_ruby_production_features() {
     let config = test_config();
     let api = test_api();
@@ -1294,10 +1322,9 @@ fn test_pre_commit_config_python_node() {
     assert!(content.contains("cargo-deny"));
     // Python-specific TOML formatting
     assert!(content.contains("pyproject-fmt"));
-    // Alef unified hooks replace per-language hooks
-    assert!(content.contains("alef-readme"));
-    assert!(content.contains("alef-verify"));
-    assert!(content.contains("alef-sync-versions"));
+    // Alef hooks are opt-in — not present in default config
+    assert!(!content.contains("alef-readme"));
+    assert!(!content.contains("alef-verify"));
     // No per-language hooks
     assert!(!content.contains("ruff-pre-commit"));
     assert!(!content.contains("oxlint"));
@@ -1315,9 +1342,9 @@ fn test_pre_commit_config_ffi_only() {
     // Common + Rust hooks
     assert!(content.contains("cargo-fmt"));
     assert!(content.contains("cargo-clippy"));
-    // Alef unified hooks present
-    assert!(content.contains("alef-verify"));
-    assert!(content.contains("alef-readme"));
+    // Alef hooks are opt-in — not present in default config
+    assert!(!content.contains("alef-verify"));
+    assert!(!content.contains("alef-readme"));
     // No per-language hooks
     assert!(!content.contains("clang-format"));
     assert!(!content.contains("ruff"));
@@ -1367,10 +1394,9 @@ fn test_pre_commit_config_all_languages() {
     assert!(content.contains("typos"));
     // Python-specific TOML formatting
     assert!(content.contains("pyproject-fmt"));
-    // Alef unified hooks replace all per-language hooks
-    assert!(content.contains("alef-readme"));
-    assert!(content.contains("alef-verify"));
-    assert!(content.contains("alef-sync-versions"));
+    // Alef hooks are opt-in — not present in default config
+    assert!(!content.contains("alef-readme"));
+    assert!(!content.contains("alef-verify"));
     // Clippy excludes for all binding crates
     assert!(content.contains("--exclude=my-lib-py"));
     assert!(content.contains("--exclude=my-lib-node"));
@@ -1427,10 +1453,30 @@ fn test_precommit_uses_unified_hooks_with_node() {
     assert!(!content.contains(concat!("bio", "me", "-format")));
     assert!(!content.contains(concat!("bio", "me", "-lint")));
     assert!(!content.contains(concat!("bio", "me", "js")));
-    // alef-readme/alef-verify replace oxlint/oxfmt at the alef hook level
+    assert!(!content.contains("alef-readme"));
+    assert!(!content.contains("alef-verify"));
+    assert!(!content.contains("oxlint"));
+}
+
+#[test]
+fn test_precommit_includes_alef_hooks_when_explicitly_enabled() {
+    let mut config = test_config();
+    config.scaffold.as_mut().unwrap().precommit = Some(PrecommitConfig {
+        include_shared_hooks: None,
+        shared_hooks_repo: None,
+        shared_hooks_rev: None,
+        include_alef_hooks: Some(true),
+        alef_hooks_repo: None,
+        alef_hooks_rev: None,
+    });
+
+    let files = generate_pre_commit_config(&config, &[Language::Node]);
+    let content = &files[0].content;
+
+    assert!(content.contains("- repo: local"));
     assert!(content.contains("alef-readme"));
     assert!(content.contains("alef-verify"));
-    assert!(!content.contains("oxlint"));
+    assert!(content.contains("alef-sync-versions"));
 }
 
 #[test]
@@ -1466,8 +1512,8 @@ fn test_precommit_defaults_do_not_invent_alef_remote_or_bot_identity() {
         "unconfigured consumer precommit scaffold must not copy Alef organization, repo, or bot metadata:\n{content}"
     );
     assert!(
-        content.contains("- repo: local"),
-        "unconfigured Alef hooks must be local unless the consumer config opts into a remote:\n{content}"
+        !content.contains("alef-readme") && !content.contains("alef-verify"),
+        "unconfigured consumer precommit scaffold must leave Alef hooks opt-in:\n{content}"
     );
 }
 
@@ -2804,6 +2850,39 @@ fn test_scaffold_kotlin() {
         "Kotlin scaffold must use generic native.lib.path override; got:\n{}",
         files[0].content
     );
+}
+
+#[test]
+fn test_scaffold_kotlin_scm_uses_configured_non_github_host() {
+    let config = minimal_config_from_toml(
+        r#"
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://gitlab.example.com/acme/my-lib"
+authors = ["Alice"]
+keywords = ["test"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Kotlin]).unwrap();
+    let files = language_files(&all_files);
+    let build_gradle = files
+        .iter()
+        .find(|f| f.path == Path::new("packages/kotlin/build.gradle.kts"))
+        .expect("build.gradle.kts must be emitted");
+
+    assert!(
+        build_gradle
+            .content
+            .contains("scm:git:git://gitlab.example.com/acme/my-lib.git")
+    );
+    assert!(
+        build_gradle
+            .content
+            .contains("scm:git:ssh://git@gitlab.example.com/acme/my-lib.git")
+    );
+    assert!(!build_gradle.content.contains("github.com/acme/my-lib"));
 }
 
 #[test]

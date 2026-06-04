@@ -6,8 +6,8 @@ description: >-
   check that a function/type is present in every target language, audit
   intentional exclusions, or investigate missing bindings in one or more
   languages. Covers the full audit flow: config review, attribute scan, item
-  enumeration, cross-binding diff, gap reporting, and triage (alef vs actions
-  vs consumer config).
+  enumeration, cross-binding diff, gap reporting, and triage (alef vs
+  Alef-owned workflow/action vs consumer config).
 license: MIT
 ---
 
@@ -172,7 +172,7 @@ for each item in reference_set:
 For each non-intentional gap:
 
 - **Codegen issue:** Does the item appear in the source Rust but fail to generate in all backends? Root cause likely in `src/codegen/` or a specific `src/backends/<lang>/`. Fix in `../alef` repo.
-- **Action script issue:** Does the scaffold or publish workflow have a bug that skips a language? Root cause in `../actions`. Fix there, then retag `v1.0.0` and `v1`.
+- **Alef-owned workflow/action issue:** Does an Alef-maintained scaffold or publish workflow have a bug that skips a language? Fix the owning workflow/action repository and retag only the documented action tags for that repository.
 - **Consumer config issue:** Is the gap listed in the **consuming repo's** `alef.toml` under `[crates.exclude]` or `[crates.<lang>.exclude]`? That's intentional — no action needed upstream.
 - **Package layout issue:** Does generated code exist but not in the expected package path? Fix the backend output path or package manifest wiring, not the Rust source item.
 - **Unsupported type issue:** Does the Rust item use a type the backend cannot express? Add explicit conversion, an opaque wrapper, or an intentional exclusion in config.
@@ -183,7 +183,7 @@ For each upstream fix:
 
 1. Update the **source repo's** `CHANGELOG.md` `[Unreleased]` section with the gap and the fix.
 2. Commit the fix (codegen or action change) with a conventional commit message.
-3. If the fix is in `../actions`, follow the retag procedure: `git tag -f v1.0.0 && git tag -f v1 && git push -f origin v1.0.0 v1`.
+3. If the fix is in an Alef-owned workflow/action repository, follow that repository's documented retag procedure.
 4. For alef fixes, follow the normal `release-procedure` skill.
 5. Record the commit SHA and workflow URL in downstream consumer issues so they can pin the fix.
 

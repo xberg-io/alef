@@ -572,6 +572,7 @@ pub fn gen_visitor_bindings(
         bridge_cfg,
         function,
         None,
+        true,
     )
 }
 
@@ -583,6 +584,7 @@ pub fn gen_visitor_bindings_with_api(
     bridge_cfg: Option<&TraitBridgeConfig>,
     function: Option<&FunctionDef>,
     api: Option<&crate::core::ir::ApiSurface>,
+    emit_legacy_options_setter: bool,
 ) -> String {
     let pascal_prefix = prefix.to_pascal_case();
     let Some(api) = api else {
@@ -647,6 +649,18 @@ pub fn gen_visitor_bindings_with_api(
     let struct_fields = gen_struct_fields(&specs, &pascal_prefix);
     let impl_methods = gen_impl_methods(&specs, &pascal_prefix, core_import, &protocol, &default_result);
     let visitor_ref_methods = gen_visitor_ref_methods(&specs, core_import, &protocol);
+    let legacy_options_setter = if emit_legacy_options_setter {
+        gen_legacy_options_setter(
+            prefix,
+            &pascal_prefix,
+            &options_path,
+            options_field,
+            &trait_path,
+            &visitor_ref_methods,
+        )
+    } else {
+        String::new()
+    };
 
     let visitor_function = function.and_then(|func| {
         visitor_function_spec(
@@ -857,45 +871,7 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: *mut {pascal_prefix}Visi
         unsafe {{ drop(Box::from_raw(visitor)); }}
     }}
 }}
-
-/// Attach a visitor to an options handle before calling `{prefix}_convert`.
-///
-/// The visitor will be invoked during conversion via the normal `{prefix}_convert` path.
-/// The `visitor` pointer must remain valid until after `{prefix}_convert` returns.
-///
-/// Passing `null` for either argument is a no-op.
-///
-/// # Safety
-///
-/// `options` must be a non-null pointer returned by `{prefix}_conversion_options_from_json`,
-/// valid for write access.  `visitor` must be a non-null pointer returned by
-/// `{prefix}_visitor_create`, or null.  Both must remain valid for the duration of any
-/// subsequent `{prefix}_convert` call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
-    options: *mut {options_path},
-    visitor: *mut {pascal_prefix}Visitor,
-) {{
-    if options.is_null() || visitor.is_null() {{
-        return;
-    }}
-    struct VisitorRef(*mut {pascal_prefix}Visitor);
-    impl std::fmt::Debug for VisitorRef {{
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
-            f.debug_struct("VisitorRef").finish_non_exhaustive()
-        }}
-    }}
-    // SAFETY: VisitorRef is a thin wrapper around a raw pointer to {pascal_prefix}Visitor which
-    // is itself Send + Sync. The caller guarantees the pointer remains valid during conversion.
-    unsafe impl Send for VisitorRef {{}}
-    // SAFETY: see Send impl above.
-    unsafe impl Sync for VisitorRef {{}}
-    impl {trait_path} for VisitorRef {{
-{visitor_ref_methods}    }}
-    // SAFETY: options is non-null (checked above); caller guarantees it is valid for write.
-    let options_ref = unsafe {{ &mut *options }};
-    options_ref.{options_field} = Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))));
-}}"#,
+{legacy_options_setter}"#,
         prefix = prefix,
         pascal_prefix = pascal_prefix,
         callback_count = callback_count,
@@ -909,11 +885,9 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         context_setup = context_setup,
         context_inits = context_inits,
         trait_path = trait_path,
-        options_path = options_path,
-        options_field = options_field,
         struct_fields = struct_fields,
         impl_methods = impl_methods,
-        visitor_ref_methods = visitor_ref_methods,
+        legacy_options_setter = legacy_options_setter,
     );
 
     if let Some(visitor_function) = visitor_function {
@@ -980,6 +954,57 @@ pub unsafe extern "C" fn {with_visitor_fn_name}(
     }
 
     out
+}
+
+fn gen_legacy_options_setter(
+    prefix: &str,
+    pascal_prefix: &str,
+    options_path: &str,
+    options_field: &str,
+    trait_path: &str,
+    visitor_ref_methods: &str,
+) -> String {
+    format!(
+        r#"
+/// Attach a visitor to an options handle before calling `{prefix}_convert`.
+///
+/// The visitor will be invoked during conversion via the normal `{prefix}_convert` path.
+/// The `visitor` pointer must remain valid until after `{prefix}_convert` returns.
+///
+/// Passing `null` for either argument is a no-op.
+///
+/// # Safety
+///
+/// `options` must be a non-null pointer returned by `{prefix}_conversion_options_from_json`,
+/// valid for write access.  `visitor` must be a non-null pointer returned by
+/// `{prefix}_visitor_create`, or null.  Both must remain valid for the duration of any
+/// subsequent `{prefix}_convert` call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
+    options: *mut {options_path},
+    visitor: *mut {pascal_prefix}Visitor,
+) {{
+    if options.is_null() || visitor.is_null() {{
+        return;
+    }}
+    struct VisitorRef(*mut {pascal_prefix}Visitor);
+    impl std::fmt::Debug for VisitorRef {{
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+            f.debug_struct("VisitorRef").finish_non_exhaustive()
+        }}
+    }}
+    // SAFETY: VisitorRef is a thin wrapper around a raw pointer to {pascal_prefix}Visitor which
+    // is itself Send + Sync. The caller guarantees the pointer remains valid during conversion.
+    unsafe impl Send for VisitorRef {{}}
+    // SAFETY: see Send impl above.
+    unsafe impl Sync for VisitorRef {{}}
+    impl {trait_path} for VisitorRef {{
+{visitor_ref_methods}    }}
+    // SAFETY: options is non-null (checked above); caller guarantees it is valid for write.
+    let options_ref = unsafe {{ &mut *options }};
+    options_ref.{options_field} = Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))));
+}}"#,
+    )
 }
 
 /// Generate `{prefix}_convert` — the real no-visitor implementation of the core `convert`
@@ -1434,8 +1459,16 @@ mod tests {
             Some("VisitResult"),
         );
         let api = protocol_api("NodeContext", "VisitResult", "Continue");
-        let code =
-            gen_visitor_bindings_with_api("md", "my_lib", false, &trait_def, Some(&bridge_cfg), None, Some(&api));
+        let code = gen_visitor_bindings_with_api(
+            "md",
+            "my_lib",
+            false,
+            &trait_def,
+            Some(&bridge_cfg),
+            None,
+            Some(&api),
+            true,
+        );
 
         assert!(code.contains("// Visitor / callback FFI — 1 MarkdownVisitor methods"));
         assert!(code.contains("dyn MarkdownVisitor + Send"));
@@ -1488,8 +1521,16 @@ mod tests {
         );
         let api = protocol_api("RenderContext", "RenderDecision", "Continue");
 
-        let code =
-            gen_visitor_bindings_with_api("doc", "my_lib", false, &trait_def, Some(&bridge_cfg), None, Some(&api));
+        let code = gen_visitor_bindings_with_api(
+            "doc",
+            "my_lib",
+            false,
+            &trait_def,
+            Some(&bridge_cfg),
+            None,
+            Some(&api),
+            true,
+        );
 
         assert!(code.contains("ctx: &my_lib::visitor::RenderContext"));
         assert!(code.contains(") -> my_lib::visitor::RenderDecision"));
@@ -1574,8 +1615,16 @@ mod tests {
             unsupported_public_items: Vec::new(),
         };
 
-        let code =
-            gen_visitor_bindings_with_api("doc", "my_lib", false, &trait_def, Some(&bridge_cfg), None, Some(&api));
+        let code = gen_visitor_bindings_with_api(
+            "doc",
+            "my_lib",
+            false,
+            &trait_def,
+            Some(&bridge_cfg),
+            None,
+            Some(&api),
+            true,
+        );
 
         assert!(code.contains("return my_lib::visitor::RenderDecision::Proceed"));
         assert!(code.contains("_ => my_lib::visitor::RenderDecision::Proceed"));

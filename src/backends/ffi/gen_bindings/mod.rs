@@ -68,20 +68,6 @@ fn options_field_bridge_for_function<'a>(
         })
 }
 
-fn find_options_field_bridge_function<'a>(
-    api: &'a ApiSurface,
-    bridge_cfg: &TraitBridgeConfig,
-) -> Option<&'a FunctionDef> {
-    api.functions.iter().find(|func| {
-        let Some(options_type) = bridge_cfg.options_type.as_deref() else {
-            return false;
-        };
-        func.params
-            .iter()
-            .any(|param| named_type_ref(&param.ty) == Some(options_type))
-    })
-}
-
 fn function_param_bridge_for_visitor_callbacks<'a>(
     api: &'a ApiSurface,
     trait_bridges: &'a [TraitBridgeConfig],
@@ -819,13 +805,10 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             ));
         }
 
-        // When visitor_callbacks is also enabled, additionally emit the
-        // {prefix}_visitor_create / {prefix}_visitor_free / {prefix}_options_set_visitor_handle
-        // symbols.  These are needed by Java's Panama FFM binding which uses the
-        // callbacks-struct pattern rather than the vtable/options-field pattern.
-        // NOTE: gen_visitor_bindings does NOT emit {prefix}_convert (only
-        // {prefix}_options_set_visitor_handle), so there is no symbol collision with the
-        // OptionsField convert generated above.
+        // When visitor_callbacks is also enabled, additionally emit the callback lifecycle
+        // symbols ({prefix}_visitor_create/free) needed by Java's Panama FFM binding.
+        // The legacy {prefix}_options_set_visitor_handle setter and {prefix}_*_with_visitor
+        // wrapper stay isolated to the explicit FunctionParam path below.
         if visitor_callbacks_enabled {
             // Use the first OptionsField bridge's trait to drive callback spec generation.
             let visitor_trait_def = config
@@ -839,15 +822,15 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                         .map(|trait_def| (trait_def, b))
                 });
             if let Some((vtd, bridge_cfg)) = visitor_trait_def {
-                let visitor_function = find_options_field_bridge_function(api, bridge_cfg);
                 builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings_with_api(
                     prefix,
                     &core_import,
                     true,
                     vtd,
                     Some(bridge_cfg),
-                    visitor_function,
+                    None,
                     Some(api),
+                    false,
                 ));
             } else {
                 eprintln!(
@@ -876,6 +859,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     Some(bridge_cfg),
                     Some(visitor_function),
                     Some(api),
+                    true,
                 ));
             } else {
                 eprintln!(
@@ -2581,7 +2565,17 @@ result_type = "WalkOutcome"
                 return_type: TypeRef::Named("WalkOutcome".to_string()),
                 receiver: Some(ReceiverKind::RefMut),
                 doc: "Visit parser tokens.".to_string(),
-                ..MethodDef::default()
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             is_trait: true,
             ..TypeDef::default()
@@ -2962,16 +2956,8 @@ result_type = "WalkOutcome"
         );
     }
 
-    /// When both `visitor_callbacks = true` AND a `[[crates.trait_bridges]]` entry with
-    /// `bind_via = "options_field"` are configured, the generated lib.rs must include BOTH:
-    ///   - The OptionsField vtable / bridge-new / options-setter / {prefix}_convert symbols
-    ///   - The visitor-callbacks symbols: {prefix}_visitor_create, {prefix}_visitor_free,
-    ///     {prefix}_convert_with_visitor
-    ///
-    /// This mirrors mixed-backend configurations where Go/C use the OptionsField path
-    /// and Java uses the callbacks-struct path.
     #[test]
-    fn test_both_options_field_and_visitor_callbacks_emit_both_symbol_sets() {
+    fn test_options_field_visitor_callbacks_use_configured_renderer_setter() {
         let config = resolved_one(
             r#"
 [workspace]
@@ -2982,106 +2968,137 @@ name = "my-lib"
 sources = ["src/lib.rs"]
 
 [crates.ffi]
-prefix = "htm"
+prefix = "syn"
 visitor_callbacks = true
 
 [[crates.trait_bridges]]
-trait_name = "HtmlVisitor"
-type_alias = "VisitorHandle"
-param_name = "visitor"
+trait_name = "SyntaxWalker"
+type_alias = "SyntaxWalkerHandle"
+param_name = "renderer"
 bind_via = "options_field"
-options_type = "BridgeOptions"
-context_type = "NodeContext"
-result_type = "VisitResult"
+options_type = "ParseOptions"
+options_field = "renderer"
+context_type = "SyntaxContext"
+result_type = "WalkOutcome"
 "#,
         );
-        let mut api = visitor_api();
+        let mut api = sample_api();
         api.types.push(TypeDef {
-            name: "BridgeOptions".to_string(),
-            rust_path: "my_lib::BridgeOptions".to_string(),
-            fields: vec![],
+            name: "SyntaxWalker".to_string(),
+            rust_path: "my_lib::syntax::SyntaxWalker".to_string(),
+            methods: vec![MethodDef {
+                name: "visit_token".to_string(),
+                params: vec![ParamDef {
+                    name: "context".to_string(),
+                    ty: TypeRef::Named("SyntaxContext".to_string()),
+                    is_ref: true,
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::Named("WalkOutcome".to_string()),
+                receiver: Some(ReceiverKind::RefMut),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_trait: true,
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "SyntaxContext".to_string(),
+            rust_path: "my_lib::syntax::SyntaxContext".to_string(),
+            fields: vec![FieldDef {
+                name: "rule_name".to_string(),
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        });
+        api.types.push(TypeDef {
+            name: "ParseOptions".to_string(),
+            rust_path: "my_lib::ParseOptions".to_string(),
             is_clone: true,
             ..TypeDef::default()
         });
         api.types.push(TypeDef {
-            name: "ConversionResult".to_string(),
-            rust_path: "my_lib::ConversionResult".to_string(),
-            fields: vec![],
+            name: "ParseResult".to_string(),
+            rust_path: "my_lib::ParseResult".to_string(),
             is_clone: true,
+            is_return_type: true,
             ..TypeDef::default()
+        });
+        api.enums.push(EnumDef {
+            name: "WalkOutcome".to_string(),
+            rust_path: "my_lib::syntax::WalkOutcome".to_string(),
+            variants: vec![
+                EnumVariant {
+                    name: "Continue".to_string(),
+                    is_default: true,
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "Stop".to_string(),
+                    ..EnumVariant::default()
+                },
+            ],
+            has_serde: true,
+            ..EnumDef::default()
         });
         api.functions.push(FunctionDef {
-            name: "convert".to_string(),
-            rust_path: "my_lib::convert".to_string(),
-            original_rust_path: String::new(),
+            name: "parse".to_string(),
+            rust_path: "my_lib::parse".to_string(),
             params: vec![
                 ParamDef {
-                    name: "html".to_string(),
+                    name: "source".to_string(),
                     ty: TypeRef::String,
                     is_ref: true,
                     ..ParamDef::default()
                 },
                 ParamDef {
                     name: "options".to_string(),
-                    ty: TypeRef::Optional(Box::new(TypeRef::Named("BridgeOptions".to_string()))),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("ParseOptions".to_string()))),
                     optional: true,
                     ..ParamDef::default()
                 },
             ],
-            return_type: TypeRef::Named("ConversionResult".to_string()),
-            is_async: false,
-            error_type: Some("MyError".to_string()),
-            doc: String::new(),
-            cfg: None,
-            sanitized: false,
-            return_sanitized: false,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
+            return_type: TypeRef::Named("ParseResult".to_string()),
+            error_type: Some("ParseError".to_string()),
+            ..FunctionDef::default()
         });
         let backend = FfiBackend;
 
         let files = backend.generate_bindings(&api, &config).unwrap();
         let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-        // OptionsField symbols must be present
         assert!(
-            lib.content.contains("htm_options_set_visitor"),
-            "must include htm_options_set_visitor from OptionsField path"
-        );
-
-        // Visitor-callbacks symbols must ALSO be present
-        assert!(
-            lib.content.contains("htm_visitor_create"),
-            "must include htm_visitor_create from visitor_callbacks path"
+            lib.content.contains("syn_options_set_renderer"),
+            "options-field setter must derive from configured renderer field"
         );
         assert!(
-            lib.content.contains("htm_visitor_free"),
-            "must include htm_visitor_free from visitor_callbacks path"
+            !lib.content.contains("syn_options_set_visitor_handle"),
+            "options-field mode must not emit the legacy visitor_handle setter"
         );
         assert!(
-            lib.content.contains("htm_convert_with_visitor"),
-            "must include htm_convert_with_visitor from visitor_callbacks path"
-        );
-
-        // No duplicate htm_convert — only the OptionsField version is emitted
-        let convert_count = lib.content.matches("fn htm_convert(").count();
-        assert_eq!(
-            convert_count, 1,
-            "htm_convert must appear exactly once (no duplicate from visitor path)"
-        );
-
-        // htm_convert_with_visitor must embed the visitor in options, not pass it as a
-        // 3rd argument to convert — because the OptionsField `convert` only takes 2 args.
-        assert!(
-            lib.content.contains("opts.visitor = visitor_handle"),
-            "convert_with_visitor must embed visitor in options for OptionsField path"
+            lib.content.contains("pub struct SynVisitorCallbacks"),
+            "Java callback lifecycle support should remain available"
         );
         assert!(
-            !lib.content.contains("convert(&html_str, options_rs, visitor_handle"),
-            "convert_with_visitor must NOT pass visitor as 3rd arg in OptionsField path"
+            lib.content.contains("syn_visitor_create") && lib.content.contains("syn_visitor_free"),
+            "visitor create/free symbols should remain available"
+        );
+        let convert_count = lib.content.matches("fn syn_parse(").count();
+        assert_eq!(convert_count, 1, "syn_parse must appear exactly once");
+        assert!(
+            !lib.content.contains("syn_parse_with_visitor"),
+            "options-field mode must not emit the legacy with_visitor wrapper"
         );
     }
 

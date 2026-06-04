@@ -165,9 +165,7 @@ impl Backend for DartBackend {
         // structs use FRB's `Int64List`, not the SDK's — the two are not
         // assignable to each other.
         if body.contains("Int64List(") || body.contains("Uint8List(") || body.contains("Float64List(") {
-            imports.insert(
-                "import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';".to_string(),
-            );
+            imports.insert("import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';".to_string());
         }
 
         let mut content = String::new();

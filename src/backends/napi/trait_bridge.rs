@@ -391,10 +391,7 @@ fn gen_visitor_bridge(
         crate::codegen::visitor_context::VisitorContextBackend::Napi,
     )?;
     let mut method_impls = String::with_capacity(4096);
-    for method in &trait_type.methods {
-        if method.trait_source.is_some() {
-            continue;
-        }
+    for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method_napi(
             &mut method_impls,
             method,

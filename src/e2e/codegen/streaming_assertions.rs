@@ -1,10 +1,10 @@
 //! Shared streaming-virtual-fields module for e2e test codegen.
 //!
 //! Streaming fixtures assert on "virtual" fields that don't exist on the
-//! stream result type itself — `chunks`, `chunks.length`, `stream_content`,
-//! `stream_complete`, `no_chunks_after_done`, `tool_calls`, `finish_reason`.
-//! These fields resolve against the *collected* list of chunks produced by
-//! draining the stream.
+//! stream result type itself. Generic assertions use the neutral `stream.items`
+//! / `stream.items.length` surface; domain-shaped assertions such as chat
+//! content/tool-call helpers only apply when a fixture/call is already resolved
+//! as streaming by mock data or explicit call configuration.
 //!
 //! [`StreamingFieldResolver`] provides two entry points:
 //! - [`StreamingFieldResolver::accessor`] — the language-specific expression
@@ -18,7 +18,11 @@
 //! collected list (default: `"chunks"`).  The `stream_var` parameter is the
 //! result variable produced by the stream call (default: `"result"`).
 //!
-//! The set of streaming-virtual field names handled by this module:
+//! The neutral streaming-virtual field names handled by this module:
+//! - `stream.items`        → the collected list itself
+//! - `stream.items.length` → length/count of the collected list
+//!
+//! Legacy fixture fields still handled for explicitly streaming calls:
 //! - `chunks`              → the collected list itself
 //! - `chunks.length`       → length/count of the collected list
 //! - `stream_content`      → concatenation of all delta content strings
@@ -31,6 +35,8 @@
 
 /// The set of field names treated as streaming-virtual fields.
 pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
+    "stream.items",
+    "stream.items.length",
     "chunks",
     "chunks.length",
     "stream_content",
@@ -106,8 +112,8 @@ fn split_streaming_deep_path(field: &str) -> Option<(&str, &str)> {
 /// etc.) and would otherwise drag non-streaming fixtures into streaming
 /// codegen.
 const STREAMING_ONLY_AUTO_DETECT_FIELDS: &[&str] = &[
-    "chunks",
-    "chunks.length",
+    "stream.items",
+    "stream.items.length",
     "stream_content",
     "stream_complete",
     "no_chunks_after_done",
@@ -191,7 +197,7 @@ impl StreamingFieldResolver {
         item_type: Option<&str>,
     ) -> Option<String> {
         match field {
-            "chunks" => Some(match lang {
+            "stream.items" | "chunks" => Some(match lang {
                 // Zig ArrayList does not expose .len directly; must use .items
                 "zig" => format!("{chunks_var}.items"),
                 // PHP variables require `$` sigil — bareword `chunks` is parsed as a
@@ -200,7 +206,7 @@ impl StreamingFieldResolver {
                 _ => chunks_var.to_string(),
             }),
 
-            "chunks.length" => Some(match lang {
+            "stream.items.length" | "chunks.length" => Some(match lang {
                 "rust" => format!("{chunks_var}.len()"),
                 "go" => format!("len({chunks_var})"),
                 "python" => format!("len({chunks_var})"),
@@ -1264,6 +1270,8 @@ mod tests {
     fn accessor_chunks_length_uses_language_idiom() {
         let rust = StreamingFieldResolver::accessor("chunks.length", "rust", "chunks").unwrap();
         assert!(rust.contains(".len()"), "rust: {rust}");
+        let neutral_rust = StreamingFieldResolver::accessor("stream.items.length", "rust", "items").unwrap();
+        assert_eq!(neutral_rust, "items.len()", "rust neutral items count: {neutral_rust}");
 
         let go = StreamingFieldResolver::accessor("chunks.length", "go", "chunks").unwrap();
         assert!(go.starts_with("len("), "go: {go}");

@@ -402,10 +402,7 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -> anyhow::R
             struct_name => struct_name,
         },
     ));
-    for method in &trait_type.methods {
-        if method.trait_source.is_some() {
-            continue;
-        }
+    for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method_async(out, method, type_paths, struct_name, bridge_cfg, &result_metadata);
     }
     out.push_str("}\n");
