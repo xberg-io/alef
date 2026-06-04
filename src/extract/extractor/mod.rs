@@ -8,13 +8,16 @@ mod types;
 
 use std::path::{Path, PathBuf};
 
-use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef, UnsupportedPublicItem};
 use ahash::AHashMap;
 use anyhow::{Context, Result};
 
 use crate::extract::type_resolver;
 
-use self::functions::{detect_receiver, extract_function, extract_impl_block, extract_params, resolve_return_type};
+use self::functions::{
+    detect_receiver, extract_function, extract_impl_block, extract_params, resolve_return_type,
+    try_extract_asref_monomorphized,
+};
 use self::helpers::{
     build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments, is_pub,
     is_thiserror_enum,
@@ -620,8 +623,47 @@ fn extract_items(
                 // Underscore-prefixed `pub fn`s are the Rust convention for
                 // "public but not part of the supported API surface"; never
                 // emit bindings or docs for them.
+                if has_non_lifetime_generics(&item_fn.sig.generics) {
+                    // Special case: a single `AsRef<str/Path/[u8]>` generic can be
+                    // monomorphized to its concrete slice-element equivalent so the
+                    // canonical ergonomic pattern `fn foo<S: AsRef<str>>(names: &[S])`
+                    // is accepted without hand-annotation.
+                    if let Some(fd) = try_extract_asref_monomorphized(item_fn, crate_name, module_path) {
+                        surface.functions.push(fd);
+                        continue;
+                    }
+                    if extract_binding_exclusion_reason(&item_fn.attrs).is_none() {
+                        surface.unsupported_public_items.push(unsupported_public_item(
+                            "function",
+                            crate_name,
+                            module_path,
+                            &item_fn.sig.ident.to_string(),
+                            "public generic functions cannot be represented without explicit monomorphization metadata",
+                        ));
+                    }
+                    continue;
+                }
                 if let Some(fd) = extract_function(item_fn, crate_name, module_path) {
                     surface.functions.push(fd);
+                }
+            }
+            syn::Item::Type(item_type) if is_pub(&item_type.vis) && has_non_lifetime_generics(&item_type.generics) => {
+                // `pub type Result<T> = std::result::Result<T, MyError>` is a near-universal
+                // Rust idiom for crate-local error types. It is never part of the binding
+                // surface — backends use the wrapped concrete `Result<T, _>` at call sites.
+                // The pre-scan above stores these aliases in `result_wrapping_aliases` (and
+                // separately in `result_error_hints` for the conventional `Result` name).
+                // Skip the diagnostic silently for them.
+                let alias_name = item_type.ident.to_string();
+                let is_result_wrapping = alias_name == "Result" || result_wrapping_aliases.contains(&alias_name);
+                if !is_result_wrapping && extract_binding_exclusion_reason(&item_type.attrs).is_none() {
+                    surface.unsupported_public_items.push(unsupported_public_item(
+                        "type_alias",
+                        crate_name,
+                        module_path,
+                        &alias_name,
+                        "public generic type aliases cannot be represented without explicit monomorphization metadata",
+                    ));
                 }
             }
             syn::Item::Type(item_type) if is_pub(&item_type.vis) && item_type.generics.params.is_empty() => {

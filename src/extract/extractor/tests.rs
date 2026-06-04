@@ -17,7 +17,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
     let mut visited = Vec::new();
     let mut rwa = ahash::AHashSet::new();
     extract_items(
@@ -491,7 +491,7 @@ fn test_merge_surface_no_duplicates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let src = ApiSurface {
         crate_name: "test".into(),
@@ -552,7 +552,7 @@ fn test_merge_surface_no_duplicates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     merge_surface(&mut dst, src, None);
     assert_eq!(dst.types.len(), 2);
@@ -574,7 +574,7 @@ fn test_merge_surface_filtered() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let src = ApiSurface {
         crate_name: "test".into(),
@@ -635,7 +635,7 @@ fn test_merge_surface_filtered() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     merge_surface_filtered(&mut dst, src, &["Wanted".to_string()], None);
     assert_eq!(dst.types.len(), 1);
@@ -2784,7 +2784,7 @@ fn test_merge_surface_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let src = ApiSurface {
         crate_name: "src".into(),
@@ -2830,7 +2830,7 @@ fn test_merge_surface_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     super::reexports::merge_surface(&mut dst, src, None);
     assert_eq!(dst.functions.len(), 1);
@@ -2854,7 +2854,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let src = ApiSurface {
         crate_name: "src".into(),
@@ -2938,7 +2938,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-};
+    };
 
     let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];
     super::reexports::merge_surface_filtered(&mut dst, src, &names, None);
@@ -3493,11 +3493,10 @@ fn test_error_enum_methods_whitelist() {
     );
 }
 
-/// embed_texts_async has `<T: AsRef<str> + Send + 'static>` — the `'static` lifetime bound
-/// on a type parameter must not prevent monomorphization to String. This shape is exactly what
-/// sample_crate exposes at its public API surface.
+/// Generic public functions cannot be safely represented as a concrete binding
+/// surface unless explicit monomorphization metadata exists.
 #[test]
-fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
+fn test_extract_cfg_gated_generic_async_fn_is_recorded_as_unsupported() {
     let source = r#"
         #[cfg(all(feature = "tokio-runtime", feature = "embeddings"))]
         pub async fn embed_texts_async<T: AsRef<str> + Send + 'static>(
@@ -3511,39 +3510,18 @@ fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
     let surface = extract_from_source(source);
     assert_eq!(
         surface.functions.len(),
-        1,
-        "embed_texts_async with <T: AsRef<str> + Send + 'static> must be extracted (monomorphized to String)"
+        0,
+        "generic free functions must not be silently monomorphized to String"
     );
-
-    let func = &surface.functions[0];
-    assert_eq!(func.name, "embed_texts_async");
-    assert!(func.is_async, "must be async");
-    // syn tokenizes with spaces inside all(); match the actual output
-    let cfg = func.cfg.as_deref().unwrap_or("");
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+    let item = &surface.unsupported_public_items[0];
+    assert_eq!(item.item_kind, "function");
+    assert!(item.item_path.ends_with("embed_texts_async"));
     assert!(
-        cfg.contains("tokio-runtime") && cfg.contains("embeddings"),
-        "cfg gate must be preserved in the IR; got: {cfg:?}"
+        item.reason.contains("generic functions"),
+        "unsupported reason should explain the generic shape: {:?}",
+        item.reason
     );
-
-    // Vec<T> monomorphized to Vec<String>
-    assert_eq!(func.params[0].name, "texts", "first param is texts");
-    assert_eq!(
-        func.params[0].ty,
-        TypeRef::Vec(Box::new(TypeRef::String)),
-        "Vec<T> must be monomorphized to Vec<String>"
-    );
-
-    // &EmbeddingConfig stays as Named("EmbeddingConfig")
-    assert_eq!(func.params[1].name, "config");
-    assert!(func.params[1].is_ref, "config is a reference param");
-
-    // Return: Vec<Vec<f32>>
-    assert_eq!(
-        func.return_type,
-        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))))),
-        "return type must be Vec<Vec<f32>>"
-    );
-    assert_eq!(func.error_type.as_deref(), Some("SampleCrateError"));
 }
 
 #[test]
@@ -3670,4 +3648,162 @@ fn test_extract_excludes_dyn_trait_object_fields() {
         !serde_skip_plain.binding_excluded,
         "serde(skip) on plain String must not exclude from bindings"
     );
+}
+
+// --- AsRef<T> single-generic monomorphization ---
+
+#[test]
+fn test_asref_str_slice_param_monomorphizes_to_vec_str() {
+    // The canonical ergonomic pattern used throughout tree-sitter-language-pack:
+    //   pub fn download<S: AsRef<str>>(names: &[S]) -> Result<usize, Error>
+    // must extract as a function with a `&[&str]` parameter (Vec<String> in IR
+    // with is_ref=true and vec_inner_is_ref=true), not as an unsupported generic.
+    let source = r#"
+        pub fn download<S: AsRef<str>>(names: &[S]) -> Result<usize, Error> {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(
+        surface.unsupported_public_items.len(),
+        0,
+        "download must not be recorded as unsupported"
+    );
+    assert_eq!(surface.functions.len(), 1, "download must be extracted as a function");
+
+    let fd = &surface.functions[0];
+    assert_eq!(fd.name, "download");
+    assert_eq!(fd.params.len(), 1);
+
+    let names_param = &fd.params[0];
+    assert_eq!(names_param.name, "names");
+    assert_eq!(
+        names_param.ty,
+        TypeRef::Vec(Box::new(TypeRef::String)),
+        "names must resolve to Vec<String>"
+    );
+    assert!(names_param.is_ref, "names must have is_ref=true (it is a &[...]");
+    assert!(
+        names_param.vec_inner_is_ref,
+        "names must have vec_inner_is_ref=true (&[&str])"
+    );
+}
+
+#[test]
+fn test_asref_str_where_clause_monomorphizes() {
+    // Same pattern but with the bound in a where clause instead of inline.
+    let source = r#"
+        pub fn load<S>(names: &[S]) -> usize
+        where
+            S: AsRef<str>,
+        {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.unsupported_public_items.len(), 0);
+    assert_eq!(surface.functions.len(), 1);
+
+    let fd = &surface.functions[0];
+    assert_eq!(fd.name, "load");
+    let param = &fd.params[0];
+    assert_eq!(param.ty, TypeRef::Vec(Box::new(TypeRef::String)));
+    assert!(param.is_ref);
+    assert!(param.vec_inner_is_ref);
+}
+
+#[test]
+fn test_asref_path_slice_param_monomorphizes_to_vec_path() {
+    let source = r#"
+        pub fn read_files<P: AsRef<std::path::Path>>(paths: &[P]) -> usize {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.unsupported_public_items.len(), 0);
+    assert_eq!(surface.functions.len(), 1);
+
+    let param = &surface.functions[0].params[0];
+    assert_eq!(param.ty, TypeRef::Vec(Box::new(TypeRef::Path)));
+    assert!(param.is_ref);
+    assert!(param.vec_inner_is_ref);
+}
+
+#[test]
+fn test_asref_bytes_slice_param_monomorphizes_to_vec_bytes() {
+    let source = r#"
+        pub fn hash_many<B: AsRef<[u8]>>(blobs: &[B]) -> Vec<u64> {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.unsupported_public_items.len(), 0);
+    assert_eq!(surface.functions.len(), 1);
+
+    let param = &surface.functions[0].params[0];
+    assert_eq!(param.ty, TypeRef::Vec(Box::new(TypeRef::Bytes)));
+    assert!(param.is_ref);
+    assert!(param.vec_inner_is_ref);
+}
+
+#[test]
+fn test_multi_generic_still_unsupported() {
+    // Two generic params → conservative rejection, not monomorphized.
+    let source = r#"
+        pub fn combine<A: AsRef<str>, B: AsRef<str>>(a: &[A], b: &[B]) -> usize {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.functions.len(), 0, "multi-generic must not be extracted");
+    assert_eq!(
+        surface.unsupported_public_items.len(),
+        1,
+        "must be recorded as unsupported"
+    );
+}
+
+#[test]
+fn test_asref_with_extra_bound_still_unsupported() {
+    // Extra `Clone` bound beyond `AsRef<str>` → conservative rejection.
+    let source = r#"
+        pub fn echo<S: AsRef<str> + Clone>(name: S) -> String {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.functions.len(), 0);
+    assert_eq!(surface.unsupported_public_items.len(), 1);
+}
+
+#[test]
+fn test_asref_mixed_params_non_generic_pass_through() {
+    // The non-generic param (timeout: u64) must pass through normally alongside
+    // the monomorphized &[S] param.
+    let source = r#"
+        pub fn fetch<S: AsRef<str>>(names: &[S], timeout: u64) -> usize {
+            unimplemented!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.unsupported_public_items.len(), 0);
+    assert_eq!(surface.functions.len(), 1);
+
+    let fd = &surface.functions[0];
+    assert_eq!(fd.params.len(), 2);
+
+    let names = &fd.params[0];
+    assert_eq!(names.name, "names");
+    assert_eq!(names.ty, TypeRef::Vec(Box::new(TypeRef::String)));
+
+    let timeout = &fd.params[1];
+    assert_eq!(timeout.name, "timeout");
+    assert_eq!(timeout.ty, TypeRef::Primitive(PrimitiveType::U64));
 }

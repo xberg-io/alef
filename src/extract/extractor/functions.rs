@@ -1,7 +1,6 @@
 use crate::core::ir::ApiSurface;
 use crate::core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::AHashMap;
-use syn;
 
 use crate::extract::type_resolver;
 
@@ -10,75 +9,458 @@ use super::helpers::{
     build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, extract_doc_comments, unwrap_optional,
 };
 
-/// Returns true when every type parameter in `generics` is bounded only by traits that
-/// allow monomorphization to `String` (e.g. `AsRef<str>`, `Into<String>`, `ToString`,
-/// `Send`, `Sync`, lifetime bounds). Functions that satisfy this condition are extracted
-/// with all type params replaced by `String` so they can be exposed through the FFI surface
-/// without actually being generic.
-fn can_monomorphize_to_string(generics: &syn::Generics) -> bool {
-    if generics.params.is_empty() {
-        return true;
+/// The concrete type to substitute when monomorphizing a single `AsRef<T>` generic.
+///
+/// Each variant encodes both the IR `TypeRef` for the substituted param and metadata
+/// (`is_ref`, `vec_inner_is_ref`) that would have been inferred from the concrete type.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum AsRefTarget {
+    /// `AsRef<str>` → concrete slice elem is `&str`; position `&[S]` → `&[&str]`
+    Str,
+    /// `AsRef<Path>` → concrete slice elem is `&Path`; position `&[S]` → `&[&Path]`
+    Path,
+    /// `AsRef<[u8]>` → concrete slice elem is `&[u8]`; position `&[S]` → `&[&[u8]]`
+    Bytes,
+}
+
+impl AsRefTarget {
+    /// The monomorphized `TypeRef` for a scalar `S` position.
+    fn scalar_type_ref(self) -> TypeRef {
+        match self {
+            AsRefTarget::Str => TypeRef::String,
+            AsRefTarget::Path => TypeRef::Path,
+            AsRefTarget::Bytes => TypeRef::Bytes,
+        }
     }
-    generics.params.iter().all(|param| match param {
-        syn::GenericParam::Type(tp) => tp.bounds.iter().all(|bound| match bound {
-            syn::TypeParamBound::Trait(tb) => {
-                let last = tb.path.segments.last().map(|s| s.ident.to_string());
-                matches!(
-                    last.as_deref(),
-                    Some("AsRef" | "Into" | "From" | "ToString" | "Display" | "Debug" | "Send" | "Sync" | "Unpin")
-                )
+
+    /// The monomorphized `TypeRef` for a slice/vec position `&[S]` or `Vec<S>`.
+    ///
+    /// `&[S: AsRef<str>]` monomorphizes to `&[&str]`, which in the IR is
+    /// `TypeRef::Vec(Box::new(TypeRef::String))` with `is_ref=true` and
+    /// `vec_inner_is_ref=true`.
+    fn vec_elem_type_ref(self) -> TypeRef {
+        match self {
+            AsRefTarget::Str => TypeRef::String,
+            AsRefTarget::Path => TypeRef::Path,
+            AsRefTarget::Bytes => TypeRef::Bytes,
+        }
+    }
+}
+
+/// Detect whether `generics` contains exactly one non-lifetime type parameter that
+/// has a single `AsRef<T>` bound (for `T` in `{str, Path, [u8]}`), with no other
+/// bounds or const params.
+///
+/// Returns `Some((generic_name, AsRefTarget))` on success, `None` otherwise.
+///
+/// Conservative rule: any additional generic params (type, const, or unsupported
+/// bound shapes) cause an immediate `None` so the caller falls through to the
+/// normal "unsupported generic" path.
+pub(crate) fn detect_asref_single_generic(generics: &syn::Generics) -> Option<(String, AsRefTarget)> {
+    // Must have exactly one non-lifetime param.
+    let non_lifetime_params: Vec<&syn::GenericParam> = generics
+        .params
+        .iter()
+        .filter(|p| !matches!(p, syn::GenericParam::Lifetime(_)))
+        .collect();
+    if non_lifetime_params.len() != 1 {
+        return None;
+    }
+    let syn::GenericParam::Type(type_param) = non_lifetime_params[0] else {
+        return None; // const generics not supported
+    };
+    let generic_name = type_param.ident.to_string();
+
+    // Must have exactly one bound and it must be `AsRef<T>`.
+    // Inline bounds on the param itself: `S: AsRef<str>`.
+    // Where-clause bounds are handled separately.
+    let param_bounds: Vec<&syn::TypeParamBound> = type_param.bounds.iter().collect();
+
+    // Also collect bounds from the where clause for this param.
+    let where_bounds: Vec<&syn::TypeParamBound> = generics
+        .where_clause
+        .iter()
+        .flat_map(|wc| &wc.predicates)
+        .filter_map(|pred| {
+            if let syn::WherePredicate::Type(pred_type) = pred {
+                // Match `S: Bound` where `S` is our generic param name.
+                if let syn::Type::Path(p) = &pred_type.bounded_ty {
+                    if p.path.is_ident(&generic_name) {
+                        return Some(pred_type.bounds.iter().collect::<Vec<_>>());
+                    }
+                }
             }
-            syn::TypeParamBound::Lifetime(_) => true,
-            _ => true,
-        }),
-        syn::GenericParam::Lifetime(_) => true,
-        syn::GenericParam::Const(_) => false,
+            None
+        })
+        .flatten()
+        .collect();
+
+    let all_bounds: Vec<&syn::TypeParamBound> = param_bounds.into_iter().chain(where_bounds).collect();
+
+    // Must be exactly one bound.
+    if all_bounds.len() != 1 {
+        return None;
+    }
+
+    // That bound must be `AsRef<T>` where T is a supported target.
+    let syn::TypeParamBound::Trait(trait_bound) = all_bounds[0] else {
+        return None;
+    };
+    let seg = trait_bound.path.segments.last()?;
+    if seg.ident != "AsRef" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+        return None;
+    };
+    // Extract the single type argument to AsRef<T>.
+    let type_args: Vec<&syn::GenericArgument> = args.args.iter().collect();
+    if type_args.len() != 1 {
+        return None;
+    }
+    let syn::GenericArgument::Type(inner) = type_args[0] else {
+        return None;
+    };
+    let target = match inner {
+        syn::Type::Path(p) => {
+            let ident = p.path.segments.last()?.ident.to_string();
+            if ident == "str" {
+                AsRefTarget::Str
+            } else if ident == "Path" {
+                AsRefTarget::Path
+            } else {
+                return None;
+            }
+        }
+        syn::Type::Slice(slice) => {
+            // AsRef<[u8]>
+            if let syn::Type::Path(p) = &*slice.elem {
+                if p.path.is_ident("u8") {
+                    AsRefTarget::Bytes
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    Some((generic_name, target))
+}
+
+/// Attempt to extract a function that has exactly one `AsRef<T>` single-generic parameter
+/// by monomorphizing it: rewrite all params using the generic type to the concrete
+/// equivalent, then extract as if the function were non-generic.
+///
+/// Returns `Some(FunctionDef)` when:
+/// - The function has exactly one non-lifetime generic type param.
+/// - That param has exactly one bound: `AsRef<str>`, `AsRef<Path>`, or `AsRef<[u8]>`.
+/// - Every use of the generic type in the parameter list is in a covered position:
+///   `&[S]`, `Vec<S>`, or `S` (bare, possibly behind `&`).
+/// - The return type does not reference the generic (return types referencing `S` are
+///   extremely rare and conservatively unsupported).
+///
+/// Returns `None` when any of those conditions fail — the caller must treat the
+/// function as an unsupported generic item.
+pub(crate) fn try_extract_asref_monomorphized(
+    item: &syn::ItemFn,
+    crate_name: &str,
+    module_path: &str,
+) -> Option<FunctionDef> {
+    let (generic_name, target) = detect_asref_single_generic(&item.sig.generics)?;
+
+    // Verify every param that uses the generic type is in a covered position and
+    // collect the monomorphized params.
+    let params = extract_params_with_asref_substitution(&item.sig.inputs, &generic_name, target)?;
+
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
+    let cfg = extract_cfg_condition(&item.attrs);
+    let name = item.sig.ident.to_string();
+    let doc = extract_doc_comments(&item.attrs);
+    let mut is_async = item.sig.asyncness.is_some();
+
+    let (mut return_type, mut error_type, returns_ref) = resolve_return_type(&item.sig.output);
+    let returns_cow = detect_cow_return(&item.sig.output);
+
+    // Detect future-returning functions as async.
+    if !is_async {
+        let empty = ahash::AHashSet::new();
+        if let Some((inner, future_error_type)) = unwrap_future_return(&item.sig.output, &empty) {
+            is_async = true;
+            return_type = inner;
+            if future_error_type.is_some() {
+                error_type = future_error_type;
+            }
+        }
+    }
+
+    let rust_path = build_rust_path(crate_name, module_path, &name);
+    let sanitized = params.iter().any(|p| p.sanitized);
+
+    Some(FunctionDef {
+        rust_path,
+        original_rust_path: String::new(),
+        name,
+        params,
+        return_type,
+        is_async,
+        error_type,
+        doc,
+        cfg,
+        sanitized,
+        return_sanitized: false,
+        returns_ref,
+        returns_cow,
+        return_newtype_wrapper: None,
+        binding_excluded,
+        binding_exclusion_reason,
     })
 }
 
-/// Replace any `TypeRef::Named(name)` where `name` is in `type_param_names` with `TypeRef::String`.
-/// Recurses into `Optional`, `Vec`, and `Map` wrappers.
-fn monomorphize_type_ref(ty: &mut TypeRef, type_param_names: &std::collections::HashSet<String>) {
-    match ty {
-        TypeRef::Named(n) if type_param_names.contains(n.as_str()) => {
-            *ty = TypeRef::String;
-        }
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
-            monomorphize_type_ref(inner, type_param_names);
-        }
-        TypeRef::Map(k, v) => {
-            monomorphize_type_ref(k, type_param_names);
-            monomorphize_type_ref(v, type_param_names);
-        }
-        _ => {}
+/// Determine whether `ty` is in a covered substitution position for generic `S`:
+/// - `&[S]`   (reference to slice of S)
+/// - `Vec<S>` (owned Vec of S)
+/// - `S`      (bare, used as a scalar AsRef target)
+/// - `&S`     (reference to S)
+///
+/// Returns `None` when `ty` doesn't involve `generic_name` at all (non-generic param
+/// → pass through normally) or when it uses `generic_name` in an unsupported position.
+///
+/// Returns `Some(ParamDef)` when the type is a covered position and can be
+/// monomorphized.
+fn try_substitute_param(
+    name: String,
+    ty: &syn::Type,
+    generic_name: &str,
+    target: AsRefTarget,
+) -> Option<SubstituteResult> {
+    // Check if this param involves the generic at all.
+    if !syn_type_involves_generic(ty, generic_name) {
+        return Some(SubstituteResult::PassThrough);
     }
+
+    // `&[S]` where elem is S → monomorphizes to Vec<target> with is_ref=true, vec_inner_is_ref=true
+    if let syn::Type::Reference(r) = ty {
+        if let syn::Type::Slice(slice) = &*r.elem {
+            if is_bare_generic(&slice.elem, generic_name) {
+                // &[S] → &[&str] / &[&Path] / &[&[u8]]
+                let elem = target.vec_elem_type_ref();
+                return Some(SubstituteResult::Monomorphized(ParamDef {
+                    name,
+                    ty: TypeRef::Vec(Box::new(elem)),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: true,
+                }));
+            }
+        }
+    }
+
+    // `Vec<S>` → Vec<target> with is_ref=false, vec_inner_is_ref=false
+    if let syn::Type::Path(p) = ty {
+        if let Some(seg) = p.path.segments.last() {
+            if seg.ident == "Vec" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    let type_args: Vec<_> = args
+                        .args
+                        .iter()
+                        .filter_map(|a| {
+                            if let syn::GenericArgument::Type(t) = a {
+                                Some(t)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if type_args.len() == 1 && is_bare_generic(type_args[0], generic_name) {
+                        let elem = target.vec_elem_type_ref();
+                        return Some(SubstituteResult::Monomorphized(ParamDef {
+                            name,
+                            ty: TypeRef::Vec(Box::new(elem)),
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
+                            vec_inner_is_ref: false,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    // `S` bare → scalar target type (e.g., &str for AsRef<str>)
+    if is_bare_generic(ty, generic_name) {
+        let scalar = target.scalar_type_ref();
+        return Some(SubstituteResult::Monomorphized(ParamDef {
+            name,
+            ty: scalar,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+            vec_inner_is_ref: false,
+        }));
+    }
+
+    // `&S` → scalar target type with is_ref=true
+    if let syn::Type::Reference(r) = ty {
+        if is_bare_generic(&r.elem, generic_name) {
+            let scalar = target.scalar_type_ref();
+            return Some(SubstituteResult::Monomorphized(ParamDef {
+                name,
+                ty: scalar,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }));
+        }
+    }
+
+    // Generic type used in an unsupported position — bail out.
+    None
+}
+
+enum SubstituteResult {
+    /// The param does not use the generic type; extract it normally.
+    PassThrough,
+    /// The param was successfully monomorphized.
+    Monomorphized(ParamDef),
+}
+
+/// Returns `true` when `ty` is the bare generic type identifier `generic_name`.
+fn is_bare_generic(ty: &syn::Type, generic_name: &str) -> bool {
+    if let syn::Type::Path(p) = ty {
+        p.qself.is_none() && p.path.is_ident(generic_name)
+    } else {
+        false
+    }
+}
+
+/// Returns `true` when `ty` references `generic_name` anywhere.
+fn syn_type_involves_generic(ty: &syn::Type, generic_name: &str) -> bool {
+    match ty {
+        syn::Type::Path(p) => {
+            if p.path.is_ident(generic_name) {
+                return true;
+            }
+            // Check generic arguments.
+            p.path.segments.iter().any(|seg| {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    args.args.iter().any(|arg| {
+                        if let syn::GenericArgument::Type(inner) = arg {
+                            syn_type_involves_generic(inner, generic_name)
+                        } else {
+                            false
+                        }
+                    })
+                } else {
+                    false
+                }
+            })
+        }
+        syn::Type::Reference(r) => syn_type_involves_generic(&r.elem, generic_name),
+        syn::Type::Slice(s) => syn_type_involves_generic(&s.elem, generic_name),
+        _ => false,
+    }
+}
+
+/// Extract params from a generic function signature, substituting any use of
+/// `generic_name` with the monomorphized `target` type.
+///
+/// Returns `None` if any param uses the generic in an unsupported position.
+fn extract_params_with_asref_substitution(
+    inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>,
+    generic_name: &str,
+    target: AsRefTarget,
+) -> Option<Vec<ParamDef>> {
+    let mut result = Vec::new();
+    for arg in inputs {
+        let syn::FnArg::Typed(pat_type) = arg else {
+            continue; // skip self receiver
+        };
+        let name = match &*pat_type.pat {
+            syn::Pat::Ident(ident) => ident.ident.to_string(),
+            _ => "_".to_string(),
+        };
+
+        match try_substitute_param(name.clone(), &pat_type.ty, generic_name, target)? {
+            SubstituteResult::PassThrough => {
+                // Normal param extraction — no generic involvement.
+                use super::helpers::unwrap_optional;
+                let is_ref = matches!(&*pat_type.ty, syn::Type::Reference(_)) || option_inner_is_ref(&pat_type.ty);
+                let is_mut = is_mut_ref(&pat_type.ty);
+                let resolved = type_resolver::resolve_type(&pat_type.ty);
+                let (map_is_ahash, map_key_is_cow) = detect_map_metadata(&pat_type.ty);
+                let sanitized = is_tuple_type(&resolved);
+                let original_type = if sanitized {
+                    Some(format!("{:?}", resolved))
+                } else {
+                    None
+                };
+                let (ty, optional) = unwrap_optional(resolved);
+                result.push(ParamDef {
+                    name,
+                    ty,
+                    optional,
+                    default: None,
+                    sanitized,
+                    typed_default: None,
+                    is_ref,
+                    is_mut,
+                    newtype_wrapper: None,
+                    original_type,
+                    map_is_ahash,
+                    map_key_is_cow,
+                    vec_inner_is_ref: vec_inner_is_ref(&pat_type.ty),
+                });
+            }
+            SubstituteResult::Monomorphized(param) => {
+                result.push(param);
+            }
+        }
+    }
+    Some(result)
 }
 
 /// Extract a public free function into a `FunctionDef`.
 ///
-/// Generic functions are skipped unless all their type parameters can be monomorphized to
-/// `String` (bounded only by `AsRef<str>`, `Into<String>`, `Send`, `Sync`, etc.).
-/// Such functions are extracted with type parameter names replaced by `String` in parameter
-/// and return types so they can be exposed through the FFI surface.
+/// Generic functions are skipped by extraction and recorded as unsupported public
+/// items by the caller so validation can fail loudly before generation.
 pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path: &str) -> Option<FunctionDef> {
-    if !item.sig.generics.params.is_empty() && !can_monomorphize_to_string(&item.sig.generics) {
+    if !item.sig.generics.params.is_empty() {
         return None;
     }
-
-    // Collect type parameter names so we can monomorphize them to `String` after extraction.
-    let type_param_names: std::collections::HashSet<String> = item
-        .sig
-        .generics
-        .params
-        .iter()
-        .filter_map(|p| {
-            if let syn::GenericParam::Type(tp) = p {
-                Some(tp.ident.to_string())
-            } else {
-                None
-            }
-        })
-        .collect();
 
     let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
     let binding_excluded = binding_exclusion_reason.is_some();
