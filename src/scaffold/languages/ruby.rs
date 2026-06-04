@@ -34,8 +34,6 @@ pub(crate) fn scaffold_ruby_cargo(
     // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
     // Magnus wrapper emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
     let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
-    // Services require rb-sys for GVL acquisition from non-GVL tokio workers
-    let has_services = !api.services.is_empty();
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
 
     // Collect all [dependencies] entries then sort alphabetically so the emitted
@@ -91,7 +89,10 @@ pub(crate) fn scaffold_ruby_cargo(
     // `async-trait` (included for trait bridges) and `futures` (included for
     // streaming adapters). `ahash` is added when any function parameter uses
     // AHashMap<Cow, _>, but the Magnus wrapper never directly uses ahash—it's
-    // used only in the Rust core for type field marshalling.
+    // used only in the Rust core for type field marshalling. `rb-sys` is always
+    // pinned (to work around the 0.9.128 mingw sysroot bug) even though Magnus
+    // normally brings it transitively—the explicit pin is intentional despite
+    // no direct usage by the wrapper.
     let mut machete_ignored: Vec<&str> = Vec::new();
     if has_async || has_trait_bridges {
         machete_ignored.push("tokio");
@@ -105,9 +106,7 @@ pub(crate) fn scaffold_ruby_cargo(
     if needs_ahash {
         machete_ignored.push("ahash");
     }
-    if has_services {
-        machete_ignored.push("rb-sys");
-    }
+    machete_ignored.push("rb-sys");
     // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
     // before `[lib]` / `[dependencies]`.
     let machete_section = if machete_ignored.is_empty() {

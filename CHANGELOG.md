@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(scaffold/ruby): exempt `rb-sys` from cargo-machete in NIF Cargo.toml. The ruby scaffold always pins `rb-sys` to avoid the 0.9.128 mingw sysroot bug, even though Magnus brings it transitively and the NIF wrapper code does not directly use it. The generated `[package.metadata.cargo-machete]` now includes `rb-sys` in the ignored list so prek's cargo-machete hook does not fail. (`src/scaffold/languages/ruby.rs`)
+
 ## [0.22.30] - 2026-06-04
 
 ### Fixed
