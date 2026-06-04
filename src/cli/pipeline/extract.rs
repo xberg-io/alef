@@ -151,15 +151,26 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // the IR so adapter codegen can still look up parameter info.
     mark_adapter_handled_methods(&mut api, config);
 
-    // Apply `[crates.exclude].methods = ["Owner.method"]` to service configurators.
-    // This pass runs AFTER `extract_services` populates `api.services` so the user's
-    // method-level excludes are honored for the per-binding service codegen path —
-    // otherwise non-delegatable configurators (e.g. `App.config(mut self) -> Self`)
-    // surface as `compile_error!` in the emitted binding crate.
+    // Apply `[crates.exclude].methods = ["Owner.method"]` AFTER `extract_services` for
+    // BOTH `service.configurators` and `api.types[Owner].methods`. `apply_filters` (above)
+    // already stripped excluded methods from `api.types[*].methods`, but
+    // `extract_services` calls `recover_service_methods` which RE-INJECTS configured
+    // methods back into the owner type so per-binding service codegen can see them.
+    // When a configurator is also user-excluded (e.g. `App.config(mut self) -> Self` —
+    // non-delegatable through host `&self` wrappers like napi's `JsApp`), the recovery
+    // re-introduces it into the regular method-emission path and the backend emits a
+    // `compile_error!` non-delegatable stub. Re-applying the exclude here is the
+    // defense-in-depth pass that keeps the binding compile-green.
     if !config.exclude.methods.is_empty() {
         for service in &mut api.services {
             service.configurators.retain(|m| {
                 let key = format!("{}.{}", service.name, m.name);
+                !config.exclude.methods.contains(&key)
+            });
+        }
+        for typ in &mut api.types {
+            typ.methods.retain(|m| {
+                let key = format!("{}.{}", typ.name, m.name);
                 !config.exclude.methods.contains(&key)
             });
         }
