@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/wasm**: include `request.content_type` in the fixture JSON emitted into the shared TypeScript `app_harness`, mirroring the typescript codegen fix in 18042e393. The wasm e2e harness inspects `request.content_type` to detect multipart/form-encoded bodies and synthesize them with the correct encoding; without it, multipart fixtures got the wrong body shape and the SUT returned 400. CORS preflight already worked because `handler.middleware` extraction was already present. (`src/e2e/codegen/wasm.rs`)
+
 - **ffi gen_bindings/functions (returns_ref Map)**: split `TypeRef::Vec(_) | TypeRef::Map(_, _)` match arm so `Map` uses `.clone()` instead of `.to_vec()`. `BTreeMap` has no `.to_vec()` method (only slices do), so the merged arm caused a compile error when a core method returns `&BTreeMap` with `returns_ref=true`. Now `Vec` still uses `.to_vec()` and `Map` uses `.clone()`. (`src/backends/ffi/gen_bindings/functions.rs`)
 
 - **ffi gen_visitor (Cow field CString)**: emit `.as_ref()` instead of `.as_str()` when converting a `Cow<'_, str>` context field to `CString`. `Cow::as_str()` is a recently-stabilised unstable API (`str_as_str` feature gate) and fails to compile on stable Rust. `as_ref()` returns `&str` via `Deref<Target=str>` and works on all stable toolchains. (`src/backends/ffi/gen_visitor.rs`)
