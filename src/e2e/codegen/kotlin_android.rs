@@ -593,9 +593,9 @@ fn sanitize_gradle_project_name(pkg_name: &str) -> String {
 /// Points to a Gradle distribution URL. This file is downloaded/cached by the
 /// wrapper scripts on first invocation.
 fn render_gradle_wrapper_properties() -> String {
-    // Use Gradle 8.5 (latest stable; compatible with AGP 8.2+).
-    // Gradle wrapper scripts automatically download and cache the distribution.
-    const GRADLE_VERSION: &str = "8.5";
+    // Use Gradle 8.13 (required by AGP 8.13.0+). Gradle wrapper scripts automatically
+    // download and cache the distribution.
+    const GRADLE_VERSION: &str = "8.13";
     format!(
         r#"distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
