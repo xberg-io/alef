@@ -426,6 +426,15 @@ pub fn gen_method(
                         String::new()
                     }
                 }
+                // Map: when core returns &BTreeMap (returns_ref=true), the binding map type
+                // (e.g. HashMap) may differ. Collect via into_iter to coerce to the target type.
+                TypeRef::Map(_, _) => {
+                    if method.returns_ref {
+                        ".iter().map(|(k, v)| (k.clone(), v.clone())).collect()".to_string()
+                    } else {
+                        String::new()
+                    }
+                }
                 _ => String::new(),
             };
             if method.error_type.is_some() {
