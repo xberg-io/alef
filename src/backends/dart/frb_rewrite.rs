@@ -423,7 +423,7 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
 /// are declared as `async`. This fixes the Dart compile error where `await` is used
 /// in a non-async context.
 fn ensure_handler_closures_are_async(source: &str) -> String {
-    let mut lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = source.lines().collect();
     let mut result = String::new();
 
     let mut i = 0;
@@ -432,8 +432,8 @@ fn ensure_handler_closures_are_async(source: &str) -> String {
 
         // Check if the next few lines (up to a limit) contain `await handler`
         // This helps identify closures/functions that need to be made async.
-        let contains_await_handler = (i..std::cmp::min(i + 10, lines.len()))
-            .any(|j| lines[j].contains("await handler("));
+        let contains_await_handler =
+            (i..std::cmp::min(i + 10, lines.len())).any(|j| lines[j].contains("await handler("));
 
         if contains_await_handler {
             // Check if this line ends a function/closure signature and opens a body
@@ -1141,6 +1141,45 @@ Future<ExtractionResult> extractBytes(
         assert!(
             out.contains("extractBytes"),
             "non-excluded function extractBytes must remain, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fix_handler_executor_calls_adds_async_to_closures() {
+        let input = r#"Future<String> processRequest(Request req) {
+  return handler.executeNormal(
+    SyncTask(request: req),
+  );
+}
+
+Future<Response> handleRoute(RouteData route) {
+  return handler.executeSync(
+    RouteTask(data: route),
+  );
+}
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // Verify executeSync/executeNormal are replaced with await handler
+        assert!(
+            out.contains("await handler("),
+            "expected `await handler(` in output, got:\n{out}"
+        );
+        assert!(
+            !out.contains("executeSync") && !out.contains("executeNormal"),
+            "executeSync/executeNormal should be removed, got:\n{out}"
+        );
+
+        // Verify closures are marked as async
+        assert!(
+            out.contains(") async {"),
+            "expected function signature to have `async` keyword, got:\n{out}"
+        );
+
+        // Verify no double-await
+        assert!(
+            !out.contains("await await"),
+            "should not have duplicate awaits, got:\n{out}"
         );
     }
 

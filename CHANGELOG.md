@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(dart/frb): ensure handler callback closures are marked as `async` when containing `await handler(...)` calls. FRB emits service method code that replaces `handler.executeSync()` / `handler.executeNormal()` with direct `await handler(...)` invocation, but the containing closure signature was not marked `async`, causing Dart compile error "await can only be used in async methods". The post-processor now detects closures with `await handler` in their body and adds the `async` keyword to their signature. Fixes all instances at lines 465, 498, 535, etc. in generated `frb_generated.dart`. (`src/backends/dart/frb_rewrite.rs`)
+
+## [0.22.27] - 2026-06-04
+
+### Fixed
+
 - Fix Swift e2e harness codegen emitting duplicate import statements with mismatched casing (e.g., `import Spikard` + `import spikard`). The harness builder was doing a case-sensitive comparison when checking if the configured module import already included the binding module name, causing it to add a second import when the config used lowercase. Changed the check to case-insensitive so `imports = ["spikard"]` in `alef.toml` now deduplicates correctly with the uppercase `Spikard` module_name. (`src/e2e/codegen/swift.rs`)
+
+### Known Issues
+
+- PyO3 (and all backends): Methods with `Option<serde_json::Value>` parameters are incorrectly sanitized and excluded from binding generation. The root cause is in `sanitize_unknown_types()` which treats bare `Value` as an unknown type and converts it to `String`, marking the method as sanitized and failing validation with `backend_stub_path` error. Workaround: explicitly exclude such methods in `alef.toml` `[crates.exclude].methods` for affected backends. Proper fix requires extending the type sanitizer to recognize JSON value types before declaring them unknown, treating `Value` (or fully-qualified `serde_json::Value`) as a special case during extraction. (`src/cli/pipeline/extract.rs:sanitize_type_ref`)
 - Fix C# e2e multipart form-data codegen to use `ByteArrayContent` with explicit `MediaTypeHeaderValue` instead of `StringContent`, which rejects boundary parameters. The generated test now constructs multipart bodies correctly. (`src/e2e/codegen/csharp.rs`)
 - Fix Ruby e2e harness codegen to accept full constant paths for `app_class` (e.g., "Spikard::App") without requiring a leading `::` anchor. The template now documents that `app_class` must include the complete module path, making it safe to use within the AppHarness module block. This resolves `uninitialized constant App (NameError)` when the app class is defined in a module. (`src/e2e/templates/ruby/app_harness.rb.jinja`)
 - Fix Go e2e harness to pass `string` instead of `json.RawMessage` to `RouteBuilder.RequestSchemaJSON()`. The method expects a `string` parameter (mapped from Rust `String`); the codegen was incorrectly wrapping the JSON bytes in `json.RawMessage(...)` which is a slice type, causing a compile error. (`src/e2e/templates/go/harness_main.go.jinja`)
