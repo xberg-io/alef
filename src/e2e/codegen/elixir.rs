@@ -311,10 +311,12 @@ fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2e
         let host = &e2e_config.harness.host;
         let port = e2e_config.harness.port;
         format!(
-            r#"# Start a named Finch pool before ExUnit. Tests pass finch: AlefE2EFinch
-# to Req.get/post/etc, which requires an explicit Finch supervisor to be running
-# before ExUnit starts.
-{{:ok, _}} = Finch.start_link(name: AlefE2EFinch)
+            r#"# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
+# Tests pass `finch: AlefE2EFinch` on every Req call; the pool's protocol
+# selection (via `pools.default.protocols: [:http1]`) is the canonical place
+# to pin the wire protocol since Req rejects per-call `:connect_options` when
+# `:finch` is set.
+{{:ok, _}} = Finch.start_link(name: AlefE2EFinch, pools: %{{:default => [protocols: [:http1]]}})
 
 ExUnit.start()
 
@@ -380,10 +382,12 @@ end
 "#
         )
     } else if has_http_tests {
-        r#"# Start a named Finch pool before ExUnit. Tests pass finch: AlefE2EFinch
-# to Req.get/post/etc, which requires an explicit Finch supervisor to be running
-# before ExUnit starts.
-{:ok, _} = Finch.start_link(name: AlefE2EFinch)
+        r#"# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
+# Tests pass `finch: AlefE2EFinch` on every Req call; the pool's protocol
+# selection (via `pools.default.protocols: [:http1]`) is the canonical place
+# to pin the wire protocol since Req rejects per-call `:connect_options` when
+# `:finch` is set.
+{:ok, _} = Finch.start_link(name: AlefE2EFinch, pools: %{:default => [protocols: [:http1]]})
 
 ExUnit.start()
 
