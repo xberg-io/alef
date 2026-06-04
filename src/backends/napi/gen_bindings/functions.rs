@@ -82,7 +82,10 @@ pub(super) fn gen_function(
                     return None;
                 }
                 let mut_kw = if orig.is_mut { "mut " } else { "" };
-                Some(format!("    let {}{} = {}.unwrap_or_default();\n", mut_kw, orig.name, orig.name))
+                Some(format!(
+                    "    let {}{} = {}.unwrap_or_default();\n",
+                    mut_kw, orig.name, orig.name
+                ))
             } else {
                 None
             }
@@ -484,7 +487,10 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                         } else {
                             p.name.clone()
                         }
-                    } else if p.is_ref && p.vec_inner_is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                    } else if p.is_ref
+                        && p.vec_inner_is_ref
+                        && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                    {
                         // Core expects &[&str]: use the pre-built _refs binding.
                         format!("&{}_refs", p.name)
                     } else if p.is_ref {

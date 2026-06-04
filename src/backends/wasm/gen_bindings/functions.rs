@@ -200,8 +200,11 @@ fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool) -> Strin
         }
         // Vec<T>: the core field may be a Set (HashSet, AHashSet, BTreeSet) which has no
         // `From<Vec<T>>` impl. Leave `collect()` target-inferred from the core field so
-        // Vec→Vec and Vec→Set assignments both compile.
-        TypeRef::Vec(_) => "Into::into(v.into_iter().collect())".to_string(),
+        // Vec and set assignments both compile.
+        TypeRef::Vec(_) => "v.into_iter().collect()".to_string(),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)) => {
+            "v.map(|items| items.into_iter().collect())".to_string()
+        }
         _ => "v.into()".to_string(),
     }
 }
@@ -1564,16 +1567,33 @@ mod tests {
     #[test]
     fn dto_vec_field_conversion_uses_target_inferred_collect() {
         // Regression: WASM input DTOs deserialize sequence-shaped fields as Vec<T>, but
-        // the core field may be a set-like collection. Forcing collect::<Vec<_>>() then
-        // relying on Into fails because sets do not implement From<Vec<T>>.
+        // the core field may be Vec<T> or a set-like collection. Wrapping collect() in
+        // Into::into is ambiguous for Vec<T>; forcing collect::<Vec<_>>() fails for sets.
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
 
         let conv = dto_field_conversion(&ty, false);
 
-        assert_eq!(conv, "Into::into(v.into_iter().collect())");
+        assert_eq!(conv, "v.into_iter().collect()");
         assert!(
             !conv.contains("collect::<Vec<_>>()"),
             "collection target must be inferred from the core field: {conv}"
+        );
+        assert!(
+            !conv.contains("Into::into"),
+            "plain Vec fields must not wrap target-inferred collect in Into::into: {conv}"
+        );
+    }
+
+    #[test]
+    fn dto_optional_vec_field_conversion_uses_target_inferred_collect() {
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
+
+        let conv = dto_field_conversion(&ty, false);
+
+        assert_eq!(conv, "v.map(|items| items.into_iter().collect())");
+        assert!(
+            !conv.contains("collect::<Vec<_>>()"),
+            "optional collection target must be inferred from the core field: {conv}"
         );
     }
 

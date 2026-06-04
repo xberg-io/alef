@@ -491,7 +491,7 @@ mod tests {
         let result = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
         // Core destructured as tuple (already correct), binding constructed as tuple
         assert!(
-            result.contains("Self::Text(_0)"),
+            result.contains("my_crate::UserContent::Text(_0) => Self::Text("),
             "expected tuple-form binding constructor, got: {result}"
         );
         assert!(
@@ -839,15 +839,19 @@ mod tests {
         );
     }
 
-    /// Option<Arc<String>>: simple passthrough → `.map(|v| (*v).clone().into())` is valid
-    /// (String: Clone). Verifies the simple_passthrough branch is preserved.
+    /// Option<Arc<String>>: the base string conversion already handles Arc via Deref/Display.
+    /// Verifies the Arc wrapper does not append a second map over the converted String.
     #[test]
     fn test_arc_string_option_field_passthrough() {
         let typ = arc_field_type(arc_field("label", TypeRef::String, true));
         let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
         assert!(
-            result.contains("val.label.map(|v| (*v).clone().into())"),
-            "expected .map(|v| (*v).clone().into()) for Option<Arc<String>>, got: {result}"
+            result.contains("val.label.map(|v| v.to_string())"),
+            "expected single .map(|v| v.to_string()) for Option<Arc<String>>, got: {result}"
+        );
+        assert!(
+            !result.contains("map(|v| v.to_string()).map("),
+            "must not chain a second map() after string conversion, got: {result}"
         );
     }
 

@@ -911,6 +911,10 @@ pub fn core_to_binding_match_arm_ext_cfg(
                         expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
                     }
                     if enum_serde_untagged {
+                        let string_move = format!("{}.to_string()", f.name);
+                        if expr == string_move {
+                            expr = f.name.clone();
+                        }
                         expr
                     } else {
                         format!("{}: {}", f.name, expr)

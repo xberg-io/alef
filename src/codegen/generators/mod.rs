@@ -134,9 +134,8 @@ pub(super) const TRAIT_METHOD_NAMES: &[&str] = &[
 pub use binding_helpers::{
     gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_call_args_with_let_bindings_mutex,
     gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_no_promote,
-    gen_named_let_bindings_pub, gen_named_let_bindings_with_augmented, gen_serde_let_bindings,
-    gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
-    wrap_return_with_mutex, wrap_return_with_mutex_mapped,
+    gen_named_let_bindings_pub, gen_named_let_bindings_with_augmented, gen_serde_let_bindings, gen_unimplemented_body,
+    has_named_params, is_simple_non_opaque_param, wrap_return, wrap_return_with_mutex, wrap_return_with_mutex_mapped,
 };
 pub use enums::{enum_has_data_variants, gen_enum, gen_pyo3_data_enum};
 pub use functions::{

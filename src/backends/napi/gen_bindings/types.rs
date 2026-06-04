@@ -414,7 +414,8 @@ pub(super) fn gen_opaque_instance_method(
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             let serde_bindings =
                 generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
-            let serde_call_args = generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types);
+            let serde_call_args =
+                generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types);
             let core_call = if has_mut_methods {
                 format!("self.inner.lock().unwrap().{}({serde_call_args})", method.name)
             } else {

@@ -210,6 +210,7 @@ pub fn gen_from_core_to_binding_cfg(
             apply_core_wrapper_from_core(
                 &conversion,
                 &field.name,
+                &field.ty,
                 &field.core_wrapper,
                 &field.vec_inner_core_wrapper,
                 field.optional,
@@ -1121,6 +1122,7 @@ pub fn field_conversion_from_core_cfg(
 fn apply_core_wrapper_from_core(
     conversion: &str,
     name: &str,
+    ty: &TypeRef,
     core_wrapper: &CoreWrapper,
     vec_inner_core_wrapper: &CoreWrapper,
     optional: bool,
@@ -1182,12 +1184,21 @@ fn apply_core_wrapper_from_core(
                     // codegen such as `(*String).clone()` (since str: !Clone).
                     let simple_passthrough = format!("val.{name}");
                     if expr == simple_passthrough {
-                        format!("{name}: {expr}.map(|v| (*v).clone().into())")
+                        format!("{name}: val.{name}.map(|v| (*v).clone().into())")
                     } else {
                         format!("{name}: {expr}")
                     }
                 } else {
-                    let unwrapped = expr.replace(&format!("val.{name}"), &format!("(*val.{name}).clone()"));
+                    let string_passthrough = format!("val.{name}.to_string()");
+                    let unwrapped = if expr == string_passthrough {
+                        if matches!(ty, TypeRef::Json) {
+                            format!("(*val.{name}).clone().to_string()")
+                        } else {
+                            expr.to_string()
+                        }
+                    } else {
+                        expr.replace(&format!("val.{name}"), &format!("(*val.{name}).clone()"))
+                    };
                     format!("{name}: {unwrapped}")
                 }
             } else {
@@ -1219,8 +1230,13 @@ fn apply_core_wrapper_from_core(
             // Arc<Mutex<T>> → T: lock and clone
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
-                    format!("{name}: {expr}.map(|v| v.lock().unwrap().clone().into())")
-                } else if expr == format!("val.{name}") {
+                    let string_passthrough = format!("val.{name}.map(|v| v.to_string())");
+                    if expr == string_passthrough {
+                        format!("{name}: val.{name}.map(|v| v.lock().unwrap().clone().into())")
+                    } else {
+                        format!("{name}: {expr}.map(|v| v.lock().unwrap().clone().into())")
+                    }
+                } else if expr == format!("val.{name}") || expr == format!("val.{name}.to_string()") {
                     format!("{name}: val.{name}.lock().unwrap().clone().into()")
                 } else {
                     conversion.to_string()

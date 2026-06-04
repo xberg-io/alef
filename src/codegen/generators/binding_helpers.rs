@@ -705,7 +705,10 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         } else {
                             format!("{}_core", p.name)
                         }
-                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref {
+                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                        && p.is_ref
+                        && p.vec_inner_is_ref
+                    {
                         // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects &[&str].
                         // Convert via _refs intermediate binding (generated in gen_vec_string_refs_bindings).
                         if p.optional {
@@ -1018,9 +1021,7 @@ fn gen_named_let_bindings_inner(
             // When vec_inner_is_ref=false the core expects &[String] which Vec<String> already
             // satisfies via &[..] coercion — no intermediate binding needed.
             TypeRef::Vec(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
-                    && p.is_ref
-                    && p.vec_inner_is_ref =>
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref =>
             {
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
@@ -1077,11 +1078,7 @@ fn gen_named_let_bindings_inner_augmented(
 ) -> String {
     let mut bindings = String::new();
     for (idx, p) in augmented_params.iter().enumerate() {
-        let is_augmented_optional = p.optional
-            && original_params
-                .get(idx)
-                .map(|orig| !orig.optional)
-                .unwrap_or(false);
+        let is_augmented_optional = p.optional && original_params.get(idx).map(|orig| !orig.optional).unwrap_or(false);
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_type_path = format!("{}::{}", core_import, name);
@@ -1168,9 +1165,7 @@ fn gen_named_let_bindings_inner_augmented(
                 bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner)
-                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
-                    && p.is_ref
-                    && p.vec_inner_is_ref =>
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref =>
             {
                 let binding = if p.optional {
                     crate::codegen::template_env::render(

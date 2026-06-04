@@ -510,7 +510,10 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                         } else {
                             format!("{php_name}_core")
                         }
-                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && p.vec_inner_is_ref {
+                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                        && p.is_ref
+                        && p.vec_inner_is_ref
+                    {
                         // Vec<String> with is_ref and vec_inner_is_ref: core expects &[&str].
                         // Use the pre-built _refs binding (Vec<&str>).
                         format!("&{php_name}_refs")
