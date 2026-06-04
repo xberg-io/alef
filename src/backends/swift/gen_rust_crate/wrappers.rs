@@ -851,7 +851,7 @@ pub(crate) fn emit_type_method_shims(
         };
         let mut params_vec: Vec<String> = vec![client_receiver];
         for p in &method.params {
-            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, unit_enum_names);
             let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
                 format!("Option<{bridge_ty}>")
             } else {
@@ -910,7 +910,7 @@ pub(crate) fn emit_type_method_shims(
                 // element-wise and then sliced to &[T].
                 if let TypeRef::Vec(vec_inner) = &p.ty {
                     if let TypeRef::Named(n) = vec_inner.as_ref() {
-                        if enum_names.contains(n.as_str()) {
+                        if unit_enum_names.contains(n.as_str()) {
                             let source_enum_ty = type_paths
                                 .get(n.as_str())
                                 .map(|p| p.replace('-', "_"))
@@ -934,7 +934,7 @@ pub(crate) fn emit_type_method_shims(
                     }
                 }
                 if let TypeRef::Named(n) = &p.ty {
-                    if enum_names.contains(n.as_str()) {
+                    if unit_enum_names.contains(n.as_str()) {
                         // Single enum parameter: swift delivers a plain wire string.
                         let source_enum_ty = type_paths
                             .get(n.as_str())
@@ -963,16 +963,16 @@ pub(crate) fn emit_type_method_shims(
                     if let TypeRef::Named(n) = &p.ty {
                         // Skip .0 access for enums (they're already JSON-deserialized above).
                         // For struct wrappers, unwrap to inner type via .0.
-                        if !enum_names.contains(n.as_str()) {
+                        if !unit_enum_names.contains(n.as_str()) {
                             return format!("{name}.map(|v| v.0)");
                         }
                     }
                 }
                 match &p.ty {
-                    TypeRef::Named(n) if p.is_ref && !enum_names.contains(n.as_str()) => format!("&{name}.0"),
-                    TypeRef::Named(n) if p.is_ref && enum_names.contains(n.as_str()) => format!("&{name}"),
-                    TypeRef::Named(n) if !enum_names.contains(n.as_str()) => format!("{name}.0"),
-                    TypeRef::Named(n) if enum_names.contains(n.as_str()) => name,
+                    TypeRef::Named(n) if p.is_ref && !unit_enum_names.contains(n.as_str()) => format!("&{name}.0"),
+                    TypeRef::Named(n) if p.is_ref && unit_enum_names.contains(n.as_str()) => format!("&{name}"),
+                    TypeRef::Named(n) if !unit_enum_names.contains(n.as_str()) => format!("{name}.0"),
+                    TypeRef::Named(n) if unit_enum_names.contains(n.as_str()) => name,
                     TypeRef::String => format!("&{name}"),
                     TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
                     TypeRef::Bytes if p.is_ref => format!("&{name}"),
