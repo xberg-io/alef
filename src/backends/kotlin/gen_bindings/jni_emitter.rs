@@ -199,11 +199,14 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .collect();
 
     // Emit destructors ONLY for handle-only types (top-level returns, not client types).
+    // Skip any that were already emitted to avoid duplicates.
     if !handle_only_opaque_returns.is_empty() {
         body.push_str("\n    // Destructor external funs for handle-only opaque types.\n");
         for type_name in &handle_only_opaque_returns {
             let free_name = format!("nativeFree{}", to_pascal_case(type_name));
-            body.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
+            if !emitted_destructor_names.contains(&free_name) {
+                body.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
+            }
         }
     }
 
