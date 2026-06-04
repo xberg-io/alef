@@ -404,10 +404,16 @@ fn render_harness_main(
     // Java methods are camelCase by convention. `register_method_idiomatic`
     // honors `[crates.e2e.harness.overrides.java]` first, then converts the
     // canonical name to camelCase (e.g. `register_route` → `registerRoute`).
+    // The actual Java facade method is `registerAppRoute`, so expand bare `route` to it.
     let register_method = e2e_config
         .harness
         .register_method_idiomatic("java")
         .unwrap_or_else(|| "registerAppRoute".to_string());
+    let register_method = if register_method == "route" {
+        "registerAppRoute".to_string()
+    } else {
+        register_method
+    };
     let body_field = &e2e_config.harness.response_body_field;
 
     // Collect all HTTP fixtures for this harness to register.
