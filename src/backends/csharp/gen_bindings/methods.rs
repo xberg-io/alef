@@ -99,13 +99,18 @@ fn gen_opaque_streaming_static_wrapper(
     out.push_str(")\n");
     out.push_str("    {\n");
 
-    // Delegate to the instance method on the engine handle
+    // Delegate to the instance method on the engine handle. The instance
+    // method follows the same C# naming convention as this static wrapper:
+    // async instance methods are emitted with an `Async` suffix, so the
+    // static `ChatStreamAsync` wrapper must call `engine.ChatStreamAsync(...)`,
+    // not `engine.ChatStream(...)`.
     if method.is_async {
         out.push_str("        await foreach (var item in engine.");
+        out.push_str(&format!("{method_name}Async("));
     } else {
         out.push_str("        foreach (var item in engine.");
+        out.push_str(&format!("{method_name}("));
     }
-    out.push_str(&format!("{method_name}("));
     for (i, param) in method.params.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
