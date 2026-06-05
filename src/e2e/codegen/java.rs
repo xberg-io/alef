@@ -104,6 +104,7 @@ impl E2eCodegen for JavaCodegen {
                 &pkg_version,
                 e2e_config.dep_mode,
                 &e2e_config.test_documents_relative_from(0),
+                &config.ffi_lib_name(),
             ),
             generated_header: false,
         });
@@ -333,6 +334,7 @@ fn render_pom_xml(
     pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     test_documents_path: &str,
+    ffi_lib_name: &str,
 ) -> String {
     // pkg_name may be in "groupId:artifactId" Maven format; split accordingly.
     let (dep_group_id, dep_artifact_id) = if let Some((g, a)) = pkg_name.split_once(':') {
@@ -381,6 +383,7 @@ fn render_pom_xml(
             maven_surefire_version => tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
             test_documents_path => test_documents_path,
             include_native_lib_path => include_native_lib_path,
+            ffi_lib_name => ffi_lib_name,
         },
     )
 }
