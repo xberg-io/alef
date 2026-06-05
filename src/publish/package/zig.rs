@@ -55,7 +55,11 @@ pub fn package_zig(
     let shared_lib = target.shared_lib_name(&lib_name);
     let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)
         .with_context(|| format!("locating built FFI artifact `{shared_lib}` for Zig package"))?;
-    fs::copy(&shared_src, lib_dir.join(&shared_lib)).context("copying FFI .so into Zig package")?;
+    let shared_dst = lib_dir.join(&shared_lib);
+    fs::copy(&shared_src, &shared_dst).context("copying FFI .so into Zig package")?;
+
+    // Fix macOS dylib install_name from absolute build path to @rpath-relative.
+    super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
 
     // Copy C header — required so downstream consumers can @cInclude it.
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);

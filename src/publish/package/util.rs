@@ -1,8 +1,10 @@
 //! Shared utilities for the package sub-modules.
 
+use crate::publish::platform::{Os, RustTarget};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 /// Recursively copy a directory tree, skipping hidden dirs and common build artifacts.
 ///
@@ -43,6 +45,27 @@ pub fn copy_optional_file(workspace_root: &Path, filename: &str, dst: &Path) -> 
     let src = workspace_root.join(filename);
     if src.exists() {
         fs::copy(&src, dst.join(filename)).with_context(|| format!("copying {filename}"))?;
+    }
+    Ok(())
+}
+
+/// Rewrite a macOS dylib install name from the absolute CI build path to `@rpath/<name>`.
+///
+/// On non-macOS targets this is a no-op. Callers must invoke this immediately after copying
+/// the `.dylib` into its package staging directory so that consumers can locate the library
+/// via `@rpath` rather than the absolute runner path baked in during the cross-compile step.
+pub(super) fn fix_macos_dylib_id(target: &RustTarget, path: &Path, shared_lib: &str) -> Result<()> {
+    if target.os != Os::MacOs {
+        return Ok(());
+    }
+    let status = Command::new("install_name_tool")
+        .arg("-id")
+        .arg(format!("@rpath/{shared_lib}"))
+        .arg(path)
+        .status()
+        .with_context(|| format!("running install_name_tool for {}", path.display()))?;
+    if !status.success() {
+        anyhow::bail!("install_name_tool failed for {}", path.display());
     }
     Ok(())
 }

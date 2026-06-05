@@ -44,7 +44,11 @@ pub fn package_go_ffi(
     // Copy shared library.
     let shared_lib = target.shared_lib_name(&lib_name);
     let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)?;
-    fs::copy(&shared_src, lib_dir.join(&shared_lib))?;
+    let shared_dst = lib_dir.join(&shared_lib);
+    fs::copy(&shared_src, &shared_dst)?;
+
+    // Fix macOS dylib install_name from absolute build path to @rpath-relative.
+    super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
 
     // Copy static library (optional).
     let static_lib = target.static_lib_name(&lib_name);
