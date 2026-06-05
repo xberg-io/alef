@@ -187,7 +187,7 @@ fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddlewar
 /// The harness spawns the SUT app and registers handlers per fixture,
 /// returning canned expected responses. It's driven by conftest.py's
 /// subprocess launcher.
-pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
+pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], crate_config: &crate::core::config::ResolvedCrateConfig) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
@@ -252,6 +252,9 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     };
     let method_enum_import = route_builder_import.clone();
 
+    // Check if App.config is excluded from bindings
+    let skip_app_config = crate_config.exclude.methods.iter().any(|m| m == "App.config");
+
     let ctx = minijinja::context! {
         header => header,
         imports => imports,
@@ -268,6 +271,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         host => host,
         port => port,
         fixtures_json => fixtures_json,
+        skip_app_config => skip_app_config,
     };
 
     crate::e2e::template_env::render("python/app_harness.py.jinja", ctx)
@@ -730,6 +734,7 @@ mod tests {
     #[test]
     fn render_app_harness_emits_options_preflight_handler_for_cors_fixtures() {
         use crate::core::config::e2e::{E2eConfig, HarnessConfig};
+        use crate::core::config::resolved::ResolvedCrateConfig;
         use crate::e2e::fixture::{
             CorsConfig, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpMiddleware,
             HttpRequest,
@@ -799,8 +804,9 @@ mod tests {
             },
             ..E2eConfig::default()
         };
+        let crate_config = ResolvedCrateConfig::default();
 
-        let out = render_app_harness(&e2e_config, &groups);
+        let out = render_app_harness(&e2e_config, &groups, &crate_config);
 
         // The harness must emit an OPTIONS preflight handler for the CORS-enabled fixture
         assert!(
@@ -812,8 +818,92 @@ mod tests {
             "expected `options_builder` registration in generated app_harness.py:\n{out}"
         );
         assert!(
-            out.contains("Options"),
-            "expected `Options` method enum variant in generated app_harness.py:\n{out}"
+            out.contains("OPTIONS"),
+            "expected `OPTIONS` method enum variant in generated app_harness.py:\n{out}"
+        );
+    }
+
+    #[test]
+    fn render_app_harness_skips_app_config_when_excluded() {
+        use crate::core::config::e2e::{E2eConfig, HarnessConfig};
+        use crate::core::config::output::ExcludeConfig;
+        use crate::core::config::resolved::ResolvedCrateConfig;
+        use crate::e2e::fixture::{Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
+        use std::collections::BTreeMap;
+
+        let fixture = Fixture {
+            id: "simple_test".to_owned(),
+            description: "Simple test".to_owned(),
+            category: Some("smoke".to_owned()),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            args: vec![],
+            assertion_recipes: vec![],
+            assertions: vec![],
+            source: "test".to_owned(),
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/test".to_owned(),
+                    method: "GET".to_owned(),
+                    body_schema: None,
+                    parameters: BTreeMap::new(),
+                    middleware: None,
+                },
+                request: HttpRequest {
+                    method: "GET".to_owned(),
+                    path: "/test".to_owned(),
+                    headers: BTreeMap::new(),
+                    query_params: BTreeMap::new(),
+                    cookies: BTreeMap::new(),
+                    body: None,
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 200,
+                    body: None,
+                    body_partial: None,
+                    headers: BTreeMap::new(),
+                    validation_errors: None,
+                },
+            }),
+        };
+
+        let groups = vec![FixtureGroup {
+            category: "smoke".to_owned(),
+            fixtures: vec![fixture],
+        }];
+        let e2e_config = E2eConfig {
+            harness: HarnessConfig {
+                imports: vec!["my_pkg".to_owned()],
+                ..HarnessConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        // Create a config with App.config excluded
+        let mut crate_config = ResolvedCrateConfig::default();
+        crate_config.exclude.methods = vec!["App.config".to_owned()];
+
+        let out = render_app_harness(&e2e_config, &groups, &crate_config);
+
+        // When App.config is excluded, the harness should NOT emit the app.config() call
+        assert!(
+            !out.contains("app.config(_config)"),
+            "expected app.config(_config) to be skipped when App.config is excluded, but it was emitted:\n{out}"
+        );
+        // But it should still print the listening message and call run
+        assert!(
+            out.contains("Harness listening on"),
+            "expected listening message in harness:\n{out}"
+        );
+        assert!(
+            out.contains("app.run()"),
+            "expected app.run() call in harness:\n{out}"
         );
     }
 }

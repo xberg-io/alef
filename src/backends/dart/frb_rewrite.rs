@@ -435,45 +435,43 @@ fn rewrite_handler_calls_in_parameterized_functions(source: &str) -> String {
     while i < lines.len() {
         let line = lines[i];
 
-        // Check if this line starts a function/method definition that has `handler` as a parameter
-        let is_handler_parameterized = detect_handler_parameter(&lines, i);
+        // Check if this line starts a function/method definition
+        // Look for patterns: `... functionName(...)` or `... functionName(` with multi-line signature
+        let is_function_start = is_likely_function_start(line);
 
-        if is_handler_parameterized {
+        if is_function_start {
+            // Check if this function has `handler` as a parameter
+            let is_handler_parameterized = detect_handler_parameter(&lines, i);
+
             // Collect lines until we reach the closing brace of the function body
-            let func_start = i;
             let mut func_lines = vec![line];
             i += 1;
 
-            // Find the opening brace of the function body
-            let mut depth = line.chars().filter(|c| *c == '{').count() as i32
-                - line.chars().filter(|c| *c == '}').count() as i32;
+            // Find the opening brace of the function body and track nesting
+            let mut depth = count_brace_depth(line);
 
             while i < lines.len() && depth > 0 {
                 let curr_line = lines[i];
                 func_lines.push(curr_line);
-                depth += curr_line.chars().filter(|c| *c == '{').count() as i32;
-                depth -= curr_line.chars().filter(|c| *c == '}').count() as i32;
+                depth += count_brace_depth(curr_line);
                 i += 1;
             }
 
-            // Add the closing brace line if we found one
-            if i < lines.len() && depth == 0 && i > func_start {
-                // The loop already consumed it; no need to add again
-            }
-
-            // Rewrite handler.execute* calls within this function
+            // Rewrite if this function has handler parameter
             let func_text = func_lines.join("\n");
-            let rewritten = func_text
-                .replace("handler.executeSync(", "handler(")
-                .replace("handler.executeNormal(", "await handler(");
-
-            // Remove duplicate awaits
-            let rewritten = rewritten.replace("await await handler", "await handler");
+            let rewritten = if is_handler_parameterized {
+                let s = func_text
+                    .replace("handler.executeSync(", "handler(")
+                    .replace("handler.executeNormal(", "await handler(");
+                s.replace("await await handler", "await handler")
+            } else {
+                func_text
+            };
 
             result.push_str(&rewritten);
             result.push('\n');
         } else {
-            // Not a parameterized handler function; keep the line as-is
+            // Not a function start; just pass through
             result.push_str(line);
             result.push('\n');
             i += 1;
@@ -486,6 +484,44 @@ fn rewrite_handler_calls_in_parameterized_functions(source: &str) -> String {
     }
 
     result
+}
+
+/// Quick heuristic to detect if a line likely starts a function definition.
+/// Looks for patterns: `Type name(` or `async {...` or `@override`
+fn is_likely_function_start(line: &str) -> bool {
+    let trimmed = line.trim();
+
+    // Skip comments and empty lines
+    if trimmed.is_empty() || trimmed.starts_with("//") {
+        return false;
+    }
+
+    // @override always precedes function definitions
+    if trimmed.starts_with("@") {
+        return false; // The actual function is on the next line
+    }
+
+    // Function signatures typically have an opening paren
+    if !line.contains('(') {
+        return false;
+    }
+
+    // Exclude closing braces, field assignments, etc.
+    if trimmed.starts_with("}") || trimmed.starts_with("]") || trimmed.starts_with(")") {
+        return false;
+    }
+
+    // Check if line contains `{` or ends with the start of signature (maybe multi-line)
+    // This is a heuristic and might match non-function-starting lines, which is OK
+    // because we'll later filter by whether handler is a parameter
+    true
+}
+
+/// Count the net braces in a line (positive = more opens than closes)
+fn count_brace_depth(line: &str) -> i32 {
+    let opens = line.chars().filter(|c| *c == '{').count() as i32;
+    let closes = line.chars().filter(|c| *c == '}').count() as i32;
+    opens - closes
 }
 
 /// Check if the function/method at line `idx` has `handler` as a parameter.

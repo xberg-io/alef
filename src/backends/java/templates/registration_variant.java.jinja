@@ -26,7 +26,9 @@
             MemorySegment upcallStub = LINKER.upcallStub(boundMh, upcallDesc, arena);
 
             // Get variant registration downcall handle
-            MemorySegment varAddr = LOOKUP.find("{{ ffi_symbol }}").orElseThrow();
+            MemorySegment varAddr = LOOKUP.find("{{ ffi_symbol }}")
+                .or(() -> LOOKUP.find("_{{ ffi_symbol }}"))
+                .orElseThrow();
 
             FunctionDescriptor varDesc = FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,  // return: int

@@ -23,7 +23,7 @@ fixtures_json = {{ fixtures_json }}
 {:ok, fixtures} = Jason.decode(fixtures_json)
 
 # Alias binding module names for readability
-{-# the binding module name is derived from imports #}
+# The binding module name is derived from imports
 alias {{ route_builder_class }}
 alias {{ method_enum_class }}
 alias {{ server_config_class }}
@@ -89,7 +89,9 @@ config = %{{ server_config_class }}{
   port: {{ port }}
 }
 
+{%- if not skip_app_config %}
 app = {{ app_class }}.config(app, config)
+{%- endif %}
 
 IO.puts("Harness listening on {{ host }}:{{ port }}")
 

@@ -154,7 +154,7 @@ impl E2eCodegen for ElixirCodegen {
         if uses_harness {
             files.push(GeneratedFile {
                 path: output_base.join("app_harness.exs"),
-                content: render_app_harness(e2e_config, groups),
+                content: render_app_harness(e2e_config, groups, config),
                 generated_header: true,
             });
         }
@@ -212,7 +212,7 @@ impl E2eCodegen for ElixirCodegen {
     }
 }
 
-pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
+pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], config: &ResolvedCrateConfig) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
@@ -287,9 +287,15 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let method_enum_class = format!("{}Method", module_prefix);
     let server_config_class = format!("{}ServerConfig", module_prefix);
 
+    // Check if App.config is excluded from bindings. If excluded, the harness should not
+    // call it and instead rely on default ServerConfig construction.
+    let app_class_name = app_class.unwrap_or("App");
+    let config_method_key = format!("{}.config", app_class_name);
+    let skip_app_config = config.exclude.methods.iter().any(|m| m == &config_method_key);
+
     let ctx = minijinja::context! {
         header => header,
-        app_class => app_class.unwrap_or("App"),
+        app_class => app_class_name,
         route_builder_class => &route_builder_class,
         route_builder_schema_setter => body_schema_setter.unwrap_or("request_schema_json"),
         method_enum_class => &method_enum_class,
@@ -300,6 +306,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         port => port,
         binding_path => binding_path,
         fixtures_json => fixtures_json,
+        skip_app_config => skip_app_config,
     };
 
     crate::e2e::template_env::render("elixir/app_harness.exs.jinja", ctx)

@@ -356,6 +356,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
     let _ = writeln!(out, "import (");
     if needs_mock_server_bootstrap {
         let _ = writeln!(out, "\t\"bufio\"");
+        let _ = writeln!(out, "\t\"encoding/json\"");
     }
     let _ = writeln!(out, "\t\"os\"");
     // Only import os/exec if we need to spawn a process (mock-server or harness).
@@ -452,6 +453,24 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out);
         let _ = writeln!(out, "\tscanner := bufio.NewScanner(stdout)");
         let _ = writeln!(out, "\tscanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)");
+        let _ = writeln!(
+            out,
+            "\t// The mock-server emits two sentinel lines on stdout: MOCK_SERVER_URL=<url>"
+        );
+        let _ = writeln!(
+            out,
+            "\t// (always) and MOCK_SERVERS={{\"<fixture_id>\":\"<per-fixture-url>\",...}} (when"
+        );
+        let _ = writeln!(
+            out,
+            "\t// any fixture has origin-root routes that need a per-fixture listener). We"
+        );
+        let _ = writeln!(
+            out,
+            "\t// read until we have seen MOCK_SERVER_URL and either MOCK_SERVERS or a non"
+        );
+        let _ = writeln!(out, "\t// MOCK_SERVER line, then drain the rest in the background.");
+        let _ = writeln!(out, "\thaveURL := false");
         let _ = writeln!(out, "\tfor scanner.Scan() {{");
         let _ = writeln!(out, "\t\tline := scanner.Text()");
         let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
@@ -459,6 +478,30 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
             out,
             "\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
         );
+        let _ = writeln!(out, "\t\t\thaveURL = true");
+        let _ = writeln!(out, "\t\t\tcontinue");
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
+        let _ = writeln!(
+            out,
+            "\t\t\tpayload := strings.TrimPrefix(line, \"MOCK_SERVERS=\")"
+        );
+        let _ = writeln!(out, "\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", payload)");
+        let _ = writeln!(out, "\t\t\tvar servers map[string]string");
+        let _ = writeln!(
+            out,
+            "\t\t\tif err := json.Unmarshal([]byte(payload), &servers); err == nil {{"
+        );
+        let _ = writeln!(out, "\t\t\t\tfor fid, furl := range servers {{");
+        let _ = writeln!(
+            out,
+            "\t\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_\"+strings.ToUpper(fid), furl)"
+        );
+        let _ = writeln!(out, "\t\t\t\t}}");
+        let _ = writeln!(out, "\t\t\t}}");
+        let _ = writeln!(out, "\t\t\tbreak");
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t\tif haveURL {{");
         let _ = writeln!(out, "\t\t\tbreak");
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t}}");

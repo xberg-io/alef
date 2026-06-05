@@ -121,6 +121,19 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
     out.push_str("    private static final Linker LINKER = Linker.nativeLinker();\n");
     out.push_str("    private static final SymbolLookup LOOKUP = SymbolLookup.loaderLookup();\n\n");
 
+    // Static initializer: ensure native library is loaded before symbol lookup
+    out.push_str("    static {\n");
+    out.push_str("        // Force NativeLib static initialization to load the native library\n");
+    out.push_str("        // This ensures all FFI symbols are available before we try to look them up.\n");
+    out.push_str("        // NativeLib is a package-private class, but accessing its class forces\n");
+    out.push_str("        // its static initializer to run and load the native library.\n");
+    out.push_str("        try {\n");
+    out.push_str(&format!("            Class.forName(\"{}.NativeLib\");\n", package));
+    out.push_str("        } catch (ClassNotFoundException ignored) {\n");
+    out.push_str("            // NativeLib not available; native library may be pre-loaded\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
     // Constructor: invoke {prefix}_{service}_new() downcall
     {
         out.push_str("    /**\n");
@@ -134,9 +147,14 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
         out.push_str("        try {\n");
         out.push_str(&format!(
-            "            MemorySegment addr = LOOKUP.find(\"{}_{}_new\").orElseThrow();\n",
+            "            MemorySegment addr = LOOKUP.find(\"{}_{}_new\")\n",
             ffi_prefix, service_snake
         ));
+        out.push_str(&format!(
+            "                .or(() -> LOOKUP.find(\"_{}_{}_new\"))\n",
+            ffi_prefix, service_snake
+        ));
+        out.push_str("                .orElseThrow();\n");
         out.push_str("            FunctionDescriptor desc = FunctionDescriptor.of(ValueLayout.ADDRESS);\n");
         out.push_str("            MethodHandle handle = LINKER.downcallHandle(addr, desc);\n");
         out.push_str("            this.ownerHandle = (MemorySegment) handle.invoke();\n");
@@ -215,9 +233,14 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
         out.push_str("            // Get register downcall handle\n");
         out.push_str(&format!(
-            "            MemorySegment regAddr = LOOKUP.find(\"{}_{}_register_{}\").orElseThrow();\n",
+            "            MemorySegment regAddr = LOOKUP.find(\"{}_{}_register_{}\")\n",
             ffi_prefix, service_snake, reg_method_snake
         ));
+        out.push_str(&format!(
+            "                .or(() -> LOOKUP.find(\"_{}_{}_register_{}\"))\n",
+            ffi_prefix, service_snake, reg_method_snake
+        ));
+        out.push_str("                .orElseThrow();\n");
 
         // Build function descriptor for register call
         out.push_str("            FunctionDescriptor regDesc = FunctionDescriptor.of(\n");
@@ -347,9 +370,14 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         out.push_str("        try {\n");
 
         out.push_str(&format!(
-            "            MemorySegment epAddr = LOOKUP.find(\"{}_{}_ep_{}\").orElseThrow();\n",
+            "            MemorySegment epAddr = LOOKUP.find(\"{}_{}_ep_{}\")\n",
             ffi_prefix, service_snake, ep_method_snake
         ));
+        out.push_str(&format!(
+            "                .or(() -> LOOKUP.find(\"_{}_{}_ep_{}\"))\n",
+            ffi_prefix, service_snake, ep_method_snake
+        ));
+        out.push_str("                .orElseThrow();\n");
 
         // Build FunctionDescriptor for entrypoint
         out.push_str("            FunctionDescriptor epDesc = FunctionDescriptor.of(\n");
@@ -431,9 +459,14 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
     out.push_str("    public void close() {\n");
     out.push_str("        try {\n");
     out.push_str(&format!(
-        "            MemorySegment freeAddr = LOOKUP.find(\"{}_{}_free\").orElseThrow();\n",
+        "            MemorySegment freeAddr = LOOKUP.find(\"{}_{}_free\")\n",
         ffi_prefix, service_snake
     ));
+    out.push_str(&format!(
+        "                .or(() -> LOOKUP.find(\"_{}_{}_free\"))\n",
+        ffi_prefix, service_snake
+    ));
+    out.push_str("                .orElseThrow();\n");
     out.push_str("            FunctionDescriptor freeDesc = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);\n");
     out.push_str("            MethodHandle freeHandle = LINKER.downcallHandle(freeAddr, freeDesc);\n");
     out.push_str("            if (ownerHandle != null) {\n");

@@ -128,10 +128,11 @@ func main() {
 		}
 
 		// Register the route with the handler.
+		// Note: The builder is consumed by RegisterRoute (ownership transferred to Rust).
+		// Do NOT call builder.Free() — the Rust FFI layer already owns and frees it.
 		if err := app.{{ register_route_method }}(handler, builder); err != nil {
 			log.Fatalf("register route %s: %v", fullRoute, err)
 		}
-		builder.Free()
 	}
 
 	// Spawn the server in a goroutine and poll for port readiness.
