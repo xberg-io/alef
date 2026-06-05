@@ -825,9 +825,9 @@ fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_pref
     out.push_str(
         "\t// Spawn Run in a goroutine. The C entrypoint will block there,\n\
          \t// and we exit this function once the socket is bound.\n\
-         \tgo func() {{\n\
-         \t\t_ = s.Run(host, port)\n\
-         \t}}()\n\n\
+         \tgo func() {\n\
+         \t\t_ = s.Run()\n\
+         \t}()\n\n\
          \t// Return immediately with a handle for shutdown.\n\
          \treturn &ServerHandle{service: s}, nil\n\
          }\n\n",
