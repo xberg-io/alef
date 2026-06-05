@@ -230,7 +230,7 @@ fn extendr_field_line(field: &FieldDef, shape: FieldShape) -> String {
     let name = &field.name;
     match shape {
         FieldShape::String => {
-            format!(r#"    pairs.push(("{host_name}", extendr_api::Robj::from(ctx.{name}.as_str())));"#)
+            format!(r#"    pairs.push(("{host_name}", extendr_api::Robj::from(AsRef::<str>::as_ref(&ctx.{name}))));"#)
         }
         FieldShape::OptionalString => format!(
             r#"    pairs.push(("{host_name}", match ctx.{name}.as_deref() {{

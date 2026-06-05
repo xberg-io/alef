@@ -1193,9 +1193,15 @@ pub fn gen_from_lifetime_type_constructor(
                     }
                 }
                 TypeRef::Primitive(p) => {
-                    // When cast_large_ints_to_i64 is active (NAPI/PHP), the binding field
-                    // stores the value as i64. Cast back to the core type (e.g. usize).
-                    if config.cast_large_ints_to_i64 && super::helpers::needs_i64_cast(p) {
+                    // When the binding stores the value as a remapped primitive (i64 in
+                    // NAPI/PHP, f64 in extendr/R, i32 in extendr for u32), cast back to the
+                    // core type (e.g. usize) when constructing the core value. Without the
+                    // cast, the From impl emits e.g. `val.depth` of type `f64` into a `usize`
+                    // parameter, producing an E0308 type mismatch.
+                    let needs_cast = (config.cast_large_ints_to_i64 && super::helpers::needs_i64_cast(p))
+                        || (config.cast_large_ints_to_f64 && super::helpers::needs_f64_cast(p))
+                        || (config.cast_uints_to_i32 && super::helpers::needs_i32_cast(p));
+                    if needs_cast {
                         let core_ty = super::helpers::core_prim_str(p);
                         format!("val.{binding_field} as {core_ty}")
                     } else {

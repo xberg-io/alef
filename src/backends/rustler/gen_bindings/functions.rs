@@ -4,7 +4,7 @@ use crate::backends::rustler::type_map::RustlerMapper;
 use crate::codegen::doc_emission;
 use crate::codegen::shared;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 
 /// Resolve the fully-qualified core path for a named type.
@@ -150,8 +150,19 @@ pub(super) fn gen_rustler_method_call_args(
             TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
                 format!("{}.as_deref()", p.name)
             }
+            // Optional<String> where core expects Option<Cow<'_, str>>: wrap owned values
+            // via Cow::Owned. Without this the binding's Option<String> doesn't satisfy
+            // the core's Option<Cow<'_, str>> parameter signature.
+            TypeRef::String | TypeRef::Char if p.optional && p.core_wrapper == CoreWrapper::Cow => {
+                format!("{}.map(std::borrow::Cow::Owned)", p.name)
+            }
             TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
             TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+            // String where core expects Cow<'_, str>: String implements Into<Cow<str>>,
+            // so `.into()` performs the coercion.
+            TypeRef::String | TypeRef::Char if p.core_wrapper == CoreWrapper::Cow => {
+                format!("{}.into()", p.name)
+            }
             TypeRef::String | TypeRef::Char => p.name.clone(),
             TypeRef::Path => {
                 if p.is_ref {
@@ -190,6 +201,19 @@ pub(super) fn gen_rustler_method_call_args(
                     format!("&{}", p.name)
                 } else {
                     p.name.to_string()
+                }
+            }
+            // Map: when the core fn expects BTreeMap but the binding receives a
+            // HashMap (Rustler decodes BEAM maps as HashMap), collect into a BTreeMap.
+            TypeRef::Map(_, _) if p.map_is_btree => {
+                if p.is_ref {
+                    // Pre-bound let binding emitted by the caller body would be needed for
+                    // borrows; we emit the inline collect for the owned case below. For the
+                    // method-receiver path, refs to maps are rare and not used by the
+                    // h2m NodeContext API; fall through to owned-collect.
+                    format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
+                } else {
+                    format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
                 }
             }
             _ => p.name.clone(),
@@ -341,6 +365,12 @@ pub(super) fn gen_nif_function(
                         // Option<String> where core expects Option<&str>
                         format!("{}.as_deref()", p.name)
                     }
+                    // Option<String> where core expects Option<Cow<'_, str>>: wrap each owned
+                    // String via Cow::Owned. Without this conversion, the binding's
+                    // Option<String> doesn't satisfy the core's Option<Cow<'_, str>>.
+                    TypeRef::String | TypeRef::Char if p.optional && p.core_wrapper == CoreWrapper::Cow => {
+                        format!("{}.map(std::borrow::Cow::Owned)", p.name)
+                    }
                     TypeRef::String | TypeRef::Char if p.optional => {
                         // Option<String> where core expects Option<String>
                         p.name.to_string()
@@ -348,6 +378,11 @@ pub(super) fn gen_nif_function(
                     TypeRef::String | TypeRef::Char if p.is_ref => {
                         // String where core expects &str
                         format!("&{}", p.name)
+                    }
+                    // String where core expects Cow<'_, str>: String implements
+                    // Into<Cow<'_, str>>, so `.into()` performs the coercion at the call site.
+                    TypeRef::String | TypeRef::Char if p.core_wrapper == CoreWrapper::Cow => {
+                        format!("{}.into()", p.name)
                     }
                     TypeRef::String | TypeRef::Char => {
                         // String where core expects String
@@ -392,6 +427,11 @@ pub(super) fn gen_nif_function(
                         } else {
                             p.name.to_string()
                         }
+                    }
+                    // Map: when the core fn expects BTreeMap but the binding receives
+                    // HashMap (Rustler decodes BEAM maps as HashMap), collect into a BTreeMap.
+                    TypeRef::Map(_, _) if p.map_is_btree => {
+                        format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
                     }
                     _ => p.name.clone(),
                 }
