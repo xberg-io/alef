@@ -216,6 +216,38 @@ impl E2eCodegen for RubyCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
+fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddleware>) -> serde_json::Value {
+    let Some(mw) = middleware else {
+        return serde_json::Value::Null;
+    };
+
+    let mut map = serde_json::Map::new();
+
+    // --- cors ---
+    if let Some(cors) = &mw.cors {
+        let mut cors_map = serde_json::Map::new();
+        cors_map.insert("allowed_origins".to_string(), serde_json::json!(cors.allow_origins));
+        cors_map.insert("allowed_methods".to_string(), serde_json::json!(cors.allow_methods));
+        cors_map.insert("allowed_headers".to_string(), serde_json::json!(cors.allow_headers));
+        if !cors.expose_headers.is_empty() {
+            cors_map.insert("expose_headers".to_string(), serde_json::json!(cors.expose_headers));
+        }
+        if let Some(max_age) = cors.max_age {
+            cors_map.insert("max_age".to_string(), serde_json::json!(max_age));
+        }
+        if cors.allow_credentials {
+            cors_map.insert("allow_credentials".to_string(), serde_json::json!(true));
+        }
+        map.insert("cors".to_string(), serde_json::Value::Object(cors_map));
+    }
+
+    if map.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::Object(map)
+    }
+}
+
 fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
@@ -227,12 +259,14 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
             }
             // Convert the fixture to JSON for the harness to load.
             let http_data = &fixture.http.as_ref().unwrap();
+            let middleware_value = build_middleware_value(&http_data.handler.middleware);
             let fixture_json = serde_json::json!({
                 "http": {
                     "handler": {
                         "route": &http_data.handler.route,
                         "method": &http_data.handler.method,
                         "body_schema": http_data.handler.body_schema.clone(),
+                        "middleware": middleware_value,
                     },
                     "request": {
                         "path": &http_data.request.path,
