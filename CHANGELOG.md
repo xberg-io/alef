@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-elixir -->
+- **e2e/elixir — harness uses bare `%Module{}` struct syntax that fails when the module is not yet compiled, producing `CompileError: ServerConfig.__struct__/1 is undefined`**: standalone e2e scripts (run as elixir scripts, not via mix) may not have all dependent modules loaded at compile time. Fixed by replacing `%{{ server_config_class }}{...}` with `struct({{ server_config_class }}, %{...})`, which defers module resolution to runtime when the handler function is invoked. (`src/e2e/templates/elixir/app_harness.exs.jinja`)
+
 <!-- N+12-ruby -->
 - **magnus/Ruby — main gem entrypoint emits `require_relative` for the service wrapper outside the module block, making the wrapper's classes unreachable as module constants**: the require now appears inside the module block, so classes defined in the service wrapper (e.g. `App`) are properly scoped and accessible as module members. (`src/backends/magnus/templates/main_rb_wrapper.rb.jinja`, `src/backends/magnus/gen_bindings/mod.rs`)
 

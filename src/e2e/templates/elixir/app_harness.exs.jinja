@@ -93,10 +93,10 @@ end)
 
 {% if not skip_app_config %}
 # Configure and start the server
-config = %{{ server_config_class }}{
+config = struct({{ server_config_class }}, %{
   host: "{{ host }}",
   port: {{ port }}
-}
+})
 
 app = {{ app_class }}.config(app, config)
 {%- endif %}
