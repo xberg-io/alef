@@ -1236,12 +1236,18 @@ impl Backend for PhpBackend {
             // Build call args by iterating visible_params in original IR order.
             let call_params = visible_params
                 .iter()
-                .map(|p| {
-                    // Only apply the `?? new Type()` coercion for params that are
-                    // explicitly optional (p.optional) or default-constructible.
-                    // Params that are required in the Rust API are passed as-is.
+                .enumerate()
+                .map(|(idx, p)| {
+                    // Only apply the `?? new Type()` coercion for params that the
+                    // wrapper actually emits as nullable with `= null` — i.e. params
+                    // marked optional that also sit in a tail-optional position. A
+                    // param that became required to satisfy PHP 8.1's "required before
+                    // optional" rule (`tail_optional[idx] == false`) is non-nullable
+                    // at the wrapper signature, so `$p ?? new T()` would be a useless
+                    // null-coalesce (`nullCoalesce.variable` in phpstan).
                     if (p.optional || is_optional_default_constructible_param(p))
                         && is_optional_default_constructible_param(p)
+                        && tail_optional[idx]
                     {
                         if let TypeRef::Named(type_name) = &p.ty {
                             return format!("${} ?? new {}()", p.name, type_name);
