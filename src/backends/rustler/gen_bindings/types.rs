@@ -643,6 +643,18 @@ pub(super) fn gen_rustler_wrap_return(
             }
             _ => expr.to_string(),
         },
+        // Map: when core returns &BTreeMap (returns_ref=true) or Cow<BTreeMap>
+        // (returns_cow), the Rustler binding map type (HashMap<String, String>) differs
+        // from the core's container. Collect via iter and clone each entry to coerce
+        // the key/value types into the binding's target. This also handles Cow-keyed
+        // maps that ferment into owned String entries.
+        TypeRef::Map(_, _) => {
+            if returns_ref {
+                format!("{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect()")
+            } else {
+                expr.to_string()
+            }
+        }
         // Optional<T>: when the core returns a reference (&str, &T) wrapped in Option,
         // we must convert each value with `.map(...)`. Without this, Option<&str> is
         // returned where the wrapper signature expects Option<String>.

@@ -27,7 +27,7 @@
             // Marshals C pointers <-> Java strings via Arena
             MethodHandle adapter = lookup.findStatic(this.getClass(), "invokeHandlerWithMarshal",
                 MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)
-            ).bindTo(handler, arena);
+            ).bindTo(handler).bindTo(arena);
 
             MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);
 

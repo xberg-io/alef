@@ -143,9 +143,9 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         out.push_str("            MemorySegment requestPtr,\n");
         out.push_str("            Callable handler,\n");
         out.push_str("            Arena arena) throws Throwable {\n");
-        out.push_str("        String requestStr = requestPtr.getUtf8String(0);\n");
+        out.push_str("        String requestStr = requestPtr.getString(0);\n");
         out.push_str("        String responseStr = handler.handle(requestStr);\n");
-        out.push_str("        return arena.allocateUtf8String(responseStr);\n");
+        out.push_str("        return arena.allocateFrom(responseStr);\n");
         out.push_str("    }\n\n");
     }
 
@@ -238,13 +238,15 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         out.push_str("                ValueLayout.ADDRESS   // param 1: *const c_char (request JSON)\n");
         out.push_str("            );\n\n");
 
-        out.push_str("            // Create adapter: (context_ptr: ADDRESS, request_ptr: ADDRESS) -> response_ptr: ADDRESS\n");
+        out.push_str(
+            "            // Create adapter: (context_ptr: ADDRESS, request_ptr: ADDRESS) -> response_ptr: ADDRESS\n",
+        );
         out.push_str("            // Marshals C pointers <-> Java strings via Arena\n");
         out.push_str("            MethodHandle adapter = lookup.findStatic(");
         out.push_str(&format!("{}.class, ", class_name));
         out.push_str("\"invokeHandlerWithMarshal\",\n");
         out.push_str("                MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)\n");
-        out.push_str("            ).bindTo(handler, arena);\n\n");
+        out.push_str("            ).bindTo(handler).bindTo(arena);\n\n");
 
         out.push_str("            MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);\n\n");
 

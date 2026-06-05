@@ -242,6 +242,24 @@ impl Backend for ExtendrBackend {
                     .any(|p| references_enum(&p.ty) || param_is_owned_struct(&p.ty))
         };
 
+        // Helper: returns true if a TypeRef is (or contains) a Map type.
+        // Extendr cannot marshal HashMap/BTreeMap directly (`HashMap<K, V>: ToVectorValue`
+        // is not implemented). Methods returning or accepting Map types are excluded from
+        // the impl block; callers access map data via the struct serialisation path
+        // (R named list) instead.
+        let references_map = |ty: &crate::core::ir::TypeRef| -> bool {
+            match ty {
+                crate::core::ir::TypeRef::Map(_, _) => true,
+                crate::core::ir::TypeRef::Optional(inner) => {
+                    matches!(inner.as_ref(), crate::core::ir::TypeRef::Map(_, _))
+                }
+                _ => false,
+            }
+        };
+        let method_references_map = |m: &crate::core::ir::MethodDef| -> bool {
+            references_map(&m.return_type) || m.params.iter().any(|p| references_map(&p.ty))
+        };
+
         // Helper: returns true if a TypeRef requires a type that extendr cannot automatically
         // convert from/to Robj.
         //
@@ -355,16 +373,19 @@ impl Backend for ExtendrBackend {
                 //   • methods referencing arc-incompatible types (e.g. visitor() with VisitorHandle)
                 //   • methods taking/returning enum types (ToVectorValue not implemented for enums)
                 //   • methods taking non-opaque structs by value (TryFrom<&Robj> for owned T missing)
-                let has_excluded_opaque_methods = typ
-                    .methods
-                    .iter()
-                    .any(|m| method_references_arc_incompatible(m) || method_references_enum(m));
+                let has_excluded_opaque_methods = typ.methods.iter().any(|m| {
+                    method_references_arc_incompatible(m) || method_references_enum(m) || method_references_map(m)
+                });
                 let opaque_impl_typ: std::borrow::Cow<crate::core::ir::TypeDef> = if has_excluded_opaque_methods {
                     let filtered = crate::core::ir::TypeDef {
                         methods: typ
                             .methods
                             .iter()
-                            .filter(|m| !method_references_arc_incompatible(m) && !method_references_enum(m))
+                            .filter(|m| {
+                                !method_references_arc_incompatible(m)
+                                    && !method_references_enum(m)
+                                    && !method_references_map(m)
+                            })
                             .cloned()
                             .collect(),
                         ..typ.clone()
@@ -397,10 +418,9 @@ impl Backend for ExtendrBackend {
                 // automatically implement ToVectorValue so they cannot be used as extendr
                 // method params/return types in non-opaque impl blocks.
                 let has_excluded_fields = typ.fields.iter().any(|f| references_arc_incompatible(&f.ty));
-                let has_excluded_methods = typ
-                    .methods
-                    .iter()
-                    .any(|m| method_references_arc_incompatible(m) || method_references_enum(m));
+                let has_excluded_methods = typ.methods.iter().any(|m| {
+                    method_references_arc_incompatible(m) || method_references_enum(m) || method_references_map(m)
+                });
                 let struct_typ: std::borrow::Cow<crate::core::ir::TypeDef> =
                     if has_excluded_fields || has_excluded_methods {
                         let filtered = crate::core::ir::TypeDef {
@@ -413,7 +433,11 @@ impl Backend for ExtendrBackend {
                             methods: typ
                                 .methods
                                 .iter()
-                                .filter(|m| !method_references_arc_incompatible(m) && !method_references_enum(m))
+                                .filter(|m| {
+                                    !method_references_arc_incompatible(m)
+                                        && !method_references_enum(m)
+                                        && !method_references_map(m)
+                                })
                                 .cloned()
                                 .collect(),
                             ..typ.clone()
@@ -2509,6 +2533,20 @@ fn method_is_excluded_from_impl(
             .iter()
             .any(|p| references_enum(&p.ty) || param_is_owned_struct(&p.ty))
     {
+        return true;
+    }
+    // Map return/param types: extendr cannot marshal HashMap/BTreeMap directly
+    // (`HashMap<K, V>: ToVectorValue` is not implemented). Exclude any method
+    // whose surface uses Map types; callers must access map fields via the struct
+    // serialisation path (R named list) instead of through a method getter.
+    let references_map = |ty: &TypeRef| -> bool {
+        match ty {
+            TypeRef::Map(_, _) => true,
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Map(_, _)),
+            _ => false,
+        }
+    };
+    if references_map(&method.return_type) || method.params.iter().any(|p| references_map(&p.ty)) {
         return true;
     }
     if method.sanitized {
