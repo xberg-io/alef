@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.14] - 2026-06-05
+
 ### Fixed
+
+<!-- N+12-r3-dart-frb -->
+- **dart — FRB 2.x rewrite leaves orphaned closing parens after `.executeSync()` / `.executeNormal()` on multiline `SyncTask` / `AsyncTask` constructors**: pattern `SyncTask(...),\n).executeSync();` left a dangling `)` after the method call, producing `SyncTask(...).executeSync());` which fails Dart parse. Extended the `frb_rewrite` regex to match `,\s*).execute(Sync|Normal)()` and replace with `).execute(Sync|Normal)()`, removing the orphaned paren. Unit tests cover both sync and async multiline variants. (`src/backends/dart/frb_rewrite.rs`)
 
 <!-- swift-clippy-195-into-iter-on-ref -->
 - **swift — generated `pub fn` shims for core functions returning `&[String]` or `&[PathBuf]` emit `.into_iter()` on the slice, tripping clippy 1.95's `into_iter_on_ref` under `-D warnings`**: in `shims.rs`, both the `Result.map(|v| ...)` value-map branch and the direct-wrap branch for `Vec<String>` / `Vec<Path>` returns unconditionally used `.into_iter()`, even when the core fn returns a slice reference. Both branches now pick `.iter()` when `f.returns_ref` is true, so e.g. kreuzberg's `text::ner::known_models()` (returns `&'static [&'static str]`) marshals via `kreuzberg::known_models().iter().map(|s| s.to_string()).collect::<Vec<_>>()` rather than the lint-tripping `.into_iter()` form. Vec<Named> with `returns_ref` was already handled correctly. (`src/backends/swift/gen_rust_crate/shims.rs`)
