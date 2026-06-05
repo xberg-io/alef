@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- java-visit-result-identifiers -->
+- **java — generated `VisitResult` sealed interface emits invalid identifiers and reserved keywords**: tuple-variant enum payloads (e.g. `Custom(String)`) were rendered as `record Custom(String 0)` because the Rust IR represents unnamed tuple fields with positional names (`0`, `_0`, `1`, ...) and the Java visitor codegen routed those names through `to_java_name` unchanged. Likewise the static factory for the `Continue` variant emitted `static VisitResult continue()`, which is a reserved Java keyword. Generated files failed `javac` with `not a statement` and `<identifier> expected` errors. Fixed by routing tuple-field names through a new `java_payload_field_name` helper that substitutes the synthetic `value` identifier when the field name is a positional index (matching the established Go backend pattern from v0.22.28), and by escaping factory method names that collide with `JAVA_KEYWORDS` with a trailing underscore (`continue_`). (`src/backends/java/gen_visitor/files.rs`)
+
+## [0.23.8] - 2026-06-05
+
+### Fixed
+
 <!-- pyo3-overload-templates -->
 - **pyo3 — runtime panic on template lookup for converters/overload_*.jinja**: templates for `@overload` decorators on `_to_rust_*_config` helpers were defined in the template directory but not embedded in the alef binary via `include_str!()` or registered in the `TEMPLATES` array in `template_env.rs`. At runtime, the pyo3 backend's code generation would panic with "template converters/overload_none.jinja not found". Fixed by adding both templates to the TEMPLATES array with their respective `include_str!()` embeds. (`src/backends/pyo3/template_env.rs`)
 

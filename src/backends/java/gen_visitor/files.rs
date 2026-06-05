@@ -401,7 +401,7 @@ fn result_variants_from_enum(enum_def: &EnumDef) -> Vec<ResultVariant> {
             if variant.fields.is_empty() && !variant.originally_had_data_fields {
                 Some(ResultVariant {
                     name: variant.name.clone(),
-                    factory_name: to_java_name(&variant.name),
+                    factory_name: java_factory_name(&variant.name),
                     code_name: to_class_name(&variant.name).to_uppercase(),
                     code,
                     payload_field: None,
@@ -409,16 +409,44 @@ fn result_variants_from_enum(enum_def: &EnumDef) -> Vec<ResultVariant> {
             } else if variant.fields.len() == 1 && matches!(variant.fields[0].ty, TypeRef::String) {
                 Some(ResultVariant {
                     name: variant.name.clone(),
-                    factory_name: to_java_name(&variant.name),
+                    factory_name: java_factory_name(&variant.name),
                     code_name: to_class_name(&variant.name).to_uppercase(),
                     code,
-                    payload_field: Some(to_java_name(&variant.fields[0].name)),
+                    payload_field: Some(java_payload_field_name(&variant.fields[0].name)),
                 })
             } else {
                 None
             }
         })
         .collect()
+}
+
+/// Compute the Java factory method name for a `VisitResult` variant.
+///
+/// The variant's snake_case Java name (`continue`) may collide with a Java reserved
+/// keyword; escape such names with a trailing underscore so the generated `static`
+/// factory compiles (`continue_` instead of `continue`). Non-keyword names pass
+/// through `to_java_name` unchanged.
+fn java_factory_name(variant_name: &str) -> String {
+    let name = to_java_name(variant_name);
+    if crate::core::keywords::JAVA_KEYWORDS.contains(&name.as_str()) {
+        format!("{name}_")
+    } else {
+        name
+    }
+}
+
+/// Compute the Java field identifier for a tuple variant payload.
+///
+/// Unnamed tuple fields in Rust IR carry positional names (`0`, `_0`, `1`, ...).
+/// These are not legal Java identifiers, so substitute the synthetic name `value`.
+/// Named struct-variant fields pass through `to_java_name` unchanged.
+fn java_payload_field_name(field_name: &str) -> String {
+    let trimmed = field_name.trim_start_matches('_');
+    if !trimmed.is_empty() && trimmed.parse::<usize>().is_ok() {
+        return "value".to_string();
+    }
+    to_java_name(field_name)
 }
 
 #[cfg(test)]
@@ -748,5 +776,28 @@ pub(super) mod tests {
             map_is_btree: false,
             core_wrapper: crate::core::ir::CoreWrapper::None,
         }
+    }
+
+    #[test]
+    fn java_factory_name_escapes_reserved_keywords() {
+        assert_eq!(java_factory_name("Continue"), "continue_");
+        assert_eq!(java_factory_name("Default"), "default_");
+        assert_eq!(java_factory_name("Final"), "final_");
+        // Non-keyword names pass through unchanged.
+        assert_eq!(java_factory_name("Skip"), "skip");
+        assert_eq!(java_factory_name("PreserveHtml"), "preserveHtml");
+        assert_eq!(java_factory_name("Custom"), "custom");
+    }
+
+    #[test]
+    fn java_payload_field_name_replaces_tuple_indices() {
+        // Unnamed tuple fields ("0", "_0", "1") become the synthetic name "value".
+        assert_eq!(java_payload_field_name("0"), "value");
+        assert_eq!(java_payload_field_name("_0"), "value");
+        assert_eq!(java_payload_field_name("1"), "value");
+        assert_eq!(java_payload_field_name("_42"), "value");
+        // Named struct-variant fields pass through `to_java_name`.
+        assert_eq!(java_payload_field_name("value"), "value");
+        assert_eq!(java_payload_field_name("payload_text"), "payloadText");
     }
 }
