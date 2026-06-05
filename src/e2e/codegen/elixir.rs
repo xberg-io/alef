@@ -281,7 +281,7 @@ pub(super) fn render_app_harness(
         "."
     };
 
-    // Build module paths for RouteBuilder and Method using the binding name from imports[0]
+    // Build module paths for RouteBuilder, Method, and App using the binding name from imports[0]
     let module_prefix = if !imports.is_empty() {
         format!("{}.", elixir_module_name(&imports[0]))
     } else {
@@ -290,10 +290,11 @@ pub(super) fn render_app_harness(
     let route_builder_class = format!("{}RouteBuilder", module_prefix);
     let method_enum_class = format!("{}Method", module_prefix);
     let server_config_class = format!("{}ServerConfig", module_prefix);
+    let unqualified_app_class = app_class.unwrap_or("App");
+    let app_class_name = format!("{}{}", module_prefix, unqualified_app_class);
 
     // Check if App.config is excluded from bindings. If excluded, the harness should not
     // call it and instead rely on default ServerConfig construction.
-    let app_class_name = app_class.unwrap_or("App");
     let config_method_key = format!("{}.config", app_class_name);
     let skip_app_config = config.exclude.methods.iter().any(|m| m == &config_method_key);
 

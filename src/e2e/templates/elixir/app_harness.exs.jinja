@@ -32,9 +32,9 @@ fixtures_json = {{ fixtures_json }}
 alias {{ app_class }}
 alias {{ route_builder_class }}
 alias {{ method_enum_class }}
-{%- if not skip_app_config %}
+{% if not skip_app_config -%}
 alias {{ server_config_class }}
-{%- endif %}
+{% endif %}
 
 # Create and configure the app
 app = {{ app_class }}.new()
