@@ -1,5 +1,5 @@
     var _out_error: [*c]u8 = null;
-    const _rc = {{ c_register }}(name, &vtable, user_data, @ptrCast(&_out_error));
+    const _rc = {{ c_register }}(name, vtable, user_data, @ptrCast(&_out_error));
     if (out_error) |ptr| {
         ptr.* = _out_error;
     }

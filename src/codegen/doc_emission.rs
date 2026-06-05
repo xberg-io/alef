@@ -1017,15 +1017,18 @@ pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -
             if !out.is_empty() {
                 out.push('\n');
             }
+            // Java checkstyle requires @param names to match the Java camelCase parameter name,
+            // but Rust rustdoc args use snake_case — convert here.
+            let java_name = heck::ToLowerCamelCase::to_lower_camel_case(name.as_str());
             if desc.is_empty() {
                 out.push_str(&crate::codegen::template_env::render(
                     "doc_javadoc_param.jinja",
-                    minijinja::context! { name => &name },
+                    minijinja::context! { name => &java_name },
                 ));
             } else {
                 out.push_str(&crate::codegen::template_env::render(
                     "doc_javadoc_param_desc.jinja",
-                    minijinja::context! { name => &name, desc => &desc },
+                    minijinja::context! { name => &java_name, desc => &desc },
                 ));
             }
         }

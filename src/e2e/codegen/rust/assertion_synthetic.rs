@@ -223,7 +223,7 @@ pub(super) fn render_first_chunk_starts_with_heading(out: &mut String, result_va
 }
 
 pub(super) fn render_keywords_assertion(out: &mut String, result_var: &str, assertion: &Assertion) {
-    let accessor = format!("{result_var}.result_keywords");
+    let accessor = format!("{result_var}.extracted_keywords");
     match assertion.assertion_type.as_str() {
         "not_empty" => {
             let _ = writeln!(
@@ -274,7 +274,7 @@ pub(super) fn render_keywords_assertion(out: &mut String, result_var: &str, asse
 }
 
 pub(super) fn render_keywords_count_assertion(out: &mut String, result_var: &str, assertion: &Assertion) {
-    let expr = format!("{result_var}.result_keywords.as_ref().map_or(0, |v| v.len())");
+    let expr = format!("{result_var}.extracted_keywords.as_ref().map_or(0, |v| v.len())");
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(val) = &assertion.value {

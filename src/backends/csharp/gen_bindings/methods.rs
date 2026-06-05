@@ -614,8 +614,10 @@ fn gen_wrapper_function(
     out.push_str(")\n    {\n");
 
     // Null checks for required string/object parameters.
+    // Enums are value types in C# — ThrowIfNull on them triggers CA2264.
     for param in &visible_params {
-        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+        let is_enum = matches!(&param.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+        if !param.optional && !is_enum && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }
@@ -1247,8 +1249,10 @@ fn gen_wrapper_method(
     out.push_str(")\n    {\n");
 
     // Null checks for required string/object parameters.
+    // Enums are value types in C# — ThrowIfNull on them triggers CA2264.
     for param in &visible_params {
-        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+        let is_enum = matches!(&param.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+        if !param.optional && !is_enum && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }

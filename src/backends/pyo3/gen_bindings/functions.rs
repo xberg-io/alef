@@ -949,6 +949,28 @@ pub(super) fn gen_api_py(
                 promoted_params.insert(param.name.clone());
             }
         }
+        // Params whose type is a has-default struct (e.g. ExtractionResult) are given
+        // `| None = None` defaults in the Python wrapper even when not IR-optional.
+        // They must appear AFTER truly-required params to avoid a Python SyntaxError
+        // ("non-default argument follows default argument"), so treat them as promoted.
+        for param in &func.params {
+            if !param.optional && !promoted_params.contains(&param.name) && !bridge_param_names.contains(param.name.as_str()) {
+                let leaf_name = match &param.ty {
+                    crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                    crate::core::ir::TypeRef::Optional(inner) => {
+                        if let crate::core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if leaf_name.is_some_and(|n| default_types.contains_key(n)) {
+                    promoted_params.insert(param.name.clone());
+                }
+            }
+        }
 
         let mut sig_parts = Vec::new();
         let is_with_default = |p: &&crate::core::ir::ParamDef| p.optional || promoted_params.contains(&p.name);

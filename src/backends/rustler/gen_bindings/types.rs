@@ -332,6 +332,14 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
         }
     }
 
+    // If any variants were stripped from the IR (cfg-gated variants like Code), emit a
+    // wildcard arm so the exhaustive match doesn't fail when the crate is compiled with
+    // those features enabled.
+    if !enum_def.excluded_variants.is_empty() {
+        out.push_str("            #[allow(unreachable_patterns)]\n");
+        out.push_str("            _ => Self::default(),\n");
+    }
+
     out.push_str(&template_env::render(
         "flat_enum_from_core_impl_footer.jinja",
         minijinja::context! {},

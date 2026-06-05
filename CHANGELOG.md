@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.23.4] - 2026-06-05
+
+### Fixed
+
+- **e2e/rust — keywords assertion field name**: use `extracted_keywords` instead of `result_keywords` in `render_keywords_assertion` and `render_keywords_count_assertion`. The generated Rust e2e test previously referred to a non-existent field `result_keywords`, causing a compile error in every fixture that asserts on keyword results. (`src/e2e/codegen/rust/assertion_synthetic.rs`)
+
+- **zig backend — vtable passed by pointer instead of by value**: the `register_fn_body.jinja` template emitted `&vtable` when calling the C FFI registration function, but the C ABI takes the vtable struct by value. Changed to `vtable` (no address-of). (`src/backends/zig/templates/register_fn_body.jinja`)
+
+- **java backend — Javadoc @param names in snake_case**: `render_javadoc_sections` emitted Rust snake_case argument names (e.g., `mime_type`) directly as `@param` tags. Java checkstyle requires camelCase parameter names matching the Java binding (e.g., `mimeType`). Now converts each name with `heck::ToLowerCamelCase` before emitting. (`src/codegen/doc_emission.rs`)
+
+- **csharp backend — CA2264 on enum parameters**: the null-check guard (`ArgumentNullException.ThrowIfNull`) was emitted for ALL required `TypeRef::Named` parameters, including enums. C# enums are value types and ThrowIfNull on them is a no-op that triggers CA2264. Now skips the null guard for any named type that appears in `enum_names`. (`src/backends/csharp/gen_bindings/methods.rs`)
+
+- **pyo3 backend — SyntaxError for has-default params before required params**: `classify_pages` and `translate_result` have a required-by-IR `ExtractionResult` parameter that is given `| None = None` in the Python wrapper (because its type is in `default_types`). When that parameter appeared before a truly-required parameter like `config`, Python raised `SyntaxError: non-default argument follows default argument`. Fixed by pre-scanning params to add `is_has_default_param` items to `promoted_params` before partitioning into required/optional groups. (`src/backends/pyo3/gen_bindings/functions.rs`)
+
+- **rustler backend — &mut ExtractionResult param**: when a `default_types` param is both `is_ref` and `is_mut`, the codegen incorrectly emitted `{name}_core.as_ref().unwrap_or(&Default::default())` (immutable borrow) for a function that expects `&mut T`. Now emits a `let mut {name}_mut = {name}_core.unwrap_or_default(); &mut {name}_mut` binding. (`src/backends/rustler/gen_bindings/functions.rs`)
+
+- **rustler backend — PathBuf::from(Option<String>) type error**: when a `TypeRef::Path` param is optional, the codegen emitted `PathBuf::from(param)` where `param: Option<String>`, but `PathBuf` does not implement `From<Option<String>>`. Now emits `param.map(std::path::PathBuf::from)` for optional-path params and `param.as_deref().map(std::path::Path::new)` when both optional and by-ref. (`src/backends/rustler/gen_bindings/functions.rs`)
+
+- **rustler backend — non-exhaustive From<core::FormatMetadata> match**: when a flat data enum has excluded variants (cfg-gated with `binding_excluded`), the generated `From<core::FormatMetadata>` match is non-exhaustive at compile time when those features are enabled. Now emits a `#[allow(unreachable_patterns)] _ => Self::default()` wildcard arm when `enum_def.excluded_variants` is non-empty. (`src/backends/rustler/gen_bindings/types.rs`)
+
 - **e2e/csharp — streaming test codegen generic-stream leakage**: detect chat-completion-shaped streams (with assertions on `stream_content`, `finish_reason`, `tool_calls`, or `usage`) separately from non-chat streams (CrawlEvent, etc. with custom `result_fields`). When a streaming fixture has no chat-completion assertions, skip the hardcoded `chunk.Choices[0].Delta.Content` check and the `streamContent` StringBuilder; instead emit only `chunks.Add(chunk)` in the loop. Also wrap `mock_url_list` arguments in the request type (e.g., `new BatchCrawlStreamRequest { Urls = urls }`) before passing to the streaming method, fixing CS1503 type-mismatch errors. Eliminates generic-codegen shape bleed where every streaming type was treated as chat-completion regardless of actual item type. (`src/e2e/codegen/csharp.rs`)
 
 - **csharp backend — opaque streaming static wrapper doc prefix**: iterate `method.doc.lines()` and prefix each with `    /// ` instead of inlining the entire multi-line doc after a single `///`. The previous emission embedded raw `\n` characters in the format string, leaving continuation paragraphs of multi-line rustdoc without their `///` prefix and breaking C# parsing on every opaque streaming wrapper (e.g. `KreuzcrawlLib.CrawlStreamAsync`). (`src/backends/csharp/gen_bindings/methods.rs`)
