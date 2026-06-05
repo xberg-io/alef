@@ -1601,7 +1601,9 @@ fn render_streaming_test_method(
 
     if is_chat_stream {
         // Chat-completion style streaming: look for Choices[0].Delta.Content
-        body.push_str("            var choice = chunk.Choices != null && chunk.Choices.Count > 0 ? chunk.Choices[0] : null;\n");
+        body.push_str(
+            "            var choice = chunk.Choices != null && chunk.Choices.Count > 0 ? chunk.Choices[0] : null;\n",
+        );
         body.push_str("            if (choice != null)\n");
         body.push_str("            {\n");
         body.push_str("                var delta = choice.Delta;\n");
@@ -1663,26 +1665,27 @@ fn emit_non_chat_stream_assertion(
             return;
         }
         "no_chunks_after_done" => {
-            let _ = writeln!(out, "        Assert.True(true); // virtual field, always true for collected streams");
+            let _ = writeln!(
+                out,
+                "        Assert.True(true); // virtual field, always true for collected streams"
+            );
             return;
         }
-        "chunks" | "stream.items" => {
-            match atype {
-                "count_min" => {
-                    if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                        let _ = writeln!(out, "        Assert.True(chunks.Count >= {n});");
-                    }
-                    return;
+        "chunks" | "stream.items" => match atype {
+            "count_min" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    let _ = writeln!(out, "        Assert.True(chunks.Count >= {n});");
                 }
-                "count_equals" => {
-                    if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
-                        let _ = writeln!(out, "        Assert.Equal({n}, chunks.Count);");
-                    }
-                    return;
-                }
-                _ => {}
+                return;
             }
-        }
+            "count_equals" => {
+                if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                    let _ = writeln!(out, "        Assert.Equal({n}, chunks.Count);");
+                }
+                return;
+            }
+            _ => {}
+        },
         _ => {}
     }
 
@@ -1698,16 +1701,10 @@ fn emit_non_chat_stream_assertion(
     // Fields in result_fields can be asserted via chunks[i].FieldName
     match atype {
         "not_empty" => {
-            let _ = writeln!(
-                out,
-                "        Assert.NotEmpty(chunks);"
-            );
+            let _ = writeln!(out, "        Assert.NotEmpty(chunks);");
         }
         "is_empty" => {
-            let _ = writeln!(
-                out,
-                "        Assert.Empty(chunks);"
-            );
+            let _ = writeln!(out, "        Assert.Empty(chunks);");
         }
         _ => {
             let _ = writeln!(
@@ -4243,8 +4240,8 @@ mod tests {
                 map_is_ahash: false,
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
-                    map_is_btree: false,
-                    core_wrapper: crate::core::ir::CoreWrapper::None,
+                map_is_btree: false,
+                core_wrapper: crate::core::ir::CoreWrapper::None,
             }],
             return_type: TypeRef::String,
             is_async: false,

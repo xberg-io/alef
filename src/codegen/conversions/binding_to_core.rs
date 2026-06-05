@@ -1178,9 +1178,13 @@ pub fn gen_from_lifetime_type_constructor(
                         .is_some_and(|names| names.contains(type_name.as_str()));
                     if is_enum_string {
                         if field.optional {
-                            format!("val.{binding_field}.map(|s| serde_json::from_value(serde_json::Value::String(s)).expect(\"valid {type_name}\"))")
+                            format!(
+                                "val.{binding_field}.map(|s| serde_json::from_value(serde_json::Value::String(s)).expect(\"valid {type_name}\"))"
+                            )
                         } else {
-                            format!("serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).expect(\"valid {type_name}\")")
+                            format!(
+                                "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).expect(\"valid {type_name}\")"
+                            )
                         }
                     } else if field.optional {
                         format!("val.{binding_field}.map(Into::into)")

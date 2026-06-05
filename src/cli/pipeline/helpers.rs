@@ -503,9 +503,7 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
         {
             Some(module) => config.push_str(&format!("\n[crates.go]\nmodule = \"{module}\"\n")),
             None => {
-                config.push_str(
-                    "\n[crates.go]\n# module = \"github.com/<org>/<repo>\"  # set the Go module path\n",
-                );
+                config.push_str("\n[crates.go]\n# module = \"github.com/<org>/<repo>\"  # set the Go module path\n");
             }
         }
     }

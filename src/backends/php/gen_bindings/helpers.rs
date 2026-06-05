@@ -719,7 +719,9 @@ pub(crate) fn php_wrap_return(
             // returns a reference (`returns_ref=true`), the type is `&BTreeMap` (or `&HashMap`).
             // Iterate over the map and collect into `HashMap` to satisfy the PHP return type.
             if returns_ref {
-                format!("{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()")
+                format!(
+                    "{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()"
+                )
             } else {
                 // Owned map: collect into HashMap (works for BTreeMap and AHashMap via IntoIterator).
                 format!("{expr}.into_iter().collect::<std::collections::HashMap<_, _>>()")
@@ -1067,12 +1069,9 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     // Delegate to gen_from_lifetime_type_constructor which locates the correct static
     // constructor (with_owned_*, etc.) and emits a well-formed From impl.
     if typ.has_lifetime_params {
-        if let Some(code) = crate::codegen::conversions::gen_from_lifetime_type_constructor(
-            typ,
-            &core_path,
-            &typ.name,
-            config,
-        ) {
+        if let Some(code) =
+            crate::codegen::conversions::gen_from_lifetime_type_constructor(typ, &core_path, &typ.name, config)
+        {
             return code;
         }
     }

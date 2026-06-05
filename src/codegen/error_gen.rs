@@ -619,7 +619,9 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!("    // Not emitted: #[napi] method `{other}` on `{struct_name}`"));
+                methods.push(format!(
+                    "    // Not emitted: #[napi] method `{other}` on `{struct_name}`"
+                ));
             }
         }
     }
