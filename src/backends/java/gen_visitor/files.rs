@@ -71,13 +71,10 @@ pub(super) fn resolve_visitor_generation(
     // it as a raw `int`; the Java record constructor expects the typed enum, so we capture the
     // enum's Java name here and pass it to the VisitorBridge template for `Enum.values()[i]`
     // conversion. Falls back to None (plain int) when the first field isn't a Named enum.
-    let node_type_enum = context_type_def
-        .fields
-        .first()
-        .and_then(|field| match &field.ty {
-            TypeRef::Named(name) if api.enums.iter().any(|e| e.name == *name) => Some(name.clone()),
-            _ => None,
-        });
+    let node_type_enum = context_type_def.fields.first().and_then(|field| match &field.ty {
+        TypeRef::Named(name) if api.enums.iter().any(|e| e.name == *name) => Some(name.clone()),
+        _ => None,
+    });
     let Some(result_enum) = api.enums.iter().find(|enum_def| enum_def.name == result_type) else {
         eprintln!(
             "Skipping Java visitor generation for trait bridge `{}`: result_type `{result_type}` is absent",
