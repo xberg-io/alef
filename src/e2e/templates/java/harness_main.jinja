@@ -127,10 +127,9 @@ public class HarnessMain {
                 }
             }
 
-            // Emit the harness port for the parent test runner to discover.
-            // Do not emit SUT_URL here — process-pipe buffering may prevent it from
-            // reaching the parent before app.run() blocks. Instead, emit a lightweight
-            // port marker and let the test runner verify TCP reachability.
+            // Optionally emit the harness port for debugging, but the test runner
+            // does not rely on this message due to Java process-pipe buffering.
+            // Instead, tests use TCP polling against the configured default port.
             System.out.println("HARNESS_PORT=" + effectivePort);
             System.out.flush();
 
