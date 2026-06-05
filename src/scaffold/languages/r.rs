@@ -33,7 +33,7 @@ pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyh
     let repository_lines = meta
         .configured_repository
         .as_deref()
-        .map(|repository| format!("URL: {repository}\nBugReports: {repository}/issues\n"))
+        .map(|repository| format!("URL: {repository}\nBugReports: {repository}/issues"))
         .unwrap_or_default();
     let license = meta.license.as_deref().ok_or_else(|| {
         anyhow::anyhow!(
