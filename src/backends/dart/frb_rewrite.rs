@@ -594,14 +594,12 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
 
     // Match `),` followed by any whitespace (including newlines), then orphaned `)` before `.executeSync()` or `.executeNormal()`
     // Pattern: `),` + newline + indent + `)` + `.execute(Sync|Normal)()`
-    let orphaned_paren_sync = Regex::new(r"(?s)\),\s*\)\.executeSync\(\)")
-        .expect("orphaned paren sync pattern must compile");
-    result = orphaned_paren_sync
-        .replace_all(&result, ").executeSync()")
-        .into_owned();
+    let orphaned_paren_sync =
+        Regex::new(r"(?s)\),\s*\)\.executeSync\(\)").expect("orphaned paren sync pattern must compile");
+    result = orphaned_paren_sync.replace_all(&result, ").executeSync()").into_owned();
 
-    let orphaned_paren_async = Regex::new(r"(?s)\),\s*\)\.executeNormal\(\)")
-        .expect("orphaned paren async pattern must compile");
+    let orphaned_paren_async =
+        Regex::new(r"(?s)\),\s*\)\.executeNormal\(\)").expect("orphaned paren async pattern must compile");
     result = orphaned_paren_async
         .replace_all(&result, ").executeNormal()")
         .into_owned();

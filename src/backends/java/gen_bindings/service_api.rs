@@ -247,7 +247,9 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         out.push_str("\"invokeHandlerWithMarshal\",\n");
         out.push_str("                MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)\n");
         out.push_str("            );\n");
-        out.push_str("            MethodHandle adapter = MethodHandles.insertArguments(baseMh, 2, handler, arena);\n\n");
+        out.push_str(
+            "            MethodHandle adapter = MethodHandles.insertArguments(baseMh, 2, handler, arena);\n\n",
+        );
 
         out.push_str("            MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);\n\n");
 

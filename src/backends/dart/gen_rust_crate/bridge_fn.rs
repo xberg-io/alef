@@ -514,9 +514,7 @@ fn return_transform(
                         ".into_iter().map(|inner| {mirror_name} {{ inner }}).collect::<Vec<_>>()"
                     ))
                 } else {
-                    RetTransform::Suffix(format!(
-                        ".into_iter().map({mirror_name}::from).collect::<Vec<_>>()"
-                    ))
+                    RetTransform::Suffix(format!(".into_iter().map({mirror_name}::from).collect::<Vec<_>>()"))
                 }
             } else {
                 RetTransform::None
@@ -655,7 +653,11 @@ fn build_body(call: &str, result_cast: &str, ret_transform: &RetTransform, has_e
             // No error: apply the callable directly to the raw value (or awaited value).
             // Both the bare-path shape (`MirrorName::from(call)`) and the inline opaque-wrap
             // shape (`MirrorName { inner: call }`) avoid clippy::redundant_closure_call.
-            let raw = if is_async { format!("{call}.await") } else { call.to_string() };
+            let raw = if is_async {
+                format!("{call}.await")
+            } else {
+                call.to_string()
+            };
             format!("    {expr}\n", expr = call_callable(map_fn, &raw))
         }
         RetTransform::Suffix(suffix) => {
@@ -857,7 +859,10 @@ mod tests {
         let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
         match &transform {
             RetTransform::Suffix(s) => {
-                assert!(s.starts_with(".into_iter()"), "expected suffix starting with .into_iter(), got {s}");
+                assert!(
+                    s.starts_with(".into_iter()"),
+                    "expected suffix starting with .into_iter(), got {s}"
+                );
                 assert!(s.contains("QrCode::from"), "expected QrCode::from in suffix, got {s}");
                 assert!(!s.contains("|v"), "suffix must not contain a closure literal, got {s}");
             }
@@ -884,7 +889,10 @@ mod tests {
         let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, true);
         match transform {
             RetTransform::Suffix(s) => {
-                assert!(s.starts_with(".iter()"), "ref-return Vec<Named> must start with .iter(): {s}");
+                assert!(
+                    s.starts_with(".iter()"),
+                    "ref-return Vec<Named> must start with .iter(): {s}"
+                );
                 assert!(!s.contains(".into_iter()"), "ref-return must not use .into_iter(): {s}");
             }
             other => panic!("expected Suffix, got {other:?}"),
@@ -968,9 +976,15 @@ mod tests {
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
         let cast_owned = build_primitive_result_cast(&ty, false);
         let cast_ref = build_primitive_result_cast(&ty, true);
-        assert!(cast_owned.starts_with(".into_iter()"), "owned must use .into_iter(): {cast_owned}");
+        assert!(
+            cast_owned.starts_with(".into_iter()"),
+            "owned must use .into_iter(): {cast_owned}"
+        );
         assert!(cast_ref.starts_with(".iter()"), "ref must use .iter(): {cast_ref}");
-        assert!(!cast_ref.contains(".into_iter()"), "ref must not use .into_iter(): {cast_ref}");
+        assert!(
+            !cast_ref.contains(".into_iter()"),
+            "ref must not use .into_iter(): {cast_ref}"
+        );
     }
 
     #[test]

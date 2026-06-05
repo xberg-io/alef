@@ -527,9 +527,7 @@ pub(crate) fn emit_function_shim(
                         format!(".map(|v| v.{iter_method}().map(|s| s.to_string()).collect::<Vec<_>>())")
                     }
                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-                        format!(
-                            ".map(|v| v.{iter_method}().map(|s| s.display().to_string()).collect::<Vec<_>>())"
-                        )
+                        format!(".map(|v| v.{iter_method}().map(|s| s.display().to_string()).collect::<Vec<_>>())")
                     }
                     _ => String::new(),
                 }
