@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
+<!-- napi-e2e-harness -->
+- **e2e/napi — harness calls undefined app_run when App.run is excluded**: the NAPI service-API codegen generated a TypeScript `app_harness` that imported `app_run` from the native binding and a service wrapper (`service.ts`) that called `app_run(this._registrations)` for the `App.run` entrypoint. When spikard's `alef.toml` excludes `App.run` via `[crates.exclude].methods = ["App.run", ...]`, the native function is never exported (because it's behind an excluded method), but the codegen still tried to import and call it, causing a runtime `TypeError: app_run is not a function`. Fixed by checking whether each entrypoint method is in the excluded methods list; if excluded, skip generating the import, the native function, and the TypeScript method wrapper entirely. The napi service API generator now takes `config: &ResolvedCrateConfig` and checks `config.exclude.methods` for each entrypoint. (`src/backends/napi/gen_bindings/service_api.rs`)
+
 <!-- wasm-e2e-harness -->
 - **e2e/wasm — server-pattern harness fails when App class is excluded**: when wasm binding excludes the `App` type (because the service API is not exposed for wasm), the e2e code generator attempted to emit a server-pattern app harness that imported and used the missing `App` class, causing a `SyntaxError: The requested module does not provide an export named 'App'` at test setup time. The harness also imported from the wrong package (`@spikard/node-wasm` instead of the actual wasm package name). Fixed by detecting when `App` is in the wasm backend's `exclude_types` and disabling the server-pattern harness, falling back to the mock-server pattern which does not require the app class. This allows wasm HTTP fixtures to run against a standalone mock-server binary instead of the application's app class. (`src/e2e/codegen/wasm.rs`)
 

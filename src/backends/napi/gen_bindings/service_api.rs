@@ -69,7 +69,7 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
 ///   decorator and direct-register patterns.
 /// - A `run(...)` method derived from the first [`EntrypointKind::Run`]
 ///   entrypoint.
-pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
+pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str, config: &ResolvedCrateConfig) -> String {
     let mut out = String::new();
 
     // TypeScript preamble: import native bindings + types
@@ -135,19 +135,32 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
 
     out.push_str(&imports.join(", "));
     out.push_str(" } from \"../index\";\n");
-    out.push_str(&format!(
-        "import {{ {}_run }} from \"../index\";\n\n",
-        api.services[0].name.to_snake_case()
-    ));
+
+    // Only import the native function if the entrypoint method is not excluded.
+    // Check if any entrypoint (typically `run`) is excluded for this service.
+    let service_name = &api.services[0].name;
+    let has_non_excluded_entrypoint = api.services[0].entrypoints.iter().any(|ep| {
+        let method_key = format!("{}.{}", service_name, ep.method);
+        !config.exclude.methods.contains(&method_key)
+    });
+
+    if has_non_excluded_entrypoint {
+        out.push_str(&format!(
+            "import {{ {}_run }} from \"../index\";\n\n",
+            service_name.to_snake_case()
+        ));
+    } else {
+        out.push('\n');
+    }
 
     for service in &api.services {
-        gen_service_class_ts(&mut out, service, api, native_module);
+        gen_service_class_ts(&mut out, service, api, native_module, config);
     }
 
     out
 }
 
-fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface, _native_module: &str) {
+fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface, _native_module: &str, config: &ResolvedCrateConfig) {
     let class_name = &service.name;
 
     // Class docstring
@@ -246,6 +259,14 @@ fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface
 
     // Entrypoint methods
     for ep in &service.entrypoints {
+        let method_key = format!("{}.{}", class_name, ep.method);
+        let is_excluded = config.exclude.methods.contains(&method_key);
+
+        // Skip generating entrypoint methods that are excluded from bindings
+        if is_excluded {
+            continue;
+        }
+
         let mut params = Vec::new();
         for p in &ep.params {
             let ty = typescript_type_annotation(&p.ty);
@@ -663,9 +684,13 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one napi function per service × entrypoint
+    // Emit one napi function per service × entrypoint (skip if excluded)
     for service in &api.services {
         for ep in &service.entrypoints {
+            let method_key = format!("{}.{}", service.name, ep.method);
+            if config.exclude.methods.contains(&method_key) {
+                continue;
+            }
             gen_run_napi_function(&mut out, service, ep, api, &core_import);
         }
     }
@@ -1308,7 +1333,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let service_rs = gen_service_rs(api, config);
 
     // TypeScript wrapper
-    let service_ts = gen_service_ts(api, &package_name);
+    let service_ts = gen_service_ts(api, &package_name, config);
 
     // JavaScript version (TypeScript with types stripped)
     let _service_js = strip_typescript_annotations(&service_ts);
@@ -1473,6 +1498,14 @@ mod tests {
         RegistrationDef, ServiceDef, TypeRef,
     };
 
+    /// Construct a minimal test config with default exclude settings.
+    fn make_test_config() -> ResolvedCrateConfig {
+        ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        }
+    }
+
     /// Construct a minimal but realistic [`ApiSurface`] that exercises:
     /// - A service with a constructor, one configurator, one registration
     ///   (bound to an async handler contract), and Run entrypoint.
@@ -1627,7 +1660,8 @@ mod tests {
     #[test]
     fn typescript_output_contains_service_class() {
         let surface = make_fixture_surface();
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
         assert!(
             output.contains("export class TestService"),
             "expected `export class TestService` in output:\n{output}"
@@ -1637,7 +1671,8 @@ mod tests {
     #[test]
     fn typescript_output_contains_constructor() {
         let surface = make_fixture_surface();
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
         assert!(
             output.contains("constructor()"),
             "expected `constructor()` in output:\n{output}"
@@ -1647,7 +1682,8 @@ mod tests {
     #[test]
     fn typescript_output_contains_private_registrations() {
         let surface = make_fixture_surface();
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
         assert!(
             output.contains("private _registrations"),
             "expected `private _registrations` in output:\n{output}"
@@ -1657,7 +1693,8 @@ mod tests {
     #[test]
     fn typescript_output_contains_configurator() {
         let surface = make_fixture_surface();
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
         assert!(
             output.contains("with_timeout(timeout_ms: number)"),
             "expected `with_timeout` configurator:\n{output}"
@@ -1671,7 +1708,8 @@ mod tests {
     #[test]
     fn typescript_output_contains_registration_method() {
         let surface = make_fixture_surface();
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
         assert!(
             output.contains("add_handler(path: string, method: string)"),
             "expected `add_handler` registration method:\n{output}"
@@ -1681,7 +1719,8 @@ mod tests {
     #[test]
     fn typescript_output_contains_run_entrypoint() {
         let surface = make_fixture_surface();
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
         assert!(
             output.contains("async run(addr: string)"),
             "expected `async run` entrypoint:\n{output}"
@@ -1892,7 +1931,8 @@ mod tests {
             });
         }
 
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
 
         // VerbDecorator should emit only the direct form: get(path, handler): this
         assert!(
@@ -1938,7 +1978,8 @@ mod tests {
             });
         }
 
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
 
         // Builder should emit only the decorator-factory form: get(path) returns a function
         assert!(
@@ -1982,7 +2023,8 @@ mod tests {
             });
         }
 
-        let output = gen_service_ts(&surface, "my_crate");
+        let config = make_test_config();
+        let output = gen_service_ts(&surface, "my_crate", &config);
 
         // Hybrid should emit both forms
         assert!(
