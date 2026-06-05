@@ -249,6 +249,15 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         }
     }
 
+    // Vec<String> → &[&str]: FRB delivers Vec<String>; core takes &[&str].
+    // Materialize temporary Vec<&str> and borrow it.
+    if p.is_ref
+        && p.vec_inner_is_ref
+        && matches!(p.ty, TypeRef::Vec(ref inner) if matches!(inner.as_ref(), TypeRef::String))
+    {
+        return format!("&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()");
+    }
+
     if !p.is_ref {
         return name.clone();
     }

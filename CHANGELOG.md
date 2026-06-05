@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart FRB — Vec<String> with &[&str] signature in free functions**: when a core function parameter is `&[&str]` and the Dart-FRB binding receives `Vec<String>` (deserialized by FRB), `dart_call_arg` (used for free-function call site expressions) fell through to emit `&{name}` directly, producing a type mismatch (`Vec<String>` does not deref to `[&str]`). The opaque-method paths in `mod.rs` (lines 2359, 2545) already had the correct conversion. Now `dart_call_arg` checks for `TypeRef::Vec(String)` with `p.is_ref && p.vec_inner_is_ref` and emits a pre-call temporary: `&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()`. (`src/backends/dart/gen_rust_crate/conversions.rs:252–254`)
+
+- **sync-versions — zig hash version-component not refreshed when `version` field absent**: `sync_registry_package_versions` skipped any package entry that lacked an explicit `version` field, so `[crates.e2e.registry.packages.zig]` entries that carry only `hash = "<pkg>-<version>-<base64>"` never had their embedded version updated on workspace bumps. Result: every workspace bump after the first one left the zig hash advertising the previous RC, and `alef all` (and any `e2e/codegen/zig` consumer) then failed with `zig registry package hash is stale`. Added `extract_zig_hash_version` to derive the embedded version straight from the hash string for zig entries, so the version-substitution path runs even without an explicit `version` field. (`src/cli/pipeline/version.rs`)
+
+- **jni backend — Vec<String> with &[&str] signature**: when a core function parameter is `&[&str]` and the JNI binding receives `Vec<String>` (deserialized from JSON), `emit_function_shim` in the free-function branch (`_ =>` fallback at line ~800) and multi-param branch (lines ~1050) incorrectly emitted `&{name}` directly, producing a type mismatch (`Vec<String>` does not deref to `[&str]`). The instance-method path (lines 999–1009) already had the correct conversion. Now both paths emit a pre-call binding `let {name}_refs: Vec<&str> = {name}.iter().map(String::as_str).collect();` and pass `&{name}_refs` as the call argument, matching the instance-method pattern exactly. (`src/backends/jni/gen_shims.rs`)
+
 ## [0.23.6] - 2026-06-05
 
 ### Fixed
