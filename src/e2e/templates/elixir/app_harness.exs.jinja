@@ -23,6 +23,14 @@
 # The dependencies are already compiled and accessible; this script just needs
 # to ensure they're in the code path. The Application environment is not needed.
 
+# Ensure the binding modules are loaded from code path
+Code.ensure_loaded!({{ app_class }})
+Code.ensure_loaded!({{ route_builder_class }})
+Code.ensure_loaded!({{ method_enum_class }})
+{% if not skip_app_config -%}
+Code.ensure_loaded!({{ server_config_class }})
+{% endif %}
+
 # Load fixtures from the JSON payload
 fixtures_json = {{ fixtures_json }}
 {:ok, fixtures} = Jason.decode(fixtures_json)

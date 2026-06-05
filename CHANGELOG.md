@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-r2-ruby-fromjson -->
+- **e2e/ruby — harness emits `cors_config_class.from_json(cfg.to_json)` but magnus-wrapped config classes only have `to_json`, not `from_json`**: the harness assumed a `from_json` class method existed on all config types, causing `NoMethodError` at runtime. Fixed by passing the config hash directly to the builder method (e.g. `builder.cors(cfg)`); magnus `TryConvert` trait handles deserialization from Ruby hashes automatically without JSON round-tripping. (`src/e2e/templates/ruby/app_harness.rb.jinja`)
+
+<!-- N+12-r2-elixir-modload -->
+- **e2e/elixir — harness fails at runtime with `UndefinedFunctionError: function ... is not available` when run as standalone script via `-pa` code paths**: the harness script used `alias` statements to reference binding modules without explicitly loading them first. When run as a standalone `.exs` script spawned by test_helper (not through mix), modules exist in the code path but are not auto-loaded; the BEAM only makes them *available* but doesn't load them into memory. Fixed by adding `Code.ensure_loaded!/1` calls for all binding modules immediately after the code-path setup comment and before alias statements. (`src/e2e/templates/elixir/app_harness.exs.jinja`)
+
 <!-- N+12-r2-node-cors -->
 - **e2e/typescript — harness emits `new CorsConfig(...)` and `new CompressionConfig(...)` but these config types are emitted with `#[napi(object)]`, which produces plain object types with no constructor in JavaScript**: the harness assumed all config types had constructors, but `#[napi(object)]` is the idiomatic choice for plain-data DTOs and does not generate a `new`-able constructor. Fixed by passing `handler.middleware.cors` and `handler.middleware.compression` objects directly to the builder methods; napi-rs handles type coercion at the FFI boundary. (`src/e2e/templates/typescript/app_harness.mjs.jinja`)
 
