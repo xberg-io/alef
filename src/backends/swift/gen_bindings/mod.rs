@@ -3954,13 +3954,15 @@ fn emit_async_free_function_forwarder(
                     out.push_str("] = []\n");
                     out.push_str("        for ref in result {\n");
                     if known_dto_names.contains(name) {
-                        out.push_str(&format!("            var item = try {struct_name}(ref)\n"));
+                        // Codable value struct: just convert, no isOwned field
+                        out.push_str(&format!("            let item = try {struct_name}(ref)\n"));
                     } else {
+                        // Opaque class: convert and mark as borrowed
                         out.push_str(&format!(
                             "            var item = try RustBridge.{struct_name}(ptr: ref.ptr)\n"
                         ));
+                        out.push_str("            item.isOwned = false\n");
                     }
-                    out.push_str("            item.isOwned = false\n");
                     out.push_str("            items.append(item)\n");
                     out.push_str("        }\n");
                     out.push_str("        return items\n");
@@ -4315,12 +4317,13 @@ fn forwarder_return_conversion_suffix_inner(
             TypeRef::Named(name) => {
                 let struct_name = swift_ident(name);
                 // For first-class DTOs (in known_dto_names), use the custom init(_ rb:) initializer.
-                // For typealias'd types (swift-bridge opaque classes), use RustBridge.{Name}(ptr: ref.ptr).
+                // These are Codable value structs — do NOT assign isOwned.
                 if known_dto_names.contains(name) {
-                    format!(".map {{ ref in var item = try {struct_name}(ref); item.isOwned = false; return item }}")
+                    format!(".map {{ ref in try {struct_name}(ref) }}")
                 } else {
-                    // Typealias'd type: RustBridge.{Name} is the actual class, ref is {Name}Ref.
-                    // Use the ptr-based init to convert Ref → owned instance without calling a nonexistent init.
+                    // Typealias'd type: RustBridge.{Name} is the actual opaque class, ref is {Name}Ref.
+                    // Use the ptr-based init to convert Ref → owned instance, then mark as borrowed
+                    // via isOwned = false to prevent double-free.
                     format!(
                         ".map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}"
                     )

@@ -623,7 +623,7 @@ fn gen_bridge_file(
         num_methods => num_methods,
         num_super_slots => num_super_slots,
         num_vtable_fields => num_vtable_fields,
-        vtable_layout_fields => vec!["ValueLayout.ADDRESS"; num_vtable_fields].join(", "),
+        vtable_layout_fields_list => vec!["ValueLayout.ADDRESS"; num_vtable_fields],
         lifecycle_methods => lifecycle_methods,
         stubs => stubs,
         methods => methods,

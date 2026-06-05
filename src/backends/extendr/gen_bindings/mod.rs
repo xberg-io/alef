@@ -2242,7 +2242,12 @@ fn gen_extendr_json_bridged_function(
                  let result = rt.block_on(async {{ {core_call}.await{err_map} }})?;\n    \
                  {convert}\n    \
                  {result_convert}",
+                body_preamble = body_preamble,
+                named_let_bindings = named_let_bindings,
+                rt_new = rt_new,
+                core_call = core_call,
                 err_map = err_map,
+                convert = convert,
                 result_convert = result_convert,
             )
         } else {
@@ -2251,7 +2256,13 @@ fn gen_extendr_json_bridged_function(
                  let rt = {rt_new};\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
                  {convert}\n    \
-                 {result_convert}"
+                 {result_convert}",
+                body_preamble = body_preamble,
+                named_let_bindings = named_let_bindings,
+                rt_new = rt_new,
+                core_call = core_call,
+                convert = convert,
+                result_convert = result_convert,
             )
         }
     } else {
@@ -2260,7 +2271,12 @@ fn gen_extendr_json_bridged_function(
             "{body_preamble}{named_let_bindings}\
              let result = {core_call_with_err};\n    \
              {convert}\n    \
-             {result_convert}"
+             {result_convert}",
+            body_preamble = body_preamble,
+            named_let_bindings = named_let_bindings,
+            core_call_with_err = core_call_with_err,
+            convert = convert,
+            result_convert = result_convert,
         )
     };
 

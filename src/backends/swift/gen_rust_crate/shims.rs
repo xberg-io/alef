@@ -36,10 +36,12 @@ pub(crate) fn is_bridgeable_fn(
             return false;
         }
         match &p.ty {
-            TypeRef::Named(n)
-                if unit_enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) =>
-            {
-                return false;
+            TypeRef::Named(n) if unit_enum_names.contains(n.as_str()) => {
+                // Skip only if it's a ref (can't serialize refs) OR has no serde (can't serialize at all).
+                // A serde enum by-value IS bridgeable.
+                if p.is_ref || no_serde_enum_names.contains(n.as_str()) {
+                    return false;
+                }
             }
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(n) = inner.as_ref() {
@@ -284,6 +286,16 @@ pub(crate) fn swift_call_arg(
             }
             return format!("{name}.into_iter().map(|w| w.0).collect::<Vec<_>>()");
         }
+    }
+
+    // Vec<String> with &[&str]: convert Vec<String> to &[&str].
+    // Core takes `&[&str]`; swift-bridge delivers `Vec<String>`.
+    // Borrow the temporary Vec<&str> into &[&str].
+    if p.is_ref
+        && p.vec_inner_is_ref
+        && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+    {
+        return format!("&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()");
     }
 
     // Primitive: swift-bridge maps integer widths well, but reference params
@@ -731,5 +743,47 @@ mod tests {
         assert!(shim.contains("From<String>"));
         assert!(shim.contains("sample_crawler::PageAction"));
         assert!(!shim.contains("unimplemented!"));
+    }
+
+    #[test]
+    fn vec_string_with_ref_inner_converts_to_slice_of_strs() {
+        // Core function signature: download(names: &[&str])
+        // Swift binding receives: Vec<String>
+        // Shim must convert: &names.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+        let mut param = param("names", TypeRef::Vec(Box::new(TypeRef::String)));
+        param.is_ref = true;
+        param.vec_inner_is_ref = true;
+
+        let f = function(vec![param]);
+        let type_paths = HashMap::new();
+        let unit_enum_names = HashSet::new();
+        let tagged_enum_names = HashSet::new();
+        let no_serde_names = HashSet::new();
+        let handle_returned_types = HashSet::new();
+
+        assert!(is_bridgeable_fn(
+            &f,
+            &unit_enum_names,
+            &type_paths,
+            &no_serde_names,
+            &tagged_enum_names,
+            &handle_returned_types
+        ));
+
+        let shim = emit_function_shim(
+            &f,
+            "sample_crawler",
+            &type_paths,
+            &unit_enum_names,
+            &no_serde_names,
+            &tagged_enum_names,
+            &handle_returned_types,
+        );
+        // The shim should take Vec<String> from Swift.
+        assert!(shim.contains("names: Vec<String>"));
+        // The shim must convert to &[&str] via iter().map(|s| s.as_str()).
+        assert!(shim.contains("&names.iter().map(|s| s.as_str()).collect::<Vec<_>>()"));
+        // The function call must use the converted slice.
+        assert!(shim.contains("sample_crawler::interact"));
     }
 }

@@ -30,7 +30,11 @@ public final class {{ bridge_class }} implements AutoCloseable {
             {{ registry_field }} = new ConcurrentHashMap<>();
 
     // C vtable: {{ num_vtable_fields }} fields ({{ num_super_slots }} plugin methods + {{ num_methods }} trait methods + free_string + free_user_data)
-    private static final MemoryLayout VTABLE_LAYOUT = MemoryLayout.structLayout({{ vtable_layout_fields }});
+    private static final MemoryLayout VTABLE_LAYOUT = MemoryLayout.structLayout(
+{% for field in vtable_layout_fields_list %}
+            {{ field }}{{ "," if not loop.last }}
+{% endfor %}
+    );
     private static final long VTABLE_SIZE = VTABLE_LAYOUT.byteSize();
 
     private final Arena arena;
@@ -41,27 +45,29 @@ public final class {{ bridge_class }} implements AutoCloseable {
         this.impl = impl;
         this.arena = Arena.ofShared();
         this.vtable = arena.allocate(VTABLE_SIZE);
-
         try {
-            long offset = 0L;
-
-{% for stub in stubs %}
-            var {{ stub.var_name }} = LINKER.upcallStub(LOOKUP.bind(this, "{{ stub.handle_name }}",
-                MethodType.methodType({{ stub.return_type }}, {{ stub.method_type_params }})),
-{% if stub.returns_void %}                FunctionDescriptor.ofVoid({{ stub.descriptor_params }}),
-{% else %}
-                FunctionDescriptor.of({{ stub.descriptor_return }}, {{ stub.descriptor_params }}),
-{% endif %}
-                arena);
-            vtable.set(ValueLayout.ADDRESS, offset, {{ stub.var_name }});
-            offset += ValueLayout.ADDRESS.byteSize();
-
-{% endfor %}
-
+            initializeStubs();
         } catch (ReflectiveOperationException e) {
             arena.close();
             throw new RuntimeException("Failed to create trait bridge stubs", e);
         }
+    }
+
+    private void initializeStubs() throws ReflectiveOperationException {
+        long offset = 0L;
+
+{% for stub in stubs %}
+        var {{ stub.var_name }} = LINKER.upcallStub(LOOKUP.bind(this, "{{ stub.handle_name }}",
+            MethodType.methodType({{ stub.return_type }}, {{ stub.method_type_params }})),
+{% if stub.returns_void %}            FunctionDescriptor.ofVoid({{ stub.descriptor_params }}),
+{% else %}
+            FunctionDescriptor.of({{ stub.descriptor_return }}, {{ stub.descriptor_params }}),
+{% endif %}
+            arena);
+        vtable.set(ValueLayout.ADDRESS, offset, {{ stub.var_name }});
+        offset += ValueLayout.ADDRESS.byteSize();
+
+{% endfor %}
     }
 
     MemorySegment vtableSegment() { return vtable; }

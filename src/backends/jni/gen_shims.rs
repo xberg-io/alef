@@ -806,7 +806,16 @@ fn emit_function_shim(
                         "        Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"
                     ));
                     unmarshal.push_str("    };\n");
-                    if p.is_ref {
+                    // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
+                    let is_vec_string_ref = p.is_ref
+                        && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+                    if is_vec_string_ref {
+                        let refs_name = format!("{rust_name}_refs");
+                        unmarshal.push_str(&format!(
+                            "    let {refs_name}: Vec<&str> = {rust_name}.iter().map(String::as_str).collect();\n"
+                        ));
+                        call_args.push_str(&format!("&{refs_name}"));
+                    } else if p.is_ref {
                         call_args.push_str(&format!("&{rust_name}"));
                     } else {
                         call_args.push_str(&rust_name);
@@ -1048,7 +1057,16 @@ fn emit_method_shim(
                 "        None => {{ throw_jni_error(env, \"missing param: {rust_name}\"); return {ret_null}; }}\n"
             ));
             out.push_str("    };\n");
-            let call_arg = if p.optional {
+            // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
+            let is_vec_string_ref = p.is_ref
+                && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+            let call_arg = if is_vec_string_ref {
+                let refs_name = format!("{rust_name}_refs");
+                out.push_str(&format!(
+                    "    let {refs_name}: Vec<&str> = {rust_name}.iter().map(String::as_str).collect();\n"
+                ));
+                format!("&{refs_name}")
+            } else if p.optional {
                 format!("Some({rust_name})")
             } else if p.is_ref {
                 format!("&{rust_name}")

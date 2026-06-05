@@ -920,18 +920,20 @@ fn emit_json_object_arg(
             }
         }
         _ => {
-            // When we have an array with element_type, pass object items as fixture-shaped dicts.
-            if element_type.is_some() && !value.is_null() {
-                if let Some(arr) = value.as_array() {
-                    if arr.iter().all(|item| item.is_object()) {
-                        let items: Vec<String> = arr
-                            .iter()
-                            .filter_map(|item| item.as_object())
-                            .map(emit_python_object_item)
-                            .collect();
-                        arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                        kwarg_exprs.push(var_name.to_string());
-                        return true;
+            // When we have an array with element_type, construct typed instances for Python.
+            if let Some(elem_type) = element_type {
+                if !value.is_null() {
+                    if let Some(arr) = value.as_array() {
+                        if arr.iter().all(|item| item.is_object()) {
+                            let items: Vec<String> = arr
+                                .iter()
+                                .filter_map(|item| item.as_object())
+                                .map(|obj| emit_python_typed_instance(obj, elem_type))
+                                .collect();
+                            arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
+                            kwarg_exprs.push(var_name.to_string());
+                            return true;
+                        }
                     }
                 }
             }
@@ -1005,6 +1007,18 @@ fn emit_python_object_item(obj: &serde_json::Map<String, serde_json::Value>) -> 
         })
         .collect();
     format!("{{{}}}", items.join(", "))
+}
+
+/// Emit a Python constructor call for a typed instance (e.g., BatchFileItem(...)).
+fn emit_python_typed_instance(obj: &serde_json::Map<String, serde_json::Value>, elem_type: &str) -> String {
+    let kwargs: Vec<String> = obj
+        .iter()
+        .map(|(k, v)| {
+            let snake_key = k.to_snake_case();
+            format!("{}={}", snake_key, json_to_python_literal(v))
+        })
+        .collect();
+    format!("{}({})", elem_type, kwargs.join(", "))
 }
 
 // ---------------------------------------------------------------------------
