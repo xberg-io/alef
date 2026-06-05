@@ -576,6 +576,19 @@ dependencyResolutionManagement {{
     }}
 }}
 
+// Configure JVM toolchain management to allow auto-detection and auto-download
+// of missing JDK versions from Adoptium (Eclipse Temurin). This prevents build
+// failures when the requested jvmToolchain version is not installed locally.
+jvmToolchainManagement {{
+    jvm {{
+        javaRepositories {{
+            repository("adoptium") {{
+                resolveStrategy.set(org.gradle.jvm.toolchain.JavaToolchainRepositoryResolver.RESOLVE_STRATEGY_STRICT)
+            }}
+        }}
+    }}
+}}
+
 rootProject.name = "{project_name}-e2e"
 "#
     )
