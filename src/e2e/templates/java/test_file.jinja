@@ -52,13 +52,30 @@ public class {{ test_class_name }} {
             "-cp", System.getProperty("java.class.path"),
             "{{ java_group_id }}.e2e.HarnessMain"
         );
+        // Inherit parent process environment so native library paths are available
+        pb.environment().putAll(System.getenv());
         pb.redirectErrorStream(false);
         harnessProcess = pb.start();
 
         // Read SUT_URL from harness stdout
+        // Also drain stderr in a background thread so the pipe doesn't block
         java.io.BufferedReader reader = new java.io.BufferedReader(
             new java.io.InputStreamReader(harnessProcess.getInputStream(), "UTF-8")
         );
+        java.io.BufferedReader errReader = new java.io.BufferedReader(
+            new java.io.InputStreamReader(harnessProcess.getErrorStream(), "UTF-8")
+        );
+        Thread stderrDrainer = new Thread(() -> {
+            try {
+                String errLine;
+                while ((errLine = errReader.readLine()) != null) {
+                    System.err.println("[Harness stderr] " + errLine);
+                }
+            } catch (java.io.IOException ignored) {}
+        });
+        stderrDrainer.setDaemon(true);
+        stderrDrainer.start();
+
         String line;
         long deadline = System.currentTimeMillis() + 15_000;
         while (System.currentTimeMillis() < deadline && (line = reader.readLine()) != null) {
