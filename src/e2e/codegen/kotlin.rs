@@ -1639,6 +1639,26 @@ fn build_args_and_setup(
                         }
                     }
 
+                    // For kotlin_android, filter out methods whose return type or parameters
+                    // reference types in the `exclude_types` list.  The binding generator
+                    // omits those methods from the generated interface, so the test stub
+                    // must not attempt to implement them.
+                    if kotlin_android_style {
+                        let excluded: std::collections::HashSet<&str> = config
+                            .kotlin_android
+                            .as_ref()
+                            .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+                            .unwrap_or_default();
+                        if !excluded.is_empty() {
+                            methods.retain(|m| {
+                                !excluded.iter().any(|ex| m.return_type.references_named(ex))
+                                    && m.params
+                                        .iter()
+                                        .all(|p| !excluded.iter().any(|ex| p.ty.references_named(ex)))
+                            });
+                        }
+                    }
+
                     let lang = if kotlin_android_style {
                         "kotlin_android"
                     } else {
