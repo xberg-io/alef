@@ -611,7 +611,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
 {%- for variant in unit_result_variants %}
       "{{ variant.wire_name }}" -> "{{ variant.wire_name }}"
 {%- if variant.atom_name %}
-      :{{ variant.atom_name }} -> "{{ variant.wire_name }}"
+      :"{{ variant.atom_name }}" -> "{{ variant.wire_name }}"
 {%- endif %}
 {%- endfor %}
       {:custom, value} -> to_string(value)
