@@ -954,7 +954,10 @@ pub(super) fn gen_api_py(
         // They must appear AFTER truly-required params to avoid a Python SyntaxError
         // ("non-default argument follows default argument"), so treat them as promoted.
         for param in &func.params {
-            if !param.optional && !promoted_params.contains(&param.name) && !bridge_param_names.contains(param.name.as_str()) {
+            if !param.optional
+                && !promoted_params.contains(&param.name)
+                && !bridge_param_names.contains(param.name.as_str())
+            {
                 let leaf_name = match &param.ty {
                     crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
                     crate::core::ir::TypeRef::Optional(inner) => {

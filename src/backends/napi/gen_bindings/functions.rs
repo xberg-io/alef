@@ -521,17 +521,11 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                             p.name.clone()
                         }
                     } else if p.is_ref && p.map_is_btree {
-                        format!(
-                            "&{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()",
-                            p.name
-                        )
+                        format!("&{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
                     } else if p.is_ref {
                         format!("&{}", p.name)
                     } else if p.map_is_btree {
-                        format!(
-                            "{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()",
-                            p.name
-                        )
+                        format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
                     } else {
                         p.name.clone()
                     }

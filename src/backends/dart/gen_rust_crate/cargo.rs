@@ -718,7 +718,8 @@ mod build_rs_tests {
             "sample_router_dart",
         );
         assert!(
-            file.content.contains("Command::new(\"dart\")") && file.content.contains("\"format\"")
+            file.content.contains("Command::new(\"dart\")")
+                && file.content.contains("\"format\"")
                 && file.content.contains("FRB_GENERATED_DART"),
             "build.rs must run `dart format` on the patched frb_generated.dart"
         );
@@ -735,7 +736,8 @@ mod build_rs_tests {
         // Verify the generated code uses let-chain syntax which rustfmt 1.9.0+ accepts
         // in 2024 edition, with the opening brace on its own line (the canonical rustfmt layout).
         assert!(
-            file.content.contains("if fixed != source\n        && let Err(err) = std::fs::write(path, &fixed)\n    {"),
+            file.content
+                .contains("if fixed != source\n        && let Err(err) = std::fs::write(path, &fixed)\n    {"),
             "emitted build.rs must use let-chain syntax with opening brace on its own line for rustfmt compatibility"
         );
     }

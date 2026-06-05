@@ -1770,8 +1770,8 @@ mod tests {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
-                    map_is_btree: false,
-                    core_wrapper: crate::core::ir::CoreWrapper::None,
+            map_is_btree: false,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
         };
         let rs = format!("{}_rs", p.name);
         // Simulate the call-site arm for Named non-optional with is_mut
@@ -1815,8 +1815,8 @@ mod tests {
             map_is_ahash: false,
             map_key_is_cow: false,
             vec_inner_is_ref: false,
-                    map_is_btree: false,
-                    core_wrapper: crate::core::ir::CoreWrapper::None,
+            map_is_btree: false,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
         };
 
         // Run the real conversion generator.

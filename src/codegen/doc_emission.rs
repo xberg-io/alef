@@ -3328,12 +3328,24 @@ mod tests {
         assert!(out.contains("</summary>"), "closing summary tag present: {out}");
 
         // Check that both paragraphs are present
-        assert!(out.contains("Stream a single-URL crawl"), "first paragraph present: {out}");
-        assert!(out.contains("Returns an async stream"), "second paragraph present: {out}");
+        assert!(
+            out.contains("Stream a single-URL crawl"),
+            "first paragraph present: {out}"
+        );
+        assert!(
+            out.contains("Returns an async stream"),
+            "second paragraph present: {out}"
+        );
 
         // Check that the intra-doc link is converted (backticks preserved, square brackets gone)
-        assert!(out.contains("`CrawlEvent`"), "intra-doc link converted to code span: {out}");
-        assert!(!out.contains("[`CrawlEvent`]"), "square brackets removed from intra-doc link: {out}");
+        assert!(
+            out.contains("`CrawlEvent`"),
+            "intra-doc link converted to code span: {out}"
+        );
+        assert!(
+            !out.contains("[`CrawlEvent`]"),
+            "square brackets removed from intra-doc link: {out}"
+        );
 
         // Check that all lines have the /// prefix (including the blank line separating paragraphs)
         let lines: Vec<&str> = out.lines().collect();
