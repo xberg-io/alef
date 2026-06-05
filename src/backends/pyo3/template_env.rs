@@ -203,6 +203,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/converters/field_accessor.jinja"),
     ),
     (
+        "converters/overload_none.jinja",
+        include_str!("templates/converters/overload_none.jinja"),
+    ),
+    (
+        "converters/overload_some.jinja",
+        include_str!("templates/converters/overload_some.jinja"),
+    ),
+    (
         "data_enum_vec_coerce.jinja",
         include_str!("templates/data_enum_vec_coerce.jinja"),
     ),
