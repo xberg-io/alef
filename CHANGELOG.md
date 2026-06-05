@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-java -->
+- **e2e/java — harness emits `Method.valueOf(method)` where `method` is a lowercase fixture string ("get", "post"), but the generated `Method` enum has PascalCase constants (`Get`, `Post`)**: `Method.valueOf("get")` throws `IllegalArgumentException: No enum constant`. The generated enum provides the case-insensitive factory `Method.fromValue(String)`, which uses `equalsIgnoreCase` for matching. Fixed by replacing `Method.valueOf(method)` with `Method.fromValue(method)` in the harness template. (`src/e2e/templates/java/harness_main.jinja`)
+
 <!-- N+12-dart -->
 - **e2e/dart — harness emits `.new_().path().method()` builder chain that no longer exists in FRB-generated `RouteBuilder`**: FRB generates a static factory `RouteBuilder.newInstance({required Method method, required String path})` returning `Future<RouteBuilder>`, not a `.new_()` method. Fixed by replacing the builder chain with an `await RouteBuilder.newInstance(method: methodEnum, path: fullRoute)` call. (`src/e2e/templates/dart/app_harness.dart.jinja`)
 
