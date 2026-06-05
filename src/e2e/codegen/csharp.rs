@@ -1599,8 +1599,43 @@ fn render_streaming_test_method(
     }
 
     let _ = writeln!(body, "        var chunks = new List<{item_type}>();");
+    // Optional chat-stream aggregator vars — emitted only when assertions reference them
+    // so we don't pollute non-chat streaming bodies (CrawlEvent etc.) with chat-only
+    // pseudo-fields that have no analog on the streamed item type.
+    let asserts_finish_reason = is_chat_stream
+        && fixture
+            .assertions
+            .iter()
+            .any(|a| a.field.as_deref() == Some("finish_reason"));
+    let asserts_tool_calls = is_chat_stream
+        && fixture
+            .assertions
+            .iter()
+            .any(|a| a.field.as_deref() == Some("tool_calls"));
+    let asserts_tool_call_name = is_chat_stream
+        && fixture
+            .assertions
+            .iter()
+            .any(|a| a.field.as_deref() == Some("tool_calls[0].function.name"));
+    let asserts_total_tokens = is_chat_stream
+        && fixture
+            .assertions
+            .iter()
+            .any(|a| a.field.as_deref() == Some("usage.total_tokens"));
     if is_chat_stream {
         body.push_str("        var streamContent = new System.Text.StringBuilder();\n");
+    }
+    if asserts_finish_reason {
+        body.push_str("        string? lastFinishReason = null;\n");
+    }
+    if asserts_tool_calls {
+        body.push_str("        string? toolCallsJson = null;\n");
+    }
+    if asserts_tool_call_name {
+        body.push_str("        string? toolCalls0FunctionName = null;\n");
+    }
+    if asserts_total_tokens {
+        body.push_str("        long? totalTokens = null;\n");
     }
     body.push_str("        var streamComplete = false;\n");
     let _ = writeln!(body, "        await foreach (var chunk in {call_expr})");
@@ -1619,7 +1654,44 @@ fn render_streaming_test_method(
         body.push_str("                {\n");
         body.push_str("                    streamContent.Append(delta.Content);\n");
         body.push_str("                }\n");
+        if asserts_finish_reason {
+            // FinishReason is a JSON-converter-driven enum on the chat-completion DTOs;
+            // serialize it through the converter so we get the snake_case API value
+            // (e.g. "tool_calls") that assertions compare against, not the .NET name.
+            body.push_str("                if (choice.FinishReason.HasValue)\n");
+            body.push_str("                {\n");
+            body.push_str(
+                "                    lastFinishReason = System.Text.Json.JsonSerializer.Serialize(choice.FinishReason.Value).Trim('\"');\n",
+            );
+            body.push_str("                }\n");
+        }
+        if asserts_tool_calls || asserts_tool_call_name {
+            body.push_str("                if (delta != null && delta.ToolCalls != null && delta.ToolCalls.Count > 0)\n");
+            body.push_str("                {\n");
+            if asserts_tool_calls {
+                body.push_str(
+                    "                    toolCallsJson = System.Text.Json.JsonSerializer.Serialize(delta.ToolCalls);\n",
+                );
+            }
+            if asserts_tool_call_name {
+                body.push_str("                    var firstFn = delta.ToolCalls[0].Function;\n");
+                body.push_str("                    if (firstFn != null && !string.IsNullOrEmpty(firstFn.Name))\n");
+                body.push_str("                    {\n");
+                body.push_str("                        toolCalls0FunctionName = firstFn.Name;\n");
+                body.push_str("                    }\n");
+            }
+            body.push_str("                }\n");
+        }
         body.push_str("            }\n");
+        if asserts_total_tokens {
+            // Usage.TotalTokens is ulong on the chat-completion DTOs; widen to long?
+            // so the assertion-mapping in `map_chat_stream_field` (Kind::IntTokens) can
+            // compare against `long`-valued assertion JSON without losing the null state.
+            body.push_str("            if (chunk.Usage != null)\n");
+            body.push_str("            {\n");
+            body.push_str("                totalTokens = (long)chunk.Usage.TotalTokens;\n");
+            body.push_str("            }\n");
+        }
     }
     body.push_str("        }\n");
     body.push_str("        streamComplete = true;\n");
