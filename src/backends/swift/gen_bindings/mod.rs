@@ -2647,8 +2647,9 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         let swift_func_name = swift_ident(&func.name.to_lower_camel_case());
 
         // Build positional parameters for the overload signature.
+        // For each config parameter, derive a unique variable name from the parameter's type name.
         let mut param_strs: Vec<String> = Vec::new();
-        let mut json_local_names: std::collections::HashMap<usize, (String, String)> = std::collections::HashMap::new(); // idx -> (swift_param_name, config_from_json_name)
+        let mut json_local_names: std::collections::HashMap<usize, (String, String)> = std::collections::HashMap::new(); // idx -> (json_fn_name, type_var_name)
 
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
@@ -2658,10 +2659,14 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
                 format!("{type_snake}_from_json").to_lower_camel_case()
             });
 
-            if let Some(json_fn_name) = config_json_name {
-                // Config param becomes a String, named configJson to avoid shadowing.
-                param_strs.push("_ configJson: String".to_string());
-                json_local_names.insert(i, (param_name.clone(), json_fn_name));
+            if let Some(json_fn_name) = config_json_name.clone() {
+                // Config param becomes a String. Derive a unique parameter label and local variable
+                // name from the config type name to avoid shadowing and parameter-label collisions.
+                if let Some((_, ty_name)) = config_params.iter().find(|(idx, _)| *idx == i) {
+                    let type_var_name = AsSnakeCase(*ty_name).to_string().to_lower_camel_case();
+                    param_strs.push(format!("_ {type_var_name}Json: String"));
+                    json_local_names.insert(i, (json_fn_name, type_var_name));
+                }
             } else {
                 let ty_str = if param.optional {
                     format!("{}?", swift_type_name(&param.ty))
@@ -2684,10 +2689,9 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         let mut call_args: Vec<String> = Vec::new();
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
-            if let Some((_, _)) = json_local_names.get(&i) {
-                // Pass the decoded config, using the correct local variable name
-                // derived from the parameter type (e.g., `pageClassificationConfig`).
-                call_args.push(format!("{param_name}: config"));
+            if let Some((_, type_var_name)) = json_local_names.get(&i) {
+                // Pass the decoded config with the type-derived local variable name.
+                call_args.push(format!("{param_name}: {type_var_name}"));
             } else {
                 call_args.push(format!("{param_name}: {param_name}"));
             }
@@ -2698,9 +2702,11 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         out.push_str(&format!(
             "public func {swift_func_name}({params_sig}){async_clause}{throws_clause} -> {return_ty} {{\n"
         ));
-        // Emit decoding for all JSON config parameters, each with its own decoder.
-        for (_param_name, json_fn_name) in json_local_names.values() {
-            out.push_str(&format!("    let config = try {json_fn_name}(configJson)\n"));
+        // Emit decoding for all JSON config parameters, each with its own decoder and local variable.
+        for (json_fn_name, type_var_name) in json_local_names.values() {
+            out.push_str(&format!(
+                "    let {type_var_name} = try {json_fn_name}({type_var_name}Json)\n"
+            ));
         }
         let await_kw = if func.is_async { "await " } else { "" };
         out.push_str(&format!(
@@ -4337,16 +4343,18 @@ fn forwarder_return_conversion_suffix_inner(
                 let struct_name = swift_ident(name);
                 // For first-class DTOs (in known_dto_names), use the custom init(_ rb:) initializer.
                 // These are Codable value structs — do NOT assign isOwned.
-                // The closure body throws, so the entire map expression must be prefixed with `try`.
+                // The closure body throws: emit .map { ref in try ... }. The surrounding
+                // return statement will prepend the statement-level `try` via `effective_try`.
                 if known_dto_names.contains(name) {
-                    format!("try .map {{ ref in try {struct_name}(ref) }}")
+                    format!(".map {{ ref in try {struct_name}(ref) }}")
                 } else {
                     // Typealias'd type: RustBridge.{Name} is the actual opaque class, ref is {Name}Ref.
                     // Use the ptr-based init to convert Ref → owned instance, then mark as borrowed
                     // via isOwned = false to prevent double-free.
-                    // The closure body throws, so the entire map expression must be prefixed with `try`.
+                    // The closure body throws: emit .map { ref in ... }. The surrounding
+                    // return statement will prepend the statement-level `try` via `effective_try`.
                     format!(
-                        "try .map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}"
+                        ".map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}"
                     )
                 }
             }
