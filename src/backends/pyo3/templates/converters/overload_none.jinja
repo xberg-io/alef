@@ -1,4 +1,4 @@
-{%- if has_visitor_override %}
+{% if has_visitor_override %}
 @overload
 def _to_rust_{{ snake }}(value: None, _visitor_override: None = None) -> None: ...
 
@@ -7,8 +7,9 @@ def _to_rust_{{ snake }}(value: None, _visitor_override: None = None) -> None: .
 def _to_rust_{{ snake }}(value: None, _visitor_override: {{ bridge_visitor_type }}) -> _rust.{{ type_name }}: ...
 
 
-{%- else %}
+{% else %}
 @overload
 def _to_rust_{{ snake }}(value: None) -> None: ...
 
-{%- endif %}
+
+{% endif %}

@@ -405,6 +405,11 @@ pub(super) fn gen_api_py(
         // still see the return type as `ProcessConfig | None` (not narrowed), causing
         // mypy errors when passing the result directly.
         let has_visitor_override = bridge_visitor_field.is_some();
+        // Record position before emitting overloads so the dict-helper splice can
+        // insert the helper BEFORE the first @overload. Without this, the helper
+        // ends up between the last @overload stub and the actual implementation,
+        // which mypy rejects (overloads must be immediately followed by impl).
+        let overloads_start_pos = out.len();
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/overload_none.jinja",
             minijinja::context! {
@@ -506,16 +511,15 @@ pub(super) fn gen_api_py(
         let use_dict_helper = total_coercible > DICT_HELPER_THRESHOLD;
 
         if use_dict_helper {
-            // Emit `_coerce_dict_{snake}` BEFORE `_to_rust_{snake}`.
-            // Insert the helper function text before the current function's docstring by
-            // prepending it to a temporary buffer and then inserting into `out` just before
-            // the function header we already emitted.  Because we are mid-emit, it is simpler
-            // to build the helper in a separate string and splice it in before the `def` line.
+            // Emit `_coerce_dict_{snake}` BEFORE the `@overload` stubs for `_to_rust_{snake}`.
             //
-            // Strategy: find the last occurrence of `def _to_rust_{snake}` in `out` and
-            // insert the helper immediately before it.
-            let helper_marker = format!("def _to_rust_{snake}(");
-            let insert_pos = out.rfind(&helper_marker).unwrap_or(out.len());
+            // Strategy: insert at `overloads_start_pos`, recorded just before the overload
+            // stubs were appended. This guarantees the helper appears BEFORE the overloads
+            // (so mypy still sees overloads → impl with no non-overload functions between
+            // them). Previously we used `rfind("def _to_rust_X(")` which matched the LAST
+            // overload stub, placing the helper between overloads and implementation —
+            // mypy rejects that arrangement with `no-overload-impl`.
+            let insert_pos = overloads_start_pos;
 
             let mut helper = String::new();
             helper.push_str(&crate::backends::pyo3::template_env::render(
