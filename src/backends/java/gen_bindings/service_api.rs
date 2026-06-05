@@ -242,11 +242,12 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             "            // Create adapter: (context_ptr: ADDRESS, request_ptr: ADDRESS) -> response_ptr: ADDRESS\n",
         );
         out.push_str("            // Marshals C pointers <-> Java strings via Arena\n");
-        out.push_str("            MethodHandle adapter = lookup.findStatic(");
+        out.push_str("            MethodHandle baseMh = lookup.findStatic(");
         out.push_str(&format!("{}.class, ", class_name));
         out.push_str("\"invokeHandlerWithMarshal\",\n");
         out.push_str("                MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)\n");
-        out.push_str("            ).bindTo(handler).bindTo(arena);\n\n");
+        out.push_str("            );\n");
+        out.push_str("            MethodHandle adapter = MethodHandles.insertArguments(baseMh, 2, handler, arena);\n\n");
 
         out.push_str("            MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);\n\n");
 
@@ -299,8 +300,8 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         out.push_str("            );\n");
         out.push_str("            MethodHandle regHandle = LINKER.downcallHandle(regAddr, regDesc);\n\n");
 
-        // Invoke the register function
-        out.push_str("            Object[] args = new Object[] {\n");
+        // Invoke the register function directly with invokeExact
+        out.push_str("            return (int) regHandle.invokeExact(\n");
         out.push_str("                ownerHandle,     // owner\n");
         out.push_str("                upcallStub       // callback\n");
 
@@ -320,8 +321,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             }
         }
 
-        out.push_str("\n            };\n");
-        out.push_str("            return (int) regHandle.invokeExact(args);\n");
+        out.push_str("\n            );\n");
         out.push_str("        } catch (Throwable e) {\n");
         out.push_str("            throw new RuntimeException(\"Failed to register handler\", e);\n");
         out.push_str("        }\n");
