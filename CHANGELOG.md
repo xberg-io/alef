@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-rust-args -->
+- **e2e/rust args — `Vec<String>` fixture values cannot coerce to `&[&str]` parameters required by some Rust core APIs**: added `vec_inner_is_ref` flag to `ArgMapping`. When `arg_type = "json_object"` and `element_type = "String"` and the flag is set, the codegen emits an additional `Vec<&str>` binding that maps `String::as_str` over the deserialized vector so the slice coerces correctly. (`src/core/config/e2e.rs`, `src/e2e/codegen/rust/args.rs`, `src/e2e/codegen/rust/test_file.rs`)
+
 <!-- N+12-go -->
 - **e2e/go — harness template emits `app.{{ start_background_method }}(host, port)` but the context dict never provides `start_background_method`, rendering as `app.(host, port)` — a syntax error**: the Go harness now receives `start_background_method => "StartBackground"` in the template context. (`src/e2e/codegen/go.rs`)
 - **e2e fixture model — `HttpRequest` struct lacks `form_data` field, causing fixtures with `"form_data": {...}` to silently drop the field during deserialization**: added `form_data: Option<BTreeMap<String, String>>` to `HttpRequest`, with a `url_encoded_body()` helper method that encodes form data as `application/x-www-form-urlencoded` (key=value&key=value). Language emitters can use this helper to populate request bodies when `body` is None but `form_data` is present. (`src/e2e/fixture.rs`)

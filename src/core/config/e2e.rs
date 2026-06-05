@@ -1063,6 +1063,13 @@ pub struct ArgMapping {
     /// prefix where needed, e.g. `"sample_core.BatchBytesItem"` or `"string"`.
     #[serde(default)]
     pub go_type: Option<String>,
+    /// When `true`, the Rust e2e codegen converts `Vec<String>` to `Vec<&str>` before the
+    /// call, enabling the slice to coerce to `&[&str]` as required by the Rust core.
+    ///
+    /// Use when `arg_type = "json_object"` and `element_type = "String"` and the target
+    /// Rust function parameter is `&[&str]` (not `&[String]`).
+    #[serde(default)]
+    pub vec_inner_is_ref: bool,
     /// Trait name for `test_backend` arg type (e.g., `"DocumentExtractor"`, `"OcrBackend"`).
     ///
     /// When `arg_type = "test_backend"`, this field specifies which trait's bridge

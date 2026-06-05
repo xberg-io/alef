@@ -43,6 +43,7 @@ pub fn render_rust_arg(
     test_documents_dir: &str,
     is_error_context: bool,
     handle_config_type: Option<&str>,
+    vec_inner_is_ref: bool,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         // Prefer the per-fixture `MOCK_SERVER_<FIXTURE_ID>` env var when set (host-root
@@ -128,7 +129,7 @@ pub fn render_rust_arg(
         return (lines, format!("&{name}"));
     }
     if arg_type == "json_object" {
-        return render_json_object_arg(name, value, optional, owned, element_type, module);
+        return render_json_object_arg(name, value, optional, owned, element_type, module, vec_inner_is_ref);
     }
     if value.is_null() && !optional {
         // Required arg with no fixture value: use a language-appropriate default.
@@ -226,6 +227,9 @@ pub fn render_rust_arg(
 /// `owned` — when true the binding is passed by value (no leading `&`); use for `Vec<T>` params.
 /// `element_type` — when set, emits `Vec<element_type>` annotation to satisfy type inference for
 ///   `&[T]` parameters where `serde_json::from_value` cannot resolve the unsized slice type.
+/// `vec_inner_is_ref` — when true and `element_type = "String"`, emits an extra binding that
+///   converts `Vec<String>` to `Vec<&str>` so the slice coerces to `&[&str]` as required by the
+///   Rust core. This mirrors the `vec_inner_is_ref` flag on `ParamDef` in the binding shims.
 fn render_json_object_arg(
     name: &str,
     value: &serde_json::Value,
@@ -233,6 +237,7 @@ fn render_json_object_arg(
     owned: bool,
     element_type: Option<&str>,
     _module: &str,
+    vec_inner_is_ref: bool,
 ) -> (Vec<String>, String) {
     // Owned params (Vec<T>) are passed by value; ref params (most configs) use &.
     let pass_by_ref = !owned;
@@ -272,6 +277,15 @@ fn render_json_object_arg(
     // A1 fix: always deser as T (never wrap in Some()); optional non-null args target
     // &T not &Option<T>. Pass as &T (ref) or T (owned) depending on the `owned` flag.
     lines.push(format!("let {name} = {deser_expr};"));
+    // When vec_inner_is_ref is set and element_type is "String", the Rust core parameter is
+    // &[&str] rather than &[String]. Emit a conversion binding so the slice coerces correctly.
+    if vec_inner_is_ref && matches!(element_type, Some("String")) {
+        let refs_name = format!("{name}_refs");
+        lines.push(format!(
+            "let {refs_name}: Vec<&str> = {name}.iter().map(String::as_str).collect();"
+        ));
+        return (lines, format!("&{refs_name}"));
+    }
     let expr = if pass_by_ref {
         format!("&{name}")
     } else {
@@ -508,6 +522,7 @@ mod tests {
             "test_documents",
             false,
             Some("SessionConfig"),
+            false,
         );
 
         assert_eq!(expr, "&session");
@@ -515,5 +530,51 @@ mod tests {
         assert!(rendered.contains("let session_config: SessionConfig = serde_json::from_str"));
         assert!(rendered.contains("create_session(Some(session_config))"));
         assert!(!rendered.contains("CrawlConfig"));
+    }
+
+    #[test]
+    fn json_object_with_vec_inner_is_ref_emits_str_shim() {
+        let (lines, expr) = render_rust_arg(
+            "names",
+            &serde_json::json!(["python", "rust"]),
+            "json_object",
+            false,
+            "my_crate",
+            "fixture_id",
+            None,
+            false,
+            Some("String"),
+            "test_documents",
+            false,
+            None,
+            true,
+        );
+
+        assert_eq!(expr, "&names_refs");
+        let rendered = lines.join("\n");
+        assert!(rendered.contains("let names_refs: Vec<&str> = names.iter().map(String::as_str).collect();"));
+    }
+
+    #[test]
+    fn json_object_without_vec_inner_is_ref_emits_plain_ref() {
+        let (lines, expr) = render_rust_arg(
+            "names",
+            &serde_json::json!(["python", "rust"]),
+            "json_object",
+            false,
+            "my_crate",
+            "fixture_id",
+            None,
+            false,
+            Some("String"),
+            "test_documents",
+            false,
+            None,
+            false,
+        );
+
+        assert_eq!(expr, "&names");
+        let rendered = lines.join("\n");
+        assert!(!rendered.contains("names_refs"));
     }
 }

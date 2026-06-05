@@ -589,6 +589,7 @@ pub fn render_test_function(
             &e2e_config.test_documents_dir,
             has_error_assertion,
             resolve_handle_config_type(arg, call_recipe.options_type, type_defs).as_deref(),
+            arg.vec_inner_is_ref,
         );
         // Add explicit type annotation to json_object bindings so Rust can resolve
         // `Default::default()` and `serde_json::from_value(…)` without a trailing
