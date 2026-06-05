@@ -97,8 +97,10 @@ final class VisitorBridge implements AutoCloseable {
     private static {{ context_type }} decodeContext(
             final MemorySegment ctxPtr) {
         var ctx = ctxPtr.reinterpret(CTX_LAYOUT.byteSize());
-        int nodeType = ctx.get(ValueLayout.JAVA_INT, 0L);
-        var tagNamePtr = ctx.get(ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);
+        int nodeTypeRaw = ctx.get(ValueLayout.JAVA_INT, 0L);
+{% if node_type_enum %}        {{ node_type_enum }} nodeType = {{ node_type_enum }}.values()[nodeTypeRaw];
+{% else %}        int nodeType = nodeTypeRaw;
+{% endif %}        var tagNamePtr = ctx.get(ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);
         String tagName = tagNamePtr.reinterpret(Long.MAX_VALUE).getString(0);
         long depth = ctx.get(ValueLayout.JAVA_LONG, CTX_OFFSET_DEPTH);
         long indexInParent = ctx.get(ValueLayout.JAVA_LONG, CTX_OFFSET_INDEX_IN_PARENT);

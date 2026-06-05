@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- java-visitor-bridge-node-type -->
+- **java — `VisitorBridge.decodeContext` passes raw `int` discriminant to a `NodeContext` constructor expecting the `NodeType` enum**: the visitor-bridge template read the first 4 bytes of the C context struct as `int nodeType = ctx.get(ValueLayout.JAVA_INT, 0L)` and passed it straight into `new NodeContext(nodeType, ...)`, but the Java record's first field is typed `NodeType` (an enum), not `int`. Generated code failed javac with `incompatible types: int cannot be converted to NodeType`. Fixed by detecting the first field of the configured `context_type` in `resolve_visitor_generation` — when it is a Named enum, the template renders `<EnumName> nodeType = <EnumName>.values()[nodeTypeRaw];` to convert the raw discriminant into the typed enum. Falls back to plain `int` passthrough when the first field isn't an enum. (`src/backends/java/gen_visitor/files.rs`, `src/backends/java/templates/visitor_bridge.jinja`)
+
 <!-- java-record-map-import -->
 - **java — generated record types (e.g. `NodeContext.java`) omit `import java.util.Map;` when only impl methods reference `Map<K, V>`**: the import scanner in `gen_record_type` (Java backend) only added `import java.util.Map;` when the joined field declarations or the *builder* contained `Map<`. Static factory methods and instance wither methods emitted from `typ.methods` go into `record_block` *outside* the builder gate, so a record with no Map field but with a method like `withOwnedAttributes(Map<String, String> attributes)` produced an unimported `Map<...>` reference and javac `cannot find symbol: class Map`. Fixed by widening the scan to always check `record_block` for `List<` and `Map<` markers (the existing `fields_joined` check still catches direct field uses). (`src/backends/java/gen_bindings/types.rs`)
 

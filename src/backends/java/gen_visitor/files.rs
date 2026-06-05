@@ -17,6 +17,11 @@ const CHUNK_SIZE: usize = 5;
 pub(super) struct VisitorGeneration {
     trait_name: String,
     context_type: String,
+    /// Java enum type used for the first (discriminant) field of the context_type record.
+    /// Used by the VisitorBridge to convert the raw int discriminant read from the C
+    /// context struct into the typed enum expected by the record constructor.
+    /// `None` when the first field is not a Named enum (defaults to plain int passthrough).
+    node_type_enum: Option<String>,
     result_type: String,
     default_variant: String,
     callbacks: Vec<CallbackSpec>,
@@ -55,13 +60,24 @@ pub(super) fn resolve_visitor_generation(
         );
         return None;
     };
-    if !api.types.iter().any(|typ| typ.name == context_type && !typ.is_trait) {
+    let Some(context_type_def) = api.types.iter().find(|typ| typ.name == context_type && !typ.is_trait) else {
         eprintln!(
             "Skipping Java visitor generation for trait bridge `{}`: context_type `{context_type}` is absent",
             bridge.trait_name
         );
         return None;
-    }
+    };
+    // The first field of the context record is the node-type discriminant. The C ABI delivers
+    // it as a raw `int`; the Java record constructor expects the typed enum, so we capture the
+    // enum's Java name here and pass it to the VisitorBridge template for `Enum.values()[i]`
+    // conversion. Falls back to None (plain int) when the first field isn't a Named enum.
+    let node_type_enum = context_type_def
+        .fields
+        .first()
+        .and_then(|field| match &field.ty {
+            TypeRef::Named(name) if api.enums.iter().any(|e| e.name == *name) => Some(name.clone()),
+            _ => None,
+        });
     let Some(result_enum) = api.enums.iter().find(|enum_def| enum_def.name == result_type) else {
         eprintln!(
             "Skipping Java visitor generation for trait bridge `{}`: result_type `{result_type}` is absent",
@@ -94,6 +110,7 @@ pub(super) fn resolve_visitor_generation(
     Some(VisitorGeneration {
         trait_name: bridge.trait_name.clone(),
         context_type: context_type.to_string(),
+        node_type_enum,
         result_type: result_type.to_string(),
         default_variant: metadata.default_variant.name,
         callbacks,
@@ -299,6 +316,7 @@ fn gen_visitor_bridge(package: &str, visitor: &VisitorGeneration) -> String {
             package => package,
             trait_name => &visitor.trait_name,
             context_type => &visitor.context_type,
+            node_type_enum => visitor.node_type_enum.as_deref(),
             result_type => &visitor.result_type,
             num_callbacks => num_callbacks,
             num_fields => num_fields,
