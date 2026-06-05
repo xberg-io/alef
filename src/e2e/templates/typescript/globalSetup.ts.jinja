@@ -16,13 +16,11 @@ export async function setup() {
   // run`) has already built and started the shared mock-server, it exports
   // MOCK_SERVER_URL into our environment. In that case, reuse it and skip
   // spawning a local binary entirely. Only self-spawn when both are unset.
-  if (process.env.MOCK_SERVER_URL || process.env.SUT_URL) {
-    const baseUrl = process.env.MOCK_SERVER_URL || process.env.SUT_URL;
-    if (baseUrl) {
-      process.env.MOCK_SERVER_URL = baseUrl;
-      process.env.SUT_URL = baseUrl;
-    }
-    (globalThis as unknown as { app: ReturnType<typeof createApp> }).app = createApp(baseUrl!);
+  const presetUrl = process.env.MOCK_SERVER_URL ?? process.env.SUT_URL;
+  if (presetUrl) {
+    process.env.MOCK_SERVER_URL = presetUrl;
+    process.env.SUT_URL = presetUrl;
+    (globalThis as unknown as { app: ReturnType<typeof createApp> }).app = createApp(presetUrl);
     return;
   }
 
