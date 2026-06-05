@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.11] - 2026-06-05
+
+### Added
+
+<!-- N+12-napi-entrypoint -->
+- **napi: emit service entrypoints (run, finalize) and per-registration shortcuts as METHODS on the wrapper class** when `host_app_inner_accessor` is configured: the NAPI backend now emits entrypoint methods (e.g. `#[napi(js_name = "nativeRun")] pub async fn run(...)`) on the generated wrapper class alongside the existing free functions (`pub async fn app_run(...)`), so the TypeScript service wrapper can locate and call entrypoints directly as `this.nativeRun()` without relying on hand-maintained shims after each regeneration. Method names use PascalCase js_names (e.g. `nativeRun`, `nativeIntoRouter`) matching downstream TypeScript expectations. Emission is gated by the presence of `host_app_inner_accessor` in `alef.toml`, and free functions are preserved for backward compatibility. (`src/backends/napi/gen_bindings/service_api.rs`)
+
 ### Fixed
 
 <!-- magnus-nodecontext-map-result-wrap -->
