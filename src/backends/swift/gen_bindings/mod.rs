@@ -2623,26 +2623,45 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
 
     // Emit overloads for each candidate function.
     // To avoid duplicates, track which function names we've already emitted overloads for.
+    // Group all config params for a function so we can emit one overload with ALL json params.
     let mut emitted_funcs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut func_to_configs: std::collections::HashMap<String, Vec<(usize, &str)>> = std::collections::HashMap::new();
 
-    for (func, config_param_idx, config_type_name) in json_overload_candidates {
-        let func_key = format!("{}_{}", func.name, config_param_idx);
-        if !emitted_funcs.insert(func_key) {
-            continue; // Already emitted an overload for this function at this param index
+    for (func, config_param_idx, config_type_name) in &json_overload_candidates {
+        func_to_configs
+            .entry(func.name.clone())
+            .or_default()
+            .push((*config_param_idx, *config_type_name));
+    }
+
+    for (func, _config_param_idx, _config_type_name) in json_overload_candidates {
+        if !emitted_funcs.insert(func.name.clone()) {
+            continue; // Already emitted an overload for this function
         }
+
+        // Get all config param indices for this function, sorted by position.
+        let mut config_params = func_to_configs.get(&func.name).cloned().unwrap_or_default();
+        config_params.sort_by_key(|(idx, _)| *idx);
 
         // Generate the function signature.
         let swift_func_name = swift_ident(&func.name.to_lower_camel_case());
-        let config_type_snake = AsSnakeCase(config_type_name).to_string();
-        let config_from_json_name = format!("{config_type_snake}_from_json").to_lower_camel_case();
 
         // Build positional parameters for the overload signature.
         let mut param_strs: Vec<String> = Vec::new();
+        let mut json_local_names: std::collections::HashMap<usize, (String, String)> = std::collections::HashMap::new(); // idx -> (swift_param_name, config_from_json_name)
+
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
-            if i == config_param_idx {
-                // Config param becomes a String, named configJson to avoid shadowing the local variable.
+            // Check if this position has a config param
+            let config_json_name = config_params.iter().find(|(idx, _)| *idx == i).map(|(_, ty_name)| {
+                let type_snake = AsSnakeCase(ty_name).to_string();
+                format!("{type_snake}_from_json").to_lower_camel_case()
+            });
+
+            if let Some(json_fn_name) = config_json_name {
+                // Config param becomes a String, named configJson to avoid shadowing.
                 param_strs.push("_ configJson: String".to_string());
+                json_local_names.insert(i, (param_name.clone(), json_fn_name));
             } else {
                 let ty_str = if param.optional {
                     format!("{}?", swift_type_name(&param.ty))
@@ -2665,11 +2684,9 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         let mut call_args: Vec<String> = Vec::new();
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
-            if i == config_param_idx {
-                // Pass the decoded config, not the JSON string parameter. The base function's
-                // parameter label is the original Rust parameter name (e.g. `options:`), not
-                // a hardcoded `config:` — using the wrong label produces "incorrect argument
-                // label" Swift compile errors.
+            if let Some((_, _)) = json_local_names.get(&i) {
+                // Pass the decoded config, using the correct local variable name
+                // derived from the parameter type (e.g., `pageClassificationConfig`).
                 call_args.push(format!("{param_name}: config"));
             } else {
                 call_args.push(format!("{param_name}: {param_name}"));
@@ -2681,7 +2698,10 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         out.push_str(&format!(
             "public func {swift_func_name}({params_sig}){async_clause}{throws_clause} -> {return_ty} {{\n"
         ));
-        out.push_str(&format!("    let config = try {config_from_json_name}(configJson)\n"));
+        // Emit decoding for all JSON config parameters, each with its own decoder.
+        for (_param_name, json_fn_name) in json_local_names.values() {
+            out.push_str(&format!("    let config = try {json_fn_name}(configJson)\n"));
+        }
         let await_kw = if func.is_async { "await " } else { "" };
         out.push_str(&format!(
             "    return try {await_kw}{swift_func_name}({call_args_str}){return_suffix}\n"
@@ -4290,17 +4310,14 @@ fn forwarder_return_conversion_suffix_with_throws(
 fn forwarder_return_conversion_suffix_inner(
     ty: &TypeRef,
     known_dto_names: &std::collections::HashSet<String>,
-    throws: bool,
+    _throws: bool,
 ) -> String {
     match ty {
-        // swift-bridge transports the value through `RustString` whenever the
-        // Rust function returns `Result<T, E>` (`throws` from Swift's POV), so
-        // a bare `String` return still arrives as `RustString` and needs
-        // `.toString()` to coerce to the native Swift `String` declared on the
-        // forwarder signature. Non-throwing functions map `String` directly to
-        // Swift-native `String` — no conversion needed (pinned by
-        // `bytes_overload_with_string_return_does_not_append_to_string`).
-        TypeRef::String if throws => ".toString()".to_string(),
+        // swift-bridge transports the value through `RustString` in both throwing
+        // and non-throwing cases. A bare `String` return always arrives as `RustString`
+        // and needs `.toString()` to coerce to the native Swift `String` declared on
+        // the forwarder signature.
+        TypeRef::String => ".toString()".to_string(),
         TypeRef::Bytes => ".map { $0 }".to_string(),
         TypeRef::Vec(inner) => match inner.as_ref() {
             // RustVec<RustString> iteration yields `RustStringRef` (borrowed).
@@ -4320,14 +4337,16 @@ fn forwarder_return_conversion_suffix_inner(
                 let struct_name = swift_ident(name);
                 // For first-class DTOs (in known_dto_names), use the custom init(_ rb:) initializer.
                 // These are Codable value structs — do NOT assign isOwned.
+                // The closure body throws, so the entire map expression must be prefixed with `try`.
                 if known_dto_names.contains(name) {
-                    format!(".map {{ ref in try {struct_name}(ref) }}")
+                    format!("try .map {{ ref in try {struct_name}(ref) }}")
                 } else {
                     // Typealias'd type: RustBridge.{Name} is the actual opaque class, ref is {Name}Ref.
                     // Use the ptr-based init to convert Ref → owned instance, then mark as borrowed
                     // via isOwned = false to prevent double-free.
+                    // The closure body throws, so the entire map expression must be prefixed with `try`.
                     format!(
-                        ".map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}"
+                        "try .map {{ ref in var item = try RustBridge.{struct_name}(ptr: ref.ptr); item.isOwned = false; return item }}"
                     )
                 }
             }
