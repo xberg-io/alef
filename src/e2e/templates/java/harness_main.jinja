@@ -127,11 +127,11 @@ public class HarnessMain {
                 }
             }
 
-            // Emit the SUT_URL before blocking on app.run()
-            // Note: the harness will use the effective port, which may differ
-            // from the default if discovered dynamically or set via SUT_URL env var.
-            String harnessUrl = "http://" + effectiveHost + ":" + effectivePort;
-            System.out.println("SUT_URL=" + harnessUrl);
+            // Emit the harness port for the parent test runner to discover.
+            // Do not emit SUT_URL here — process-pipe buffering may prevent it from
+            // reaching the parent before app.run() blocks. Instead, emit a lightweight
+            // port marker and let the test runner verify TCP reachability.
+            System.out.println("HARNESS_PORT=" + effectivePort);
             System.out.flush();
 
             // Run the app (blocks indefinitely)

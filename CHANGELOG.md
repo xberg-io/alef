@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+<!-- N+13-java -->
+- **Java: harness e2e test runner never receives SUT_URL due to process-pipe buffering race**: `HarnessMain.java` emitted `SUT_URL=http://...` to stdout then called `app.run()`, which blocks on the Tokio runtime. The `System.out.flush()` does not propagate the line through Java's buffered pipe to the parent process before blocking occurs, so the test runner's 15s timeout expires waiting for the marker. Aligned with the Python e2e pattern: harness now prints a lightweight `HARNESS_PORT=<port>` marker, then the test runner reads the port, performs TCP-reachability polling with `Socket.connect()` (max 15s, 100ms backoff) to verify the server is accepting connections, and sets `SUT_URL` from the known host (127.0.0.1) and discovered port. The `HARNESS_PORT` marker is not relied upon after printing, so pipe buffering does not cause test timeouts. Updated both the `java/harness_main.jinja` template and `java/test_file.jinja` test setup. (`src/e2e/templates/java/harness_main.jinja`, `src/e2e/templates/java/test_file.jinja`)
+
 ## [0.23.15] - 2026-06-05
 
 ### Changed
