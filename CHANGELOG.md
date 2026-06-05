@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+<!-- wasm-e2e-harness -->
+- **e2e/wasm — server-pattern harness fails when App class is excluded**: when wasm binding excludes the `App` type (because the service API is not exposed for wasm), the e2e code generator attempted to emit a server-pattern app harness that imported and used the missing `App` class, causing a `SyntaxError: The requested module does not provide an export named 'App'` at test setup time. The harness also imported from the wrong package (`@spikard/node-wasm` instead of the actual wasm package name). Fixed by detecting when `App` is in the wasm backend's `exclude_types` and disabling the server-pattern harness, falling back to the mock-server pattern which does not require the app class. This allows wasm HTTP fixtures to run against a standalone mock-server binary instead of the application's app class. (`src/e2e/codegen/wasm.rs`)
+
 - **napi plugin trait-bridge — accept both camelCase and snake_case method names**: the NAPI trait bridge validates that a JS object passed to `registerDocumentExtractor` or `registerRenderer` has all required methods, checking for the camelCase version (e.g., `extractBytes`). To support both JavaScript convention (camelCase) and Rust convention (snake_case) property names, the constructor now accepts either form. Method lookup (`get_named_property`) also tries both forms, falling back to snake_case if camelCase is not found. This allows plugin implementations to use either naming convention without validation failure. (`src/backends/napi/trait_bridge_constructor.jinja`, `src/backends/napi/templates/sync_method_*.jinja`, `src/backends/napi/templates/async_method_*.jinja`, `src/backends/napi/trait_bridge.rs`)
 
 

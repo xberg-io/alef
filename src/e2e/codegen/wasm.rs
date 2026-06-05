@@ -227,7 +227,15 @@ impl E2eCodegen for WasmCodegen {
         // via `Fixture::needs_mock_server`). The simple mock-server template spawns
         // the standalone `mock-server` binary; the server-pattern template spawns
         // the consumer's app harness. Selection mirrors the Node typescript codegen.
-        let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+        //
+        // For wasm, the service API is skipped (App class is excluded from bindings).
+        // Wasm fixtures that require an app harness cannot run; fall back to mock-server
+        // pattern. check if the app_class is in the wasm exclude_types.
+        let app_class_excluded = config.wasm.as_ref()
+            .and_then(|w| w.exclude_types.as_ref())
+            .map(|types| types.iter().any(|t| t == "App"))
+            .unwrap_or(false);
+        let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty() && !app_class_excluded;
         let needs_global_setup = has_http_fixtures;
         let with_file_setup_cfg = has_file_fixtures || has_http_fixtures;
         files.push(GeneratedFile {
