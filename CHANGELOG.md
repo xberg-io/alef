@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.23.5] - 2026-06-05
+
+### Fixed
+
+- **r scaffold — DCF blank line between BugReports and License**: the `repository_lines` string for R DESCRIPTION files had a trailing `\n` after the `BugReports:` line, which inserted an empty line before `License:` in the DCF file. CRAN and `R CMD check` reject DESCRIPTION files with empty lines between fields. Removed the trailing newline. (`src/scaffold/languages/r.rs`)
+
 ## [0.23.4] - 2026-06-05
 
 ### Fixed
