@@ -4912,6 +4912,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            vec_inner_is_ref: false,
             trait_name: None,
         }];
         let fixture = Fixture {
@@ -5066,6 +5067,7 @@ mod tests {
                     owned: true,
                     element_type: None,
                     go_type: None,
+                    vec_inner_is_ref: false,
                     trait_name: None,
                 }],
                 overrides: call_overrides,
@@ -5213,6 +5215,7 @@ mod tests {
                     owned: false,
                     element_type: None,
                     go_type: None,
+                    vec_inner_is_ref: false,
                     trait_name: None,
                 }],
                 ..CallConfig::default()

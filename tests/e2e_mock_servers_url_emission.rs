@@ -534,6 +534,7 @@ fn wasm_global_setup_does_not_contain_init_call() {
             query_params: std::collections::BTreeMap::new(),
             cookies: std::collections::BTreeMap::new(),
             body: None,
+            form_data: None,
             content_type: None,
         },
         expected_response: alef::e2e::fixture::HttpExpectedResponse {
@@ -620,6 +621,7 @@ fn wasm_global_setup_skips_spawn_when_mock_server_url_preset() {
             query_params: std::collections::BTreeMap::new(),
             cookies: std::collections::BTreeMap::new(),
             body: None,
+            form_data: None,
             content_type: None,
         },
         expected_response: alef::e2e::fixture::HttpExpectedResponse {

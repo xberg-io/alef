@@ -62,6 +62,7 @@ fn make_http_fixture(id: &str) -> Fixture {
                 query_params: Default::default(),
                 cookies: Default::default(),
                 body: None,
+                form_data: None,
                 content_type: None,
             },
             expected_response: HttpExpectedResponse {

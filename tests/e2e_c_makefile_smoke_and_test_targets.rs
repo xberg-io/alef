@@ -93,6 +93,7 @@ fn build_fixture_with_http() -> FixtureGroup {
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
                     body: Some(serde_json::json!({ "messages": "hello" })),
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {

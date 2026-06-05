@@ -3864,6 +3864,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            vec_inner_is_ref: false,
             trait_name: None,
         }];
         let fixture = make_fixture_with_input("session_fixture", serde_json::json!({ "config": { "limit": 3 } }));

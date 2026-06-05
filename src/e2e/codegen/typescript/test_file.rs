@@ -2393,6 +2393,7 @@ type_prefix = "Js"
                     query_params: Default::default(),
                     cookies: Default::default(),
                     body: None,
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {

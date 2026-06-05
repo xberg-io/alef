@@ -170,6 +170,7 @@ fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
                     body: None,
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {
