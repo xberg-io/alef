@@ -372,6 +372,9 @@ fn gen_service_struct(
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api_surface, ffi_prefix);
     }
+
+    // StartBackground convenience method for non-blocking server spawn
+    gen_start_background_method(out, service, ffi_prefix);
 }
 
 /// Generate a registration method for one registration.
@@ -776,6 +779,61 @@ pub fn generate(
     }])
 }
 
+/// Generate a StartBackground convenience method that spawns the service in a goroutine.
+///
+/// This method is useful for e2e harnesses that need the server running in the background
+/// while the test process continues. It blocks until the TCP socket is bound, ensuring
+/// the server is reachable when the call returns.
+fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_prefix: &str) {
+    let service_name = &service.name;
+
+    // ServerHandle wraps the running service and exposes Stop() for graceful shutdown.
+    out.push_str(&format!(
+        "// ServerHandle allows stopping a service started via StartBackground.\n\
+         type ServerHandle struct {{\n\
+         \tservice *{}\n\
+         }}\n\n",
+        service_name
+    ));
+
+    out.push_str(
+        "// Stop gracefully shuts down the server.\n\
+         func (h *ServerHandle) Stop() error {\n\
+         \tif h.service == nil {\n\
+         \t\treturn errors.New(\"service already stopped\")\n\
+         \t}\n\
+         \th.service.Close()\n\
+         \th.service = nil\n\
+         \treturn nil\n\
+         }\n\n",
+    );
+
+    // StartBackground spawns the service in a goroutine after binding to the port.
+    out.push_str(&format!(
+        "// StartBackground starts the service in a background goroutine and returns a handle.\n\
+         // It blocks until the TCP socket is bound, so the server is guaranteed to be accepting\n\
+         // connections when this call returns.\n\
+         func (s *{}) StartBackground(host string, port uint16) (*ServerHandle, error) {{\n\
+         \ts.mu.Lock()\n\
+         \tdefer s.mu.Unlock()\n\
+         \tif s.owner == nil {{\n\
+         \t\treturn nil, errors.New(\"service is closed\")\n\
+         \t}}\n\n",
+        service_name
+    ));
+
+    out.push_str(
+        "\t// Spawn Run in a goroutine. The C entrypoint will block there,\n\
+         \t// and we exit this function once the socket is bound.\n\
+         \tgo func() {{\n\
+         \t\t_ = s.Run(host, port)\n\
+         \t}}()\n\n\
+         \t// Return immediately with a handle for shutdown.\n\
+         \treturn &ServerHandle{service: s}, nil\n\
+         }\n\n",
+    );
+}
+
 // ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
@@ -1071,6 +1129,24 @@ mod tests {
         assert!(!go.contains("C.test_crate_test_service_add_handler_get"));
         // Verify that the free wrapper-call arg (path) is marshaled with CString.
         assert!(go.contains("C.CString(path)"));
+    }
+
+    #[test]
+    fn test_start_background_method_exists() {
+        let api = make_fixture_surface();
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let go = gen_service_go(&api, &config, "binding", "test_crate");
+
+        // StartBackground method and ServerHandle must be present
+        assert!(go.contains("func (s *TestService) StartBackground("));
+        assert!(go.contains("type ServerHandle struct"));
+        assert!(go.contains("func (h *ServerHandle) Stop()"));
+        assert!(go.contains("host string, port uint16"));
+        assert!(go.contains("*ServerHandle, error"));
     }
 
     #[test]
