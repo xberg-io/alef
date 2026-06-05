@@ -533,6 +533,7 @@ mod tests {
                     owned: false,
                     element_type: None,
                     go_type: None,
+                    vec_inner_is_ref: false,
                     trait_name: None,
                 },
                 ArgMapping {
@@ -543,6 +544,7 @@ mod tests {
                     owned: false,
                     element_type: None,
                     go_type: None,
+                    vec_inner_is_ref: false,
                     trait_name: None,
                 },
             ],
@@ -601,6 +603,7 @@ mod tests {
                 owned: true,
                 element_type: None,
                 go_type: None,
+                vec_inner_is_ref: false,
                 trait_name: None,
             }],
             ..Default::default()

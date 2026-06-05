@@ -304,6 +304,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            vec_inner_is_ref: false,
             trait_name: None,
         }
     }
@@ -317,6 +318,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            vec_inner_is_ref: false,
             trait_name: None,
         }
     }
