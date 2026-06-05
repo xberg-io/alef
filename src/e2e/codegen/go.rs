@@ -565,10 +565,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
             out,
             "\t// the stderr pipe inherited from the test process. Without this the"
         );
-        let _ = writeln!(
-            out,
-            "\t// Go test runner waits for the pipe to close and reports"
-        );
+        let _ = writeln!(out, "\t// Go test runner waits for the pipe to close and reports");
         let _ = writeln!(out, "\t// \"exec: WaitDelay expired before I/O complete\".");
         let _ = writeln!(out, "\t_ = cmd.Process.Kill()");
         let _ = writeln!(out, "\t_, _ = cmd.Process.Wait()");
