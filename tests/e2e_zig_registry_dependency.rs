@@ -131,3 +131,69 @@ fn registry_build_zig_does_not_reference_in_tree_paths() {
         "registry build.zig must not link against the in-tree ../../target/release path:\n{content}"
     );
 }
+
+#[test]
+fn placeholder_hash_is_stripped() {
+    let cfg_with_placeholder = r#"
+[workspace]
+languages = ["zig"]
+
+[[crates]]
+name = "demo_crawler"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "scrape"
+module = "demo_crawler"
+result_var = "result"
+async = false
+returns_result = true
+args = [
+  { name = "url", field = "url", type = "string" },
+]
+
+[crates.e2e.registry]
+github_repo = "https://github.com/example/demo_crawler"
+
+[crates.e2e.registry.packages.zig]
+name = "demo_crawler"
+version = "1.2.3"
+hash = "demo_crawler-1.2.3-STALE_TODO_REGENERATE"
+"#;
+
+    let cfg: NewAlefConfig = toml::from_str(cfg_with_placeholder).expect("config with placeholder parses");
+    let resolved = cfg.clone().resolve().expect("resolves").remove(0);
+    let mut e2e = cfg.crates[0].e2e.clone().expect("e2e config");
+    e2e.dep_mode = DependencyMode::Registry;
+
+    // Should not bail on placeholder — instead, will attempt to resolve from network.
+    // Since the network fetch will fail (artifact not published), it will return None
+    // and generate build.zig.zon without a .hash field (which is acceptable during
+    // placeholder regeneration).
+    let result = ZigE2eCodegen
+        .generate(&[group()], &e2e, &resolved, &[], &[]);
+
+    // Generation should succeed (not bail on placeholder detection).
+    assert!(
+        result.is_ok(),
+        "zig e2e codegen must not bail on STALE_TODO_REGENERATE placeholder: {:?}",
+        result.err()
+    );
+
+    let files = result.expect("generation succeeds");
+    let zon_file = files
+        .iter()
+        .find(|f| f.path.file_name().is_some_and(|n| n == "build.zig.zon"))
+        .expect("build.zig.zon generated");
+
+    // The generated build.zig.zon should not contain the placeholder.
+    assert!(
+        !zon_file.content.contains("STALE_TODO_REGENERATE"),
+        "generated build.zig.zon must not contain STALE_TODO_REGENERATE placeholder:\n{}",
+        zon_file.content
+    );
+}
