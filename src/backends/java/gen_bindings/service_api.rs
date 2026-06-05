@@ -134,6 +134,21 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
     out.push_str("        }\n");
     out.push_str("    }\n\n");
 
+    // Helper method: invoke handler with C pointer marshalling
+    // Signature must match Panama FFM upcall stub requirements: (ADDRESS, ADDRESS) -> ADDRESS
+    {
+        out.push_str("    // Adapter for handler upcalls: marshals C pointers <-> Java strings\n");
+        out.push_str("    private static MemorySegment invokeHandlerWithMarshal(\n");
+        out.push_str("            MemorySegment contextPtr,\n");
+        out.push_str("            MemorySegment requestPtr,\n");
+        out.push_str("            Callable handler,\n");
+        out.push_str("            Arena arena) throws Throwable {\n");
+        out.push_str("        String requestStr = requestPtr.getUtf8String(0);\n");
+        out.push_str("        String responseStr = handler.handle(requestStr);\n");
+        out.push_str("        return arena.allocateUtf8String(responseStr);\n");
+        out.push_str("    }\n\n");
+    }
+
     // Constructor: invoke {prefix}_{service}_new() downcall
     {
         out.push_str("    /**\n");
@@ -209,27 +224,29 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
         // Build upcall stub from the handler functional interface
         // The C FFI callback signature is: fn(*mut c_void, *const c_char) -> *mut c_char
-        // We wrap handler.handle() in a MethodHandle that marshals C strings to/from Java
+        // Marshalling: C *const char -> Java String -> handler.handle() -> String -> C *mut char
         out.push_str("            // Wrap Java handler in an upcall stub for C to invoke\n");
         out.push_str("            MethodHandles.Lookup lookup = MethodHandles.lookup();\n");
         out.push_str("            MethodHandle mh = lookup.findVirtual(Callable.class, \"handle\",\n");
         out.push_str("                MethodType.methodType(String.class, String.class));\n");
         out.push_str("            MethodHandle boundMh = mh.bindTo(handler);\n\n");
 
-        out.push_str("            // Build adapter: (context: ADDRESS, request: ADDRESS) -> ADDRESS\n");
-        out.push_str(
-            "            // Marshalling: C *const char -> Java String -> handler.handle() -> String -> C *mut char\n",
-        );
-        out.push_str("            // For now, simplified: upcall receives pointers, marshalls to/from Java strings\n");
+        out.push_str("            // Build C FFI signature: (context: ADDRESS, request: ADDRESS) -> ADDRESS\n");
         out.push_str("            FunctionDescriptor upcallDesc = FunctionDescriptor.of(\n");
         out.push_str("                ValueLayout.ADDRESS,  // return: *mut c_char\n");
         out.push_str("                ValueLayout.ADDRESS,  // param 0: *mut c_void (context)\n");
         out.push_str("                ValueLayout.ADDRESS   // param 1: *const c_char (request JSON)\n");
-        out.push_str("            );\n");
+        out.push_str("            );\n\n");
 
-        out.push_str("            // Create a wrapper MethodHandle that adapts Java strings to C pointers\n");
-        out.push_str("            // This is a simplified binding; production code should marshal strings properly\n");
-        out.push_str("            MemorySegment upcallStub = LINKER.upcallStub(boundMh, upcallDesc, arena);\n\n");
+        out.push_str("            // Create adapter: (context_ptr: ADDRESS, request_ptr: ADDRESS) -> response_ptr: ADDRESS\n");
+        out.push_str("            // Marshals C pointers <-> Java strings via Arena\n");
+        out.push_str("            MethodHandle adapter = lookup.findStatic(");
+        out.push_str(&format!("{}.class, ", class_name));
+        out.push_str("\"invokeHandlerWithMarshal\",\n");
+        out.push_str("                MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)\n");
+        out.push_str("            ).bindTo(handler, arena);\n\n");
+
+        out.push_str("            MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);\n\n");
 
         out.push_str("            // Get register downcall handle\n");
         out.push_str(&format!(

@@ -16,14 +16,20 @@
                 MethodType.methodType(String.class, String.class));
             MethodHandle boundMh = mh.bindTo(handler);
 
-            // Build adapter: (context: ADDRESS, request: ADDRESS) -> ADDRESS
+            // Build C FFI signature: (context: ADDRESS, request: ADDRESS) -> ADDRESS
             FunctionDescriptor upcallDesc = FunctionDescriptor.of(
                 ValueLayout.ADDRESS,  // return: *mut c_char
                 ValueLayout.ADDRESS,  // param 0: *mut c_void (context)
                 ValueLayout.ADDRESS   // param 1: *const c_char (request JSON)
             );
 
-            MemorySegment upcallStub = LINKER.upcallStub(boundMh, upcallDesc, arena);
+            // Create adapter: (context_ptr: ADDRESS, request_ptr: ADDRESS) -> response_ptr: ADDRESS
+            // Marshals C pointers <-> Java strings via Arena
+            MethodHandle adapter = lookup.findStatic(this.getClass(), "invokeHandlerWithMarshal",
+                MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)
+            ).bindTo(handler, arena);
+
+            MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);
 
             // Get variant registration downcall handle
             MemorySegment varAddr = LOOKUP.find("{{ ffi_symbol }}")

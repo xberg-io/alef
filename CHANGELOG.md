@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-r2-java-upcall -->
+- **java — handler registration `Linker.upcallStub()` throws `IllegalArgumentException: Wrong method handle type` because the trampoline MethodHandle has signature `(String) -> String` but the upcall descriptor expects `(ADDRESS, ADDRESS) -> ADDRESS`**: the Panama FFM upcall stub requires the MethodHandle type to match the FunctionDescriptor exactly — a C ABI contract with memory pointers, not Java strings. Fixed by (a) emitting a private static helper method `invokeHandlerWithMarshal(MemorySegment contextPtr, MemorySegment requestPtr, Callable handler, Arena arena) -> MemorySegment` in the service class with the correct C-compatible signature, (b) using MethodHandles reflection to locate and bind this helper, and (c) passing the bound adapter to `upcallStub` instead of the raw `String -> String` bound method. The helper unmarshals C string pointers via `getUtf8String(0)`, invokes the user handler, marshals the response via `arena.allocateUtf8String()`, and returns the allocated pointer. (`src/backends/java/gen_bindings/service_api.rs`, `src/backends/java/templates/registration_variant.java.jinja`)
+
 <!-- N+12-r2-ruby-fromjson -->
 - **e2e/ruby — harness emits `cors_config_class.from_json(cfg.to_json)` but magnus-wrapped config classes only have `to_json`, not `from_json`**: the harness assumed a `from_json` class method existed on all config types, causing `NoMethodError` at runtime. Fixed by passing the config hash directly to the builder method (e.g. `builder.cors(cfg)`); magnus `TryConvert` trait handles deserialization from Ruby hashes automatically without JSON round-tripping. (`src/e2e/templates/ruby/app_harness.rb.jinja`)
 
@@ -26,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- N+12-napi-entrypoint -->
 - **napi: emit service entrypoints (run, finalize) as methods on the wrapper class** when `host_app_inner_accessor` is configured: the NAPI backend now emits entrypoint methods (e.g. `#[napi(js_name = "nativeRun")] pub async fn run(...)`) on the generated wrapper class alongside the existing free functions (`pub async fn app_run(...)`), so the TypeScript service wrapper can locate and call entrypoints directly as `this.nativeRun()` without relying on hand-maintained shims after each regeneration. Method names use PascalCase js_names (e.g. `nativeRun`, `nativeIntoRouter`) matching downstream TypeScript expectations. Emission is gated by the presence of `host_app_inner_accessor` in `alef.toml`, and free functions are preserved for backward compatibility. (`src/backends/napi/gen_bindings/service_api.rs`)
+
+<!-- N+12-r2-go-startbg -->
+- **Go: e2e harness calls `app.StartBackground(host, port)` but the binding's `App` type lacked this method**: the Go backend now emits `StartBackground(host string, port uint16) (*ServerHandle, error)` on the service struct. The method spawns the service in a background goroutine and blocks until the TCP socket is bound, ensuring the server is reachable when the call returns; it returns a handle with a `Stop()` method for graceful shutdown. This avoids the polling pattern that exhausted cgo OS threads. (`src/backends/go/gen_bindings/service_api.rs`)
 
 ### Fixed
 
