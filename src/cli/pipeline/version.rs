@@ -1528,6 +1528,29 @@ pub(crate) fn render_registry_version(lang: &str, workspace_version: &str, exist
     }
 }
 
+/// Extract the embedded semver version from a zig package hash of the form
+/// `<pkg-name>-<version>-<base64sha>`. Used when `[crates.e2e.registry.packages.zig]`
+/// carries only a `hash` field (no separate `version`), so version-sync can still
+/// refresh the hash's version component on workspace bumps.
+///
+/// Returns `None` when the hash is malformed or the base64 segment is unidentifiable.
+fn extract_zig_hash_version(hash: &str) -> Option<String> {
+    let parts: Vec<&str> = hash.split('-').collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let base64_part = parts[parts.len() - 1];
+    let is_base64 = base64_part.contains('_') || base64_part.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    if !is_base64 {
+        return None;
+    }
+    let middle_parts = &parts[1..parts.len() - 1];
+    if middle_parts.is_empty() {
+        return None;
+    }
+    Some(middle_parts.join("-"))
+}
+
 /// Update a zig package hash by substituting the version component.
 /// Zig hashes have the format: `<pkg-name>-<version>-<base64sha>`.
 /// When the version changes, we substitute just the version part, leaving the
@@ -1639,14 +1662,31 @@ pub(crate) fn sync_registry_package_versions(
                     Some(t) => t,
                     None => continue,
                 };
-                let existing_version = match pkg.get("version").and_then(|i| i.as_str()) {
-                    Some(v) => v.to_string(),
+                let existing_version_opt = pkg.get("version").and_then(|i| i.as_str()).map(|s| s.to_string());
+
+                // For zig, the embedded version inside `hash` is the source of truth
+                // when no explicit `version` field is set — derive it so the hash
+                // gets refreshed even when the package entry only carries `hash`.
+                let existing_version = match existing_version_opt.clone() {
+                    Some(v) => v,
+                    None if lang == "zig" => {
+                        match pkg
+                            .get("hash")
+                            .and_then(|i| i.as_str())
+                            .and_then(extract_zig_hash_version)
+                        {
+                            Some(v) => v,
+                            None => continue,
+                        }
+                    }
                     None => continue, // no version field — skip (don't insert)
                 };
                 if let Some(new_ver) = render_registry_version(lang, workspace_version, &existing_version) {
-                    if let Some(ver_item) = pkg.get_mut("version") {
-                        *ver_item = toml_edit::value(new_ver.clone());
-                        any = true;
+                    if existing_version_opt.is_some() {
+                        if let Some(ver_item) = pkg.get_mut("version") {
+                            *ver_item = toml_edit::value(new_ver.clone());
+                            any = true;
+                        }
                     }
 
                     // For zig, also update the hash field when the version changes.
@@ -1661,6 +1701,7 @@ pub(crate) fn sync_registry_package_versions(
                                     update_zig_package_hash(existing_hash, &existing_version, &new_ver)
                                 {
                                     *hash_item = toml_edit::value(new_hash);
+                                    any = true;
                                 }
                             }
                         }
