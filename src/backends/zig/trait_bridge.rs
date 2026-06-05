@@ -520,6 +520,22 @@ pub fn emit_trait_bridge(
     if matches!(bridge_cfg.bind_via, BridgeBinding::FunctionParam) {
         let c_register = format!("c.{prefix}_register_{snake}");
         let c_unregister = format!("c.{prefix}_unregister_{snake}");
+        // C-side vtable type as cimported by Zig. cbindgen emits a struct of
+        // the form `{UPPERCASE_PREFIX}{PascalPrefix}{TraitName}VTable` — the
+        // Rust source carries the `{PascalPrefix}` prefix in its own struct
+        // name (mirrors `FfiBridgeGenerator::vtable_name`) and cbindgen
+        // prepends its configured uppercase `prefix`. Zig cimport surfaces
+        // `typedef struct X` as `c.struct_X`.
+        //
+        // Concrete example for kreuzberg + trait `OcrBackend`:
+        //   Rust source:   `pub struct KreuzbergOcrBackendVTable { … }`
+        //   cbindgen out:  `typedef struct KREUZBERGKreuzbergOcrBackendVTable { … }`
+        //   Zig cimport:   `c.struct_KREUZBERGKreuzbergOcrBackendVTable`
+        let c_vtable_type = format!(
+            "c.struct_{prefix_upper}{prefix_pascal}{trait_name}VTable",
+            prefix_upper = prefix.to_uppercase(),
+            prefix_pascal = prefix.to_upper_camel_case(),
+        );
 
         out.push_str(&crate::backends::zig::template_env::render(
             "register_fn_doc1.jinja",
@@ -539,6 +555,7 @@ pub fn emit_trait_bridge(
             "register_fn_body.jinja",
             minijinja::context! {
                 c_register => &c_register,
+                c_vtable_type => &c_vtable_type,
             },
         ));
         out.push_str("}\n");

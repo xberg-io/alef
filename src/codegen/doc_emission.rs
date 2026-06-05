@@ -223,12 +223,30 @@ pub fn emit_kdoc(out: &mut String, doc: &str, indent: &str) {
         } else {
             out.push_str(indent);
             out.push_str(" * ");
-            out.push_str(trimmed);
+            out.push_str(&escape_kdoc_line(trimmed));
             out.push('\n');
         }
     }
     out.push_str(indent);
     out.push_str(" */\n");
+}
+
+/// Escape a KDoc line so embedded `/*` / `*/` cannot disturb the comment lexer.
+///
+/// Kotlin KDoc supports **nested** block comments — any `/*` inside a `/** … */`
+/// block opens a new comment level that must be balanced by a matching `*/`
+/// before the outer block can close. Rust source frequently uses
+/// backtick-delimited inline code such as `` `"image/*"` `` in `///` comments,
+/// which contains a stray `/*` but no matching `*/`. When that text flows
+/// verbatim into a Kotlin KDoc, the embedded `/*` opens a nested comment that
+/// is never closed and the Kotlin lexer reports cascading "Unclosed comment" /
+/// "Missing '}'" errors past the end of the file. (Java's lexer does *not*
+/// nest block comments, which is why `emit_javadoc` does not need this guard.)
+///
+/// Replacing `/*` with `/ *` and `*/` with `* /` keeps the rendered text
+/// readable while preventing the lexer-level open/close tokens from matching.
+pub(crate) fn escape_kdoc_line(s: &str) -> String {
+    s.replace("*/", "* /").replace("/*", "/ *")
 }
 
 /// Emit KDoc-style documentation comments in ktfmt-canonical format.
@@ -255,13 +273,14 @@ pub fn emit_kdoc_ktfmt_canonical(out: &mut String, doc: &str, indent: &str) {
 
     if is_short_single_paragraph {
         let trimmed = lines[0].trim();
+        let escaped = escape_kdoc_line(trimmed);
         // Calculate total length: indent + "/** " + content + " */"
-        let single_line_len = indent.len() + 4 + trimmed.len() + 3; // 4 for "/** ", 3 for " */"
+        let single_line_len = indent.len() + 4 + escaped.len() + 3; // 4 for "/** ", 3 for " */"
         if single_line_len <= KTFMT_LINE_WIDTH {
             // Fits on one line in ktfmt-canonical format
             out.push_str(indent);
             out.push_str("/** ");
-            out.push_str(trimmed);
+            out.push_str(&escaped);
             out.push_str(" */\n");
             return;
         }
@@ -278,7 +297,7 @@ pub fn emit_kdoc_ktfmt_canonical(out: &mut String, doc: &str, indent: &str) {
         } else {
             out.push_str(indent);
             out.push_str(" * ");
-            out.push_str(trimmed);
+            out.push_str(&escape_kdoc_line(trimmed));
             out.push('\n');
         }
     }
@@ -2647,6 +2666,35 @@ mod tests {
             out, "/** Simple doc. */\n",
             "short single-line comment should collapse to canonical format"
         );
+    }
+
+    #[test]
+    fn test_emit_kdoc_ktfmt_canonical_escapes_nested_block_comment_open() {
+        // Kotlin block comments NEST: `/*` inside a `/** … */` opens a new
+        // comment level. A backtick-quoted `"image/*"` from rustdoc contains
+        // `/*` but no matching `*/`, leaving the outer block unclosed and the
+        // Kotlin lexer reporting cascading "Missing '}'" / "Unclosed comment"
+        // errors. The escape replaces `/*` with `/ *` so the lexer never opens
+        // a nested block.
+        let mut out = String::new();
+        emit_kdoc_ktfmt_canonical(&mut out, "Prefix: `\"image/*\"` matches.", "    ");
+        assert!(
+            !out.contains("/*\""),
+            "must not emit raw `/*` inside KDoc — would open nested block comment: {out}",
+        );
+        assert!(
+            out.contains("/ *"),
+            "must escape `/*` to `/ *`: {out}",
+        );
+    }
+
+    #[test]
+    fn test_emit_kdoc_escapes_block_comment_close() {
+        // `*/` inside the KDoc body terminates the outer block early.
+        let mut out = String::new();
+        emit_kdoc(&mut out, "Contains literal */ in middle.", "");
+        assert!(!out.contains("*/ "), "must escape `*/` in KDoc body: {out}");
+        assert!(out.contains("* /"), "must emit `* /` instead of `*/`: {out}");
     }
 
     #[test]

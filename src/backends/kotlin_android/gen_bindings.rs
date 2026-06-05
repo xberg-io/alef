@@ -602,33 +602,31 @@ fn emit_module_kt(
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
         .collect();
 
-    // Collect "handle shape" types: opaque types that are NOT clients but
-    // appear somewhere on the free-function surface (as a return or a
-    // parameter).  Each one gets its own AutoCloseable wrapper class file.
-    let handle_only_types: std::collections::BTreeMap<&str, &crate::core::ir::TypeDef> = {
-        let mut map = std::collections::BTreeMap::new();
-        let by_name: std::collections::HashMap<&str, &crate::core::ir::TypeDef> =
-            api.types.iter().map(|t| (t.name.as_str(), t)).collect();
-        for f in &visible_functions {
-            if let crate::core::ir::TypeRef::Named(n) = &f.return_type {
-                if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
-                    if let Some(ty) = by_name.get(n.as_str()) {
-                        map.insert(n.as_str(), *ty);
-                    }
-                }
-            }
-            for p in &f.params {
-                if let crate::core::ir::TypeRef::Named(n) = unwrap_optional(&p.ty) {
-                    if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
-                        if let Some(ty) = by_name.get(n.as_str()) {
-                            map.insert(n.as_str(), *ty);
-                        }
-                    }
-                }
-            }
-        }
-        map
-    };
+    // Collect "handle shape" types: every opaque non-trait type that is NOT
+    // a client (i.e. has no visible instance methods). Each one gets its own
+    // AutoCloseable wrapper class file.
+    //
+    // Previously the set was restricted to opaque types that *also* appeared
+    // as a return or parameter on the free-function surface. That misses
+    // opaque types whose only public entrypoint is a static factory method
+    // (e.g. `TokenCounter::new() -> Self`, lifted by the FFI layer as
+    // `kreuzberg_token_counter_new` but kept as a `@staticmethod` on the
+    // class in alef's IR rather than a top-level function) and whose `&mut
+    // self` consumers have been excluded via `[crates.exclude].functions`
+    // (e.g. `apply_strategy`). Such types still need a Kotlin wrapper to give
+    // callers a way to free the handle, and the FFI layer always emits a
+    // matching `{prefix}_{type_snake}_free` symbol so the JNI bridge can
+    // declare its `nativeFree{Type}` external fun. Mirroring Java's
+    // `gen_opaque_handle_class` policy (emit one wrapper per opaque type)
+    // keeps the two backends in lockstep and eliminates the stale-wrapper
+    // class of failure (`TokenCounter.kt` references `nativeFreeTokenCounter`
+    // that was never emitted in `KreuzbergBridge.kt`).
+    let handle_only_types: std::collections::BTreeMap<&str, &crate::core::ir::TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && !client_type_names.contains(t.name.as_str()))
+        .map(|t| (t.name.as_str(), t))
+        .collect();
 
     // Emit a one-off wrapper class file per handle-only opaque type.
     for (type_name, type_def) in &handle_only_types {

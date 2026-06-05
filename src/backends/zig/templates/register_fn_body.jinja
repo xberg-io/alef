@@ -1,5 +1,11 @@
     var _out_error: [*c]u8 = null;
-    const _rc = {{ c_register }}(name, vtable, user_data, @ptrCast(&_out_error));
+    // The Zig-side `I{Trait}` and the cimport'd C `{c_vtable_type}` are both
+    // `extern struct` with identical layout, but Zig considers them nominally
+    // distinct and rejects the direct call with `expected type
+    // '{c_vtable_type}', found 'I{Trait}'`. `@bitCast` performs the
+    // layout-preserving reinterpretation that crosses the nominal boundary.
+    const _c_vtable: {{ c_vtable_type }} = @bitCast(vtable);
+    const _rc = {{ c_register }}(name, _c_vtable, user_data, @ptrCast(&_out_error));
     if (out_error) |ptr| {
         ptr.* = _out_error;
     }

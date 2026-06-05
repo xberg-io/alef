@@ -179,23 +179,26 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .map(|t| t.name.as_str())
         .collect();
 
-    let all_top_level_opaque_returns: std::collections::BTreeSet<&str> = visible_functions
+    // Emit a `nativeFree<TypeName>` destructor for every opaque non-trait type
+    // that is NOT a client. This mirrors the kotlin_android wrapper emitter
+    // (`gen_bindings::emit_module_kt`), which now materialises an
+    // AutoCloseable wrapper class for every opaque non-client type — its
+    // `close()` body calls `Bridge.nativeFree{TypeName}(handle)`, so the JNI
+    // bridge MUST declare a matching external fun or Kotlin compilation fails
+    // with `Unresolved reference 'nativeFree<TypeName>'`.
+    //
+    // The previous filter only considered return types of top-level
+    // functions, which missed opaque types whose only public entrypoint is a
+    // static factory method (kept as `@staticmethod` on the class rather than
+    // lifted to a free function in alef's IR — e.g. `TokenCounter::new()`).
+    // The FFI layer still emits the `{prefix}_{type_snake}_free` C symbol
+    // unconditionally for every opaque type, so the JNI side has a real
+    // function to bind against.
+    let handle_only_opaque_returns: std::collections::BTreeSet<&str> = api
+        .types
         .iter()
-        .filter_map(|f| {
-            if let TypeRef::Named(n) = &f.return_type {
-                if opaque_type_names.contains(n.as_str()) {
-                    return Some(n.as_str());
-                }
-            }
-            None
-        })
-        .collect();
-
-    // Only emit destructors for types NOT in the client_type_names set, since
-    // those are already emitted by emit_method_jni_external_funs.
-    let handle_only_opaque_returns: std::collections::BTreeSet<&str> = all_top_level_opaque_returns
-        .into_iter()
-        .filter(|name| !client_type_names.contains(name))
+        .filter(|t| t.is_opaque && !t.is_trait && !client_type_names.contains(t.name.as_str()))
+        .map(|t| t.name.as_str())
         .collect();
 
     // Emit destructors ONLY for handle-only types (top-level returns, not client types).
