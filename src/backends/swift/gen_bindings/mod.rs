@@ -2647,7 +2647,8 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         let swift_func_name = swift_ident(&func.name.to_lower_camel_case());
 
         // Build positional parameters for the overload signature.
-        // For each config parameter, derive a unique variable name from the parameter's type name.
+        // For each config parameter, derive a unique variable name using the Rust parameter name
+        // as the primary disambiguator (ensures uniqueness even if two params share the same type).
         let mut param_strs: Vec<String> = Vec::new();
         let mut json_local_names: std::collections::HashMap<usize, (String, String)> = std::collections::HashMap::new(); // idx -> (json_fn_name, type_var_name)
 
@@ -2661,9 +2662,13 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
 
             if let Some(json_fn_name) = config_json_name.clone() {
                 // Config param becomes a String. Derive a unique parameter label and local variable
-                // name from the config type name to avoid shadowing and parameter-label collisions.
+                // name using the Rust param name to disambiguate (e.g., "aExtractionResultJson" for param "a").
                 if let Some((_, ty_name)) = config_params.iter().find(|(idx, _)| *idx == i) {
-                    let type_var_name = AsSnakeCase(*ty_name).to_string().to_lower_camel_case();
+                    let type_var_name = format!(
+                        "{}{}",
+                        param_name,
+                        AsSnakeCase(*ty_name).to_string().to_lower_camel_case()
+                    );
                     param_strs.push(format!("_ {type_var_name}Json: String"));
                     json_local_names.insert(i, (json_fn_name, type_var_name));
                 }
