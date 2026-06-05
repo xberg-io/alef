@@ -20,9 +20,10 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str) -> String {
 /// Compute the set of types that are returned as opaque handles (matching `*mut T` pattern).
 /// A type is considered opaque-handle-returned if any public function or method returns the
 /// type directly or wrapped in Optional/Vec — those all surface across FFI as `*mut T`.
-/// Includes types that either:
-/// - Have NO serde support (i.e., truly opaque), OR
-/// - Have serde in Rust but NO ToJson method in the IR (serde was excluded at FFI layer).
+/// Includes types with NO serde support (truly opaque handles only); serde-capable types
+/// are routed through JSON marshalling, even when the FFI layer omits the `*_to_json`
+/// helper for the type itself (the consumer constructs the handle by calling the
+/// corresponding `*_from_json` on the engine result).
 pub(super) fn compute_handle_returned_types(api: &crate::core::ir::ApiSurface) -> HashSet<String> {
     fn inner_named(ty: &crate::core::ir::TypeRef) -> Option<&str> {
         match ty {
@@ -32,15 +33,10 @@ pub(super) fn compute_handle_returned_types(api: &crate::core::ir::ApiSurface) -
         }
     }
 
-    // Build a map of type names to their TypeDef for quick lookup of has_serde and methods.
+    // Build a map of type names to their TypeDef for quick lookup of has_serde.
     let mut type_def_map = std::collections::HashMap::new();
     for typ in &api.types {
         type_def_map.insert(typ.name.clone(), typ);
-    }
-
-    // Helper to check if a type has a to_json method in the IR (indicating FFI exports JSON helpers).
-    fn has_to_json_method(type_def: &crate::core::ir::TypeDef) -> bool {
-        type_def.methods.iter().any(|m| m.name == "to_json")
     }
 
     let mut handle_types = HashSet::new();
@@ -48,9 +44,10 @@ pub(super) fn compute_handle_returned_types(api: &crate::core::ir::ApiSurface) -
     for func in &api.functions {
         if let Some(name) = inner_named(&func.return_type) {
             if let Some(type_def) = type_def_map.get(name) {
-                // Include if truly opaque (no serde), OR if serde is declared but
-                // no to_json method exists in the IR (serde was excluded at FFI layer).
-                if !type_def.has_serde || !has_to_json_method(type_def) {
+                // Include only truly opaque types (no serde). Serde-capable types are
+                // routed through JSON round-trip marshalling — they have static
+                // `FromJson` factories rather than `new (IntPtr)` constructors.
+                if !type_def.has_serde {
                     handle_types.insert(name.to_string());
                 }
             }
@@ -61,9 +58,7 @@ pub(super) fn compute_handle_returned_types(api: &crate::core::ir::ApiSurface) -
         for method in &typ.methods {
             if let Some(name) = inner_named(&method.return_type) {
                 if let Some(type_def) = type_def_map.get(name) {
-                    // Include if truly opaque (no serde), OR if serde is declared but
-                    // no to_json method exists in the IR (serde was excluded at FFI layer).
-                    if !type_def.has_serde || !has_to_json_method(type_def) {
+                    if !type_def.has_serde {
                         handle_types.insert(name.to_string());
                     }
                 }

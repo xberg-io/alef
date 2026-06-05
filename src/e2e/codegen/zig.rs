@@ -745,7 +745,7 @@ pub fn build(b: *std.Build) void {{
     else if (target_os == .windows and target_arch == .x86_64)
         "{pkg_name}_windows_x86_64"
     else
-        @panic("unsupported target — supported: linux-{x86_64,aarch64}, macos-{arm64,x86_64}, windows-x86_64");
+        @panic("unsupported target — supported: linux-{{x86_64,aarch64}}, macos-{{arm64,x86_64}}, windows-x86_64");
 
     const {module_name}_module = (b.lazyDependency({pkg_name}_dep_name, .{{
         .target = target,
