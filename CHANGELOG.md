@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<!-- Placeholder for next release -->
+### Fixed
+
+<!-- zig-placeholder-hash-resolution -->
+- **Zig: e2e registry `build.zig.zon` generated with stale `STALE_TODO_REGENERATE` placeholder hash that causes `zig fetch` to fail with "invalid hash: incomplete"**: when a published release doesn't have the zig artifact available yet or the alef.toml hash placeholder hasn't been manually updated, the generated `build.zig.zon` would retain the placeholder and zig would reject it at fetch time. Fixed by detecting and stripping `STALE_TODO_REGENERATE` placeholder hashes in the zig e2e codegen, then calling `resolve_zig_hash(None, url)` to fetch the real hash from the published release (or cache, or return None gracefully if not yet available). This allows `alef e2e generate --registry` to work immediately after publishing without requiring manual placeholder replacement in alef.toml. (`src/e2e/codegen/zig.rs`)
 
 ## [0.23.14] - 2026-06-05
 
