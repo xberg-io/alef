@@ -197,7 +197,9 @@ fn magnus_field_line(field: &FieldDef, shape: FieldShape) -> String {
     let host_name = crate::codegen::naming::to_ruby_name(&field.name);
     let name = &field.name;
     match shape {
-        FieldShape::String => format!(r#"    h.aset(ruby.to_symbol("{host_name}"), ctx.{name}.as_str()).ok();"#),
+        FieldShape::String => {
+            format!(r#"    h.aset(ruby.to_symbol("{host_name}"), AsRef::<str>::as_ref(&ctx.{name})).ok();"#)
+        }
         FieldShape::OptionalString => format!(
             r#"    h.aset(ruby.to_symbol("{host_name}"), ctx.{name}.as_deref().map(|value| ruby.str_new(value).as_value())).ok();"#
         ),
