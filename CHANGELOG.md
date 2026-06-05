@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.23.8] - 2026-06-05
 
 ### Fixed
 
@@ -17,10 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- rustler-visit-result-atoms -->
 - **rustler — generated Elixir `apply_visitor_callback` case-clause emits invalid atom syntax for capitalized variant names**: the visitor-helper template emitted unquoted atoms `:Continue`, `:Skip`, `:PreserveHtml` for `VisitResult` unit variants whose `wire_name` retained the Rust PascalCase form. In Elixir, atoms beginning with an uppercase letter must be quoted (`:"Continue"`) — the unquoted form is a compile error (`syntax error before: 'Continue'`). Generated `html_to_markdown.ex` failed to compile, blocking the Elixir binding. Fixed by emitting the quoted atom form `:"<wire_name>"` in the case-clause template, which is universally safe across snake_case and PascalCase wire names. (`src/backends/rustler/template_env.rs`)
-
-## [0.23.8] - 2026-06-05
-
-### Fixed
 
 <!-- pyo3-overload-templates -->
 - **pyo3 — runtime panic on template lookup for converters/overload_*.jinja**: templates for `@overload` decorators on `_to_rust_*_config` helpers were defined in the template directory but not embedded in the alef binary via `include_str!()` or registered in the `TEMPLATES` array in `template_env.rs`. At runtime, the pyo3 backend's code generation would panic with "template converters/overload_none.jinja not found". Fixed by adding both templates to the TEMPLATES array with their respective `include_str!()` embeds. (`src/backends/pyo3/template_env.rs`)
