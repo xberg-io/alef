@@ -196,6 +196,9 @@ pub(super) fn gen_api_py(
     if needs_cast || !needed_converters.is_empty() {
         typing_parts.push("cast");
     }
+    if !needed_converters.is_empty() {
+        typing_parts.push("overload");
+    }
     // AsyncIterator is only needed when at least one adapter uses the streaming pattern.
     // async_method adapters emit `return await engine.foo(...)` and never yield.
     let needs_async_iterator = adapters
@@ -203,8 +206,8 @@ pub(super) fn gen_api_py(
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
     if needs_async_iterator {
         typing_parts.push("AsyncIterator");
-        typing_parts.sort_unstable();
     }
+    typing_parts.sort_unstable();
     if !needed_converters.is_empty() {
         out.push_str("import json\n");
     }
@@ -394,6 +397,26 @@ pub(super) fn gen_api_py(
         // If so, the converter gains a `_visitor_override: {type_alias} | None = None` param.
         let bridge_visitor_field = options_field_bridges.get(type_name.as_str()).copied();
         let bridge_visitor_type = bridge_visitor_field.and_then(|(_, _, alias)| alias).unwrap_or("object");
+
+        // Emit @overload signatures for mypy narrowing. These allow callers to pass
+        // None explicitly and have mypy narrow the return type to None, vs. passing
+        // a non-None config and getting a non-None return type. Without overloads,
+        // callers that do `_to_rust_process_config(config) if config is not None`
+        // still see the return type as `ProcessConfig | None` (not narrowed), causing
+        // mypy errors when passing the result directly.
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "converters/overload_none.jinja",
+            minijinja::context! {
+                snake => &snake,
+            },
+        ));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "converters/overload_some.jinja",
+            minijinja::context! {
+                snake => &snake,
+                type_name => type_name,
+            },
+        ));
 
         // Build the converter signature.
         // When there's a visitor override param, always use multi-line form.
