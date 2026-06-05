@@ -449,6 +449,22 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\tif err != nil {{ panic(err) }}");
         let _ = writeln!(out, "\tcmd.Stderr = os.Stderr");
         let _ = writeln!(out, "\tif err := cmd.Start(); err != nil {{ panic(err) }}");
+        let _ = writeln!(
+            out,
+            "\t// Defer covers panics during bootstrap (scanner / readiness poll)."
+        );
+        let _ = writeln!(
+            out,
+            "\t// The happy path explicitly kills before `os.Exit` below — without"
+        );
+        let _ = writeln!(
+            out,
+            "\t// that, `os.Exit` skips this defer, leaves the child running, and"
+        );
+        let _ = writeln!(
+            out,
+            "\t// `go test` reports \"Test I/O incomplete\" / WaitDelay expired."
+        );
         let _ = writeln!(out, "\tdefer func() {{ _ = cmd.Process.Kill() }}()");
         let _ = writeln!(out);
         let _ = writeln!(out, "\tscanner := bufio.NewScanner(stdout)");
@@ -540,7 +556,23 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out);
-        let _ = writeln!(out, "\tos.Exit(m.Run())");
+        let _ = writeln!(out, "\tcode := m.Run()");
+        let _ = writeln!(
+            out,
+            "\t// Kill the mock-server BEFORE os.Exit so the child stops writing to"
+        );
+        let _ = writeln!(
+            out,
+            "\t// the stderr pipe inherited from the test process. Without this the"
+        );
+        let _ = writeln!(
+            out,
+            "\t// Go test runner waits for the pipe to close and reports"
+        );
+        let _ = writeln!(out, "\t// \"exec: WaitDelay expired before I/O complete\".");
+        let _ = writeln!(out, "\t_ = cmd.Process.Kill()");
+        let _ = writeln!(out, "\t_, _ = cmd.Process.Wait()");
+        let _ = writeln!(out, "\tos.Exit(code)");
         let _ = writeln!(out, "}}");
         return out;
     }
