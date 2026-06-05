@@ -995,6 +995,7 @@ fn emit_bytes_arg(
 }
 
 /// Emit a Python dict literal for a typed object-array element.
+#[allow(dead_code)]
 fn emit_python_object_item(obj: &serde_json::Map<String, serde_json::Value>) -> String {
     let items: Vec<String> = obj
         .iter()
