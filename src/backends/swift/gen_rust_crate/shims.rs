@@ -515,15 +515,21 @@ pub(crate) fn emit_function_shim(
             }
             None => {
                 // Apply coercions for &str → String and Vec<&str> → Vec<String>
-                // in Result-returning functions, same as for direct returns.
+                // in Result-returning functions, same as for direct returns. When
+                // `f.returns_ref` is true the Ok arm is a slice reference, so emit
+                // `.iter()` instead of `.into_iter()` to keep clippy 1.95's
+                // `into_iter_on_ref` lint quiet.
+                let iter_method = if f.returns_ref { "iter" } else { "into_iter" };
                 match &f.return_type {
                     TypeRef::String => ".map(|s| s.to_string())".to_string(),
                     TypeRef::Path => ".map(|s| s.display().to_string())".to_string(),
                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
-                        ".map(|v| v.into_iter().map(|s| s.to_string()).collect::<Vec<_>>())".to_string()
+                        format!(".map(|v| v.{iter_method}().map(|s| s.to_string()).collect::<Vec<_>>())")
                     }
                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-                        ".map(|v| v.into_iter().map(|s| s.display().to_string()).collect::<Vec<_>>())".to_string()
+                        format!(
+                            ".map(|v| v.{iter_method}().map(|s| s.display().to_string()).collect::<Vec<_>>())"
+                        )
                     }
                     _ => String::new(),
                 }
@@ -549,16 +555,21 @@ pub(crate) fn emit_function_shim(
             }
             None => {
                 // No wrapping needed, but the source function might return `&str`
-                // when the IR says `String`, or `Vec<&str>` when the IR says `Vec<String>`.
-                // Apply coercions to match the declared return type.
+                // when the IR says `String`, or `Vec<&str>` / `&[&str]` when the IR
+                // says `Vec<String>`. Apply coercions to match the declared return
+                // type. When `f.returns_ref` is true (the core fn returns
+                // `&[String]` / `&'static [&'static str]`), emit `.iter()` rather
+                // than `.into_iter()` — clippy 1.95's `into_iter_on_ref` rejects
+                // `.into_iter()` on slice references even though it compiles.
+                let iter_method = if f.returns_ref { "iter" } else { "into_iter" };
                 match &f.return_type {
                     TypeRef::String => format!("{source}.to_string()"),
                     TypeRef::Path => format!("{source}.display().to_string()"),
                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
-                        format!("{source}.into_iter().map(|s| s.to_string()).collect::<Vec<_>>()")
+                        format!("{source}.{iter_method}().map(|s| s.to_string()).collect::<Vec<_>>()")
                     }
                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-                        format!("{source}.into_iter().map(|s| s.display().to_string()).collect::<Vec<_>>()")
+                        format!("{source}.{iter_method}().map(|s| s.display().to_string()).collect::<Vec<_>>()")
                     }
                     _ => source,
                 }
