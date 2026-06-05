@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+<!-- elixir-alias-r3 -->
+- **e2e/elixir — harness app_class reference is unqualified (App instead of Spikard.App)**: the Elixir e2e server-pattern harness template correctly applied a module prefix to `RouteBuilder`, `Method`, and `ServerConfig` classes (e.g., `Spikard.RouteBuilder`), but the `app_class` alias and all method calls like `App.new()` and `App.config(...)` remained unqualified. When a binding exports its App class under a package namespace (e.g., `Spikard.App`), the harness would emit `alias App` and fail with `(UndefinedFunctionError) function App.new/0 is undefined`. Additionally, the Jinja2 template used `{%-` whitespace stripping that incorrectly combined the method-enum alias with the conditional server-config alias onto one line. Fixed by: (1) computing `app_class_name` by prepending `module_prefix` to the unqualified app class (mirroring how other classes are prefixed), (2) using `{% if ... -%}...{% endif %}` syntax with leading/trailing strippers on the conditional lines to preserve proper line breaks, ensuring each alias statement gets its own line. Harnesses now correctly emit `alias Spikard.App` and call `Spikard.App.new()` / `Spikard.App.config(...)`. (`src/e2e/codegen/elixir.rs`, `src/e2e/templates/elixir/app_harness.exs.jinja`)
+
 ## [0.23.8] - 2026-06-05
 
 ### Fixed
