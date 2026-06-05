@@ -701,25 +701,47 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         }
     }
 
-    // Emit per-verb registration shortcuts wrapped in an impl block per service.
+    // Emit per-verb registration shortcuts and entrypoint methods wrapped in an impl block per service.
     // These methods use `&self` with interior mutability (via the configured
     // `host_app_inner_accessor`) and live inside an `impl` block — emitting them as
     // top-level free functions produces invalid Rust.
     let prefix = config.node_type_prefix();
     for service in &api.services {
         let has_variants = service.registrations.iter().any(|r| !r.variants.is_empty());
-        if !has_variants {
+        let has_entrypoints = !service.entrypoints.is_empty();
+
+        if !has_variants && !has_entrypoints {
             continue;
         }
+
         let app_type_name = format!("{prefix}{}", service.name);
-        let mut variant_methods = String::new();
+        let mut impl_methods = String::new();
+
+        // Emit variant methods (per-verb registration shortcuts)
         for reg in &service.registrations {
             for variant in &reg.variants {
-                gen_variant_napi_method(&mut variant_methods, service, reg, variant, api, &core_import, config);
+                gen_variant_napi_method(&mut impl_methods, service, reg, variant, api, &core_import, config);
             }
         }
+
+        // Emit entrypoint methods (run, finalize) when configured with host_app_inner_accessor
+        if has_entrypoints {
+            let has_accessor = config
+                .services
+                .iter()
+                .find(|sc| sc.owner_type == service.name)
+                .and_then(|sc| sc.host_app_inner_accessor.as_deref())
+                .is_some();
+
+            if has_accessor {
+                for ep in &service.entrypoints {
+                    gen_entrypoint_napi_method(&mut impl_methods, service, ep, api, &core_import, config);
+                }
+            }
+        }
+
         // Indent all method bodies by 4 spaces to sit inside the impl block
-        let indented: String = variant_methods
+        let indented: String = impl_methods
             .lines()
             .map(|line| {
                 if line.is_empty() {
@@ -730,16 +752,19 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             })
             .collect::<Vec<_>>()
             .join("\n");
-        out.push_str(&format!("use crate::{app_type_name};\n\n"));
-        // napi-rs requires `#[napi]` on the impl block for any method-level `#[napi]`
-        // attributes to register with the runtime — without it the `napi` macro
-        // rejects `&self` receivers with "arguments cannot be `self`".
-        out.push_str(&format!("#[napi]\nimpl {app_type_name} {{\n"));
-        out.push_str(&indented);
-        if !indented.ends_with('\n') {
-            out.push('\n');
+
+        if !indented.is_empty() {
+            out.push_str(&format!("use crate::{app_type_name};\n\n"));
+            // napi-rs requires `#[napi]` on the impl block for any method-level `#[napi]`
+            // attributes to register with the runtime — without it the `napi` macro
+            // rejects `&self` receivers with "arguments cannot be `self`".
+            out.push_str(&format!("#[napi]\nimpl {app_type_name} {{\n"));
+            out.push_str(&indented);
+            if !indented.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("}\n");
         }
-        out.push_str("}\n");
     }
 
     out
@@ -1177,6 +1202,99 @@ fn gen_variant_napi_method(
 
     // Handle error if the registration is fallible
     if reg.error_type.is_some() {
+        out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
+    } else {
+        out.push_str("        ;\n");
+    }
+
+    out.push_str("    Ok(())\n");
+    out.push_str("}\n\n");
+}
+
+/// Emit one `#[napi]` method for a service entrypoint (run or finalize) on the App class.
+///
+/// The method delegates to the inner owner's entrypoint via the configured
+/// `host_app_inner_accessor`, allowing the TypeScript service wrapper to call
+/// the entrypoint directly as `nativeRun()` or `nativeIntoRouter()` without
+/// relying on free functions.
+fn gen_entrypoint_napi_method(
+    out: &mut String,
+    service: &ServiceDef,
+    ep: &crate::core::ir::EntrypointDef,
+    _api: &ApiSurface,
+    core_import: &str,
+    config: &ResolvedCrateConfig,
+) {
+    let ep_method = &ep.method;
+    let js_name = format!("native{}", ep_method.to_upper_camel_case());
+
+    // Look up the inner-accessor expression for this service
+    let inner_accessor: String = config
+        .services
+        .iter()
+        .find(|sc| sc.owner_type == service.name)
+        .and_then(|sc| sc.host_app_inner_accessor.as_deref())
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "self".to_owned());
+
+    // Build method signature from entrypoint params
+    let mut rust_params = vec!["&self".to_owned()];
+    for p in &ep.params {
+        let rust_ty = typeref_to_rust_type(&p.ty, core_import);
+        rust_params.push(format!("{}: {}", p.name, rust_ty));
+    }
+    let param_sig = rust_params.join(", ");
+
+    // Determine return type for the method
+    let return_ty = match ep.kind {
+        EntrypointKind::Run => "()".to_owned(),
+        EntrypointKind::Finalize => {
+            // For Finalize, return the value; for now use a generic approach
+            typeref_to_rust_type(&ep.return_type, core_import)
+        }
+    };
+
+    out.push_str(&format!(
+        "/// Call the `{ep_method}` entrypoint on the inner service.\n"
+    ));
+    if !ep.doc.is_empty() {
+        out.push_str(&format!("///\n/// {}\n", ep.doc.trim()));
+    }
+
+    // Emit as async method when the entrypoint is async
+    if ep.is_async {
+        out.push_str(&format!(
+            "#[napi(js_name = \"{js_name}\")]\npub async fn {ep_method}({param_sig}) -> napi::Result<{return_ty}> {{\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "#[napi(js_name = \"{js_name}\")]\npub fn {ep_method}({param_sig}) -> napi::Result<{return_ty}> {{\n"
+        ));
+    }
+
+    // Build parameter list for the inner call
+    let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
+    let args_str = ep_args.join(", ");
+
+    // Call the inner accessor and invoke the entrypoint
+    if inner_accessor == "self" {
+        if ep.is_async {
+            out.push_str(&format!("    self.{ep_method}({args_str})\n        .await\n"));
+        } else {
+            out.push_str(&format!("    self.{ep_method}({args_str})\n"));
+        }
+    } else {
+        // Accessor may return &mut or MutexGuard — bind to a named variable
+        out.push_str(&format!("    let mut inner = {inner_accessor};\n"));
+        if ep.is_async {
+            out.push_str(&format!("    inner.{ep_method}({args_str})\n        .await\n"));
+        } else {
+            out.push_str(&format!("    inner.{ep_method}({args_str})\n"));
+        }
+    }
+
+    // Handle error if the entrypoint is fallible
+    if ep.error_type.is_some() {
         out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
     } else {
         out.push_str("        ;\n");
@@ -2102,6 +2220,76 @@ mod tests {
             this_count,
             fn_count,
             output
+        );
+    }
+
+    #[test]
+    fn rust_output_emits_entrypoint_methods_with_inner_accessor() {
+        let config = {
+            let mut cfg = make_test_config();
+            // Register TestService with a host_app_inner_accessor so entrypoint methods are emitted
+            cfg.services = vec![crate::core::config::ServiceConfig {
+                owner_type: "TestService".to_string(),
+                constructor: None,
+                configurators: vec![],
+                registrations: vec![],
+                entrypoints: vec![],
+                skip_languages: vec![],
+                host_app_inner_accessor: Some("self.inner.lock().expect(\"mutex poisoned\")".to_string()),
+            }];
+            cfg
+        };
+
+        let api = make_fixture_surface();
+        let output = gen_service_rs(&api, &config);
+
+        // Should emit entrypoint method on the wrapper class (not just free function)
+        assert!(
+            output.contains("#[napi(js_name = \"nativeRun\")]"),
+            "entrypoint method should have napi attribute with js_name; output:\n{output}"
+        );
+
+        assert!(
+            output.contains("pub async fn run(&self, addr: String)"),
+            "entrypoint method should be emitted as async method on wrapper; output:\n{output}"
+        );
+
+        // Should use the inner accessor to call the actual entrypoint
+        assert!(
+            output.contains("let mut inner = self.inner.lock().expect(\"mutex poisoned\");"),
+            "entrypoint method should use configured inner accessor; output:\n{output}"
+        );
+
+        assert!(
+            output.contains("inner.run(addr)"),
+            "entrypoint method should call the inner method; output:\n{output}"
+        );
+
+        // The free function should still be emitted for backward compatibility
+        assert!(
+            output.contains("pub async fn test_service_run("),
+            "free function entrypoint should still be emitted; output:\n{output}"
+        );
+    }
+
+    #[test]
+    fn rust_output_skips_entrypoint_methods_without_inner_accessor() {
+        let config = make_test_config();
+        // No host_app_inner_accessor configured, so entrypoint methods should NOT be emitted
+
+        let api = make_fixture_surface();
+        let output = gen_service_rs(&api, &config);
+
+        // Should NOT emit entrypoint method on the wrapper class
+        assert!(
+            !output.contains("#[napi(js_name = \"nativeRun\")]"),
+            "entrypoint method should not be emitted without host_app_inner_accessor; output:\n{output}"
+        );
+
+        // The free function should still be emitted
+        assert!(
+            output.contains("pub async fn test_service_run("),
+            "free function entrypoint should still be emitted; output:\n{output}"
         );
     }
 }
