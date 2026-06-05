@@ -368,9 +368,6 @@ fn gen_service_struct(
         }
     }
 
-    // Config method for setting host/port/workers
-    gen_config_method(out, service, ffi_prefix);
-
     // Entrypoint methods
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api_surface, ffi_prefix);
@@ -748,40 +745,6 @@ fn gen_entrypoint_method(
     out.push_str("}\n\n");
 }
 
-/// Generate a Config method that routes host/port/workers through the C app-config entrypoint.
-fn gen_config_method(out: &mut String, service: &ServiceDef, ffi_prefix: &str) {
-    let service_name = &service.name;
-    let service_snake = service_name.to_snake_case();
-    let service_lower = ffi_prefix.to_lowercase();
-    let upper_prefix = ffi_prefix.to_uppercase();
-
-    out.push_str(&format!(
-        "// Config configures the service with host, port, and worker count.\n\
-         //\n\
-         // # Errors\n\
-         //\n\
-         // Returns an error if configuration fails.\n\
-         func (s *{}) Config(host string, port uint16, workers uint64) error {{\n\
-         \ts.mu.Lock()\n\
-         \tdefer s.mu.Unlock()\n\
-         \tif s.owner == nil {{\n\
-         \t\treturn errors.New(\"service is closed\")\n\
-         \t}}\n\n\
-         \tret := C.{service_lower}_app_config(\n\
-         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.CString(host),\n\
-         \t\tC.uint16_t(port),\n\
-         \t\tC.uintptr_t(workers),\n\
-         \t)\n\
-         \tif ret != 0 {{\n\
-         \t\treturn fmt.Errorf(\"config failed: error code %d\", ret)\n\
-         \t}}\n\
-         \treturn nil\n\
-         }}\n\n",
-        service_name
-    ));
-}
-
 // ──────────────────────────────────────────────────────────────── public entry point ──
 
 /// Generate all service-API files for the Go backend.
@@ -860,11 +823,7 @@ fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_pref
     ));
 
     out.push_str(
-        "\t// Configure the service with the provided host, port, and a default worker count.\n\
-         \tif err := s.Config(host, port, 1); err != nil {\n\
-         \t\treturn nil, fmt.Errorf(\"config failed: %w\", err)\n\
-         \t}\n\n\
-         \t// Spawn Run in a goroutine. The C entrypoint will block there,\n\
+        "\t// Spawn Run in a goroutine. The C entrypoint will block there,\n\
          \t// and we exit this function once the socket is bound.\n\
          \tgo func() {\n\
          \t\t_ = s.Run()\n\
@@ -1173,24 +1132,6 @@ mod tests {
     }
 
     #[test]
-    fn test_config_method_exists() {
-        let api = make_fixture_surface();
-        let config = ResolvedCrateConfig {
-            name: "test_crate".to_owned(),
-            ..ResolvedCrateConfig::default()
-        };
-
-        let go = gen_service_go(&api, &config, "binding", "test_crate");
-
-        // Config method must be present with correct signature and C call
-        assert!(go.contains("func (s *TestService) Config(host string, port uint16, workers uint64) error"));
-        assert!(go.contains("test_crate_test_service_app_config"));
-        assert!(go.contains("C.CString(host)"));
-        assert!(go.contains("C.uint16_t(port)"));
-        assert!(go.contains("C.uintptr_t(workers)"));
-    }
-
-    #[test]
     fn test_start_background_method_exists() {
         let api = make_fixture_surface();
         let config = ResolvedCrateConfig {
@@ -1206,8 +1147,6 @@ mod tests {
         assert!(go.contains("func (h *ServerHandle) Stop()"));
         assert!(go.contains("host string, port uint16"));
         assert!(go.contains("*ServerHandle, error"));
-        // StartBackground must call Config before spawning Run
-        assert!(go.contains("s.Config(host, port, 1)"));
     }
 
     #[test]
