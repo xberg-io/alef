@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-go -->
+- **e2e/go — harness template emits `app.{{ start_background_method }}(host, port)` but the context dict never provides `start_background_method`, rendering as `app.(host, port)` — a syntax error**: the Go harness now receives `start_background_method => "StartBackground"` in the template context. (`src/e2e/codegen/go.rs`)
+- **e2e fixture model — `HttpRequest` struct lacks `form_data` field, causing fixtures with `"form_data": {...}` to silently drop the field during deserialization**: added `form_data: Option<BTreeMap<String, String>>` to `HttpRequest`, with a `url_encoded_body()` helper method that encodes form data as `application/x-www-form-urlencoded` (key=value&key=value). Language emitters can use this helper to populate request bodies when `body` is None but `form_data` is present. (`src/e2e/fixture.rs`)
+
 <!-- N+12-java -->
 - **e2e/java — harness emits `Method.valueOf(method)` where `method` is a lowercase fixture string ("get", "post"), but the generated `Method` enum has PascalCase constants (`Get`, `Post`)**: `Method.valueOf("get")` throws `IllegalArgumentException: No enum constant`. The generated enum provides the case-insensitive factory `Method.fromValue(String)`, which uses `equalsIgnoreCase` for matching. Fixed by replacing `Method.valueOf(method)` with `Method.fromValue(method)` in the harness template. (`src/e2e/templates/java/harness_main.jinja`)
 

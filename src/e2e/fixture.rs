@@ -184,7 +184,38 @@ pub struct HttpRequest {
     #[serde(default)]
     pub body: Option<serde_json::Value>,
     #[serde(default)]
+    pub form_data: Option<BTreeMap<String, String>>,
+    #[serde(default)]
     pub content_type: Option<String>,
+}
+
+impl HttpRequest {
+    /// Encode form_data as a URL-encoded body string (key=value&key=value).
+    /// Returns None if form_data is None.
+    pub fn url_encoded_body(&self) -> Option<String> {
+        self.form_data.as_ref().map(|form| {
+            form.iter()
+                .map(|(k, v)| {
+                    let encoded_k = Self::url_encode(k);
+                    let encoded_v = Self::url_encode(v);
+                    format!("{}={}", encoded_k, encoded_v)
+                })
+                .collect::<Vec<_>>()
+                .join("&")
+        })
+    }
+
+    /// Simple URL encoding for form data (RFC 3986).
+    fn url_encode(s: &str) -> String {
+        s.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
+                _ => format!("%{:02X}", b),
+            })
+            .collect()
+    }
 }
 
 /// Expected HTTP response specification.

@@ -720,6 +720,7 @@ fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_modu
             import_alias => import_alias,
             register_route_method => "RegisterRoute",
             run_method => "Run",
+            start_background_method => "StartBackground",
             port => 8012,
             fixtures_json => fixtures_json,
         })
