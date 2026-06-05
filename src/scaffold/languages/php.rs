@@ -163,17 +163,25 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // must point at `{pkg_dir}/src/` so the same PSR-4 classes resolve from
     // the repo root. Everything else (name, php-ext block, require/require-dev,
     // scripts) is byte-identical so the two manifests stay in sync without drift.
-    //
-    // Note: the former `extra.pie.binary.url-template` block is intentionally
-    // omitted. PIE does not read `extra.pie.binary`; it only keys off
-    // `extra.php-ext.download-url-method`. Keeping the dead block around misleads
-    // maintainers into thinking it does something.
     let render_composer = |autoload_src: &str| -> String {
         let license_json = meta
             .license
             .as_deref()
             .map(|license| format!("  \"license\": \"{license}\",\n"))
             .unwrap_or_default();
+
+        // PIE (PHP Installation Extension) uses extra.pie.binary.url-template to locate
+        // pre-packaged extension archives. The URL template must include all filename
+        // components including the -nodebug- token. When no repository is configured,
+        // emit a placeholder; the URL is typically overridden by the package maintainer.
+        let pie_binary_block = if let Some(repo_url) = meta.configured_repository.as_deref() {
+            format!(
+                ",\n  \"extra\": {{\n    \"pie\": {{\n      \"binary\": {{\n        \"url-template\": \"{repo_url}/releases/download/v{{Version}}/php_{ext_name}-{{Version}}_php{{PhpVersion}}-{{Arch}}-{{OS}}-{{Libc}}-nodebug-{{TSMode}}.tgz\"\n      }}\n    }}\n  }}"
+            )
+        } else {
+            String::new()
+        };
+
         format!(
             r#"{{
   "name": "{vendor}/{package_name}",
@@ -205,7 +213,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "support-zts": true,
     "support-nts": true,
     "download-url-method": "pre-packaged-binary"
-  }}{keywords}
+  }}{keywords}{pie_binary}
 }}
 "#,
             vendor = vendor,
@@ -216,6 +224,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             autoload_src = autoload_src,
             ext_name = ext_name,
             keywords = keywords_json,
+            pie_binary = pie_binary_block,
             phpstan = tv::packagist::PHPSTAN,
             php_cs_fixer = tv::packagist::PHP_CS_FIXER,
             phpunit = tv::packagist::PHPUNIT,

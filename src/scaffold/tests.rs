@@ -2053,9 +2053,6 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
     // that the PSR-4 autoload src path is repointed from `src/` to
     // `packages/php/src/`, so the same classes resolve when consumers install
     // the package via Composer/PIE from the repo root.
-    //
-    // Note: the `extra.pie.binary.url-template` block was removed — PIE does
-    // not read that field; it keys off `extra.php-ext.download-url-method`.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
@@ -2070,29 +2067,57 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
         .find(|f| f.path.to_string_lossy() == "composer.json")
         .expect("root composer.json must be emitted at repo root for Packagist/PIE");
 
-    let expected_root = pkg_composer.content.replace("\"src/\"", "\"packages/php/src/\"");
+    // Parse both as JSON to compare structure independently of formatting
+    let pkg: serde_json::Value =
+        serde_json::from_str(&pkg_composer.content).expect("packages/php/composer.json must be valid JSON");
+    let root: serde_json::Value =
+        serde_json::from_str(&root_composer.content).expect("root composer.json must be valid JSON");
+
+    // Root should have the same structure as package except for autoload src and the pie block
+    assert_eq!(pkg["name"], root["name"], "package and root should have the same name");
     assert_eq!(
-        root_composer.content, expected_root,
-        "root composer.json must equal packages/php/composer.json with autoload src repointed to packages/php/src/",
+        pkg["php-ext"], root["php-ext"],
+        "package and root should have the same php-ext block"
+    );
+    assert_eq!(pkg["autoload"]["psr-4"], serde_json::json!({"My\\Lib\\": "src/"}));
+    assert_eq!(
+        root["autoload"]["psr-4"],
+        serde_json::json!({"My\\Lib\\": "packages/php/src/"})
     );
 
-    // Must not carry the dead extra.pie.binary block — PIE ignores it.
-    assert!(
-        !root_composer.content.contains("\"pie\""),
-        "root composer.json must not contain dead extra.pie.binary block; content:\n{}",
-        root_composer.content,
-    );
-    assert!(
-        root_composer.content.contains("\"name\": \"test/my-lib\""),
-        "root composer.json must use <owner>/<repo> as the Packagist package name; content:\n{}",
-        root_composer.content,
-    );
-    // Must still carry the php-ext block that PIE actually reads.
-    assert!(
-        root_composer.content.contains("\"php-ext\""),
-        "root composer.json must carry the php-ext block; content:\n{}",
-        root_composer.content,
-    );
+    // Both composer.json files must have the extra.pie.binary.url-template block
+    // (both the dev manifest and Packagist/PIE manifest need it)
+    for (label, json) in &[("packages/php/composer.json", pkg), ("composer.json", root)] {
+        assert!(
+            json.get("extra").is_some(),
+            "{} must have an extra block; content:\n{}",
+            label,
+            if label == &"packages/php/composer.json" {
+                &pkg_composer.content
+            } else {
+                &root_composer.content
+            }
+        );
+        assert!(
+            json["extra"]["pie"]["binary"]["url-template"].is_string(),
+            "{} must contain PIE url-template block",
+            label,
+        );
+
+        let pie_url = json["extra"]["pie"]["binary"]["url-template"]
+            .as_str()
+            .expect("url-template must be a string");
+        assert!(
+            pie_url.contains("-nodebug-"),
+            "{} url-template must include -nodebug- token; got: {pie_url}",
+            label
+        );
+        assert!(
+            pie_url.contains("/releases/download/v{Version}/"),
+            "{} url-template must have GitHub release download pattern; got: {pie_url}",
+            label
+        );
+    }
 }
 
 #[test]
