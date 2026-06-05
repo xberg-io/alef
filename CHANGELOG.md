@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **php — `Required parameter $X follows optional $Y` PHP 8.1 deprecation in facade wrappers**: when the static facade reordered nothing (Rust IR param order preserved) and an IR-required param followed an IR-optional `no_arg_constructor_types` param (e.g. a `CrawlEngineHandle` that has a no-arg `new()`), the wrapper emitted `?CrawlEngineHandle $engine = null, string $url` — flagged by phpdoc-lint and phpstan as PHP 8.1 deprecated. The downstream `?? new T()` coercion was a useless null-coalesce (`nullCoalesce.variable`). Fixed by reverse-walking the param list to compute a tail-optional flag: a param keeps its `= null` default only when every later param is also optional. The matching call-site coercion (`$p ?? new T()`) is now guarded by the same flag so a required wrapper param is passed as `$p`. (`src/backends/php/gen_bindings/mod.rs`)
+
 ## [0.23.7] - 2026-06-05
 
 ### Fixed
