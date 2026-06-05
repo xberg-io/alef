@@ -460,10 +460,13 @@ fn rewrite_handler_calls_in_parameterized_functions(source: &str) -> String {
             // Rewrite if this function has handler parameter
             let func_text = func_lines.join("\n");
             let rewritten = if is_handler_parameterized {
-                let s = func_text
-                    .replace("handler.executeSync(", "handler(")
-                    .replace("handler.executeNormal(", "await handler(");
-                s.replace("await await handler", "await handler")
+                // When `handler` is a parameter, it's serialized and sent to Rust, where Rust invokes it.
+                // The Dart code should NOT invoke the handler directly. Instead, it should invoke
+                // the task executor (executeSync/executeNormal) on the task itself.
+                //
+                // Rewrite: `handler.executeSync(Task(...))` → `Task(...).executeSync()`
+                // Rewrite: `handler.executeNormal(Task(...))` → `await Task(...).executeNormal()`
+                rewrite_handler_to_task_executor(&func_text)
             } else {
                 func_text
             };
@@ -569,6 +572,134 @@ fn detect_handler_parameter(lines: &[&str], idx: usize) -> bool {
     }
 
     false
+}
+
+/// Rewrite handler.executeSync/executeNormal to move the method call to the task.
+/// When handler is a parameter, FRB generates:
+///   `return handler.executeSync(SyncTask(...));`
+/// But the handler parameter can't be invoked directly (it's serialized and passed to Rust).
+/// Instead, invoke the task executor:
+///   `return SyncTask(...).executeSync();`
+fn rewrite_handler_to_task_executor(source: &str) -> String {
+    let mut result = String::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+
+        if line.contains("handler.executeSync(") {
+            // Remove the handler.executeSync( prefix and collect the task body
+            let before_handler = line.split("handler.executeSync(").next().unwrap_or("");
+            result.push_str(before_handler);
+
+            let mut paren_depth = 0;
+            let mut task_lines = Vec::new();
+
+            // Start with content after handler.executeSync(
+            if let Some(after_handler) = line.split("handler.executeSync(").nth(1) {
+                for ch in after_handler.chars() {
+                    match ch {
+                        '(' => paren_depth += 1,
+                        ')' => paren_depth -= 1,
+                        _ => {}
+                    }
+                }
+                task_lines.push(after_handler.to_string());
+            }
+
+            i += 1;
+
+            // Collect remaining lines until paren depth becomes negative
+            while i < lines.len() && paren_depth >= 0 {
+                let curr = lines[i];
+                for ch in curr.chars() {
+                    match ch {
+                        '(' => paren_depth += 1,
+                        ')' => paren_depth -= 1,
+                        _ => {}
+                    }
+                }
+
+                if paren_depth < 0 && curr.trim().ends_with(");") {
+                    // This line has the final `);` - we need to replace it with `).executeSync();`
+                    let content = curr.trim_end_matches(");").trim_end_matches(",");
+                    task_lines.push(content.to_string());
+                    break;
+                } else {
+                    task_lines.push(curr.to_string());
+                }
+                i += 1;
+            }
+
+            // Write out the task with executeSync
+            result.push_str(&task_lines.join("\n"));
+            result.push_str(").executeSync();\n");
+            i += 1;
+            continue;
+        } else if line.contains("handler.executeNormal(") {
+            // Same for executeNormal with await
+            let before_handler = line.split("handler.executeNormal(").next().unwrap_or("");
+            result.push_str(before_handler);
+            result.push_str("await ");
+
+            let mut paren_depth = 0;
+            let mut task_lines = Vec::new();
+
+            // Start with content after handler.executeNormal(
+            if let Some(after_handler) = line.split("handler.executeNormal(").nth(1) {
+                for ch in after_handler.chars() {
+                    match ch {
+                        '(' => paren_depth += 1,
+                        ')' => paren_depth -= 1,
+                        _ => {}
+                    }
+                }
+                task_lines.push(after_handler.to_string());
+            }
+
+            i += 1;
+
+            // Collect remaining lines until paren depth becomes negative
+            while i < lines.len() && paren_depth >= 0 {
+                let curr = lines[i];
+                for ch in curr.chars() {
+                    match ch {
+                        '(' => paren_depth += 1,
+                        ')' => paren_depth -= 1,
+                        _ => {}
+                    }
+                }
+
+                if paren_depth < 0 && curr.trim().ends_with(");") {
+                    // This line has the final `);` - we need to replace it with `).executeNormal();`
+                    let content = curr.trim_end_matches(");").trim_end_matches(",");
+                    task_lines.push(content.to_string());
+                    break;
+                } else {
+                    task_lines.push(curr.to_string());
+                }
+                i += 1;
+            }
+
+            // Write out the task with executeNormal
+            result.push_str(&task_lines.join("\n"));
+            result.push_str(").executeNormal();\n");
+            i += 1;
+            continue;
+        }
+
+        result.push_str(line);
+        result.push('\n');
+        i += 1;
+    }
+
+    // Remove extra trailing newline
+    if !source.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
 }
 
 /// Ensure all closures and anonymous functions that contain `await handler` calls
@@ -1336,14 +1467,15 @@ Future<ExtractionResult> extractBytes(
     #[test]
     fn fix_handler_executor_calls_adds_async_to_closures() {
         // When `handler` is a callback function parameter, handler.executeNormal/executeSync
-        // calls should be rewritten and the function should be marked async.
-        let input = r#"Future<String> processRequest(Request req, FutureOr<String> Function(SyncTask) handler) {
+        // calls should be rewritten. The handler receives the task result, not the task itself,
+        // so we invoke the task executor and let Rust handle invoking the callback.
+        let input = r#"Future<String> processRequest(Request req, FutureOr<String> Function(String) handler) {
   return handler.executeNormal(
     SyncTask(request: req),
   );
 }
 
-int handleRoute(RouteData route, FutureOr<int> Function(RouteTask) handler) {
+int handleRoute(RouteData route, FutureOr<int> Function(String) handler) {
   return handler.executeSync(
     RouteTask(data: route),
   );
@@ -1351,14 +1483,18 @@ int handleRoute(RouteData route, FutureOr<int> Function(RouteTask) handler) {
 "#;
         let out = fix_handler_executor_calls(input);
 
-        // Verify executeSync/executeNormal are replaced with await handler (for async) or just handler (for sync)
+        // The handler is serialized and passed to Rust, so we invoke the task executor, not the handler
         assert!(
-            out.contains("await handler(") || out.contains("handler("),
-            "expected handler calls in output, got:\n{out}"
+            out.contains(".executeNormal();") || out.contains(".executeSync();"),
+            "expected task executor method calls in output, got:\n{out}"
         );
         assert!(
-            !out.contains("executeSync") && !out.contains("executeNormal"),
-            "executeSync/executeNormal should be removed, got:\n{out}"
+            !out.contains("handler("),
+            "handler callback should NOT be invoked directly (it's serialized), got:\n{out}"
+        );
+        assert!(
+            !out.contains("handler.executeSync(") && !out.contains("handler.executeNormal("),
+            "handler.executeSync/executeNormal method calls should be removed (moved to task), got:\n{out}"
         );
 
         // Verify no double-await
@@ -1434,14 +1570,19 @@ int handleRoute(RouteData route, FutureOr<int> Function(RouteTask) handler) {
 "#;
         let out = fix_handler_executor_calls(input);
 
-        // The method has `handler` as a parameter, so handler.executeSync SHOULD be rewritten
+        // The method has `handler` as a parameter, so handler.executeSync should be rewritten
+        // to call executeSync on the task instead (the handler is serialized, not invoked directly).
         assert!(
             !out.contains("handler.executeSync("),
             "handler.executeSync should be rewritten when handler is a parameter, got:\n{out}"
         );
         assert!(
-            out.contains("handler("),
-            "expected `handler(` in output (rewritten), got:\n{out}"
+            out.contains(".executeSync();"),
+            "expected `.executeSync();` on the task in output (rewritten), got:\n{out}"
+        );
+        assert!(
+            !out.contains("handler("),
+            "handler callback should NOT be invoked directly (it's serialized), got:\n{out}"
         );
     }
 
