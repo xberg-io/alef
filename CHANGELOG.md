@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- pyo3-overload-templates -->
+- **pyo3 — runtime panic on template lookup for converters/overload_*.jinja**: templates for `@overload` decorators on `_to_rust_*_config` helpers were defined in the template directory but not embedded in the alef binary via `include_str!()` or registered in the `TEMPLATES` array in `template_env.rs`. At runtime, the pyo3 backend's code generation would panic with "template converters/overload_none.jinja not found". Fixed by adding both templates to the TEMPLATES array with their respective `include_str!()` embeds. (`src/backends/pyo3/template_env.rs`)
+
 <!-- swift-harness-serve -->
 - **e2e/swift — harness probe and SUT_URL hardcoded to port 8009 instead of configured harness.port**: the Swift test setup class spawned the Harness subprocess and probed `http://127.0.0.1:8009/` to wait for readiness, while simultaneously setting the `SUT_URL` environment variable to the same hardcoded port. However, `alef.toml` configured `[crates.e2e.harness] port = 8000`, so the Harness binary was actually listening on port 8000. Tests would timeout waiting for port 8009 to respond, fail with `XCTUnwrap failed: expected non-nil value of type NSHTTPURLResponse`, and all 558 tests would be marked as failures. Fixed by capturing the `e2e_config.harness.host` and `e2e_config.harness.port` in the `render_test_file` function and interpolating them into the probe URL and SUT_URL environment string, so the test setup correctly targets the configured harness port. The generated tests now use `http://127.0.0.1:8000` (the actual configured port) instead of the hardcoded `8009`. (`src/e2e/codegen/swift.rs`)
 
