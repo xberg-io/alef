@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.23.12] - 2026-06-05
+### Fixed
+
+<!-- N+12-napi-entrypoint-compile -->
+- **napi: entrypoint method emission now produces compiling Rust** — previously the per-wrapper entrypoint methods introduced in 0.23.12 emitted (a) multi-line doc strings without `///` prefixing every line (literal markdown headers like `# Errors` were parsed by `rustc` as malformed attributes) and (b) used `Result<{actual_return_type}>` with `Ok(())`, which both fails to compile when the inner method consumes `self` by value (e.g. `App::run(self)`, `App::into_router(self)`) since the value cannot be moved out of a `MutexGuard` deref. The fix prefixes every doc line with `///`, returns `napi::Result<()>` for both `Run` and `Finalize` (the inner Router for Finalize is not host-serialisable so the side-effect-or-validate semantics are preserved), and emits `let owner = { let mut guard = {accessor}; std::mem::take(&mut *guard) };` so the guard is released before any `.await` and the owner is moved out by `Default`. Requires the owner type to implement `Default`. (`src/backends/napi/gen_bindings/service_api.rs`)
+
 
 ### Added
 

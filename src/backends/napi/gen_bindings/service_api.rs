@@ -1281,7 +1281,9 @@ fn gen_entrypoint_napi_method(
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
 
-    // Call the inner accessor and invoke the entrypoint
+    // Run/Finalize entrypoints conventionally consume `self` by value, so we move
+    // the owner out of the lock with `std::mem::take` (requires the owner type to
+    // implement `Default`) and drop the guard before any `.await`.
     if inner_accessor == "self" {
         if ep.is_async {
             out.push_str(&format!("    self.{ep_method}({args_str})\n        .await\n"));
@@ -1289,12 +1291,11 @@ fn gen_entrypoint_napi_method(
             out.push_str(&format!("    self.{ep_method}({args_str})\n"));
         }
     } else {
-        // Accessor may return &mut or MutexGuard — bind to a named variable
-        out.push_str(&format!("    let mut inner = {inner_accessor};\n"));
+        out.push_str(&format!("    let owner = {{\n        let mut guard = {inner_accessor};\n        std::mem::take(&mut *guard)\n    }};\n"));
         if ep.is_async {
-            out.push_str(&format!("    inner.{ep_method}({args_str})\n        .await\n"));
+            out.push_str(&format!("    owner.{ep_method}({args_str})\n        .await\n"));
         } else {
-            out.push_str(&format!("    inner.{ep_method}({args_str})\n"));
+            out.push_str(&format!("    owner.{ep_method}({args_str})\n"));
         }
     }
 
