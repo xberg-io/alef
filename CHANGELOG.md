@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- rustler-visit-result-atom-overquoting -->
+- **rustler — `apply_visitor_callback` over-quotes PascalCase atoms (`:"Continue"` instead of `:Continue`), which `mix format` rewrites away**: the 0.23.8 fix quoted PascalCase atoms on the (incorrect) assumption that Elixir requires the quoted form for capitalized atom names. Elixir DOES allow unquoted capitalized atoms — `:Continue`, `:Skip`, `:PreserveHtml` are valid syntax. `mix format` canonicalises `:"Continue"` → `:Continue` on every run, so the generated `html_to_markdown.ex` triggered an endless reformat loop in pre-commit. Fixed by reverting the atom emission in the `apply_visitor_callback` template to the unquoted form `:{{ variant.atom_name }}`. The 0.23.9 case-clause newline fix is preserved. (`src/backends/rustler/template_env.rs`)
+
 <!-- java-visitor-bridge-node-type -->
 - **java — `VisitorBridge.decodeContext` passes raw `int` discriminant to a `NodeContext` constructor expecting the `NodeType` enum**: the visitor-bridge template read the first 4 bytes of the C context struct as `int nodeType = ctx.get(ValueLayout.JAVA_INT, 0L)` and passed it straight into `new NodeContext(nodeType, ...)`, but the Java record's first field is typed `NodeType` (an enum), not `int`. Generated code failed javac with `incompatible types: int cannot be converted to NodeType`. Fixed by detecting the first field of the configured `context_type` in `resolve_visitor_generation` — when it is a Named enum, the template renders `<EnumName> nodeType = <EnumName>.values()[nodeTypeRaw];` to convert the raw discriminant into the typed enum. Falls back to plain `int` passthrough when the first field isn't an enum. (`src/backends/java/gen_visitor/files.rs`, `src/backends/java/templates/visitor_bridge.jinja`)
 
