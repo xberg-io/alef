@@ -187,7 +187,11 @@ fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddlewar
 /// The harness spawns the SUT app and registers handlers per fixture,
 /// returning canned expected responses. It's driven by conftest.py's
 /// subprocess launcher.
-pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], crate_config: &crate::core::config::ResolvedCrateConfig) -> String {
+pub(super) fn render_app_harness(
+    e2e_config: &E2eConfig,
+    groups: &[FixtureGroup],
+    crate_config: &crate::core::config::ResolvedCrateConfig,
+) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
@@ -826,7 +830,6 @@ mod tests {
     #[test]
     fn render_app_harness_skips_app_config_when_excluded() {
         use crate::core::config::e2e::{E2eConfig, HarnessConfig};
-        use crate::core::config::output::ExcludeConfig;
         use crate::core::config::resolved::ResolvedCrateConfig;
         use crate::e2e::fixture::{Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
         use std::collections::BTreeMap;
@@ -901,9 +904,6 @@ mod tests {
             out.contains("Harness listening on"),
             "expected listening message in harness:\n{out}"
         );
-        assert!(
-            out.contains("app.run()"),
-            "expected app.run() call in harness:\n{out}"
-        );
+        assert!(out.contains("app.run()"), "expected app.run() call in harness:\n{out}");
     }
 }
