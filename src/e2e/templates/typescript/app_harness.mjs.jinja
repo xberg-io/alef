@@ -9,13 +9,13 @@
 
 {% if import_style == "named" %}
 {% for import_name in imports -%}
-import { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }} } from '{{ import_name }}';
+import { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }}, CorsConfig, CompressionConfig } from '{{ import_name }}';
 {% endfor -%}
 {% else %}
 {% for import_name in imports -%}
 import _pkg from '{{ import_name }}';
 {% endfor -%}
-const { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }} } = _pkg;
+const { {{ app_class }}, {{ server_config_factory_import }}, {{ method_enum }}, {{ route_builder_class }}, CorsConfig, CompressionConfig } = _pkg;
 {% endif %}
 
 // Load fixtures from the inline JSON payload.
@@ -75,7 +75,20 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   const fullRoute = `/fixtures/${fixtureId}${route}`;
 
   // Build RouteBuilder and register the route
-  const builder = new {{ route_builder_class }}(methodEnum, fullRoute);
+  let builder = new {{ route_builder_class }}(methodEnum, fullRoute);
+
+  // Wire handler middleware through to the RouteBuilder
+  if (handler.middleware) {
+    if (handler.middleware.cors) {
+      const corsConfig = new CorsConfig(handler.middleware.cors);
+      builder = builder.cors(corsConfig);
+    }
+    if (handler.middleware.compression) {
+      const compressionConfig = new CompressionConfig(handler.middleware.compression);
+      builder = builder.compression(compressionConfig);
+    }
+  }
+
   app.{{ register_route_method }}(builder, handlerFn);
 
   // If the fixture has CORS middleware configured, register an OPTIONS preflight handler
