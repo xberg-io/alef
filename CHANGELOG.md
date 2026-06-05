@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- magnus-nodecontext-map-result-wrap -->
+- **magnus — non-opaque instance methods returning `Map<K, V>` from a core method that returns `&BTreeMap<...>` (i.e. `returns_ref=true`) emit `core_self.attributes()` directly, which is `&BTreeMap<String, String>` and fails to unify with the binding's `HashMap<String, String>` return type**: the Magnus method-result-wrap matcher in `gen_instance_method` had no `TypeRef::Map` arm, so the binding emitted no `.iter().clone()` step for borrowed map returns. PyO3, extendr, and the shared codegen already had this conversion (`.iter().map(|(k, v)| (k.clone(), v.clone())).collect()`); Magnus was the only backend missing it. Fixed by adding a `TypeRef::Map(_, _)` arm to `non_opaque_method_result_wrap` that emits the iter-clone-collect chain when `returns_ref` or `returns_cow` is set. (`src/backends/magnus/gen_bindings/classes.rs`)
+
 <!-- N+12-rust-args -->
 - **e2e/rust args — `Vec<String>` fixture values cannot coerce to `&[&str]` parameters required by some Rust core APIs**: added `vec_inner_is_ref` flag to `ArgMapping`. When `arg_type = "json_object"` and `element_type = "String"` and the flag is set, the codegen emits an additional `Vec<&str>` binding that maps `String::as_str` over the deserialized vector so the slice coerces correctly. (`src/core/config/e2e.rs`, `src/e2e/codegen/rust/args.rs`, `src/e2e/codegen/rust/test_file.rs`)
 

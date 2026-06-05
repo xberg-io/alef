@@ -639,6 +639,17 @@ fn non_opaque_method_result_wrap(method: &MethodDef) -> String {
                 String::new()
             }
         }
+        // Map: when core returns &BTreeMap (returns_ref=true), the binding map type
+        // (e.g. HashMap<String, String>) may differ from the core's. Collect via iter
+        // and clone each entry to coerce the key/value types into the binding's target.
+        // This also handles Cow-keyed maps that ferment into owned String entries.
+        TypeRef::Map(_, _) => {
+            if method.returns_ref || method.returns_cow {
+                ".iter().map(|(k, v)| (k.clone(), v.clone())).collect()".to_string()
+            } else {
+                String::new()
+            }
+        }
         _ => String::new(),
     }
 }
