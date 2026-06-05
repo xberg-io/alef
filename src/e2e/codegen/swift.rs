@@ -637,9 +637,12 @@ fn render_test_file(
         let _ = writeln!(out, "            }}");
         let _ = writeln!(out, "            let deadline = Date(timeIntervalSinceNow: 15.0)");
         let _ = writeln!(out, "            var ready = false");
+        let host = &e2e_config.harness.host;
+        let port = e2e_config.harness.port;
         let _ = writeln!(
             out,
-            "            let _probeURL = URL(string: \"http://127.0.0.1:8009/\")!"
+            "            let _probeURL = URL(string: \"http://{}:{}/\")!",
+            host, port
         );
         let _ = writeln!(out, "            while Date.now < deadline {{");
         let _ = writeln!(out, "                if proc.isRunning == false {{ break }}");
@@ -674,7 +677,11 @@ fn render_test_file(
         // `ProcessInfo.processInfo.environment` is read-only; use the C `setenv`
         // function to mutate the actual process environment so subsequent
         // `getenv("SUT_URL")` lookups (and Swift's `ProcessInfo` snapshot) see it.
-        let _ = writeln!(out, "            _ = \"http://127.0.0.1:8009\".withCString {{ url in");
+        let _ = writeln!(
+            out,
+            "            _ = \"http://{}:{}\".withCString {{ url in",
+            host, port
+        );
         let _ = writeln!(out, "                \"SUT_URL\".withCString {{ key in");
         let _ = writeln!(out, "                    setenv(key, url, 1)");
         let _ = writeln!(out, "                }}");
