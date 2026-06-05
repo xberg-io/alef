@@ -212,7 +212,11 @@ impl E2eCodegen for ElixirCodegen {
     }
 }
 
-pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], config: &ResolvedCrateConfig) -> String {
+pub(super) fn render_app_harness(
+    e2e_config: &E2eConfig,
+    groups: &[FixtureGroup],
+    config: &ResolvedCrateConfig,
+) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
