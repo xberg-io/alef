@@ -621,10 +621,16 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
                     }
                 }
 
-                if paren_depth < 0 && curr.trim().ends_with(");") {
-                    // This line has the final `);` - we need to replace it with `).executeSync();`
-                    let content = curr.trim_end_matches(");").trim_end_matches(",");
-                    task_lines.push(content.to_string());
+                if paren_depth < 0 {
+                    // We've found the closing paren of the handler call.
+                    // The line should end with `);` - replace the final `)` with `).<method>();`
+                    if curr.trim().ends_with(");") {
+                        // Remove the trailing `);` and push the line, then we'll add the method call after the task
+                        let without_closing = curr.trim_end_matches(");");
+                        task_lines.push(without_closing.to_string());
+                    } else {
+                        task_lines.push(curr.to_string());
+                    }
                     break;
                 } else {
                     task_lines.push(curr.to_string());
@@ -671,10 +677,16 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
                     }
                 }
 
-                if paren_depth < 0 && curr.trim().ends_with(");") {
-                    // This line has the final `);` - we need to replace it with `).executeNormal();`
-                    let content = curr.trim_end_matches(");").trim_end_matches(",");
-                    task_lines.push(content.to_string());
+                if paren_depth < 0 {
+                    // We've found the closing paren of the handler call.
+                    // The line should end with `);` - replace the final `)` with `).<method>();`
+                    if curr.trim().ends_with(");") {
+                        // Remove the trailing `);` and push the line, then we'll add the method call after the task
+                        let without_closing = curr.trim_end_matches(");");
+                        task_lines.push(without_closing.to_string());
+                    } else {
+                        task_lines.push(curr.to_string());
+                    }
                     break;
                 } else {
                     task_lines.push(curr.to_string());
