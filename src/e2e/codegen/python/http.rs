@@ -290,6 +290,7 @@ mod tests {
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
                     body,
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {

@@ -2526,6 +2526,7 @@ mod tests {
             owned: false,
             element_type: None,
             go_type: None,
+            vec_inner_is_ref: false,
             trait_name: None,
         }];
         let fixture = Fixture {
@@ -2966,6 +2967,7 @@ mod tests {
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
                     body: None,
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {

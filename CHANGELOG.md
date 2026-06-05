@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.12] - 2026-06-05
+
 ### Added
 
 <!-- N+12-napi-entrypoint -->
 - **napi: emit service entrypoints (run, finalize) as methods on the wrapper class** when `host_app_inner_accessor` is configured: the NAPI backend now emits entrypoint methods (e.g. `#[napi(js_name = "nativeRun")] pub async fn run(...)`) on the generated wrapper class alongside the existing free functions (`pub async fn app_run(...)`), so the TypeScript service wrapper can locate and call entrypoints directly as `this.nativeRun()` without relying on hand-maintained shims after each regeneration. Method names use PascalCase js_names (e.g. `nativeRun`, `nativeIntoRouter`) matching downstream TypeScript expectations. Emission is gated by the presence of `host_app_inner_accessor` in `alef.toml`, and free functions are preserved for backward compatibility. (`src/backends/napi/gen_bindings/service_api.rs`)
+
+### Fixed
+
+<!-- e2e-test-fixture-missing-fields -->
+- **e2e codegen tests — `ArgMapping` and `HttpRequest` struct literals in tests across csharp, gleam, kotlin, python, recipe, ruby, and validate did not include the new `vec_inner_is_ref` (`ArgMapping`) and `form_data` (`HttpRequest`) fields added in 0.23.11, breaking `cargo check --all-targets` and the pre-commit gate**: added the missing fields with their default values (`false` and `None` respectively) to all affected test sites. (`src/e2e/codegen/csharp.rs`, `src/e2e/codegen/gleam.rs`, `src/e2e/codegen/kotlin.rs`, `src/e2e/codegen/python/config.rs`, `src/e2e/codegen/python/http.rs`, `src/e2e/codegen/recipe.rs`, `src/e2e/codegen/ruby.rs`, `src/e2e/validate.rs`)
+
+## [0.23.11] - 2026-06-05
 
 ### Fixed
 

@@ -785,6 +785,7 @@ mod tests {
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
                     body: None,
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {
@@ -864,6 +865,7 @@ mod tests {
                     query_params: BTreeMap::new(),
                     cookies: BTreeMap::new(),
                     body: None,
+                    form_data: None,
                     content_type: None,
                 },
                 expected_response: HttpExpectedResponse {

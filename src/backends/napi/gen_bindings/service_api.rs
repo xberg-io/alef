@@ -1245,20 +1245,25 @@ fn gen_entrypoint_napi_method(
     }
     let param_sig = rust_params.join(", ");
 
-    // Determine return type for the method
+    // Return `()` for both Run and Finalize: the inner Router (for Finalize) is
+    // not host-serialisable, and JS only needs the side-effect / validation.
+    let _ = EntrypointKind::Run; // pacify dead-code lint if unused
     let return_ty = match ep.kind {
-        EntrypointKind::Run => "()".to_owned(),
-        EntrypointKind::Finalize => {
-            // For Finalize, return the value; for now use a generic approach
-            typeref_to_rust_type(&ep.return_type, core_import)
-        }
+        EntrypointKind::Run | EntrypointKind::Finalize => "()".to_owned(),
     };
 
     out.push_str(&format!(
         "/// Call the `{ep_method}` entrypoint on the inner service.\n"
     ));
     if !ep.doc.is_empty() {
-        out.push_str(&format!("///\n/// {}\n", ep.doc.trim()));
+        out.push_str("///\n");
+        for line in ep.doc.trim().lines() {
+            if line.is_empty() {
+                out.push_str("///\n");
+            } else {
+                out.push_str(&format!("/// {line}\n"));
+            }
+        }
     }
 
     // Emit as async method when the entrypoint is async
