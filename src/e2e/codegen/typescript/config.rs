@@ -192,14 +192,11 @@ pub fn render_app_harness(
     let app_class = e2e_config.harness.app_class_for_lang("node");
     let method_enum = &e2e_config.harness.method_enum;
     let run_method = e2e_config.harness.run_method_for_lang("node");
-    // Honor per-language register_method overrides AND apply JS camelCase
-    // so the canonical `register_route` config emits as `registerRoute`.
-    // Falls back to camelCased default when neither override nor top-level
-    // is set.
-    let register_method = e2e_config
-        .harness
-        .register_method_idiomatic("node")
-        .unwrap_or_else(|| "registerRoute".to_string());
+    // Node.js NAPI-RS binding has two route-registration forms:
+    // - route() is a single-arg decorator returning a callable
+    // - register_route() is a two-arg direct method
+    // The harness uses two-arg registration, so always use registerRoute (camelCased).
+    let register_method = "registerRoute".to_string();
 
     // For NAPI-RS bindings (Node.js/WASM), detect the constructor pattern.
     // If imports include "/node" or "wasm", use App.new() factory method.
