@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+<!-- java-visitor-list-import -->
+- **java — generated visitor-interface `HtmlVisitor.java` omits `import java.util.List;` even when callback signatures use `List<String>`**: the visitor-interface template (`visitor_interface.jinja`) emitted only the package declaration and the interface body; it never scanned callback parameter types for `List<...>` references. When a Rust trait method had a `Vec<String>` parameter (e.g. `visit_table_row(cells: &[String])`), the generated `default VisitResult visitTableRow(..., final List<String> cells, ...)` referenced `List` without importing it, producing javac `cannot find symbol: class List`. Fixed by scanning all callback `ExtraParam.java_type` strings in `gen_visitor_interface` for `List<` and `Map<` markers and conditionally emitting `import java.util.List;` / `import java.util.Map;` from the template. (`src/backends/java/gen_visitor/files.rs`, `src/backends/java/templates/visitor_interface.jinja`)
+
 ## [0.23.9] - 2026-06-05
 
 ### Fixed

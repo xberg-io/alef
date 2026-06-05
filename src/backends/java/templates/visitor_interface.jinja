@@ -1,5 +1,8 @@
 {{ header }}package {{ package }};
 
+{% if needs_list_import %}import java.util.List;
+{% endif %}{% if needs_map_import %}import java.util.Map;
+{% endif %}
 /** Visitor interface for callbacks implemented by the host language. */
 public interface {{ trait_name }} {
 {% for callback in callbacks %}

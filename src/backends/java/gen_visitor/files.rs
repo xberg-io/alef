@@ -148,6 +148,23 @@ fn gen_visit_result(package: &str, visitor: &VisitorGeneration) -> String {
 
 fn gen_visitor_interface(package: &str, visitor: &VisitorGeneration) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
+    // Scan callback parameter types so we know which java.util.* imports the interface needs.
+    // Generic markers (`List<`, `Map<`) on `ExtraParam.java_type` are the simplest reliable
+    // detector — Rust trait params like `&[String]` lower to `List<String>` and `&BTreeMap<K, V>`
+    // to `Map<K, V>` in the generated Java signature. Missing imports produce javac
+    // `cannot find symbol: class List` / `class Map`.
+    let mut needs_list_import = false;
+    let mut needs_map_import = false;
+    for spec in &visitor.callbacks {
+        for ep in &spec.extra {
+            if ep.java_type.contains("List<") {
+                needs_list_import = true;
+            }
+            if ep.java_type.contains("Map<") {
+                needs_map_import = true;
+            }
+        }
+    }
     let callbacks: Vec<_> = visitor
         .callbacks
         .iter()
@@ -168,6 +185,8 @@ fn gen_visitor_interface(package: &str, visitor: &VisitorGeneration) -> String {
             result_type => &visitor.result_type,
             default_variant => &visitor.default_variant,
             callbacks => callbacks,
+            needs_list_import => needs_list_import,
+            needs_map_import => needs_map_import,
         },
     )
 }
