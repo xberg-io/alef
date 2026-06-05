@@ -1909,6 +1909,56 @@ mod tests {
     }
 
     #[test]
+    fn typescript_output_skips_excluded_entrypoint() {
+        let surface = make_fixture_surface();
+        let mut config = make_test_config();
+        // Add the entrypoint method to the exclude list
+        config.exclude.methods.push("TestService.run".to_string());
+
+        let output = gen_service_ts(&surface, "my_crate", &config);
+
+        // Should NOT contain the run method when excluded
+        assert!(
+            !output.contains("async run(addr: string)"),
+            "excluded `async run` entrypoint should not be present:\n{output}"
+        );
+
+        // Should NOT import the native function when excluded
+        assert!(
+            !output.contains("import { test_service_run }"),
+            "excluded native function import should not be present:\n{output}"
+        );
+
+        // But should still contain the class
+        assert!(
+            output.contains("export class TestService"),
+            "service class should still be present even with excluded entrypoint:\n{output}"
+        );
+    }
+
+    #[test]
+    fn rust_output_skips_excluded_entrypoint() {
+        let surface = make_fixture_surface();
+        let mut config = make_test_config();
+        // Add the entrypoint method to the exclude list
+        config.exclude.methods.push("TestService.run".to_string());
+
+        let output = gen_service_rs(&surface, &config);
+
+        // Should NOT contain the napi function when excluded
+        assert!(
+            !output.contains("pub async fn test_service_run"),
+            "excluded `test_service_run` napi function should not be present:\n{output}"
+        );
+
+        // But should still contain the handler bridge
+        assert!(
+            output.contains("pub struct RequestHandlerBridge"),
+            "RequestHandlerBridge should still be present even with excluded entrypoint:\n{output}"
+        );
+    }
+
+    #[test]
     fn typescript_variant_verb_decorator_style() {
         use crate::core::ir::{RegistrationVariant, RegistrationVariantStyle};
 
