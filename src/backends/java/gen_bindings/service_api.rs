@@ -89,12 +89,23 @@ fn descriptor_layouts(params: &[ParamDef]) -> String {
     layouts
 }
 
+fn bool_arg_expr(param_name: &str) -> String {
+    template_env::render(
+        "service_bool_arg_expr.jinja",
+        context! {
+            param_name => param_name,
+        },
+    )
+    .trim_end()
+    .to_owned()
+}
+
 fn metadata_arg(param: &ParamDef, api: &ApiSurface, comment: &str) -> String {
     let param_name = param.name.to_lower_camel_case();
     if is_opaque_metadata(&param.ty, api) {
         format!("{param_name}.handle()    // opaque handle")
     } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
-        format!("({param_name} ? 1 : 0)    // {comment}")
+        format!("{}    // {comment}", bool_arg_expr(&param_name))
     } else {
         format!("{param_name}    // {comment}")
     }
@@ -275,7 +286,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 invoke_args.push_str(&param.name.to_lower_camel_case());
                 invoke_args.push_str(".handle()");
             } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
-                invoke_args.push_str(&format!("({} ? 1 : 0)", param.name.to_lower_camel_case()));
+                invoke_args.push_str(&bool_arg_expr(&param.name.to_lower_camel_case()));
             } else {
                 invoke_args.push_str(&param.name.to_lower_camel_case());
             }

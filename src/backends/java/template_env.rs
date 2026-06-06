@@ -465,6 +465,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_metadata_signature_param.jinja"),
     ),
     (
+        "service_bool_arg_expr.jinja",
+        include_str!("templates/service_bool_arg_expr.jinja"),
+    ),
+    (
         "record_declaration.jinja",
         include_str!("templates/record_declaration.jinja"),
     ),

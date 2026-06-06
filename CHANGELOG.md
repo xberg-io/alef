@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **java**: migrated service API boolean invocation argument fragments to backend Jinja templates.
+  (`src/backends/java/gen_bindings/service_api.rs`)
+
 - **swift**: migrated function-parameter Box shim parameter signature fragments to a small Jinja template,
   leaving list assembly in Rust. (`src/backends/swift/gen_bindings/mod.rs`)
 
