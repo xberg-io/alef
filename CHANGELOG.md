@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.23] - 2026-06-06
+
 ### Fixed
 
 - **java**: place `@Nullable` type-use annotation at the simple-name segment of a fully-qualified type (`java.nio.file.@Nullable Path`), not before the package prefix. Leading-position annotations on qualified types are a `javac` error (`type annotation @org.jspecify.annotations.Nullable is not expected here`). Lifted the existing field-level logic into `render_nullable_type()` in `helpers.rs` and applied it to function-parameter and facade-method emitters in `ffi_class.rs` and `facade.rs`. (`src/backends/java/gen_bindings/{helpers,ffi_class,facade}.rs`)
