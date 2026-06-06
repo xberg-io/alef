@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **dart**: annotated the `fix_handler_executor_calls` build-script helper with `#[allow(clippy::collapsible_if)]` so consumer crates with `-D warnings` (e.g. h2m's `cargo clippy --workspace --all-features`) don't break on the deliberately-flat early-warn-then-write pattern. The structure stays readable and a future log-on-success branch would slot in without refactor. (`src/backends/dart/templates/rust_loader_patch_fn.rs.jinja`)
 
+- **magnus/Ruby**: avoid duplicate `Vec<Named>` core let-bindings in generated function
+  wrappers, which could move the Ruby wrapper vector before the call site used it.
+
 ## [0.23.18] - 2026-06-06
 
 ### Added

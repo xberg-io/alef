@@ -397,29 +397,6 @@ pub(super) fn gen_function(
         }
     }
 
-    // If `can_delegate` is true but Vec<Named> bindings are needed, emit them now.
-    // This handles the case where delegatable functions with Vec<Named> params still
-    // need `{name}_core` conversion for gen_call_args_with_let_bindings.
-    if can_delegate && needs_vec_named_let_binding && !serde_recoverable {
-        for p in &func.params {
-            if let TypeRef::Vec(inner) = &p.ty {
-                if let TypeRef::Named(name) = inner.as_ref() {
-                    if !opaque_types.contains(name.as_str()) {
-                        let core_inner_ty = format!("{core_import}::{name}");
-                        let vec_ty = format!("Vec<{core_inner_ty}>");
-                        deser_lines.push(crate::backends::magnus::template_env::render(
-                            "function_named_vec_binding.rs.jinja",
-                            minijinja::context! {
-                                name => &p.name,
-                                vec_ty => &vec_ty,
-                                optional => p.optional,
-                            },
-                        ));
-                    }
-                }
-            }
-        }
-    }
     // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
     // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
     // call site can borrow a properly-typed AHashMap.
@@ -844,29 +821,6 @@ pub(super) fn gen_async_function(
         }
     }
 
-    // If `can_delegate` is true but Vec<Named> bindings are needed, emit them now.
-    // This handles the case where delegatable functions with Vec<Named> params still
-    // need `{name}_core` conversion for gen_call_args_with_let_bindings.
-    if can_delegate && needs_vec_named_let_binding && !serde_recoverable {
-        for p in &func.params {
-            if let TypeRef::Vec(inner) = &p.ty {
-                if let TypeRef::Named(name) = inner.as_ref() {
-                    if !opaque_types.contains(name.as_str()) {
-                        let core_inner_ty = format!("{core_import}::{name}");
-                        let vec_ty = format!("Vec<{core_inner_ty}>");
-                        deser_lines.push(crate::backends::magnus::template_env::render(
-                            "function_named_vec_binding.rs.jinja",
-                            minijinja::context! {
-                                name => &p.name,
-                                vec_ty => &vec_ty,
-                                optional => p.optional,
-                            },
-                        ));
-                    }
-                }
-            }
-        }
-    }
     // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
     // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
     // call site can borrow a properly-typed AHashMap.

@@ -3701,11 +3701,28 @@ fn test_async_function_with_vec_named_params() {
     // Must contain the async function
     assert!(content.contains("detect_async"), "Should contain detect_async function");
 
-    // Must emit the `{name}_core` let binding for Vec<Named> params
-    assert!(
-        content.contains("let categories_core:"),
-        "Should emit categories_core let binding for Vec<Category> parameter"
-    );
+    // Each function body must emit `let categories_core:` exactly once; emitting it twice
+    // within a single body causes `use of moved value: categories` (E0382). The sync wrapper
+    // (`fn detect_async`) and the async wrapper (`fn detect_async_async`) each emit it once.
+    for fn_decl in ["fn detect_async(", "fn detect_async_async("] {
+        let start = content
+            .find(fn_decl)
+            .unwrap_or_else(|| panic!("Should contain {fn_decl}"));
+        let remaining = &content[start + fn_decl.len()..];
+        let next_pub_fn = remaining.find("\npub fn ");
+        let next_private_fn = remaining.find("\nfn ");
+        let next_fn = [next_pub_fn, next_private_fn]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(remaining.len());
+        let body = &content[start..start + fn_decl.len() + next_fn];
+        let body_count = body.matches("let categories_core:").count();
+        assert_eq!(
+            body_count, 1,
+            "{fn_decl}...) body should emit categories_core let binding exactly once, got {body_count}"
+        );
+    }
 
     // Must use `categories_core` in the core function call
     assert!(
