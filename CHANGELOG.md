@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.22] - 2026-06-06
+
 ### Fixed
 
 - **ffi**: removed leftover `style = "type"` line inside `[export]` block of the generated `cbindgen.toml`. The earlier fix that hoisted `style = "type"` to the top level (and the subsequent change to `style = "both"`) only added the top-level key but failed to delete the now-duplicate `[export].style` line, which cbindgen 0.29.2 rejects with `unknown field 'style', expected one of 'include', 'exclude', 'rename', 'pre_body', 'body', 'prefix', 'item_types', 'renaming_overrides_prefixing', 'mangle'`. Surfaces as a build-script panic on every consumer regen post-rc.16. (`src/backends/ffi/templates/cbindgen_toml.jinja`)
