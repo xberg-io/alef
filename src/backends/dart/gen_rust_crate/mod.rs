@@ -388,6 +388,18 @@ fn emit_lib_rs(
         emit_from_impl_for_enum(&mut content, en, source_crate_name);
     }
 
+    // Collect service configurator-param types that need From<Mirror> for Source impls.
+    // These types don't necessarily have sanitized fields but are passed as mirror types
+    // from Dart to the core service and need explicit From conversions.
+    let configurator_param_types: HashSet<String> = api
+        .services
+        .iter()
+        .flat_map(|s| s.configurators.iter())
+        .flat_map(|cfg| cfg.params.iter())
+        .flat_map(|p| collect_named_types_from_type_ref(&p.ty))
+        .filter(|name| !exclude_types.contains(name))
+        .collect();
+
     // Collect only the types transitively containing sanitized fields that appear as
     // function input parameters. Output-only types (result structs) are excluded —
     // they never flow Dart→Rust and must not get From<Mirror> for Core impls.
@@ -489,6 +501,50 @@ fn emit_lib_rs(
             for ty in streaming_param_mirror_types {
                 content.push('\n');
                 emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
+            }
+        }
+    }
+
+    // Service configurator parameters are passed as mirror types from Dart to the core
+    // service and need From<Mirror> for Source impls, even if they don't have sanitized
+    // fields. Compute the transitive closure of configurator-param types and emit From
+    // impls for those that haven't already been covered above.
+    let configurator_param_closure = compute_types_needing_from_impl(api, &configurator_param_types, exclude_types);
+    {
+        let configurator_param_mirror_types: Vec<&TypeDef> = api
+            .types
+            .iter()
+            .filter(|t| {
+                configurator_param_closure.contains(&t.name)
+                    && !types_needing_from_impl.contains(&t.name)
+                    && !t.is_trait
+                    && !t.is_opaque
+                    && !t.binding_excluded
+            })
+            .collect();
+        if !configurator_param_mirror_types.is_empty() {
+            content.push_str("\n// From<T> for SourceT conversions for service-configurator mirror parameter types.\n");
+            for ty in configurator_param_mirror_types {
+                content.push('\n');
+                emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
+            }
+        }
+    }
+    // Also emit From<MirrorEnum> for enums in the configurator-param closure
+    {
+        let configurator_param_mirror_enums: Vec<&EnumDef> = api
+            .enums
+            .iter()
+            .filter(|e| {
+                configurator_param_closure.contains(&e.name)
+                    && !types_needing_from_impl.contains(&e.name)
+                    && !e.binding_excluded
+            })
+            .collect();
+        if !configurator_param_mirror_enums.is_empty() {
+            for en in configurator_param_mirror_enums {
+                content.push('\n');
+                emit_from_mirror_to_core_enum(&mut content, en, source_crate_name);
             }
         }
     }
