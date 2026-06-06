@@ -1,0 +1,4 @@
+    match {{ call }} {
+        Ok(value) => Box::into_raw(Box::new(value)),
+        Err(_) => std::ptr::null_mut(),
+    }

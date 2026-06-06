@@ -1,0 +1,5 @@
+    let {{ name }}_rs = if {{ name }}.is_null() {
+        String::new()
+    } else {
+        std::ffi::CStr::from_ptr({{ name }}).to_string_lossy().into_owned()
+    };

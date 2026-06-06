@@ -1,0 +1,6 @@
+#[allow(dead_code)]
+fn {{ enum_snake }}_from_i32_rs(v: i32) -> Option<{{ qualified }}> {
+    match v {
+{{ arms }}        _ => None,
+    }
+}

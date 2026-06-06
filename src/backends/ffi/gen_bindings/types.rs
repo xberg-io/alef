@@ -478,17 +478,23 @@ pub(super) fn gen_enum_from_i32_rs_helper(enum_def: &EnumDef, core_import: &str)
 
     let mut arms = String::new();
     for (i, variant) in enum_def.variants.iter().enumerate() {
-        arms.push_str(&format!("        {i} => Some({qualified}::{}),\n", variant.name));
+        arms.push_str(&crate::backends::ffi::template_env::render(
+            "ffi_enum_from_i32_rs_arm.jinja",
+            context! {
+                index => i,
+                qualified => qualified.clone(),
+                variant_name => variant.name.clone(),
+            },
+        ));
     }
 
-    format!(
-        "#[allow(dead_code)]\n\
-         fn {enum_snake}_from_i32_rs(v: i32) -> Option<{qualified}> {{\n\
-             match v {{\n\
-         {arms}\
-                 _ => None,\n\
-             }}\n\
-         }}\n"
+    crate::backends::ffi::template_env::render(
+        "ffi_enum_from_i32_rs_helper.jinja",
+        context! {
+            enum_snake => enum_snake,
+            qualified => qualified,
+            arms => arms,
+        },
     )
 }
 
@@ -671,11 +677,14 @@ pub(super) fn gen_opaque_static_constructor(
         ""
     };
 
-    out.push_str(&format!(
-        "{}#[no_mangle]\npub unsafe extern \"C\" fn {}(\n{}\n) -> *mut {return_qualified} {{\n",
-        allow_clippy,
-        ffi_fn_name,
-        ffi_params.join(",\n")
+    out.push_str(&crate::backends::ffi::template_env::render(
+        "ffi_opaque_constructor_header.jinja",
+        context! {
+            allow_clippy => allow_clippy,
+            ffi_fn_name => ffi_fn_name.clone(),
+            ffi_params => ffi_params.join(",\n"),
+            return_qualified => return_qualified.clone(),
+        },
     ));
 
     // Clear error state if this is a fallible constructor
@@ -700,13 +709,9 @@ pub(super) fn gen_opaque_static_constructor(
     for p in &method.params {
         match &p.ty {
             TypeRef::String => {
-                out.push_str(&format!(
-                    "    let {0}_rs = if {0}.is_null() {{\n        \
-                     String::new()\n    \
-                     }} else {{\n        \
-                     std::ffi::CStr::from_ptr({0}).to_string_lossy().into_owned()\n    \
-                     }};\n",
-                    p.name
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_opaque_constructor_string_param.jinja",
+                    context! { name => p.name.clone() },
                 ));
             }
             TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
@@ -719,14 +724,15 @@ pub(super) fn gen_opaque_static_constructor(
                 let enum_snake = c_symbol_component(n);
                 let param_name = &p.name;
                 let rs_name = format!("{param_name}_rs");
-                out.push_str(&format!(
-                    "    let {rs_name} = match {enum_snake}_from_i32_rs({param_name}) {{\n        \
-                     Some(v) => v,\n        \
-                     None => {{\n            \
-                     set_last_error(1, \"invalid discriminant for {n}\");\n            \
-                     return std::ptr::null_mut();\n        \
-                     }},\n    \
-                     }};\n",
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_enum_discriminant_match.jinja",
+                    context! {
+                        rs_name => rs_name,
+                        enum_snake => enum_snake,
+                        name => param_name,
+                        error_message => format!("invalid discriminant for {n}"),
+                        fail_ret => "return std::ptr::null_mut();",
+                    },
                 ));
             }
             TypeRef::Named(_) => {
@@ -737,26 +743,28 @@ pub(super) fn gen_opaque_static_constructor(
                 // For infallible constructors the caller is responsible for passing a valid ptr.
                 let param_name = &p.name;
                 let rs_name = format!("{param_name}_rs");
-                if p.is_ref {
-                    // Core takes &T — just deref to get a reference, no clone needed.
-                    out.push_str(&format!(
-                        "    // SAFETY: caller must pass a valid non-null *const T pointer.\n    \
-                         let {rs_name} = unsafe {{ &*{param_name} }};\n",
-                    ));
-                } else {
-                    // Core takes owned T — deref and clone.
-                    out.push_str(&format!(
-                        "    // SAFETY: caller must pass a valid non-null *const T pointer.\n    \
-                         let {rs_name} = unsafe {{ &*{param_name} }}.clone();\n",
-                    ));
-                }
+                let clone_suffix = if p.is_ref { "" } else { ".clone()" };
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_opaque_constructor_named_param.jinja",
+                    context! {
+                        rs_name => rs_name,
+                        param_name => param_name,
+                        clone_suffix => clone_suffix,
+                    },
+                ));
             }
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
-                out.push_str(&format!("    let {0}_rs = {0} != 0;\n", p.name));
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_opaque_constructor_bool_param.jinja",
+                    context! { name => p.name.clone() },
+                ));
             }
             _ => {
                 // Pass through or use basic bindings for other types
-                out.push_str(&format!("    let {0}_rs = {0};\n", p.name));
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_opaque_constructor_passthrough_param.jinja",
+                    context! { name => p.name.clone() },
+                ));
             }
         }
     }
@@ -781,9 +789,13 @@ pub(super) fn gen_opaque_static_constructor(
     // `*mut {qualified}`. cbindgen sees `{qualified}` as a forward-declared C type, so the
     // host sees `struct <PREFIX><Type> *` — a true opaque handle.
     let _ = type_name; // {type_name} is retained for doc/clarity in the doc comment above.
-    out.push_str(&format!(
-        "    let result = {qualified}::{}({});\n",
-        method.name, call_args
+    out.push_str(&crate::backends::ffi::template_env::render(
+        "ffi_opaque_constructor_call.jinja",
+        context! {
+            qualified => qualified,
+            method_name => method.name.clone(),
+            call_args => call_args,
+        },
     ));
 
     // Handle fallible constructors: if error_type is present, the constructor returns Result<T, E>

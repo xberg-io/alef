@@ -256,14 +256,15 @@ impl FfiBridgeGenerator {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            // Generate method inline (trait_method.jinja is not in FFI template_env)
-            methods_code.push_str(&format!(
-                "    {async_kw}fn {method_name}({all_params}) -> {ret} {{\n{indented_body}\n    }}\n",
-                async_kw = async_kw,
-                method_name = &method.name,
-                all_params = all_params,
-                ret = ret,
-                indented_body = indented_body,
+            methods_code.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_trait_method_impl.jinja",
+                minijinja::context! {
+                    async_kw,
+                    method_name => method.name.clone(),
+                    all_params,
+                    ret,
+                    indented_body,
+                },
             ));
         }
 
@@ -272,7 +273,6 @@ impl FfiBridgeGenerator {
         let mut impl_code = String::new();
         let _ = gen_bridge_plugin_impl; // silence unused import in case future logic re-adds it
 
-        // Trait impl (trait_impl.jinja is not in FFI template_env, so generate inline)
         if has_async_methods {
             if async_trait_is_send {
                 impl_code.push_str("#[async_trait::async_trait]\n");
@@ -280,11 +280,13 @@ impl FfiBridgeGenerator {
                 impl_code.push_str("#[async_trait::async_trait(?Send)]\n");
             }
         }
-        impl_code.push_str(&format!(
-            "impl {trait_path} for {wrapper_name} {{\n{methods_code}}}\n",
-            trait_path = trait_path,
-            wrapper_name = wrapper,
-            methods_code = methods_code,
+        impl_code.push_str(&crate::backends::ffi::template_env::render(
+            "ffi_trait_impl.jinja",
+            minijinja::context! {
+                trait_path,
+                wrapper_name => wrapper,
+                methods_code,
+            },
         ));
 
         impl_code

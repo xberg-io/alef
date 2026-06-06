@@ -405,8 +405,113 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/bytes_result_match.jinja"),
     ),
     (
+        "ffi_allow_clippy_attr.jinja",
+        include_str!("templates/ffi_allow_clippy_attr.jinja"),
+    ),
+    (
+        "ffi_btree_binding.jinja",
+        include_str!("templates/ffi_btree_binding.jinja"),
+    ),
+    (
+        "ffi_enum_discriminant_match.jinja",
+        include_str!("templates/ffi_enum_discriminant_match.jinja"),
+    ),
+    (
+        "ffi_enum_from_i32_rs_arm.jinja",
+        include_str!("templates/ffi_enum_from_i32_rs_arm.jinja"),
+    ),
+    (
+        "ffi_enum_from_i32_rs_helper.jinja",
+        include_str!("templates/ffi_enum_from_i32_rs_helper.jinja"),
+    ),
+    (
+        "ffi_opaque_constructor_call.jinja",
+        include_str!("templates/ffi_opaque_constructor_call.jinja"),
+    ),
+    (
+        "ffi_opaque_constructor_header.jinja",
+        include_str!("templates/ffi_opaque_constructor_header.jinja"),
+    ),
+    (
+        "ffi_opaque_constructor_named_param.jinja",
+        include_str!("templates/ffi_opaque_constructor_named_param.jinja"),
+    ),
+    (
+        "ffi_opaque_constructor_passthrough_param.jinja",
+        include_str!("templates/ffi_opaque_constructor_passthrough_param.jinja"),
+    ),
+    (
+        "ffi_opaque_constructor_string_param.jinja",
+        include_str!("templates/ffi_opaque_constructor_string_param.jinja"),
+    ),
+    (
+        "ffi_opaque_constructor_bool_param.jinja",
+        include_str!("templates/ffi_opaque_constructor_bool_param.jinja"),
+    ),
+    (
+        "ffi_string_bridge_null_check.jinja",
+        include_str!("templates/ffi_string_bridge_null_check.jinja"),
+    ),
+    (
+        "ffi_string_bridge_param_conversion.jinja",
+        include_str!("templates/ffi_string_bridge_param_conversion.jinja"),
+    ),
+    ("ffi_trait_impl.jinja", include_str!("templates/ffi_trait_impl.jinja")),
+    (
+        "ffi_trait_method_impl.jinja",
+        include_str!("templates/ffi_trait_method_impl.jinja"),
+    ),
+    (
+        "ffi_visitor_result_default_arm.jinja",
+        include_str!("templates/ffi_visitor_result_default_arm.jinja"),
+    ),
+    (
+        "ffi_visitor_result_string_arm.jinja",
+        include_str!("templates/ffi_visitor_result_string_arm.jinja"),
+    ),
+    (
+        "ffi_visitor_result_unit_arm.jinja",
+        include_str!("templates/ffi_visitor_result_unit_arm.jinja"),
+    ),
+    (
+        "ffi_visitor_with_callback_function.jinja",
+        include_str!("templates/ffi_visitor_with_callback_function.jinja"),
+    ),
+    (
         "service_api_rs_header.rs.jinja",
         include_str!("templates/service_api_rs_header.rs.jinja"),
+    ),
+    (
+        "service_api_h_callback_typedef.h.jinja",
+        include_str!("templates/service_api_h_callback_typedef.h.jinja"),
+    ),
+    (
+        "service_api_h_constructor_decl.h.jinja",
+        include_str!("templates/service_api_h_constructor_decl.h.jinja"),
+    ),
+    (
+        "service_api_h_destructor_decl.h.jinja",
+        include_str!("templates/service_api_h_destructor_decl.h.jinja"),
+    ),
+    (
+        "service_api_h_entrypoint_decl_start.h.jinja",
+        include_str!("templates/service_api_h_entrypoint_decl_start.h.jinja"),
+    ),
+    (
+        "service_api_h_header_end.h.jinja",
+        include_str!("templates/service_api_h_header_end.h.jinja"),
+    ),
+    (
+        "service_api_h_header_start.h.jinja",
+        include_str!("templates/service_api_h_header_start.h.jinja"),
+    ),
+    (
+        "service_api_h_opaque_typedef.h.jinja",
+        include_str!("templates/service_api_h_opaque_typedef.h.jinja"),
+    ),
+    (
+        "service_api_h_registration_decl_start.h.jinja",
+        include_str!("templates/service_api_h_registration_decl_start.h.jinja"),
     ),
     (
         "service_api_opaque.rs.jinja",
@@ -435,6 +540,34 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "service_api_entrypoint_function.rs.jinja",
         include_str!("templates/service_api_entrypoint_function.rs.jinja"),
+    ),
+    (
+        "service_api_entrypoint_return_opaque_result.rs.jinja",
+        include_str!("templates/service_api_entrypoint_return_opaque_result.rs.jinja"),
+    ),
+    (
+        "service_api_entrypoint_return_opaque_value.rs.jinja",
+        include_str!("templates/service_api_entrypoint_return_opaque_value.rs.jinja"),
+    ),
+    (
+        "service_api_entrypoint_return_result_status.rs.jinja",
+        include_str!("templates/service_api_entrypoint_return_result_status.rs.jinja"),
+    ),
+    (
+        "service_api_entrypoint_return_void_status.rs.jinja",
+        include_str!("templates/service_api_entrypoint_return_void_status.rs.jinja"),
+    ),
+    (
+        "service_api_registration_dispatch_result.rs.jinja",
+        include_str!("templates/service_api_registration_dispatch_result.rs.jinja"),
+    ),
+    (
+        "service_api_registration_dispatch_void.rs.jinja",
+        include_str!("templates/service_api_registration_dispatch_void.rs.jinja"),
+    ),
+    (
+        "service_api_wrapper_ctor_arg.rs.jinja",
+        include_str!("templates/service_api_wrapper_ctor_arg.rs.jinja"),
     ),
 ];
 

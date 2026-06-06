@@ -1,0 +1,9 @@
+
+    // SAFETY: null check above guarantees {{ name }} is a valid pointer.
+    let {{ name }}_rs = match unsafe { std::ffi::CStr::from_ptr({{ name }}) }.to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            set_last_error(1, "Invalid UTF-8 in {{ name }} parameter");
+            return std::ptr::null_mut();
+        }
+    };

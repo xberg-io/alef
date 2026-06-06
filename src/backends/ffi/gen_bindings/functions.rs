@@ -311,7 +311,10 @@ pub(super) fn gen_free_function_len_companion(
     let mut out = String::with_capacity(2048);
     out.push_str(&doc_comment);
     if let Some(ref clippy) = allow_clippy {
-        out.push_str(&format!("#[allow({clippy})]\n"));
+        out.push_str(&crate::backends::ffi::template_env::render(
+            "ffi_allow_clippy_attr.jinja",
+            context! { clippy => clippy.clone() },
+        ));
     }
     out.push_str("#[unsafe(no_mangle)]\n");
     out.push_str("pub unsafe extern \"C\" fn ");
@@ -592,8 +595,12 @@ pub(super) fn gen_method_wrapper(
         if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
             let rs = format!("{}_rs", p.name);
             let btree = format!("{}_btree", p.name);
-            out.push_str(&format!(
-                "    let {btree} = {rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>();\n"
+            out.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_btree_binding.jinja",
+                context! {
+                    btree => btree,
+                    rs => rs,
+                },
             ));
         }
     }
@@ -1055,8 +1062,12 @@ pub(super) fn gen_free_function(
         if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
             let rs = format!("{}_rs", p.name);
             let btree = format!("{}_btree", p.name);
-            out.push_str(&format!(
-                "    let {btree} = {rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>();\n"
+            out.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_btree_binding.jinja",
+                context! {
+                    btree => btree,
+                    rs => rs,
+                },
             ));
         }
     }
@@ -1437,14 +1448,15 @@ pub(super) fn gen_param_conversion_with_enums(
                 // (the actual FFI param), not `{enum_snake}` which may differ when param name
                 // != snake_case(type_name) (e.g. param `strategy` of type `RedactionStrategy`).
                 let enum_snake = c_symbol_component(type_name);
-                out.push_str(&format!(
-                    "    let {rs_name} = match {enum_snake}_from_i32_rs({name}) {{\n        \
-                     Some(v) => v,\n        \
-                     None => {{\n            \
-                     set_last_error(1, \"invalid enum discriminant for {type_name}\");\n            \
-                     {fail_ret}\n        \
-                     }},\n    \
-                     }};\n",
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_enum_discriminant_match.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        enum_snake => enum_snake,
+                        name => name.clone(),
+                        error_message => format!("invalid enum discriminant for {type_name}"),
+                        fail_ret => fail_ret,
+                    },
                 ));
             }
             TypeRef::Named(_type_name) => {
@@ -1610,14 +1622,15 @@ pub(super) fn gen_param_conversion_with_enums(
                 // `{enum_snake}_from_i32_rs` but it receives `{name}` (the actual FFI param).
                 // This fixes the mismatch when param name != snake_case(type_name).
                 let enum_snake = c_symbol_component(type_name);
-                out.push_str(&format!(
-                    "    let {rs_name} = match {enum_snake}_from_i32_rs({name}) {{\n        \
-                     Some(v) => v,\n        \
-                     None => {{\n            \
-                     set_last_error(1, \"invalid enum discriminant for {type_name}\");\n            \
-                     {fail_ret}\n        \
-                     }},\n    \
-                     }};\n",
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "ffi_enum_discriminant_match.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        enum_snake => enum_snake,
+                        name => name.clone(),
+                        error_message => format!("invalid enum discriminant for {type_name}"),
+                        fail_ret => fail_ret,
+                    },
                 ));
             }
             TypeRef::Named(_type_name) => {

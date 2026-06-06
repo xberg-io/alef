@@ -1,0 +1,5 @@
+/* Register a handler for method '{{ method_name }}'. */
+int {{ prefix_lower }}_{{ service_snake }}_register_{{ reg_method_snake }}(
+    {{ prefix_lower }}{{ opaque_name }}* owner,
+    handler_callback_t callback,
+    void* context

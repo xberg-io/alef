@@ -406,31 +406,30 @@ fn gen_result_decode_arms(
     let mut arms = String::new();
     for variant in &result_metadata.unit_variants {
         if seen_codes.insert(variant.code) {
-            arms.push_str(&format!(
-                "        {} => VisitorResult::{},\n",
-                variant.code, variant.name
+            arms.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_visitor_result_unit_arm.jinja",
+                minijinja::context! {
+                    code => variant.code,
+                    variant_name => variant.name.clone(),
+                },
             ));
         }
     }
     for variant in &result_metadata.string_payload_variants {
         if seen_codes.insert(variant.code) {
-            arms.push_str(&format!(
-                r#"        {} => {{
-            let msg = if custom_ptr.is_null() {{
-                String::new()
-            }} else {{
-                // SAFETY: caller guarantees this is a valid heap CString.
-                let cstr = unsafe {{ std::ffi::CString::from_raw(custom_ptr) }};
-                cstr.to_string_lossy().into_owned()
-            }};
-            VisitorResult::{}(msg)
-        }},
-"#,
-                variant.code, variant.name
+            arms.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_visitor_result_string_arm.jinja",
+                minijinja::context! {
+                    code => variant.code,
+                    variant_name => variant.name.clone(),
+                },
             ));
         }
     }
-    arms.push_str(&format!("        _ => {default_result},\n"));
+    arms.push_str(&crate::backends::ffi::template_env::render(
+        "ffi_visitor_result_default_arm.jinja",
+        minijinja::context! { default_result => default_result.to_owned() },
+    ));
     arms
 }
 
@@ -892,65 +891,19 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: *mut {pascal_prefix}Visi
     );
 
     if let Some(visitor_function) = visitor_function {
-        out.push_str(&format!(
-            r#"
-/// Run conversion using a callback-based visitor.
-///
-/// Returns a heap-allocated result on success, or null on failure.
-/// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
-/// The returned pointer must be freed with the matching result free function.
-///
-/// # Safety
-///
-/// `html` must be a valid, non-null, null-terminated UTF-8 string.
-/// `options` must be a valid pointer or null.
-/// `visitor` must have been created with `{prefix}_visitor_create`, or be null.
-/// Returned pointer must be freed with the matching result free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {with_visitor_fn_name}(
-    {params}
-    visitor: *mut {pascal_prefix}Visitor,
-) -> *mut {return_type} {{
-    clear_last_error();
-
-{param_conversions}
-    struct VisitorRef(*mut {pascal_prefix}Visitor);
-    impl std::fmt::Debug for VisitorRef {{
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
-            f.debug_struct("VisitorRef").finish_non_exhaustive()
-        }}
-    }}
-    // SAFETY: VisitorRef is a thin wrapper around a raw pointer to {pascal_prefix}Visitor which
-    // is itself Send + Sync. The caller guarantees the pointer remains valid during conversion.
-    unsafe impl Send for VisitorRef {{}}
-    // SAFETY: see Send impl above.
-    unsafe impl Sync for VisitorRef {{}}
-    impl {trait_path} for VisitorRef {{
-{visitor_ref_methods}    }}
-    let visitor_handle: Option<std::sync::Arc<std::sync::Mutex<dyn {trait_path} + Send>>> = if visitor.is_null() {{
-        None
-    }} else {{
-        Some(std::sync::Arc::new(std::sync::Mutex::new(VisitorRef(visitor))))
-    }};
-
-{call}
-        Ok(result) => Box::into_raw(Box::new(result)),
-        Err(e) => {{
-            set_last_error(2, &e.to_string());
-            std::ptr::null_mut()
-        }}
-    }}
-}}
-"#,
-            prefix = prefix,
-            with_visitor_fn_name = visitor_function.fn_name,
-            pascal_prefix = pascal_prefix,
-            trait_path = trait_path,
-            visitor_ref_methods = visitor_ref_methods,
-            params = visitor_function.ffi_params,
-            param_conversions = visitor_function.param_conversions,
-            return_type = visitor_function.return_type,
-            call = visitor_function.call,
+        out.push_str(&crate::backends::ffi::template_env::render(
+            "ffi_visitor_with_callback_function.jinja",
+            minijinja::context! {
+                prefix,
+                with_visitor_fn_name => visitor_function.fn_name,
+                pascal_prefix,
+                trait_path,
+                visitor_ref_methods,
+                params => visitor_function.ffi_params,
+                param_conversions => visitor_function.param_conversions,
+                return_type => visitor_function.return_type,
+                call => visitor_function.call,
+            },
         ));
     }
 

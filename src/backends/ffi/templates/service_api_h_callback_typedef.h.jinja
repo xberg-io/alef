@@ -1,0 +1,11 @@
+/* Handler registration callback typedef.
+ * Signature: fn(*mut c_void, *const c_char) -> *mut c_char
+ * The context pointer is opaque to the C side and is passed through
+ * to the callback on each invocation for stateful handlers.
+ * The request is a JSON string (null-terminated); the callback returns
+ * a newly-allocated JSON response string (null-terminated) that must be
+ * freed via {crate_prefix}_free_string(). */
+typedef char* (*handler_callback_t)(
+    void* context,
+    const char* request_json
+);

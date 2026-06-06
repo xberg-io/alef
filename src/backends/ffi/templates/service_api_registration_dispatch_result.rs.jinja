@@ -1,0 +1,7 @@
+    match unsafe {
+        let owner_ref = &mut (*owner).inner;
+        owner_ref.{{ method_name }}({{ meta_args }}handler)
+    } {
+        Ok(_) => 0, // Success
+        Err(_) => 1, // Error
+    }

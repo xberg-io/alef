@@ -1,0 +1,7 @@
+    let {{ rs_name }} = match {{ enum_snake }}_from_i32_rs({{ name }}) {
+        Some(v) => v,
+        None => {
+            set_last_error(1, "{{ error_message }}");
+            {{ fail_ret }}
+        },
+    };

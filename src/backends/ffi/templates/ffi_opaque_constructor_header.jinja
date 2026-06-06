@@ -1,0 +1,4 @@
+{{ allow_clippy }}#[no_mangle]
+pub unsafe extern "C" fn {{ ffi_fn_name }}(
+{{ ffi_params }}
+) -> *mut {{ return_qualified }} {

@@ -1,0 +1,5 @@
+    unsafe {
+        let owner_ref = &mut (*owner).inner;
+        owner_ref.{{ method_name }}({{ meta_args }}handler);
+    }
+    0

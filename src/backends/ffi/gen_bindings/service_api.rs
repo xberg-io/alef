@@ -47,29 +47,23 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
     let mut out = String::new();
     let header_guard = format!("{}_SERVICE_H", crate_name.to_uppercase().replace('-', "_"));
 
-    out.push_str(&format!(
-        "#ifndef {header_guard}\n\
-         #define {header_guard}\n\n\
-         #include <stdint.h>\n\
-         #include <stdbool.h>\n\n"
+    out.push_str(&render(
+        "service_api_h_header_start.h.jinja",
+        minijinja::context! { header_guard },
     ));
-
-    out.push_str("/* Handler registration callback typedef.\n");
-    out.push_str(" * Signature: fn(*mut c_void, *const c_char) -> *mut c_char\n");
-    out.push_str(" * The context pointer is opaque to the C side and is passed through\n");
-    out.push_str(" * to the callback on each invocation for stateful handlers.\n");
-    out.push_str(" * The request is a JSON string (null-terminated); the callback returns\n");
-    out.push_str(" * a newly-allocated JSON response string (null-terminated) that must be\n");
-    out.push_str(" * freed via {crate_prefix}_free_string(). */\n");
-    out.push_str("typedef char* (*handler_callback_t)(\n");
-    out.push_str("    void* context,\n");
-    out.push_str("    const char* request_json\n");
-    out.push_str(");\n\n");
+    out.push_str(&render(
+        "service_api_h_callback_typedef.h.jinja",
+        minijinja::context! {},
+    ));
+    out.push('\n');
 
     // Forward-declare each service opaque type.
     for service in &api.services {
         let opaque_name = format!("{}Opaque", service.name);
-        out.push_str(&format!("typedef struct {opaque_name} {opaque_name};\n"));
+        out.push_str(&render(
+            "service_api_h_opaque_typedef.h.jinja",
+            minijinja::context! { opaque_name },
+        ));
     }
     out.push('\n');
 
@@ -78,7 +72,10 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
         gen_service_h_decls(&mut out, service, api, crate_name);
     }
 
-    out.push_str(&format!("\n#endif /* {header_guard} */\n"));
+    out.push_str(&render(
+        "service_api_h_header_end.h.jinja",
+        minijinja::context! { header_guard },
+    ));
     out
 }
 
@@ -89,29 +86,39 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
     let prefix_lower = prefix.to_lowercase();
 
     // Constructor: allocates and returns an opaque handle
-    out.push_str(&format!(
-        "/* Create a new {0} instance. */\n\
-         {1}{2}* {1}_{3}_new(void);\n\n",
-        service.name, prefix_lower, opaque_name, service_snake
+    out.push_str(&render(
+        "service_api_h_constructor_decl.h.jinja",
+        minijinja::context! {
+            service_name => service.name.clone(),
+            prefix_lower => prefix_lower.clone(),
+            opaque_name => opaque_name.clone(),
+            service_snake => service_snake.clone(),
+        },
     ));
 
     // Destructor: frees the opaque handle
-    out.push_str(&format!(
-        "/* Destroy a {0} instance. */\n\
-         void {1}_{2}_free({1}{3}* ptr);\n\n",
-        service.name, prefix_lower, service_snake, opaque_name
+    out.push_str(&render(
+        "service_api_h_destructor_decl.h.jinja",
+        minijinja::context! {
+            service_name => service.name.clone(),
+            prefix_lower => prefix_lower.clone(),
+            service_snake => service_snake.clone(),
+            opaque_name => opaque_name.clone(),
+        },
     ));
 
     // Registration functions
     for reg in &service.registrations {
         let reg_method_snake = reg.method.to_snake_case();
-        out.push_str(&format!(
-            "/* Register a handler for method '{0}'. */\n\
-             int {1}_{2}_register_{3}(\n    \
-                 {1}{4}* owner,\n    \
-                 handler_callback_t callback,\n    \
-                 void* context",
-            reg.method, prefix_lower, service_snake, reg_method_snake, opaque_name
+        out.push_str(&render(
+            "service_api_h_registration_decl_start.h.jinja",
+            minijinja::context! {
+                method_name => reg.method.clone(),
+                prefix_lower => prefix_lower.clone(),
+                service_snake => service_snake.clone(),
+                reg_method_snake,
+                opaque_name => opaque_name.clone(),
+            },
         ));
 
         // Metadata parameters
@@ -127,20 +134,21 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         let ep_name_snake = ep.method.to_snake_case();
         let return_type = typeref_to_c_type(&ep.return_type);
 
-        out.push_str(&format!(
-            "/* {0} the service. */\n\
-             {1} {2}_{3}_ep_{4}(\n    \
-                 {2}{5}* owner",
-            if ep.kind == EntrypointKind::Run {
-                "Run"
-            } else {
-                "Finalize"
+        let kind = if ep.kind == EntrypointKind::Run {
+            "Run"
+        } else {
+            "Finalize"
+        };
+        out.push_str(&render(
+            "service_api_h_entrypoint_decl_start.h.jinja",
+            minijinja::context! {
+                kind,
+                return_type,
+                prefix_lower => prefix_lower.clone(),
+                service_snake => service_snake.clone(),
+                ep_name_snake,
+                opaque_name => opaque_name.clone(),
             },
-            return_type,
-            prefix_lower,
-            service_snake,
-            ep_name_snake,
-            opaque_name
         ));
 
         // Parameters
@@ -538,22 +546,23 @@ fn gen_registration_function(
         .collect();
 
     let meta_args: String = meta_bindings.iter().map(|b| format!("{}, ", b.arg)).collect();
-    let mut dispatch_body = String::new();
-    if reg.error_type.is_some() {
-        dispatch_body.push_str("    match unsafe {\n");
-        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
-        dispatch_body.push_str("    } {\n");
-        dispatch_body.push_str("        Ok(_) => 0, // Success\n");
-        dispatch_body.push_str("        Err(_) => 1, // Error\n");
-        dispatch_body.push_str("    }\n");
+    let dispatch_body = if reg.error_type.is_some() {
+        render(
+            "service_api_registration_dispatch_result.rs.jinja",
+            minijinja::context! {
+                method_name => reg.method.clone(),
+                meta_args => meta_args.clone(),
+            },
+        )
     } else {
-        dispatch_body.push_str("    unsafe {\n");
-        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
-        dispatch_body.push_str("    }\n");
-        dispatch_body.push_str("    0\n");
-    }
+        render(
+            "service_api_registration_dispatch_void.rs.jinja",
+            minijinja::context! {
+                method_name => reg.method.clone(),
+                meta_args => meta_args.clone(),
+            },
+        )
+    };
 
     let pre_bridge_body = format!(
         "{}\n{}",
@@ -679,7 +688,10 @@ fn gen_registration_variant(
     for arg in &wrapper_call.args {
         match arg {
             WrapperConstructorArg::Fixed { value_expr, .. } => {
-                ctor_args.push_str(&format!("        {value_expr},\n"));
+                ctor_args.push_str(&render(
+                    "service_api_wrapper_ctor_arg.rs.jinja",
+                    minijinja::context! { value => value_expr.clone() },
+                ));
             }
             WrapperConstructorArg::Free { param } => {
                 // Use the marshaled binding arg expression (the owned Rust-typed value).
@@ -691,7 +703,10 @@ fn gen_registration_variant(
                     })
                     .map(|b| b.arg.as_str())
                     .unwrap_or(param.name.as_str());
-                ctor_args.push_str(&format!("        {binding},\n"));
+                ctor_args.push_str(&render(
+                    "service_api_wrapper_ctor_arg.rs.jinja",
+                    minijinja::context! { value => binding.to_owned() },
+                ));
             }
         }
     }
@@ -730,22 +745,23 @@ fn gen_registration_variant(
         args
     };
 
-    let mut dispatch_body = String::new();
-    if reg.error_type.is_some() {
-        dispatch_body.push_str("    match unsafe {\n");
-        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
-        dispatch_body.push_str("    } {\n");
-        dispatch_body.push_str("        Ok(_) => 0, // Success\n");
-        dispatch_body.push_str("        Err(_) => 1, // Error\n");
-        dispatch_body.push_str("    }\n");
+    let dispatch_body = if reg.error_type.is_some() {
+        render(
+            "service_api_registration_dispatch_result.rs.jinja",
+            minijinja::context! {
+                method_name => reg.method.clone(),
+                meta_args => meta_args.clone(),
+            },
+        )
     } else {
-        dispatch_body.push_str("    unsafe {\n");
-        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
-        dispatch_body.push_str("    }\n");
-        dispatch_body.push_str("    0\n");
-    }
+        render(
+            "service_api_registration_dispatch_void.rs.jinja",
+            minijinja::context! {
+                method_name => reg.method.clone(),
+                meta_args => meta_args.clone(),
+            },
+        )
+    };
 
     let pre_wrapper_body = format!(
         "{}\n{}",
@@ -870,22 +886,29 @@ fn gen_entrypoint_function(
         format!("inner.{}({call_args})", ep.method)
     };
 
-    let mut return_body = String::new();
-    if returns_opaque {
+    let return_body = if returns_opaque {
         if ep.error_type.is_some() {
-            return_body.push_str(&format!(
-                "    match {call} {{\n        Ok(value) => Box::into_raw(Box::new(value)),\n        Err(_) => std::ptr::null_mut(),\n    }}\n"
-            ));
+            render(
+                "service_api_entrypoint_return_opaque_result.rs.jinja",
+                minijinja::context! { call => call.clone() },
+            )
         } else {
-            return_body.push_str(&format!("    Box::into_raw(Box::new({call}))\n"));
+            render(
+                "service_api_entrypoint_return_opaque_value.rs.jinja",
+                minijinja::context! { call => call.clone() },
+            )
         }
     } else if ep.error_type.is_some() {
-        return_body.push_str(&format!(
-            "    match {call} {{\n        Ok(_) => 0,\n        Err(_) => 1,\n    }}\n"
-        ));
+        render(
+            "service_api_entrypoint_return_result_status.rs.jinja",
+            minijinja::context! { call => call.clone() },
+        )
     } else {
-        return_body.push_str(&format!("    {call};\n    0\n"));
-    }
+        render(
+            "service_api_entrypoint_return_void_status.rs.jinja",
+            minijinja::context! { call => call.clone() },
+        )
+    };
 
     let pre_call_body = format!(
         "{}\n{}",

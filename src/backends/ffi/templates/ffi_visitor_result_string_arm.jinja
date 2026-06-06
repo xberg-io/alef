@@ -1,0 +1,10 @@
+        {{ code }} => {
+            let msg = if custom_ptr.is_null() {
+                String::new()
+            } else {
+                // SAFETY: caller guarantees this is a valid heap CString.
+                let cstr = unsafe { std::ffi::CString::from_raw(custom_ptr) };
+                cstr.to_string_lossy().into_owned()
+            };
+            VisitorResult::{{ variant_name }}(msg)
+        },

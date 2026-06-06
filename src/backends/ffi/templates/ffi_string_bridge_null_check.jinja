@@ -1,0 +1,5 @@
+
+    if {{ name }}.is_null() {
+        set_last_error(1, "Null pointer passed for {{ name }}");
+        return std::ptr::null_mut();
+    }

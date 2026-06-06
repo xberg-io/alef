@@ -327,14 +327,9 @@ fn render_bridge_null_checks(non_options_params: &[&ParamDef]) -> String {
     let mut out = String::new();
     for param in non_options_params {
         if matches!(param.ty, TypeRef::String | TypeRef::Char) {
-            out.push_str(&format!(
-                r#"
-    if {name}.is_null() {{
-        set_last_error(1, "Null pointer passed for {name}");
-        return std::ptr::null_mut();
-    }}
-"#,
-                name = param.name
+            out.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_string_bridge_null_check.jinja",
+                minijinja::context! { name => param.name.clone() },
             ));
         }
     }
@@ -345,18 +340,9 @@ fn render_bridge_param_conversions(non_options_params: &[&ParamDef]) -> String {
     let mut out = String::new();
     for param in non_options_params {
         if matches!(param.ty, TypeRef::String | TypeRef::Char) {
-            out.push_str(&format!(
-                r#"
-    // SAFETY: null check above guarantees {name} is a valid pointer.
-    let {name}_rs = match unsafe {{ std::ffi::CStr::from_ptr({name}) }}.to_str() {{
-        Ok(s) => s,
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in {name} parameter");
-            return std::ptr::null_mut();
-        }}
-    }};
-"#,
-                name = param.name
+            out.push_str(&crate::backends::ffi::template_env::render(
+                "ffi_string_bridge_param_conversion.jinja",
+                minijinja::context! { name => param.name.clone() },
             ));
         }
     }
