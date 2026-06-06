@@ -168,7 +168,7 @@ pub fn package_php(
 ///
 /// Unix format (per https://github.com/php/pie/blob/1.4.x/docs/extension-maintainers.md#pre-packaged-binary):
 /// ```text
-/// php_{ExtensionName}-{Version}_php{PhpVersion}-{Arch}-{OS}-{Libc}-{Debug}-{TSMode}.tgz
+/// php_{ExtensionName}-{Version}_php{PhpVersion}-{Arch}-{OS}-{Libc}-{TSMode}.tgz
 /// ```
 ///
 /// Windows format:
@@ -203,14 +203,13 @@ fn pie_archive_name(
             .map(|s| s.to_string())
             .map_or_else(|| target.pie_libc().map(|s| s.to_string()), Ok)?;
         Ok(lower(&format!(
-            "php_{ext}-{ver}_php{php}-{arch}-{os}-{libc}-{debug}-{ts}.tgz",
+            "php_{ext}-{ver}_php{php}-{arch}-{os}-{libc}-{ts}.tgz",
             ext = ext_name,
             ver = version,
             php = options.php_version,
             arch = target.pie_arch()?,
             os = target.pie_os_family()?,
             libc = libc,
-            debug = options.debug_mode.as_tag(),
             ts = options.ts_mode.as_unix_suffix(),
         )))
     }
@@ -355,7 +354,7 @@ sources = ["src/lib.rs"]
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let opts = nts_options("8.5");
         let name = pie_archive_name("demo_render", "3.4.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_demo_render-3.4.0_php8.5-x86_64-linux-glibc-nodebug-nts.tgz");
+        assert_eq!(name, "php_demo_render-3.4.0_php8.5-x86_64-linux-glibc-nts.tgz");
     }
 
     #[test]
@@ -369,7 +368,7 @@ sources = ["src/lib.rs"]
             windows_compiler: None,
         };
         let name = pie_archive_name("myext", "1.0.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_myext-1.0.0_php8.4-arm64-linux-musl-nodebug-zts.tgz");
+        assert_eq!(name, "php_myext-1.0.0_php8.4-arm64-linux-musl-zts.tgz");
     }
 
     #[test]
@@ -377,10 +376,7 @@ sources = ["src/lib.rs"]
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let opts = nts_options("8.5");
         let name = pie_archive_name("demo_render", "3.4.0-rc.22", &target, &opts).unwrap();
-        assert_eq!(
-            name,
-            "php_demo_render-3.4.0-rc.22_php8.5-arm64-darwin-bsdlibc-nodebug-nts.tgz"
-        );
+        assert_eq!(name, "php_demo_render-3.4.0-rc.22_php8.5-arm64-darwin-bsdlibc-nts.tgz");
     }
 
     #[test]
@@ -437,10 +433,10 @@ sources = ["src/lib.rs"]
     // --- Debug segment ---
 
     #[test]
-    fn pie_filename_includes_debug_segment() {
-        // Per the PIE pre-packaged-binary spec the canonical filename shape is:
-        // php_{ExtName}-{Ver}_php{PhpVer}-{Arch}-{OS}-{Libc}-{Debug}-{TSMode}.tgz
-        // Release builds always emit nodebug between libc and ts.
+    fn pie_filename_no_debug_segment() {
+        // Per PIE 1.4.5, the canonical filename shape is:
+        // php_{ExtName}-{Ver}_php{PhpVer}-{Arch}-{OS}-{Libc}-{TSMode}.tgz
+        // Debug segment is not included in the filename pattern.
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let opts = PiePackageOptions {
             php_version: "8.4",
@@ -450,10 +446,7 @@ sources = ["src/lib.rs"]
             windows_compiler: None,
         };
         let name = pie_archive_name("demo_client", "1.4.0-rc.32", &target, &opts).unwrap();
-        assert_eq!(
-            name,
-            "php_demo_client-1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nodebug-nts.tgz"
-        );
+        assert_eq!(name, "php_demo_client-1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nts.tgz");
     }
 
     // --- Archive layout ---

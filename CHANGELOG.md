@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **php**: removed `-nodebug-` token from PHP composer.json `extra.pie.binary.url-template`. PIE 1.4.5 only supports `{Version}`, `{PhpVersion}`, `{Arch}`, `{OS}`, `{Libc}`, and `{TSMode}` tokens. The hardcoded `-nodebug-` segment is not a PIE token and prevented asset discovery during `pie install`. (`src/scaffold/languages/php.rs`)
 
+- **php**: drop `-nodebug-` segment from PIE publisher asset filename so asset publisher output matches PIE 1.4.5's lookup pattern (matches the consumer-side url-template change in this release). The PIE-conventional filename format is now `php_{ExtensionName}-{Version}_php{PhpVersion}-{Arch}-{OS}-{Libc}-{TSMode}.tgz` (Unix) / `php_{ExtensionName}-{Version}-{PhpVersion}-{TSMode}-{Compiler}-{Arch}.zip` (Windows), without the `-{Debug}-` segment. (`src/publish/package/php.rs`, `src/scaffold/tests.rs`)
+
 ### Changed
 
 - **extendr/R**: ordinary enum core/binding `From` impls now render through Extendr-local Jinja templates, keeping generated output behavior unchanged while aligning enum conversion codegen with backend template governance. (`src/backends/extendr/gen_bindings/enum_conversions.rs`, `src/backends/extendr/templates/enum_from_*`)

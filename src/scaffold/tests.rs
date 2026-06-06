@@ -2108,8 +2108,8 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
             .as_str()
             .expect("url-template must be a string");
         assert!(
-            pie_url.contains("-nodebug-"),
-            "{} url-template must include -nodebug- token; got: {pie_url}",
+            !pie_url.contains("-nodebug-"),
+            "{} url-template must not include -nodebug- token (PIE 1.4.5 compat); got: {pie_url}",
             label
         );
         assert!(
