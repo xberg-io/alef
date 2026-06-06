@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **extract pipeline**: configurator methods declared in `[[crates.services]].configurators` are no longer stripped from `service.configurators` when the same `OwnerType.method_name` key also appears in `[crates.exclude].methods`. The exclude list controls only the generic per-type struct-level method emission (preventing non-delegatable stubs); it must not remove a method from the service IR where its presence drives dedicated C/host-language configurator entrypoints. Both intents are independent and both are now honoured. (`src/cli/pipeline/extract.rs`)
 - **csharp/e2e**: expand MOCK_SERVERS into per-fixture env vars in TestSetup. When `alef test-apps run` starts a shared mock-server and presets MOCK_SERVER_URL, the C# TestSetup was returning early without parsing the MOCK_SERVERS JSON into per-fixture MOCK_SERVER_<FIXTURE_ID> env vars, causing tests to fall back to the shared-server URL where origin-relative asset paths 404. The fix mirrors the Python idiom and expands the map in the preset-reachable branch before returning. TestSetup mock_server initialization migrated to a jinja template. (`src/e2e/templates/csharp/test_setup_mock_server.cs.jinja`, `src/e2e/codegen/csharp.rs`)
 
+<!-- N+15-configurator-field-collision -->
+- **extract/service**: regression test added confirming that a configurator method whose name matches a private field of the owner struct (`struct Foo { setup: BarConfig }` + `fn setup(self, c: BarConfig) -> Self`) is correctly extracted into `service.configurators`. The extractor has no field-name shadowing rule for methods; this test documents that invariant explicitly so it cannot regress silently. (`src/extract/extractor/service.rs`)
+
 ## [0.23.17] - 2026-06-06
 
 ### Fixed
