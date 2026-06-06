@@ -262,7 +262,12 @@ fn gen_single_trait_bridge_file(
 fn trait_adapter_success_body(return_type: &TypeRef, bridge_exclude_types: &HashSet<String>) -> String {
     let expression = match return_type {
         TypeRef::Unit => Some("marshal_ok_result(Empty())"),
-        TypeRef::String | TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => Some("marshal_ok_result(result)"),
+        TypeRef::String => Some("marshal_ok_result(String(result))"),
+        TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => Some("marshal_ok_result(result)"),
+        TypeRef::Vec(inner) => match **inner {
+            TypeRef::String => Some("marshal_ok_result(result.map { String($0) })"),
+            _ => Some("marshal_ok_result(try JSONEncoder().encode(result))"),
+        },
         TypeRef::Named(name) if bridge_exclude_types.contains(name) => None,
         _ => Some("marshal_ok_result(try JSONEncoder().encode(result))"),
     };
@@ -858,5 +863,75 @@ mod tests {
         assert_eq!(trait_bridge_pascal_name("text_backend"), "TextBackend");
         assert_eq!(trait_bridge_pascal_name("test"), "Test");
         assert_eq!(trait_bridge_pascal_name("a"), "A");
+    }
+
+    /// Regression test for B3: String return conversion in trait adapter success body.
+    /// When a method returns String, the RustString FFI result must be wrapped in String(...).
+    /// When a method returns Vec<String>, each element must be converted via .map { String($0) }.
+    #[test]
+    fn test_b3_string_return_conversion_trait_adapter() {
+        use crate::core::ir::{MethodDef, ReceiverKind};
+
+        let mut trait_def = make_trait_def("TextExtractor");
+
+        // Method returning String
+        trait_def.methods.push(MethodDef {
+            name: "extract_text".to_string(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+
+        // Method returning Vec<String>
+        trait_def.methods.push(MethodDef {
+            name: "split_text".to_string(),
+            params: vec![],
+            return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+            is_async: false,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+
+        let bridge_cfg = make_bridge_cfg("TextExtractor");
+        let bridges = vec![("TextExtractor".to_string(), &bridge_cfg, &trait_def)];
+        let exclude_types = HashSet::new();
+
+        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        assert_eq!(files.len(), 2);
+        let content = &files[1].1;
+
+        // String return must be wrapped: marshal_ok_result(String(result))
+        assert!(
+            content.contains("marshal_ok_result(String(result))"),
+            "String return must be wrapped in String(...) converter, got:\n{content}"
+        );
+
+        // Vec<String> return must map: marshal_ok_result(result.map { String($0) })
+        assert!(
+            content.contains("marshal_ok_result(result.map { String($0) })"),
+            "Vec<String> return must map each element, got:\n{content}"
+        );
     }
 }
