@@ -275,6 +275,12 @@ fn render_run_tests(
         let _ = writeln!(out, "TMP_DIR=$(mktemp -d)");
         let _ = writeln!(out, "trap 'rm -rf \"$TMP_DIR\"' EXIT");
         let _ = writeln!(out);
+        // pkg-config .pc filename is determined by the upstream FFI crate
+        // and does not necessarily match the brew formula name. Try
+        // pkg-config first; if it produces no flags, fall back to
+        // brew --prefix for canonical paths.
+        let _ = writeln!(out, "FFI_CFLAGS=\"\"");
+        let _ = writeln!(out, "FFI_LIBS=\"\"");
         let _ = writeln!(out, "if command -v pkg-config &>/dev/null; then");
         let _ = writeln!(
             out,
@@ -284,7 +290,8 @@ fn render_run_tests(
             out,
             "  FFI_LIBS=$(pkg-config --libs \"$FFI_FORMULA\" 2>/dev/null || true)"
         );
-        let _ = writeln!(out, "else");
+        let _ = writeln!(out, "fi");
+        let _ = writeln!(out, "if [[ -z \"${{FFI_CFLAGS:-}}\" ]]; then");
         let _ = writeln!(out, "  # Fallback: use brew --prefix to locate headers and libs.");
         let _ = writeln!(
             out,

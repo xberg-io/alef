@@ -1,0 +1,9 @@
+use std::sync::Arc;
+
+/// Wrapper that bridges a foreign JavaScript object to a Rust trait.
+/// Includes a cancellation token for explicit async cleanup.
+pub struct {{ wrapper_name }} {
+    inner: napi::bindgen_prelude::Object<'static>,
+    cached_name: String,
+    cancellation_token: Arc<tokio_util::sync::CancellationToken>,
+}

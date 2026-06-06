@@ -15,6 +15,7 @@
    - is_streaming_error_call: bool — streaming function called with error fixture;
        drain with `for await` so the lazy NAPI stream surfaces the error
    - skip_reason: optional string reason for skipping the test
+   - bridge_cleanup: optional string for async trait bridge dispose() calls
 #}
 {%- if skip_reason %}
 	it.skip("{{ test_name }}: {{ description }}", () => {
@@ -64,5 +65,8 @@
 		{{ collect_snippet }}
 {% endif %}
 {{ assertions_body }}
+{%- if bridge_cleanup %}
+		{{ bridge_cleanup }}
+{%- endif %}
 	}, {{ timeout_ms }});
 {%- endif %}

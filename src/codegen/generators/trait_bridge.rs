@@ -215,7 +215,7 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
 /// Required by trait bounds on `Plugin` super-trait (and many others) that
 /// extend `Debug`. Without this, generic plugin-pattern bridges fail to
 /// compile when the user's trait has a `Debug` super-trait bound.
-fn gen_bridge_debug_impl(spec: &TraitBridgeSpec) -> String {
+pub fn gen_bridge_debug_impl(spec: &TraitBridgeSpec) -> String {
     let wrapper = spec.wrapper_name();
     crate::codegen::template_env::render(
         "generators/trait_bridge/debug_impl.jinja",

@@ -571,6 +571,57 @@ impl Backend for ExtendrBackend {
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
         let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = crate::codegen::conversions::input_type_names(api);
+
+        // Collect all types that appear in the R binding surface: parameters, return types,
+        // and fields. This ensures conversion impls are emitted for every type referenced
+        // from an exported function or method, even if it only appears in return types.
+        let mut all_surface_types: AHashSet<String> = input_types.clone();
+
+        // Add types from function return types
+        for func in &api.functions {
+            collect_named_types_into(&func.return_type, &mut all_surface_types);
+        }
+
+        // Add types from method return types
+        for typ in api.types.iter().filter(|t| !t.is_trait) {
+            for method in &typ.methods {
+                collect_named_types_into(&method.return_type, &mut all_surface_types);
+            }
+        }
+
+        // Transitive closure: add all types referenced by surface types
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let snapshot: Vec<String> = all_surface_types.iter().cloned().collect();
+            for name in &snapshot {
+                if let Some(typ) = api.types.iter().find(|t| t.name == *name) {
+                    for field in &typ.fields {
+                        let mut field_types = AHashSet::new();
+                        collect_named_types_into(&field.ty, &mut field_types);
+                        for field_type in field_types {
+                            if all_surface_types.insert(field_type) {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if let Some(e) = api.enums.iter().find(|e| e.name == *name) {
+                    for variant in &e.variants {
+                        for field in &variant.fields {
+                            let mut field_types = AHashSet::new();
+                            collect_named_types_into(&field.ty, &mut field_types);
+                            for field_type in field_types {
+                                if all_surface_types.insert(field_type) {
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Flat data enums whose tuple variant data types are all primitive/String can round-trip.
         // Those that have complex output-only types (e.g. FormatMetadata → DocxMetadata) cannot.
         let non_round_trip_flat_enums: Vec<String> = api
@@ -648,7 +699,8 @@ impl Backend for ExtendrBackend {
                 // core enum has data — emit lossy From impls so containing structs can call
                 // `.into()`.  Data is discarded across the boundary; the binding enum keeps
                 // only the variant tag.
-                if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
+                // Emit binding→core for any enum in the surface (not just input params).
+                if all_surface_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&enum_conversions::gen_from_binding_to_core(e, &core_import));
                 }
                 if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
@@ -1571,6 +1623,21 @@ fn r_function_component(name: &str) -> String {
 /// Single-field struct variants like `Preset { name: String }` are treated
 /// identically to single-field tuple variants `Preset(String)` — both expose one
 /// scalar field per variant in the flat struct.
+/// Recursively collect all Named type names from a TypeRef into a set.
+fn collect_named_types_into(ty: &TypeRef, out: &mut AHashSet<String>) {
+    match ty {
+        TypeRef::Named(name) => {
+            out.insert(name.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types_into(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_types_into(k, out);
+            collect_named_types_into(v, out);
+        }
+        _ => {}
+    }
+}
+
 fn is_flat_data_enum(e: &crate::core::ir::EnumDef) -> bool {
     let has_data = e.variants.iter().any(|v| !v.fields.is_empty());
     has_data

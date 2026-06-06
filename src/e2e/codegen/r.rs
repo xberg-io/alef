@@ -274,7 +274,7 @@ fn render_install_r(pkg_name: &str, pkg_version: &str) -> String {
     let _ = writeln!(out, "url <- sprintf(");
     let _ = writeln!(
         out,
-        "  \"https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v%%s/{pkg_name}_%%s.tar.gz\","
+        "  \"https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v%s/{pkg_name}_%s.tar.gz\","
     );
     let _ = writeln!(out, "  VERSION,");
     let _ = writeln!(out, "  VERSION");

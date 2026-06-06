@@ -1044,6 +1044,13 @@ fn render_test_case(
         "30000"
     };
 
+    // For NAPI (Node.js) trait bridge tests, generate cleanup to dispose bridges
+    let bridge_cleanup = if lang == "node" && has_trait_bridge {
+        extract_bridge_cleanup(&setup_lines)
+    } else {
+        String::new()
+    };
+
     let ctx = minijinja::context! {
         test_name => test_name,
         description => description,
@@ -1061,9 +1068,36 @@ fn render_test_case(
         lang => lang,
         skip_reason => skip_reason,
         timeout_ms => timeout_ms,
+        bridge_cleanup => bridge_cleanup,
     };
     let rendered = crate::e2e::template_env::render("typescript/test_function.jinja", ctx);
     out.push_str(&rendered);
+}
+
+/// Extract bridge variable names from setup lines and generate cleanup code.
+/// Looks for patterns like `const _bridge_* = ...` and generates `await bridge.dispose()` calls.
+fn extract_bridge_cleanup(setup_lines: &[String]) -> String {
+    let mut cleanup_lines = Vec::new();
+    for line in setup_lines {
+        if let Some(var_name) = extract_bridge_var_name(line) {
+            cleanup_lines.push(format!("await {}.dispose();", var_name));
+        }
+    }
+    cleanup_lines.join("\n\t\t")
+}
+
+/// Extract bridge variable name from a setup line like `const _bridge_foo = new _TestStub_...`
+fn extract_bridge_var_name(line: &str) -> Option<String> {
+    if let Some(start) = line.find("const ") {
+        let after_const = &line[start + 6..];
+        if let Some(end) = after_const.find(" =") {
+            let var_name = after_const[..end].trim();
+            if var_name.starts_with("_bridge_") {
+                return Some(var_name.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Check whether any arg at index `idx` or later has a non-null value in `input`.
@@ -1640,7 +1674,14 @@ fn build_args_and_setup(
                         .unwrap_or_default();
                     let emission = crate::e2e::codegen::emit_test_backend(lang, trait_bridge, &methods, fixture);
                     setup_lines.push(emission.setup_block);
-                    parts.push(emission.arg_expr);
+                    // Assign the bridge to a variable for NAPI cleanup
+                    if lang == "node" {
+                        let bridge_var = format!("_bridge_{}", arg.name);
+                        setup_lines.push(format!("const {} = {};", bridge_var, emission.arg_expr));
+                        parts.push(bridge_var);
+                    } else {
+                        parts.push(emission.arg_expr);
+                    }
                     continue;
                 }
             }

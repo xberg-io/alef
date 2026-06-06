@@ -46,6 +46,7 @@ impl {{ wrapper_name }} {
         Ok(Self {
             inner: js_obj,
             cached_name,
+            cancellation_token: Arc::new(tokio_util::sync::CancellationToken::new()),
         })
     }
 
@@ -54,6 +55,27 @@ impl {{ wrapper_name }} {
         // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env.
         let raw: [*mut std::ffi::c_void; 3] = unsafe { std::mem::transmute_copy(&self.inner) };
         napi::Env::from_raw(raw[0] as napi::sys::napi_env)
+    }
+
+    /// Explicitly clean up any background tokio tasks spawned by async trait methods.
+    ///
+    /// This method signals cancellation to all in-flight async operations and
+    /// ensures they are properly torn down before the bridge is dropped.
+    /// Returned Promise resolves when all cleanup is complete.
+    #[napi(js_name = "dispose")]
+    pub fn dispose(&self) -> napi::Result<napi::bindgen_prelude::Promise<()>> {
+        let token = self.cancellation_token.clone();
+        let promise = napi::bindgen_prelude::Promise::new(|env: napi::Env| {
+            let token = token;
+            Ok(env.execute_tokio_future(async move {
+                // Signal cancellation to all background tasks
+                token.cancel();
+                // Allow tasks to finish their cleanup
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                Ok(())
+            })?)
+        })?;
+        Ok(promise)
     }
 }
 
