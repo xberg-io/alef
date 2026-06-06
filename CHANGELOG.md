@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.21] - 2026-06-06
+
 ### Changed
 
 - **scaffold/precommit**: the generated `.pre-commit-config.yaml` now sources
