@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ffi**: emit cbindgen `[export] style = "type"` so C function signatures use typedef names instead of `struct` prefixes — fixes cgo `*_Ctype_struct_X` vs `*_Ctype_X` type mismatch on Go bridge trait registrations.
+
 - **scaffold/ruby**: set generated `extconf.rb` `rb_sys` `ext_dir` to the native extension
   directory itself so `gem install` resolves the sibling `Cargo.toml` instead of `native/native/Cargo.toml`.
 
