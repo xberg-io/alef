@@ -1158,4 +1158,70 @@ pub trait IntoHandler {}
         assert!(surface.services.is_empty());
         assert!(surface.handler_contracts.is_empty());
     }
+
+    /// A configurator method whose name collides with a private field of the owner
+    /// struct must still be extracted into `service.configurators`. The extractor's
+    /// method extraction filter only skips `new`-returning-Self on field-based types;
+    /// it has no rule that drops methods whose name matches a private field. This
+    /// test documents that invariant so a future extractor change does not silently
+    /// break it.
+    ///
+    /// Pattern: `struct Foo { setup: BarConfig }` with `pub fn setup(self, c: BarConfig) -> Self`.
+    #[test]
+    fn configurator_with_same_name_as_private_field_is_extracted() {
+        let src = r#"
+pub struct Foo {
+    setup: BarConfig,
+}
+
+impl Foo {
+    pub fn new() -> Self { todo!() }
+    pub fn setup(mut self, c: BarConfig) -> Self { todo!() }
+    pub async fn run(self) -> Result<(), String> { todo!() }
+}
+
+pub struct BarConfig {
+    pub value: u32,
+}
+"#;
+        let (_dir, file_path, mut surface) = extract_source_persistent(src);
+        let config = crate::core::config::ResolvedCrateConfig {
+            name: "test_crate".to_string(),
+            services: vec![ServiceConfig {
+                owner_type: "Foo".to_string(),
+                constructor: Some("new".to_string()),
+                configurators: vec!["setup".to_string()],
+                registrations: vec![],
+                entrypoints: vec![EntrypointSpec {
+                    method: "run".to_string(),
+                    kind: "run".to_string(),
+                }],
+                skip_languages: vec![],
+                host_app_inner_accessor: None,
+            }],
+            sources: vec![file_path],
+            ..Default::default()
+        };
+
+        let warnings = extract_services(&mut surface, &config);
+        assert!(
+            warnings.is_empty(),
+            "no warnings expected for field/method name collision; got {warnings:?}"
+        );
+
+        assert_eq!(surface.services.len(), 1, "one ServiceDef must be emitted");
+        let svc = &surface.services[0];
+        assert_eq!(svc.name, "Foo");
+        assert_eq!(
+            svc.configurators.len(),
+            1,
+            "configurator `setup` must be in service.configurators even though \
+             a private field named `setup` exists on the owner type; got {:?}",
+            svc.configurators.iter().map(|m| m.name.as_str()).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            svc.configurators[0].name, "setup",
+            "configurator name must be `setup`"
+        );
+    }
 }
