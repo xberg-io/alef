@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **release tooling**: `task set-version` now avoids waiting on the shared Cargo build lock when regenerating `schemas/alef.schema.json`, using an existing Alef binary when possible and an isolated Cargo target directory otherwise.
+
 - **swift**: JSON-string overloads no longer apply `.toString()` suffix to String return types, preventing double-conversion when the inner typed wrapper already converts `RustString → String`. Also skips sync-only JSON overloads when an async variant exists (async is the canonical implementation, and the sync typed wrapper would not be emitted). (`src/backends/swift/gen_bindings/mod.rs`, `src/backends/swift/tests/json_string_overloads_regression.rs`)
 
 <!-- N+14-dart-frb-shadow -->

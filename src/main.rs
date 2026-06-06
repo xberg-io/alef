@@ -235,6 +235,9 @@ enum Commands {
         /// Output JSON Schema file.
         #[arg(long, short, default_value = alef::core::config::DEFAULT_SCHEMA_PATH)]
         output: PathBuf,
+        /// Schema version to embed. Defaults to the compiled alef package version.
+        #[arg(long)]
+        schema_version: Option<String>,
         /// Fail if the existing schema file is stale instead of writing it.
         #[arg(long)]
         check: bool,
@@ -1762,8 +1765,12 @@ fn main() -> Result<()> {
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
             Ok(())
         }
-        Commands::Schema { output, check } => {
-            let version = env!("CARGO_PKG_VERSION");
+        Commands::Schema {
+            output,
+            schema_version,
+            check,
+        } => {
+            let version = schema_version.as_deref().unwrap_or(env!("CARGO_PKG_VERSION"));
             if check {
                 alef::core::config::check_alef_config_schema(&output, version)?;
                 println!("Schema is up to date: {}", output.display());
