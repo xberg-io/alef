@@ -1,0 +1,8 @@
+            is {{ enum_name }}.{{ variant_name }} -> {
+                gen.writeStartArray()
+                val elemSerializer = provider.findValueSerializer({{ elem_type }}::class.java)
+                for (elem in value.{{ field_name }}) {
+                    elemSerializer.serialize(elem, gen, provider)
+                }
+                gen.writeEndArray()
+            }

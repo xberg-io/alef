@@ -1,0 +1,5 @@
+{% if is_async %}
+        withContext(Dispatchers.IO) { {{ bridge_call }} }
+{% else %}
+        {{ bridge_call }}
+{% endif %}

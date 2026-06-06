@@ -247,7 +247,13 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
         if !reg.doc.is_empty() {
             for line in reg.doc.lines() {
-                body.push_str(&format!("    // {line}\n"));
+                body.push_str(&template_env::render(
+                    "line_comment.jinja",
+                    minijinja::context! {
+                        indent => "    ",
+                        line => line,
+                    },
+                ));
             }
         }
         body.push_str(&template_env::render(
@@ -299,7 +305,13 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
         if !ep.doc.is_empty() {
             for line in ep.doc.lines() {
-                body.push_str(&format!("    // {line}\n"));
+                body.push_str(&template_env::render(
+                    "line_comment.jinja",
+                    minijinja::context! {
+                        indent => "    ",
+                        line => line,
+                    },
+                ));
             }
         }
 

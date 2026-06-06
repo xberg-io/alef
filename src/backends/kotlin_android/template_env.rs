@@ -34,6 +34,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "android_facade_expr_method.jinja",
         include_str!("templates/android_facade_expr_method.jinja"),
     ),
+    (
+        "trait_interface_header.jinja",
+        include_str!("templates/trait_interface_header.jinja"),
+    ),
+    (
+        "trait_method_return_line.jinja",
+        include_str!("templates/trait_method_return_line.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

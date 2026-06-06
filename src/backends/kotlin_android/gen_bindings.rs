@@ -342,7 +342,12 @@ fn emit_trait_interfaces(
         let mut imports = BTreeSet::new();
         let mut body = String::new();
         emit_kdoc_pub(&mut body, &trait_def.doc, "");
-        body.push_str(&format!("interface {interface_name} {{\n"));
+        body.push_str(&template_env::render(
+            "trait_interface_header.jinja",
+            minijinja::context! {
+                interface_name => interface_name,
+            },
+        ));
         if bridge.super_trait.is_some() {
             body.push_str("    fun name(): String\n");
             body.push_str("    fun version(): String\n");
@@ -432,7 +437,12 @@ pub fn format_method_signature(suspend_keyword: &str, method_name: &str, params:
         if return_type == "Unit" {
             result.push_str("    )\n");
         } else {
-            result.push_str(&format!("    ): {return_type}\n"));
+            result.push_str(&template_env::render(
+                "trait_method_return_line.jinja",
+                minijinja::context! {
+                    return_type => return_type,
+                },
+            ));
         }
         result
     }

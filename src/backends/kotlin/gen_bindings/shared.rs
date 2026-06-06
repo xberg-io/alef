@@ -207,7 +207,13 @@ pub fn assemble_kt_file(package: &str, imports: &std::collections::BTreeSet<Stri
          \"MagicNumber\",\n\
          )\n\n",
     );
-    content.push_str(&format!("package {package}\n\n"));
+    content.push_str(&crate::backends::kotlin::template_env::render(
+        "package_declaration.jinja",
+        minijinja::context! {
+            package => package,
+        },
+    ));
+    content.push('\n');
     for import in imports {
         content.push_str(import);
         content.push('\n');

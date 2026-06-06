@@ -70,6 +70,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/expect_function_signature.jinja"),
     ),
     ("doc_comment.jinja", include_str!("templates/doc_comment.jinja")),
+    ("line_comment.jinja", include_str!("templates/line_comment.jinja")),
     (
         "bridge_call_with_dispatch.jinja",
         include_str!("templates/bridge_call_with_dispatch.jinja"),
@@ -163,6 +164,122 @@ static TEMPLATES: &[(&str, &str)] = &[
         "kotlin_streaming_client_method.jinja",
         include_str!("templates/kotlin_streaming_client_method.jinja"),
     ),
+    (
+        "client_class_header.jinja",
+        include_str!("templates/client_class_header.jinja"),
+    ),
+    (
+        "client_close_method.jinja",
+        include_str!("templates/client_close_method.jinja"),
+    ),
+    (
+        "jni_streaming_extern_comment.jinja",
+        include_str!("templates/jni_streaming_extern_comment.jinja"),
+    ),
+    (
+        "jni_client_close_method.jinja",
+        include_str!("templates/jni_client_close_method.jinja"),
+    ),
+    ("jni_client_file.jinja", include_str!("templates/jni_client_file.jinja")),
+    ("jni_unit_body.jinja", include_str!("templates/jni_unit_body.jinja")),
+    (
+        "jni_deserialize_body.jinja",
+        include_str!("templates/jni_deserialize_body.jinja"),
+    ),
+    (
+        "jni_passthrough_body.jinja",
+        include_str!("templates/jni_passthrough_body.jinja"),
+    ),
+    (
+        "jni_client_constructor.jinja",
+        include_str!("templates/jni_client_constructor.jinja"),
+    ),
+    (
+        "data_class_inline.jinja",
+        include_str!("templates/data_class_inline.jinja"),
+    ),
+    (
+        "data_class_header_only.jinja",
+        include_str!("templates/data_class_header_only.jinja"),
+    ),
+    (
+        "data_class_field_line.jinja",
+        include_str!("templates/data_class_field_line.jinja"),
+    ),
+    (
+        "data_class_close.jinja",
+        include_str!("templates/data_class_close.jinja"),
+    ),
+    (
+        "json_property_annotation.jinja",
+        include_str!("templates/json_property_annotation.jinja"),
+    ),
+    (
+        "enum_json_property_variant_inline.jinja",
+        include_str!("templates/enum_json_property_variant_inline.jinja"),
+    ),
+    (
+        "enum_json_property_variant_multiline.jinja",
+        include_str!("templates/enum_json_property_variant_multiline.jinja"),
+    ),
+    ("enum_wire_arm.jinja", include_str!("templates/enum_wire_arm.jinja")),
+    (
+        "enum_wire_multivalue_arm.jinja",
+        include_str!("templates/enum_wire_multivalue_arm.jinja"),
+    ),
+    (
+        "sealed_variant_inline.jinja",
+        include_str!("templates/sealed_variant_inline.jinja"),
+    ),
+    (
+        "sealed_variant_header.jinja",
+        include_str!("templates/sealed_variant_header.jinja"),
+    ),
+    (
+        "sealed_variant_field.jinja",
+        include_str!("templates/sealed_variant_field.jinja"),
+    ),
+    (
+        "sealed_variant_close.jinja",
+        include_str!("templates/sealed_variant_close.jinja"),
+    ),
+    (
+        "sealed_vec_serializer_block.jinja",
+        include_str!("templates/sealed_vec_serializer_block.jinja"),
+    ),
+    (
+        "error_variant_inline.jinja",
+        include_str!("templates/error_variant_inline.jinja"),
+    ),
+    (
+        "error_variant_header.jinja",
+        include_str!("templates/error_variant_header.jinja"),
+    ),
+    (
+        "error_variant_field.jinja",
+        include_str!("templates/error_variant_field.jinja"),
+    ),
+    (
+        "error_variant_close_multiline.jinja",
+        include_str!("templates/error_variant_close_multiline.jinja"),
+    ),
+    (
+        "error_open_property.jinja",
+        include_str!("templates/error_open_property.jinja"),
+    ),
+    (
+        "async_bridge_client_return.jinja",
+        include_str!("templates/async_bridge_client_return.jinja"),
+    ),
+    (
+        "async_bridge_return.jinja",
+        include_str!("templates/async_bridge_return.jinja"),
+    ),
+    (
+        "bridge_client_return.jinja",
+        include_str!("templates/bridge_client_return.jinja"),
+    ),
+    ("bridge_return.jinja", include_str!("templates/bridge_return.jinja")),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

@@ -186,17 +186,31 @@ pub(crate) fn emit_type_with_imports(
     }
 
     if use_single_line {
-        out.push_str(&format!("{prefix}({})\n", field_strings.join(", ")));
+        out.push_str(&crate::backends::kotlin::template_env::render(
+            "data_class_inline.jinja",
+            minijinja::context! {
+                prefix => prefix,
+                fields => field_strings.join(", "),
+            },
+        ));
     } else {
-        out.push_str(&format!("{prefix}(\n"));
+        out.push_str(&crate::backends::kotlin::template_env::render(
+            "data_class_header_only.jinja",
+            minijinja::context! {
+                prefix => prefix,
+            },
+        ));
         for (idx, (field, field_str)) in ty.fields.iter().zip(field_strings.iter()).enumerate() {
             emit_cleaned_kdoc(out, &field.doc, "    ");
             // Emit @JsonProperty when the Rust field carries #[serde(rename = "...")]
             // so Jackson maps the wire key to the Kotlin camelCase property name.
             if let Some(rename) = &field.serde_rename {
-                out.push_str(&format!(
-                    "    @com.fasterxml.jackson.annotation.JsonProperty(\"{}\")\n",
-                    escape_kotlin_string(rename)
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "json_property_annotation.jinja",
+                    minijinja::context! {
+                        indent => "    ",
+                        value => escape_kotlin_string(rename),
+                    },
                 ));
             }
             // Emit @field:JsonSerialize(`as` = …) / (contentAs = …) when the
@@ -208,9 +222,21 @@ pub(crate) fn emit_type_with_imports(
                 out.push_str(annotation);
                 out.push('\n');
             }
-            out.push_str(&format!("    {field_str},\n"));
+            out.push_str(&crate::backends::kotlin::template_env::render(
+                "data_class_field_line.jinja",
+                minijinja::context! {
+                    indent => "    ",
+                    field => field_str,
+                },
+            ));
         }
-        out.push_str(")\n");
+        out.push_str(&crate::backends::kotlin::template_env::render(
+            "data_class_close.jinja",
+            minijinja::context! {
+                indent => "",
+                suffix => "",
+            },
+        ));
     }
 }
 
@@ -309,11 +335,22 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
 
                 if total_length <= KTFMT_LINE_WIDTH {
                     // Fit on single line: "    @annotation VariantName,"
-                    out.push_str(&format!("    {} {}\n", annotation, variant_line));
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "enum_json_property_variant_inline.jinja",
+                        minijinja::context! {
+                            annotation => annotation,
+                            variant_line => variant_line,
+                        },
+                    ));
                 } else {
                     // Multi-line: annotation on one line, variant on the next
-                    out.push_str(&format!("    {}\n", annotation));
-                    out.push_str(&format!("    {}\n", variant_line));
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "enum_json_property_variant_multiline.jinja",
+                        minijinja::context! {
+                            annotation => annotation,
+                            variant_line => variant_line,
+                        },
+                    ));
                 }
             } else {
                 out.push_str(&crate::backends::kotlin::template_env::render(
@@ -337,11 +374,11 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 en.variants[idx].serde_rename.as_deref(),
                 en.serde_rename_all.as_deref(),
             );
-            out.push_str(&format!(
-                "            {} -> \"{}\"\n",
-                name,
-                escape_kotlin_string(&discriminator)
-            ));
+            out.push_str("            ");
+            out.push_str(name);
+            out.push_str(" -> \"");
+            out.push_str(&escape_kotlin_string(&discriminator));
+            out.push_str("\"\n");
         }
         out.push_str("        }\n");
 
@@ -368,20 +405,21 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 // PascalCase variant name. Matching both keeps the binding robust against
                 // either convention without forcing the core to add #[serde(rename_all)].
                 // Emit each match value on its own line per ktfmt's multi-value arm formatting
-                out.push_str(&format!(
-                    "                \"{}\",\n",
-                    escape_kotlin_string(&discriminator)
-                ));
-                out.push_str(&format!(
-                    "                \"{}\" -> {}\n",
-                    escape_kotlin_string(&discriminator_lower),
-                    name
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "enum_wire_multivalue_arm.jinja",
+                    minijinja::context! {
+                        discriminator => escape_kotlin_string(&discriminator),
+                        discriminator_lower => escape_kotlin_string(&discriminator_lower),
+                        name => name,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "                \"{}\" -> {}\n",
-                    escape_kotlin_string(&discriminator),
-                    name
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "enum_wire_arm.jinja",
+                    minijinja::context! {
+                        discriminator => escape_kotlin_string(&discriminator),
+                        name => name,
+                    },
                 ));
             }
         }
@@ -504,16 +542,35 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                     && fits_single_line("    ", &variant_prefix, &variant_field_strings, &variant_suffix);
 
                 if use_single_line {
-                    out.push_str(&format!(
-                        "    {variant_prefix}({fields}){variant_suffix}\n",
-                        fields = variant_field_strings.join(", ")
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "sealed_variant_inline.jinja",
+                        minijinja::context! {
+                            variant_prefix => variant_prefix,
+                            fields => variant_field_strings.join(", "),
+                            variant_suffix => variant_suffix,
+                        },
                     ));
                 } else {
-                    out.push_str(&format!("    {variant_prefix}(\n"));
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "sealed_variant_header.jinja",
+                        minijinja::context! {
+                            variant_prefix => variant_prefix,
+                        },
+                    ));
                     for field_str in &variant_field_strings {
-                        out.push_str(&format!("        {field_str},\n"));
+                        out.push_str(&crate::backends::kotlin::template_env::render(
+                            "sealed_variant_field.jinja",
+                            minijinja::context! {
+                                field => field_str,
+                            },
+                        ));
                     }
-                    out.push_str(&format!("    ){variant_suffix}\n"));
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "sealed_variant_close.jinja",
+                        minijinja::context! {
+                            variant_suffix => variant_suffix,
+                        },
+                    ));
                 }
             }
         }
@@ -974,21 +1031,15 @@ fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
             // sealed-class serializer (which writes "type") is always called.
             if let TypeRef::Vec(inner) = &field.ty {
                 if let TypeRef::Named(elem_type) = inner.as_ref() {
-                    out.push_str("            is ");
-                    out.push_str(name);
-                    out.push('.');
-                    out.push_str(&variant.name);
-                    out.push_str(" -> {\n");
-                    out.push_str("                gen.writeStartArray()\n");
-                    out.push_str(&format!(
-                        "                val elemSerializer = provider.findValueSerializer({}::class.java)\n",
-                        elem_type
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "sealed_vec_serializer_block.jinja",
+                        minijinja::context! {
+                            enum_name => name,
+                            variant_name => variant.name,
+                            elem_type => elem_type,
+                            field_name => field_name,
+                        },
                     ));
-                    out.push_str(&format!("                for (elem in value.{field_name}) {{\n"));
-                    out.push_str("                    elemSerializer.serialize(elem, gen, provider)\n");
-                    out.push_str("                }\n");
-                    out.push_str("                gen.writeEndArray()\n");
-                    out.push_str("            }\n");
                 } else {
                     out.push_str("            is ");
                     out.push_str(name);
@@ -1120,16 +1171,35 @@ pub(crate) fn emit_error_type_with_imports(
             let use_single_line = fits_single_line("    ", &err_prefix, &err_field_strings, &err_suffix);
 
             if use_single_line {
-                out.push_str(&format!(
-                    "    {err_prefix}({fields}){err_suffix}\n",
-                    fields = err_field_strings.join(", ")
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "error_variant_inline.jinja",
+                    minijinja::context! {
+                        err_prefix => err_prefix,
+                        fields => err_field_strings.join(", "),
+                        err_suffix => err_suffix,
+                    },
                 ));
             } else {
-                out.push_str(&format!("    {err_prefix}(\n"));
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "error_variant_header.jinja",
+                    minijinja::context! {
+                        err_prefix => err_prefix,
+                    },
+                ));
                 for field_str in &err_field_strings {
-                    out.push_str(&format!("        {field_str},\n"));
+                    out.push_str(&crate::backends::kotlin::template_env::render(
+                        "error_variant_field.jinja",
+                        minijinja::context! {
+                            field => field_str,
+                        },
+                    ));
                 }
-                out.push_str(&format!("    ){err_suffix}\n"));
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "error_variant_close_multiline.jinja",
+                    minijinja::context! {
+                        err_suffix => err_suffix,
+                    },
+                ));
             }
         }
     }
@@ -1144,7 +1214,14 @@ pub(crate) fn emit_error_type_with_imports(
         let prop_name = to_lower_camel(&method.name);
         let ty_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
         let default = kotlin_zero_value(&ty_str);
-        out.push_str(&format!("    open val {prop_name}: {ty_str} = {default}\n"));
+        out.push_str(&crate::backends::kotlin::template_env::render(
+            "error_open_property.jinja",
+            minijinja::context! {
+                prop_name => prop_name,
+                ty => ty_str,
+                default => default,
+            },
+        ));
     }
     out.push_str("}\n");
 }
@@ -1215,12 +1292,22 @@ pub(crate) fn emit_function(
         // blocks under it.
         if returns_client_type {
             let wrapper = return_ty.trim_end_matches('?');
-            out.push_str(&format!(
-                "        return withContext(Dispatchers.IO) {{ {wrapper}(Bridge.{func_name_camel}({call_args})) }}\n"
+            out.push_str(&crate::backends::kotlin::template_env::render(
+                "async_bridge_client_return.jinja",
+                minijinja::context! {
+                    wrapper => wrapper,
+                    name => func_name_camel,
+                    args => call_args,
+                },
             ));
         } else {
-            out.push_str(&format!(
-                "        return withContext(Dispatchers.IO) {{\n            Bridge.{func_name_camel}({call_args}){optional_suffix}\n        }}\n"
+            out.push_str(&crate::backends::kotlin::template_env::render(
+                "async_bridge_return.jinja",
+                minijinja::context! {
+                    name => func_name_camel,
+                    args => call_args,
+                    optional_suffix => optional_suffix,
+                },
             ));
         }
     } else if matches!(f.return_type, TypeRef::Unit) {
@@ -1234,12 +1321,22 @@ pub(crate) fn emit_function(
         out.push('\n');
     } else if returns_client_type {
         let wrapper = return_ty.trim_end_matches('?');
-        out.push_str(&format!(
-            "        return {wrapper}(Bridge.{func_name_camel}({call_args}))\n"
+        out.push_str(&crate::backends::kotlin::template_env::render(
+            "bridge_client_return.jinja",
+            minijinja::context! {
+                wrapper => wrapper,
+                name => func_name_camel,
+                args => call_args,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "        return Bridge.{func_name_camel}({call_args}){optional_suffix}\n"
+        out.push_str(&crate::backends::kotlin::template_env::render(
+            "bridge_return.jinja",
+            minijinja::context! {
+                name => func_name_camel,
+                args => call_args,
+                optional_suffix => optional_suffix,
+            },
         ));
     }
     out.push_str("    }\n");

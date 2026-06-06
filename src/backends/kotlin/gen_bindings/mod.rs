@@ -412,11 +412,12 @@ fn emit_client_type_file(
 
     // Emit the wrapper class.
     let java_fqn = format!("{java_package}.{class_name}");
-    body.push_str(&format!(
-        "/** Coroutine-friendly wrapper around the Java `{java_fqn}` facade. */\n"
-    ));
-    body.push_str(&format!(
-        "class {class_name} internal constructor(internal val inner: {java_fqn}) : AutoCloseable {{\n"
+    body.push_str(&template_env::render(
+        "client_class_header.jinja",
+        minijinja::context! {
+            java_fqn => java_fqn,
+            class_name => class_name,
+        },
     ));
 
     // When any wrapped method takes a raw-JSON (`Any`) param, the body serializes
@@ -445,7 +446,10 @@ fn emit_client_type_file(
         emit_streaming_client_method(adapter, class_name, java_package, &mut body);
     }
 
-    body.push_str("    override fun close() { inner.close() }\n");
+    body.push_str(&template_env::render(
+        "client_close_method.jinja",
+        minijinja::context! {},
+    ));
     body.push_str("}\n");
 
     let content = shared::assemble_kt_file(package, &imports, &body);
@@ -475,7 +479,13 @@ fn emit_client_type_file(
 fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !m.doc.is_empty() {
         for line in m.doc.lines() {
-            out.push_str(&format!("    // {line}\n"));
+            out.push_str(&template_env::render(
+                "line_comment.jinja",
+                minijinja::context! {
+                    indent => "    ",
+                    line => line,
+                },
+            ));
         }
     }
     let method_name = to_lower_camel(&m.name);
