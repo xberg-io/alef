@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **java**: macOS aarch64 JDK 25 native library symbol lookup failure. NativeLib static initializer was using `SymbolLookup.libraryLookup(String, Arena)` with an absolute file path, but the String variant expects a library name only and silently fails on absolute paths. `defaultLookup()` fallback cannot access symbols from libraries loaded via `System.load()`. Changed to use `SymbolLookup.libraryLookup(Path, Arena)` (the Path-accepting variant) with the absolute path from JAR-extracted or system-located dylibs. This allows JDK 21+ Panama FFM to correctly resolve bundled FFI symbols on all platforms. (`src/backends/java/templates/native_lib.jinja`, `src/backends/java/gen_bindings/native_lib.rs`)
 
+- **swift**: split the root-level `Package.swift` `RustBridge` declaration into a Swift `.target` plus a separate `.binaryTarget` named `RustBridgeBinary`. The artifactbundle only ships static libraries (`.a`), so SwiftPM cannot expose a Swift module from a binary target — but the swift-bridge generated wrapper code (`packages/swift/Sources/RustBridge/*.swift`) needs to be reachable via `import RustBridge` from the host module. The binary target now provides only the link-time symbols, and the new Swift target owns the bridge sources and depends on `RustBridgeBinary` + `RustBridgeC`. Consumers must update their publish flow to pass `binary-target-name: RustBridgeBinary` to `kreuzberg-dev/actions/build-swift-artifactbundle@v1`. (`src/scaffold/languages/swift.rs`)
+
 ## [0.23.23] - 2026-06-06
 
 ### Fixed
