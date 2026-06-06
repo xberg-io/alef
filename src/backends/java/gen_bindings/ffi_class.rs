@@ -7,7 +7,7 @@ use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
 
-use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java, safe_java_field_name};
+use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java, render_nullable_type, safe_java_field_name};
 use super::marshal::{
     ffi_param_args, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
     java_ffi_return_expr, marshal_param_to_ffi,
@@ -198,8 +198,8 @@ fn gen_sync_function_method_with_visitor(
             } else {
                 java_type(&p.ty)
             };
-            let annotation = if p.optional { "@Nullable " } else { "" };
-            format!("final {annotation}{} {}", ptype, to_java_name(&p.name))
+            let annotated = render_nullable_type(&ptype, p.optional);
+            format!("final {annotated} {}", to_java_name(&p.name))
         })
         .collect();
 
@@ -853,8 +853,8 @@ fn gen_convert_with_visitor_internal_method(
             } else {
                 java_type(&p.ty)
             };
-            let annotation = if p.optional { "@Nullable " } else { "" };
-            format!("final {annotation}{} {}", ptype, to_java_name(&p.name))
+            let annotated = render_nullable_type(&ptype, p.optional);
+            format!("final {annotated} {}", to_java_name(&p.name))
         })
         .collect();
     let return_type = java_return_type(&func.return_type);

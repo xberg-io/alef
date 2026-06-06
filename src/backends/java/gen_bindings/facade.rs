@@ -4,19 +4,7 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, PrimitiveType, TypeRef};
 use std::collections::HashSet;
 
-use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java};
-
-/// Helper to emit @Nullable annotation for optional types that are not primitives.
-fn nullable_prefix(ty: &TypeRef) -> &'static str {
-    match ty {
-        TypeRef::Primitive(_) => {
-            // Optional primitives become boxed (e.g., Optional<i32> → Integer), which are nullable.
-            // But we rely on java_boxed_type to handle this.
-            "@Nullable "
-        }
-        _ => "@Nullable ",
-    }
-}
+use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java, render_nullable_type};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_facade_class(
@@ -47,15 +35,15 @@ pub(crate) fn gen_facade_class(
                     } else {
                         java_type(&p.ty)
                     };
-                    let annotation = if p.optional { nullable_prefix(&p.ty) } else { "" };
-                    format!("final {}{} {}", annotation, ptype, to_java_name(&p.name))
+                    let annotated = render_nullable_type(&ptype, p.optional);
+                    format!("final {annotated} {}", to_java_name(&p.name))
                 })
                 .collect();
 
             let return_type = if let TypeRef::Optional(inner) = &func.return_type {
                 // Unwrap Optional<T> to @Nullable T for cleaner return types
                 let inner_type = java_boxed_type(inner);
-                format!("@Nullable {}", inner_type)
+                render_nullable_type(&inner_type, true)
             } else {
                 java_return_type(&func.return_type).to_string()
             };

@@ -118,6 +118,33 @@ pub(crate) fn is_tuple_field_name(name: &str) -> bool {
     !stripped.is_empty() && stripped.chars().all(|c| c.is_ascii_digit())
 }
 
+/// Render a Java type with an optional `@Nullable` type-use annotation in the
+/// position required by JLS for qualified types.
+///
+/// For unqualified type names (`Path`, `String`, `MyType`), the annotation
+/// appears in leading position: `@Nullable Path`.
+///
+/// For fully-qualified type names (`java.nio.file.Path`, `com.example.Foo`),
+/// the annotation must appear between the package prefix and the simple type
+/// name: `java.nio.file.@Nullable Path`. Emitting the annotation in leading
+/// position on a qualified type is a `javac` error (`type annotation is not
+/// expected here`).
+///
+/// Same logic as in `types.rs:265` for record/Builder fields, lifted here so
+/// `ffi_class.rs` parameter-list emitters can reuse it.
+pub(crate) fn render_nullable_type(ftype: &str, is_nullable: bool) -> String {
+    if !is_nullable {
+        return ftype.to_string();
+    }
+    if let Some(idx) = ftype.rfind('.') {
+        let (pkg, simple) = ftype.split_at(idx);
+        let simple = simple.trim_start_matches('.');
+        format!("{pkg}.@Nullable {simple}")
+    } else {
+        format!("@Nullable {ftype}")
+    }
+}
+
 /// Sanitise a field/parameter name that would conflict with `java.lang.Object`
 /// methods.  Conflicting names get a `_` suffix (e.g. `wait` -> `wait_`), which
 /// is then converted to camelCase by `to_java_name`.
