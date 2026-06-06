@@ -2882,3 +2882,41 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
         "ExtractionConfig should use the generic from-json forwarder:\n{content}"
     );
 }
+
+#[test]
+fn swift_string_param_not_wrapped() {
+    let api = ApiSurface {
+        crate_name: "syn".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "do_it".to_string(),
+            rust_path: "syn::do_it".to_string(),
+            original_rust_path: String::new(),
+            params: vec![make_param("s", TypeRef::String)],
+            return_type: TypeRef::String,
+            doc: "".to_string(),
+            error_type: Some("String".to_string()),
+            is_async: false,
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(!content.contains("RustString(s)"), "plain String param must not wrap");
+}

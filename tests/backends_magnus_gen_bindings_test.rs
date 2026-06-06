@@ -3904,10 +3904,7 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
     let content = &lib_file.content;
 
     // Must contain the async method
-    assert!(
-        content.contains("detect_async"),
-        "Should contain detect_async method"
-    );
+    assert!(content.contains("detect_async"), "Should contain detect_async method");
 
     // The method body must emit `let labels_core:` to convert Vec<Label> → Vec<core::Label>
     // and must use `&labels_core` (not `&labels`) when calling the core function

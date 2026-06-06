@@ -332,10 +332,8 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str, namespac
     out.push_str("        }\n");
     if needs_mock_server {
         out.push('\n');
-        let mock_server_code = crate::e2e::template_env::render(
-            "csharp/test_setup_mock_server.cs.jinja",
-            minijinja::context! {},
-        );
+        let mock_server_code =
+            crate::e2e::template_env::render("csharp/test_setup_mock_server.cs.jinja", minijinja::context! {});
         out.push_str(&mock_server_code);
     }
     out.push_str("    }\n");
@@ -2004,10 +2002,24 @@ fn build_args_and_setup(
                     "float" | "number" => "0.0d".to_string(),
                     "bool" | "boolean" => "false".to_string(),
                     "json_object" => {
-                        if let Some(opts_type) = options_type {
-                            format!("new {opts_type}()")
-                        } else {
+                        if arg.optional {
+                            // Optional parameter can be null
                             "null".to_string()
+                        } else if let Some(opts_type) = options_type {
+                            // Required parameter: construct default instance
+                            format!("new {opts_type}()")
+                        } else if let Some(elem_type) = &arg.element_type {
+                            // Try element_type as fallback for config type
+                            format!("new {elem_type}()")
+                        } else {
+                            // Last resort: infer from argument name (e.g., "config" → "Config")
+                            let inferred_type = format!("{}Config", arg.name.to_upper_camel_case());
+                            if type_defs.iter().any(|ty| ty.name == inferred_type) {
+                                format!("new {inferred_type}()")
+                            } else {
+                                // Cannot determine type; pass null (will fail at runtime with ArgumentNullException)
+                                "null".to_string()
+                            }
                         }
                     }
                     _ => "null".to_string(),

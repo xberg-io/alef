@@ -188,7 +188,8 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str("{\n");
 
     // Nested sealed records for each variant (no [JsonDerivedType] here — it's on the base)
-    for variant in &enum_def.variants {
+    // Skip binding-excluded variants
+    for variant in enum_def.variants.iter().filter(|v| !v.binding_excluded) {
         let pascal = to_csharp_name(&variant.name);
 
         let variant_doc_lines = super::sanitize_doc_lines_for_csharp(&variant.doc);
@@ -303,7 +304,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     }
 
     // Add accessor properties for data variants
-    for variant in &enum_def.variants {
+    for variant in enum_def.variants.iter().filter(|v| !v.binding_excluded) {
         // Only generate accessors for variants with exactly one tuple field
         if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
             continue;
@@ -360,9 +361,11 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
     use minijinja::Value;
 
     let class_name = csharp_type_name(&enum_def.name);
+    // Only include non-binding-excluded variants in the converter's switch statement
     let variants: Vec<Value> = enum_def
         .variants
         .iter()
+        .filter(|v| !v.binding_excluded)
         .map(|v| {
             let pascal = to_csharp_name(&v.name);
             let discriminator = v

@@ -620,8 +620,17 @@ impl Backend for ExtendrBackend {
         }
         for e in &api.enums {
             if is_flat_data_enum(e) {
-                // Flat struct: generate dedicated From<core::Enum> impl that populates variant fields.
-                if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                // Flat data enum: check if it can round-trip. If not, and it has serde tagging,
+                // it should be treated as JSON passthrough instead.
+                if !can_flat_data_enum_round_trip(e) && e.serde_tag.is_some() {
+                    // Non-round-trip-safe flat enum with serde tag: treat as JSON passthrough.
+                    // JSON-passthrough wrapper struct already emits its own `From<core>`
+                    // and `From<binding>` impls in `gen_extendr_json_passthrough_enum_struct`.
+                    // Skip the generic enum conversion which would emit a lossy unit-variant
+                    // mapping that conflicts with the wrapper struct definition.
+                    continue;
+                } else if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                    // Round-trip-safe flat enum: generate dedicated From<core::Enum> impl.
                     builder.add_item(&gen_extendr_flat_data_enum_from_core(e, &core_import));
                     // Also generate the reverse for flat data enums whose tuple variant fields are
                     // all primitive/String types (so binding→core round-trip works).
