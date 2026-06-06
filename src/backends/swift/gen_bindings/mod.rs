@@ -2588,10 +2588,22 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
     use heck::AsSnakeCase;
 
     // Collect all functions that take a Named typed parameter (potential config struct).
+    // Skip sync-variant functions that have an async counterpart; the async version is the real implementation.
     let json_overload_candidates: Vec<(&FunctionDef, usize, &str)> = api
         .functions
         .iter()
         .flat_map(|func| {
+            // Skip sync functions that have an async counterpart (sync is a placeholder/stub).
+            if !func.is_async
+                && func.name.ends_with("_sync")
+                && api
+                    .functions
+                    .iter()
+                    .any(|f| f.is_async && f.name == format!("{}_async", &func.name[..func.name.len() - 5]))
+            {
+                return vec![];
+            }
+
             func.params
                 .iter()
                 .enumerate()
@@ -3118,6 +3130,7 @@ fn swift_return_type(ty: &TypeRef) -> String {
 /// `String`, opaque `Named` types, primitives, `Void`).
 fn swift_return_conversion_suffix(ty: &TypeRef) -> String {
     match ty {
+        TypeRef::String => ".toString()".to_string(),
         TypeRef::Bytes => ".map { $0 }".to_string(),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(_)) => ".map { $0 }".to_string(),
         _ => String::new(),
