@@ -834,8 +834,11 @@ fn render_test_case(
         }
     }
 
-    // Force test to async if we need to read files for bytes args
-    let test_is_async = call_is_async || has_bytes_file_reads(&fixture.input, args);
+    // Force test to async if we need to read files for bytes args or have trait bridge tests
+    let has_trait_bridge = has_trait_bridge_args(args);
+    let test_is_async = call_is_async || has_bytes_file_reads(&fixture.input, args) || has_trait_bridge;
+    // Also force call to be treated as async for trait bridge tests so we await the calls
+    let call_is_async = call_is_async || has_trait_bridge;
 
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\\', "\\\\").replace('"', "\\\"");
@@ -1090,6 +1093,11 @@ fn has_bytes_file_reads(input: &serde_json::Value, args: &[ArgMapping]) -> bool 
         };
         matches!(val, Some(serde_json::Value::String(_)))
     })
+}
+
+/// Check if any arg is a test_backend (trait bridge), requiring async test function.
+fn has_trait_bridge_args(args: &[ArgMapping]) -> bool {
+    args.iter().any(|arg| arg.arg_type == "test_backend")
 }
 
 /// Build a TypeScript expression to construct an options object.
