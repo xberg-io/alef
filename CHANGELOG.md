@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ffi**: removed leftover `style = "type"` line inside `[export]` block of the generated `cbindgen.toml`. The earlier fix that hoisted `style = "type"` to the top level (and the subsequent change to `style = "both"`) only added the top-level key but failed to delete the now-duplicate `[export].style` line, which cbindgen 0.29.2 rejects with `unknown field 'style', expected one of 'include', 'exclude', 'rename', 'pre_body', 'body', 'prefix', 'item_types', 'renaming_overrides_prefixing', 'mangle'`. Surfaces as a build-script panic on every consumer regen post-rc.16. (`src/backends/ffi/templates/cbindgen_toml.jinja`)
 
+- **dart**: extend `_alefHostLibNames()` macOS branch to include the framework-bundle path (`{stem}_dart.framework/{stem}_dart`) ahead of the bare dylib so the loader finds pub.dev-shipped framework packages before falling through to the FRB default candidate list. Complements the FRB-default candidate fix in 0.23.21. (`src/backends/dart/templates/dart_init_prologue_replacement.jinja`)
+
 ## [0.23.21] - 2026-06-06
 
 ### Changed
