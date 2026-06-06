@@ -2,4 +2,3 @@
 	if {{ name }} != nil {
 		{{ var_name }} = unsafe.Slice((*byte)(unsafe.Pointer({{ name }})), int({{ len_name }}))
 	}
-

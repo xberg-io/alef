@@ -18,4 +18,3 @@ public class {{ class_name }} {
     // A single static delegate instance bridges the native callback. Held in a static field so the
     // marshalled function pointer outlives every registration (a transient delegate would be collected).
     private static readonly NativeMethods.HandlerCallback _handlerCallback = HandlerTrampoline;
-

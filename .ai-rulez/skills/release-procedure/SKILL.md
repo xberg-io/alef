@@ -12,7 +12,7 @@ license: MIT
 # Alef Release Procedure
 
 Cut a new alef version with a verifiable, reproducible procedure. Skip no step.
-Every step has a hard verification — never assume; always check.
+Every release step has a concrete verification — never assume; always check.
 
 ## When to apply
 
@@ -28,8 +28,8 @@ Every step has a hard verification — never assume; always check.
    bullet per user-visible change. Move entries from `[Unreleased]` into the new
    version section. Group under `### Added`, `### Changed (BREAKING)`,
    `### Fixed`, `### Removed`. Never tag a version with an empty section.
-2. **Always run `prek run --all-files`** to fix lint/format issues _before_
-   committing. Re-stage anything the hooks rewrite. Only commit with
+2. **Always run `prek run --all-files`** to fix lint/format issues before
+   publishing. Re-stage anything the hooks rewrite. Only commit with
    `--no-verify` if a hook is genuinely broken in a way unrelated to the change
    — and then file an issue.
 3. **No AI signatures** in commit messages, tag messages, or release notes.
@@ -53,12 +53,12 @@ Every step has a hard verification — never assume; always check.
 
 ```bash
 git status              # working tree clean (or only release-prep diffs)
-git pull --ff-only      # don't release on a stale main
-cargo check --all-features
-cargo test
+git fetch origin        # inspect freshness without rewriting local commits
 ```
 
-If any of those fail, stop. Fix first, release second.
+If the release branch has diverged from its upstream, stop and ask how to
+reconcile it. Do not rebase or merge after committing unless the user explicitly
+asks for it.
 
 ### 1. Update CHANGELOG.md
 
@@ -178,7 +178,7 @@ PR that bumps the pin. Don't bundle that into the release commit.
 
 | Step       | Command                                                            | What it verifies           |
 | ---------- | ------------------------------------------------------------------ | -------------------------- |
-| Pre-flight | `cargo check --all-features && cargo test`                         | Clean build + green tests  |
+| Pre-flight | `git status && git fetch origin`                                   | Clean tree + remote state   |
 | Changelog  | manual edit of `CHANGELOG.md`                                      | Every change is documented |
 | Version    | `task set-version -- X.Y.Z` then `grep -E '^version' Cargo.toml`   | Crate version updated      |
 | Lint       | `prek run --all-files`                                             | Pre-commit clean           |

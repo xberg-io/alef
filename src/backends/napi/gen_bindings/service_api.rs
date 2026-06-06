@@ -75,10 +75,7 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
 pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str, config: &ResolvedCrateConfig) -> String {
     let mut out = String::new();
 
-    // TypeScript preamble: import native bindings + types
-    out.push_str("// Auto-generated service API class\n\n");
-    out.push_str("import type { ");
-
+    // Build type imports for the preamble template
     let mut imports = vec!["JsObject".to_owned()];
     for contract in &api.handler_contracts {
         // We'll import the wire DTO types for type annotations

@@ -17,4 +17,3 @@ pub extern "C" fn {{ fn_name }}(
     owner.inner = Box::new(inner.{{ method_name }}({{ call_args }}));
     Box::into_raw(owner)
 }
-

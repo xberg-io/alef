@@ -1,4 +1,3 @@
 public func {{ function_name }}({{ params }}){{ async_clause }}{{ throws_clause }} -> {{ return_type }} {
 {{ decode_lines }}    return try {{ await_kw }}{{ function_name }}({{ call_args }}){{ return_suffix }}
 }
-

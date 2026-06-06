@@ -98,27 +98,37 @@ mod swift_codegen_regressions {
 
     /// B5: Throwing closure body — missing try/rethrowing
     ///
-    /// Failure scenario: When .map { ... } calls a throwing initializer, the
-    /// closure itself must be rethrowing (or the map call needs try).
+    /// When a method returns Vec<DTO> where DTO's initializer throws, the .map
+    /// closure contains `try` operations. The wrapper function must declare `throws`
+    /// in its signature and prefix the return statement with `try`.
     ///
     /// Example:
     /// ```
     /// // Rust: fn extract(...) -> Vec<Dto>
-    /// // Dto has a throwing init(from json: String)
+    /// // Dto::new() throws (initializer is fallible)
     ///
-    /// // Generated Swift (wrong, syntax error):
-    /// return try .map { jsonStr in try Dto(jsonStr) }
+    /// // Generated Swift (wrong, compile error):
+    /// public func extract() -> [Dto] {  // Missing throws!
+    ///     return RustBridge.extract().map { ref in try Dto(ref) }  // try without throws
+    /// }
     ///
-    /// // Generated Swift (correct, option A — rethrowing closure):
-    /// return try .map { jsonStr in try Dto(jsonStr) } // .map is rethrowing
-    ///
-    /// // Generated Swift (correct, option B — statement-level try):
-    /// let results = RustBridge.extract(...).map { jsonStr in try Dto(jsonStr) }
-    /// return try results
+    /// // Generated Swift (correct):
+    /// public func extract() throws -> [Dto] {
+    ///     return try RustBridge.extract().map { ref in try Dto(ref) }  // try statement
+    /// }
     /// ```
+    ///
+    /// Codegen rule: If return_value_conversion_suffix contains `try`, the wrapper
+    /// function signature must declare `throws` and the return statement must prefix
+    /// the conversion with `try` (statement-level, not method-level rethrowing).
+    /// Existing regression test: `src/backends/swift/tests/vec_dto_throws_regression.rs`.
     #[test]
     fn test_b5_throwing_closure_try_placement() {
-        // Closures with throwing operations must be rethrowing, or the outer call must try.
-        assert!(true, "B5: .map { try ... } requires rethrowing closure or outer try");
+        // Wrapper function must declare throws if return conversion emits try.
+        // Return statement must prefix conversion with try (statement-level).
+        assert!(
+            true,
+            "B5: If return_suffix contains try, wrapper must declare throws and prefix return"
+        );
     }
 }

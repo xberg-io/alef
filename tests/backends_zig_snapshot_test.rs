@@ -204,3 +204,110 @@ fn snapshot_basic_struct_function_enum_error() {
         );
     }
 }
+
+#[test]
+fn trait_bridge_vtable_builder_coverage() {
+    // Regression test: verify that for every trait bridge configured, the Zig backend
+    // emits a `make_{trait_snake}_vtable` comptime constructor function.
+    // This ensures trait-bridge e2e test fixtures that call these builders will compile.
+    //
+    // The invariant: whenever alef.toml registers a trait bridge with
+    // `trait_name = "SomeTrait"`, the Zig binding must emit both:
+    //   1. A vtable struct: `pub struct ISomeTrait { ... }`
+    //   2. A comptime builder: `pub fn make_some_trait_vtable(...) ISomeTrait { ... }`
+    //
+    // This test uses the public backend API to generate bindings for a synthetic
+    // trait and verifies both are present.
+
+    use alef::core::config::{TraitBridgeConfig, BridgeBinding};
+
+    let mut api = make_basic_api();
+    let method = alef::core::ir::MethodDef {
+        name: "process".to_string(),
+        params: vec![make_param("input", TypeRef::String)],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(alef::core::ir::ReceiverKind::Ref),
+        trait_source: None,
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // Add a trait type (marked as a trait with is_trait=true)
+    let trait_def = TypeDef {
+        name: "PluginTrait".to_string(),
+        rust_path: "demo::PluginTrait".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![method],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        doc: "A test plugin trait".to_string(),
+        cfg: None,
+        is_trait: true,  // CRITICAL: mark as trait
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+    api.types.push(trait_def);
+
+    // Configure a trait bridge for that trait
+    let mut config = make_basic_config();
+    config.trait_bridges.push(TraitBridgeConfig {
+        trait_name: "PluginTrait".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo::registry::get_plugin_registry".to_string()),
+        register_fn: Some("register_plugin".to_string()),
+        unregister_fn: Some("unregister_plugin".to_string()),
+        clear_fn: Some("clear_plugins".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ffi_skip_methods: vec![],
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    });
+
+    // Generate bindings
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.content.contains("pub fn make_") || f.content.contains("pub struct I"))
+        .or_else(|| files.first())
+        .expect("zig binding file must be generated")
+        .content
+        .clone();
+
+    // Verify: vtable struct exists
+    assert!(
+        content.contains("pub struct IPluginTrait {"),
+        "BUG: vtable struct missing. Content preview:\n{}",
+        &content[..std::cmp::min(1500, content.len())]
+    );
+
+    // Verify: vtable builder exists
+    assert!(
+        content.contains("pub fn make_plugin_trait_vtable(comptime T: type, instance: *T) IPluginTrait {"),
+        "BUG: vtable builder missing. Expected 'pub fn make_plugin_trait_vtable(...)' in generated code."
+    );
+}

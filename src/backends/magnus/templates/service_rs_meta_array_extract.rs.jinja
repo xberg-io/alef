@@ -4,4 +4,3 @@
                         .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,
                 )
                 .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
-

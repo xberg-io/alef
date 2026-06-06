@@ -14,4 +14,3 @@ pub extern "C" fn {{ fn_name }}(
     let owner = unsafe { Box::from_raw(owner) };
     let inner = *owner.inner;
 {{ runtime_block }}{{ return_body }}}
-

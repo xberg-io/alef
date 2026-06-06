@@ -1,4 +1,3 @@
 {% if doc_comment %}{{ doc_comment }}{% else %}    # @return [{{ sorbet_t }}]
 {% endif %}    sig { returns({{ sorbet_t }}) }
     def {{ attr_name }} = super # rubocop:disable Lint/UselessMethodDefinition
-

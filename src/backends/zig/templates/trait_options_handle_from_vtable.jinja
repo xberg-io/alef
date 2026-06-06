@@ -7,4 +7,3 @@ pub fn {{ snake }}_handle_from_vtable(callbacks: {{ callbacks_type }}) ?{{ handl
     var _cb = callbacks;
     return @ptrCast({{ ctor_fn }}(&_cb));
 }
-

@@ -631,7 +631,7 @@ fn emit_module_kt(
     // `gen_opaque_handle_class` policy (emit one wrapper per opaque type)
     // keeps the two backends in lockstep and eliminates the stale-wrapper
     // class of failure (`TokenCounter.kt` references `nativeFreeTokenCounter`
-    // that was never emitted in `KreuzbergBridge.kt`).
+    // that was never emitted in the generated bridge file).
     let handle_only_types: std::collections::BTreeMap<&str, &crate::core::ir::TypeDef> = api
         .types
         .iter()

@@ -1402,7 +1402,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                         let var_name = format!("_{}", arg_def.name);
                         let dart_fn = type_name_to_create_from_json_dart(opts_type);
                         setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                        args.push(var_name);
+                        let dart_param_name = snake_to_camel(&arg_def.name);
+                        args.push(format!("{dart_param_name}: {var_name}"));
                     }
                 } else if arg_def.name == "config" {
                     if let serde_json::Value::Object(map) = &arg_value {
@@ -1416,7 +1417,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
                             setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
-                            args.push(var_name);
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            args.push(format!("{dart_param_name}: {var_name}"));
                         } else {
                             // Empty config object: construct a default instance via FRB's
                             // `create<Type>FromJson(json: '{}')` helper (supports all
@@ -1427,7 +1429,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                                 let var_name = format!("_{}", arg_def.name);
                                 let dart_fn = type_name_to_create_from_json_dart(opts_type);
                                 setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                                args.push(var_name);
+                                let dart_param_name = snake_to_camel(&arg_def.name);
+                                args.push(format!("{dart_param_name}: {var_name}"));
                             }
                         }
                     } else if arg_def.optional {
@@ -1444,7 +1447,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
                             setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                            args.push(var_name);
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            args.push(format!("{dart_param_name}: {var_name}"));
                         }
                     }
                 } else if arg_value.is_array() {
@@ -1485,11 +1489,9 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                                 setup_lines
                                     .push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
                             }
-                            if arg_def.optional {
-                                args.push(format!("{dart_param_name}: {var_name}"));
-                            } else {
-                                args.push(var_name);
-                            }
+                            // Dart bridge method declares options as keyword-only parameter.
+                            // Always emit as named argument regardless of optionality.
+                            args.push(format!("{dart_param_name}: {var_name}"));
                         }
                     }
                 }

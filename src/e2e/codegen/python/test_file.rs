@@ -25,6 +25,7 @@ pub(super) fn render_test_file(
     e2e_config: &E2eConfig,
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) -> String {
     let module = resolve_module(e2e_config);
     let function_name = resolve_function_name(e2e_config);
@@ -256,6 +257,7 @@ pub(super) fn render_test_file(
                 e2e_config,
                 config,
                 type_defs,
+                enums,
                 effective_options_type.as_deref(),
                 effective_options_via,
                 enum_fields,
@@ -584,7 +586,8 @@ mod tests {
         let e2e_config = crate::e2e::config::E2eConfig::default();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
-        let out = render_test_file("basic", &fixtures, &e2e_config, &config, &type_defs);
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
+        let out = render_test_file("basic", &fixtures, &e2e_config, &config, &type_defs, &enums);
         assert!(out.contains("E2e tests for category: basic"), "got: {out}");
     }
 }

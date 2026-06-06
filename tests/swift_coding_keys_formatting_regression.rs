@@ -10,9 +10,7 @@ fn test_swift_coding_key_case_template_each_case_on_own_line() {
     // one case per line when rendered. This test verifies the template
     // has the newline positioned correctly.
 
-    let template_content = include_str!(
-        "../src/backends/swift/templates/swift_tagged_coding_key_case.swift.jinja"
-    );
+    let template_content = include_str!("../src/backends/swift/templates/swift_tagged_coding_key_case.swift.jinja");
 
     // Split by lines
     let lines: Vec<&str> = template_content.lines().collect();
@@ -40,8 +38,5 @@ fn test_swift_coding_key_case_template_each_case_on_own_line() {
     assert_eq!(case_count, 1, "Line should have exactly one case keyword");
 
     // Verify the template file itself ends with a newline (helps with formatting)
-    assert!(
-        template_content.ends_with('\n'),
-        "Template should end with newline"
-    );
+    assert!(template_content.ends_with('\n'), "Template should end with newline");
 }

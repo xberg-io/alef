@@ -8,4 +8,3 @@ pub fn run(client: &mut {{ service_name }}) -> String { client.run() }
 pub fn {{ service_snake }}_raw_ptr(client: &mut {{ service_name }}) -> usize {
     client as *mut {{ service_name }} as usize
 }
-

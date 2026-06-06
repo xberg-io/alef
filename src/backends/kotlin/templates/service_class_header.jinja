@@ -2,4 +2,3 @@
 @Suppress("TooManyFunctions")
 class {{ class_name }} internal constructor(internal val inner: {{ java_fqn }}) : AutoCloseable {
     constructor() : this({{ java_fqn }}())
-

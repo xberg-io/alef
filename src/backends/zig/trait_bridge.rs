@@ -656,6 +656,11 @@ pub fn emit_trait_bridge(
     // -------------------------------------------------------------------------
     // Comptime vtable builder: make_{trait_snake}_vtable
     // -------------------------------------------------------------------------
+    // INVARIANT: For every trait bridge, emit_make_vtable MUST be called
+    // unconditionally. This ensures that e2e test fixtures referencing
+    // `make_{trait_snake}_vtable(...)` will compile. Failure to emit this
+    // builder causes "undeclared identifier" errors in zig e2e tests.
+    // See: tests/backends_zig_snapshot_test.rs::trait_bridge_vtable_builder_coverage
     emit_make_vtable(
         trait_name,
         has_super_trait,

@@ -636,10 +636,7 @@ fn gen_context_inits(fields: &[ContextFieldSpec]) -> String {
                 ContextFieldInitKind::Bool => "ffi_visitor_context_bool_init.jinja",
                 ContextFieldInitKind::Passthrough => "ffi_visitor_context_passthrough_init.jinja",
             };
-            render(
-                template,
-                minijinja::context! { name => field.c_init.name.as_str() },
-            )
+            render(template, minijinja::context! { name => field.c_init.name.as_str() })
         })
         .collect()
 }

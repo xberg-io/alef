@@ -28,6 +28,7 @@ pub(super) fn render_test_function(
     e2e_config: &E2eConfig,
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
@@ -142,6 +143,7 @@ pub(super) fn render_test_function(
         handle_dict_types,
         config,
         type_defs,
+        enums,
     );
 
     // Build visitor class if present
@@ -617,6 +619,7 @@ fn build_args_and_setup(
     handle_dict_types: &HashSet<String>,
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) -> (Vec<String>, Vec<String>, String) {
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
@@ -729,6 +732,8 @@ fn build_args_and_setup(
                 options_via,
                 enum_fields,
                 &arg.element_type,
+                type_defs,
+                enums,
             )
         {
             continue;
@@ -818,6 +823,38 @@ fn emit_handle_arg(
     kwarg_exprs.push(var_name.to_string());
 }
 
+/// Resolve the enum type name for a field if it's an enum type in the TypeDef,
+/// and return None if it's not an enum or the type cannot be resolved.
+fn resolve_field_enum_type(
+    field_name: &str,
+    options_type: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
+) -> Option<String> {
+    use crate::core::ir::TypeRef;
+
+    let opts_type = options_type?;
+    let type_def = type_defs.iter().find(|t| t.name == opts_type)?;
+    let field = type_def.fields.iter().find(|f| f.name == field_name)?;
+
+    // Unwrap Optional and Vec wrappers to get the inner type
+    let inner_name = match &field.ty {
+        TypeRef::Named(n) => Some(n.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => Some(n.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }?;
+
+    // Check if this is an enum type
+    if enums.iter().any(|e| e.name == inner_name) {
+        Some(inner_name.to_string())
+    } else {
+        None
+    }
+}
+
 fn build_handle_kwarg_value(
     k: &str,
     v: &serde_json::Value,
@@ -861,6 +898,8 @@ fn emit_json_object_arg(
     options_via: &str,
     enum_fields: &HashMap<String, String>,
     element_type: &Option<String>,
+    type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) -> bool {
     match options_via {
         "dict" => {
@@ -944,9 +983,20 @@ fn emit_json_object_arg(
                     .map(|(k, v)| {
                         let snake_key = k.to_snake_case();
                         let py_val = if let Some(enum_type) = enum_fields.get(k) {
+                            // Explicit override: use the configured enum type
                             if let Some(s) = v.as_str() {
                                 let upper_val = s.to_shouty_snake_case();
                                 format!("{enum_type}.{upper_val}")
+                            } else {
+                                json_to_python_literal(v)
+                            }
+                        } else if let Some(auto_enum_type) =
+                            resolve_field_enum_type(k, Some(opts_type), type_defs, enums)
+                        {
+                            // Auto-detect: if field type is an enum, emit as EnumType.VARIANT
+                            if let Some(s) = v.as_str() {
+                                let upper_val = s.to_shouty_snake_case();
+                                format!("{auto_enum_type}.{upper_val}")
                             } else {
                                 json_to_python_literal(v)
                             }
@@ -1054,6 +1104,7 @@ mod tests {
         let call_config = crate::e2e::config::CallConfig::default();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         let (bindings, exprs, _teardown) = build_args_and_setup(
             &fixture,
             &call_config,
@@ -1064,6 +1115,7 @@ mod tests {
             &HashSet::new(),
             &config,
             &type_defs,
+            &enums,
         );
         assert!(bindings.is_empty());
         assert!(exprs.is_empty());
@@ -1093,6 +1145,8 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::json!({"key": "val"});
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         let done = emit_json_object_arg(
             &mut bindings,
             &mut exprs,
@@ -1102,6 +1156,8 @@ mod tests {
             "dict",
             &HashMap::new(),
             &None,
+            &type_defs,
+            &enums,
         );
         assert!(done);
         assert!(bindings[0].contains("\"key\""), "got: {:?}", bindings[0]);
@@ -1133,6 +1189,7 @@ mod tests {
         let e2e_config = crate::e2e::config::E2eConfig::default();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         let mut out = String::new();
         render_test_function(
             &mut out,
@@ -1140,6 +1197,7 @@ mod tests {
             &e2e_config,
             &config,
             &type_defs,
+            &enums,
             None,
             "kwargs",
             &HashMap::new(),
@@ -1148,5 +1206,50 @@ mod tests {
         );
         assert!(out.contains("pytest.mark.skip"), "got: {out}");
         assert!(out.contains("not supported"), "got: {out}");
+    }
+
+    #[test]
+    fn resolve_field_enum_type_detects_enum_field() {
+        use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+
+        let mut enum_def = EnumDef::default();
+        enum_def.name = "TierStrategy".to_string();
+        enum_def.rust_path = "module::TierStrategy".to_string();
+        let mut variant = EnumVariant::default();
+        variant.name = "Auto".to_string();
+        enum_def.variants = vec![variant];
+
+        let mut type_def = TypeDef::default();
+        type_def.name = "ConversionOptions".to_string();
+        type_def.rust_path = "module::ConversionOptions".to_string();
+        let mut field = FieldDef::default();
+        field.name = "tier_strategy".to_string();
+        field.ty = TypeRef::Named("TierStrategy".to_string());
+        type_def.fields = vec![field];
+
+        let enums = vec![enum_def];
+        let type_defs = vec![type_def];
+
+        let result = resolve_field_enum_type("tier_strategy", Some("ConversionOptions"), &type_defs, &enums);
+        assert_eq!(result, Some("TierStrategy".to_string()));
+    }
+
+    #[test]
+    fn resolve_field_enum_type_returns_none_for_non_enum_field() {
+        use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+
+        let mut type_def = TypeDef::default();
+        type_def.name = "ConversionOptions".to_string();
+        type_def.rust_path = "module::ConversionOptions".to_string();
+        let mut field = FieldDef::default();
+        field.name = "timeout".to_string();
+        field.ty = TypeRef::Named("u64".to_string());
+        type_def.fields = vec![field];
+
+        let enums: Vec<crate::core::ir::EnumDef> = vec![];
+        let type_defs = vec![type_def];
+
+        let result = resolve_field_enum_type("timeout", Some("ConversionOptions"), &type_defs, &enums);
+        assert_eq!(result, None);
     }
 }

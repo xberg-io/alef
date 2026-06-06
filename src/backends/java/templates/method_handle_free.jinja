@@ -2,6 +2,8 @@
     static final MethodHandle {{ handle_name }} = LINKER.downcallHandle(
         LIB.find("{{ ffi_name }}")
             .or(() -> LIB.find("_{{ ffi_name }}"))  // Try underscore-prefixed variant for macOS
+            .or(() -> LINKER.defaultLookup().find("{{ ffi_name }}"))  // Fallback to default lookup
+            .or(() -> LINKER.defaultLookup().find("_{{ ffi_name }}"))  // Fallback underscore variant
             .orElseThrow(),
         FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
     );

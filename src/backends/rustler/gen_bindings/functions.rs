@@ -763,17 +763,33 @@ pub(super) fn gen_nif_async_function(
                             if !opaque_types.contains(elem_name.as_str()) {
                                 // The element type is a binding enum/struct that needs conversion.
                                 // Convert each element via .into().
-                                if p.is_ref {
+                                if p.is_ref && p.is_mut {
+                                    // For &mut refs, create a mutable local binding so the closure
+                                    // can yield &mut references via iter_mut().
+                                    let mut_name = format!("{}_mut", p.name);
+                                    deser_lines.push(format!("let mut {mut_name} = {}.iter().map(|e| e.clone().into()).collect::<Vec<_>>();", p.name));
+                                    format!("&mut {mut_name}")
+                                } else if p.is_ref {
                                     format!("&{}.iter().map(|e| e.clone().into()).collect::<Vec<_>>()", p.name)
                                 } else {
                                     format!("{}.into_iter().map(Into::into).collect()", p.name)
                                 }
+                            } else if p.is_ref && p.is_mut {
+                                // Opaque types with &mut: create mutable local binding for iter_mut().
+                                let mut_name = format!("{}_mut", p.name);
+                                deser_lines.push(format!("let mut {mut_name} = {}.clone();", p.name));
+                                format!("&mut {mut_name}")
                             } else if p.is_ref {
                                 // Opaque types: reference as-is, derefs to slice.
                                 format!("&{}", p.name)
                             } else {
                                 p.name.to_string()
                             }
+                        } else if p.is_ref && p.is_mut {
+                            // Non-Named element types with &mut: create mutable binding.
+                            let mut_name = format!("{}_mut", p.name);
+                            deser_lines.push(format!("let mut {mut_name} = {};", p.name));
+                            format!("&mut {mut_name}")
                         } else if p.is_ref {
                             // Non-Named element types (String, etc.): reference as-is, derefs to slice.
                             format!("&{}", p.name)

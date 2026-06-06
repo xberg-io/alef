@@ -87,4 +87,3 @@ pub unsafe extern "system" fn {{ free_sym }}(
     // SAFETY: stream_handle was produced by the matching Start shim.
     unsafe { let _ = Box::from_raw(stream_handle as *mut {{ stream_handle_type }}); }
 }
-
