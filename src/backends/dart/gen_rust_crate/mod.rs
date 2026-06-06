@@ -1151,9 +1151,14 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
                     .iter()
                     .map(|_| "Default::default()".to_string())
                     .collect();
-                out.push_str(&format!(
-                    "            {name}::{vname} => {core_ty}::{vname}({}),\n",
-                    args.join(", ")
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_enum_stripped_tuple_to_core_arm.jinja",
+                    minijinja::context! {
+                        name => name.as_str(),
+                        vname => vname.as_str(),
+                        core_ty => core_ty.as_str(),
+                        args => args.join(", "),
+                    },
                 ));
             } else {
                 // Core: Variant { field0: Default::default(), field1: Default::default(), ... }
@@ -1161,9 +1166,14 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
                     .iter()
                     .map(|f| format!("{}: Default::default()", f.name))
                     .collect();
-                out.push_str(&format!(
-                    "            {name}::{vname} => {core_ty}::{vname} {{ {} }},\n",
-                    args.join(", ")
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_enum_stripped_struct_to_core_arm.jinja",
+                    minijinja::context! {
+                        name => name.as_str(),
+                        vname => vname.as_str(),
+                        core_ty => core_ty.as_str(),
+                        args => args.join(", "),
+                    },
                 ));
             }
         } else {

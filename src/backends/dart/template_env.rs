@@ -406,6 +406,70 @@ static TEMPLATES: &[(&str, &str)] = &[
         "rust_mirror_enum_data_variant_field.jinja",
         include_str!("templates/rust_mirror_enum_data_variant_field.jinja"),
     ),
+    (
+        "rust_mirror_error_from_impl_open.rs.jinja",
+        include_str!("templates/rust_mirror_error_from_impl_open.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_unit_from_arm.rs.jinja",
+        include_str!("templates/rust_mirror_error_unit_from_arm.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_excluded_from_arm.rs.jinja",
+        include_str!("templates/rust_mirror_error_excluded_from_arm.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_struct_pattern_arm.rs.jinja",
+        include_str!("templates/rust_mirror_error_struct_pattern_arm.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_tuple_return.rs.jinja",
+        include_str!("templates/rust_mirror_error_tuple_return.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_struct_return.rs.jinja",
+        include_str!("templates/rust_mirror_error_struct_return.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_sanitized_wildcard_arm.rs.jinja",
+        include_str!("templates/rust_mirror_error_sanitized_wildcard_arm.rs.jinja"),
+    ),
+    (
+        "rust_mirror_error_from_impl_close.rs.jinja",
+        include_str!("templates/rust_mirror_error_from_impl_close.rs.jinja"),
+    ),
+    (
+        "rust_cargo_target_dependency.rs.jinja",
+        include_str!("templates/rust_cargo_target_dependency.rs.jinja"),
+    ),
+    (
+        "rust_cargo_toml.rs.jinja",
+        include_str!("templates/rust_cargo_toml.rs.jinja"),
+    ),
+    (
+        "rust_build_rs.rs.jinja",
+        include_str!("templates/rust_build_rs.rs.jinja"),
+    ),
+    (
+        "rust_loader_patch_fn.rs.jinja",
+        include_str!("templates/rust_loader_patch_fn.rs.jinja"),
+    ),
+    (
+        "dart_init_prologue_replacement.jinja",
+        include_str!("templates/dart_init_prologue_replacement.jinja"),
+    ),
+    (
+        "flutter_rust_bridge_yaml.jinja",
+        include_str!("templates/flutter_rust_bridge_yaml.jinja"),
+    ),
+    (
+        "rust_enum_stripped_tuple_to_core_arm.jinja",
+        include_str!("templates/rust_enum_stripped_tuple_to_core_arm.jinja"),
+    ),
+    (
+        "rust_enum_stripped_struct_to_core_arm.jinja",
+        include_str!("templates/rust_enum_stripped_struct_to_core_arm.jinja"),
+    ),
     // Rust trait factory and methods
     (
         "rust_trait_factory_doc.jinja",
@@ -494,6 +558,22 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "rust_trait_method_ok_block_on.jinja",
         include_str!("templates/rust_trait_method_ok_block_on.jinja"),
+    ),
+    (
+        "rust_trait_excluded_async_result_return.rs.jinja",
+        include_str!("templates/rust_trait_excluded_async_result_return.rs.jinja"),
+    ),
+    (
+        "rust_trait_excluded_async_plain_return.rs.jinja",
+        include_str!("templates/rust_trait_excluded_async_plain_return.rs.jinja"),
+    ),
+    (
+        "rust_trait_excluded_block_on_result_return.rs.jinja",
+        include_str!("templates/rust_trait_excluded_block_on_result_return.rs.jinja"),
+    ),
+    (
+        "rust_trait_excluded_block_on_plain_return.rs.jinja",
+        include_str!("templates/rust_trait_excluded_block_on_plain_return.rs.jinja"),
     ),
     (
         "rust_trait_register_forwarder.jinja",

@@ -832,21 +832,22 @@ fn emit_trait_bridge_method(
         let carrier_type = excluded_carrier_name(excluded_return_name);
         if method.is_async {
             if method.error_type.is_some() {
-                out.push_str(&format!(
-                    "        let __ret_bridge: {carrier_type} = {call_expr}.await;\n\
-                     \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)?;\n",
-                    call_expr = call_expr,
-                    core_path = core_path,
-                    carrier_type = carrier_type,
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_trait_excluded_async_result_return.rs.jinja",
+                    minijinja::context! {
+                        carrier_type => carrier_type.as_str(),
+                        call_expr => call_expr.as_str(),
+                        core_path => core_path.as_str(),
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "        let __ret_bridge: {carrier_type} = {call_expr}.await;\n\
-                     \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
-                     \x20           .expect(\"deserialize excluded Dart trait bridge value\");\n",
-                    call_expr = call_expr,
-                    core_path = core_path,
-                    carrier_type = carrier_type,
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_trait_excluded_async_plain_return.rs.jinja",
+                    minijinja::context! {
+                        carrier_type => carrier_type.as_str(),
+                        call_expr => call_expr.as_str(),
+                        core_path => core_path.as_str(),
+                    },
                 ));
             }
         } else {
@@ -858,14 +859,18 @@ fn emit_trait_bridge_method(
                 },
             ));
             if method.error_type.is_some() {
-                out.push_str(&format!(
-                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)?;\n",
-                    core_path = core_path,
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_trait_excluded_block_on_result_return.rs.jinja",
+                    minijinja::context! {
+                        core_path => core_path.as_str(),
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .expect(\"deserialize excluded Dart trait bridge value\");\n",
-                    core_path = core_path,
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_trait_excluded_block_on_plain_return.rs.jinja",
+                    minijinja::context! {
+                        core_path => core_path.as_str(),
+                    },
                 ));
             }
         }

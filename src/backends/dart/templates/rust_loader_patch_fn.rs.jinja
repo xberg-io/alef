@@ -1,4 +1,5 @@
 const FRB_GENERATED_DART: &str = "../lib/src/{{ module_name }}_bridge_generated/frb_generated.dart";
+const FRB_HANDLER_EXECUTOR_CALLS_MARKER: &str = "handler.executeSync";
 const LOADER_MARKER: &str = "_alefResolveExternalLibrary";
 const FRB_INIT_PROLOGUE: &str = "  /// Initialize flutter_rust_bridge\n  static Future<void> init({\n    RustLibApi? api,\n    BaseHandler? handler,\n    ExternalLibrary? externalLibrary,\n    bool forceSameCodegenVersion = true,\n  }) async {\n";
 const FRB_INIT_REPLACEMENT: &str = r#"{{ dart_replacement }}"#;
@@ -43,21 +44,46 @@ fn patch_published_loader() {
             println!("cargo:warning=failed to write published-loader patch: {err}");
             return;
         }
-        match std::process::Command::new("dart")
-            .args(["format", FRB_GENERATED_DART])
-            .status()
-        {
+        match std::process::Command::new("dart").args(["format", FRB_GENERATED_DART]).status() {
             Ok(s) if s.success() => {}
-            Ok(s) => println!(
-                "cargo:warning=dart format on {} exited {}",
-                FRB_GENERATED_DART, s
-            ),
+            Ok(s) => println!("cargo:warning=dart format on {} exited {}", FRB_GENERATED_DART, s),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                println!(
-                    "cargo:warning=dart not on PATH — skipping post-patch format. Install Dart SDK to keep generated FRB Dart sources fmt-clean."
-                );
+                println!("cargo:warning=dart not on PATH — skipping post-patch format. Install Dart SDK to keep generated FRB Dart sources fmt-clean.");
             }
             Err(err) => println!("cargo:warning=failed to spawn dart format: {err}"),
+        }
+    }
+}
+
+/// Rewrite the FRB-generated `handler.executeSync(...)` and
+/// `handler.executeNormal(...)` calls on callback function parameters.
+///
+/// FRB 2.x emits `handler.executeSync(SyncTask(...))` inside service-API
+/// methods that take a user-supplied `handler` callback parameter; those
+/// methods don't exist on plain function types. This rewrite strips the
+/// erroneous method calls, calling the handler directly as a function.
+///
+/// Idempotent: when the broken pattern is absent the function is a no-op.
+fn fix_handler_executor_calls() {
+    let path = Path::new(FRB_GENERATED_DART);
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return;
+    };
+
+    if !source.contains(FRB_HANDLER_EXECUTOR_CALLS_MARKER) {
+        return;
+    }
+
+    let mut fixed = source
+        .replace("handler.executeSync(", "await handler(")
+        .replace("handler.executeNormal(", "await handler(");
+
+    // Collapse `return await` + `await handler(` → `return await handler(`.
+    fixed = fixed.replace("await await handler", "await handler");
+
+    if fixed != source {
+        if let Err(err) = std::fs::write(path, &fixed) {
+            println!("cargo:warning=failed to fix handler executor calls in {}: {err}", FRB_GENERATED_DART);
         }
     }
 }

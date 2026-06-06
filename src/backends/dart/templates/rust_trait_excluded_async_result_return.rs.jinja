@@ -1,0 +1,2 @@
+        let __ret_bridge: {{ carrier_type }} = {{ call_expr }}.await;
+        let __ret: {{ core_path }} = serde_json::from_str(&__ret_bridge.json)?;

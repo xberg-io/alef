@@ -35,6 +35,16 @@ fn main() {
             // its native library from its own installed location.
             patch_published_loader();
 
+            // Rewrite FRB-generated handler.executeSync/handler.executeNormal calls
+            // into direct handler invocations. FRB 2.x emits these calls assuming
+            // `handler` is a BaseHandler field, but in service-API methods `handler`
+            // is a user-supplied function parameter (FutureOr<R> Function(T)) which
+            // does not expose those methods, so the generated Dart fails to compile.
+            // The rewrite is idempotent (marker-gated) and runs after every FRB
+            // invocation — including the rebuild that fires during `dart pub get`
+            // in e2e flows, which is when this otherwise reverts.
+            fix_handler_executor_calls();
+
         }
         Ok(status) => panic!("flutter_rust_bridge_codegen generate failed (exit code: {status})"),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {

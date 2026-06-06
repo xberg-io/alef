@@ -254,6 +254,8 @@ fn variant_is_reconstructible(fields: &[&FieldDef]) -> bool {
 /// `#[allow(unreachable_patterns)]` is emitted unconditionally to suppress the
 /// compiler warning when all variants are in fact reconstructible.
 fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
+    use crate::backends::dart::template_env;
+
     // A variant is "skipped" (needs wildcard arm) only when it has non-binding_excluded fields
     // that are sanitized (type erased). All-binding_excluded variants and binding_excluded+sanitized
     // mixes are handled by the arms above.
@@ -262,16 +264,22 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
         !v.is_unit && !visible_fields.is_empty() && !variant_is_reconstructible(&visible_fields)
     });
 
-    out.push_str(&format!(
-        "\n#[allow(unreachable_patterns)]\nimpl From<&{name}> for {core_path} {{\n    fn from(m: &{name}) -> Self {{\n        match m {{\n",
-        name = error.name,
+    out.push_str(&template_env::render(
+        "rust_mirror_error_from_impl_open.rs.jinja",
+        minijinja::context! {
+            name => error.name.as_str(),
+            core_path => core_path,
+        },
     ));
     for variant in &error.variants {
         let vname = &variant.name;
         if variant.is_unit {
-            out.push_str(&format!(
-                "            {name}::{vname} => Self::{vname},\n",
-                name = error.name
+            out.push_str(&template_env::render(
+                "rust_mirror_error_unit_from_arm.rs.jinja",
+                minijinja::context! {
+                    name => error.name.as_str(),
+                    vname => vname.as_str(),
+                },
             ));
         } else if !variant.is_unit && variant.is_tuple && variant.fields.iter().all(|f| f.binding_excluded) {
             // Tuple variant with all fields binding_excluded: mirror has a dummy `field0: String`
@@ -279,24 +287,33 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
             // However, the excluded field's type may not implement Default. Since the variant
             // can never be constructed on the dart side (the excluded field is omitted from the mirror),
             // this arm is unreachable and we emit unreachable!() instead of attempting Default::default().
-            out.push_str(&format!(
-                "            {name}::{vname} {{ .. }} => unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\"),\n",
-                name = error.name
+            out.push_str(&template_env::render(
+                "rust_mirror_error_excluded_from_arm.rs.jinja",
+                minijinja::context! {
+                    name => error.name.as_str(),
+                    vname => vname.as_str(),
+                },
             ));
         } else if !variant.is_unit && variant.fields.is_empty() {
             // Non-unit variant with no fields at all in IR (edge case): treat as unit.
-            out.push_str(&format!(
-                "            {name}::{vname} => Self::{vname},\n",
-                name = error.name
+            out.push_str(&template_env::render(
+                "rust_mirror_error_unit_from_arm.rs.jinja",
+                minijinja::context! {
+                    name => error.name.as_str(),
+                    vname => vname.as_str(),
+                },
             ));
         } else if variant.fields.iter().all(|f| f.binding_excluded) {
             // Non-tuple variant with all fields binding_excluded: struct variant.
             // The excluded fields' types may not implement Default. Since the variant
             // can never be constructed on the dart side (all fields are omitted from the mirror),
             // this arm is unreachable and we emit unreachable!() instead of attempting Default::default().
-            out.push_str(&format!(
-                "            {name}::{vname} {{ .. }} => unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\"),\n",
-                name = error.name
+            out.push_str(&template_env::render(
+                "rust_mirror_error_excluded_from_arm.rs.jinja",
+                minijinja::context! {
+                    name => error.name.as_str(),
+                    vname => vname.as_str(),
+                },
             ));
         } else {
             // Mixed or fully-visible fields. Use only non-binding_excluded fields for the
@@ -334,9 +351,13 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 .map(|fname| format!("{fname}: f_{fname}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            out.push_str(&format!(
-                "            {name}::{vname} {{ {pat_fields} }} => {{\n",
-                name = error.name,
+            out.push_str(&template_env::render(
+                "rust_mirror_error_struct_pattern_arm.rs.jinja",
+                minijinja::context! {
+                    name => error.name.as_str(),
+                    vname => vname.as_str(),
+                    pat_fields => pat_fields.as_str(),
+                },
             ));
 
             // Constructor: tuple variants need positional syntax `Self::Variant(f0, f1)`;
@@ -355,7 +376,13 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 for _ in 0..excluded_count {
                     args.push("Default::default()".to_string());
                 }
-                out.push_str(&format!("                Self::{vname}({})\n", args.join(", "),));
+                out.push_str(&template_env::render(
+                    "rust_mirror_error_tuple_return.rs.jinja",
+                    minijinja::context! {
+                        vname => vname.as_str(),
+                        args => args.join(", "),
+                    },
+                ));
             } else {
                 let mut real_fields: Vec<String> = Vec::new();
                 for (i, f) in visible_fields.iter().enumerate() {
@@ -367,9 +394,12 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
                 for f in variant.fields.iter().filter(|f| f.binding_excluded) {
                     real_fields.push(format!("                    {}: Default::default()", f.name));
                 }
-                out.push_str(&format!(
-                    "                Self::{vname} {{\n{},\n                }}\n",
-                    real_fields.join(",\n"),
+                out.push_str(&template_env::render(
+                    "rust_mirror_error_struct_return.rs.jinja",
+                    minijinja::context! {
+                        vname => vname.as_str(),
+                        real_fields => real_fields.join(",\n"),
+                    },
                 ));
             }
             out.push_str("            }\n");
@@ -378,11 +408,15 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
     // Wildcard arm for skipped sanitized variants — panics with a clear message
     // rather than producing silent garbage at the call site.
     if any_skipped {
-        out.push_str(
-            "            _ => unreachable!(\"mirror variant has sanitized fields and cannot be converted to the core error type\"),\n",
-        );
+        out.push_str(&template_env::render(
+            "rust_mirror_error_sanitized_wildcard_arm.rs.jinja",
+            minijinja::context! {},
+        ));
     }
-    out.push_str("        }\n    }\n}\n");
+    out.push_str(&template_env::render(
+        "rust_mirror_error_from_impl_close.rs.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Emit a `#[frb(mirror(ErrorName))]` enum + safe `impl From` conversion +
