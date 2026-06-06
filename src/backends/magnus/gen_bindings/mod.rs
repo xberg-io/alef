@@ -856,7 +856,12 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
     if !enum_def.doc.is_empty() {
         emit_yard_doc(&mut doc_comment, &enum_def.doc, "  ");
     } else {
-        doc_comment.push_str(&format!("  # Marker module for the {class_name} sum type.\n"));
+        doc_comment.push_str(&crate::backends::magnus::template_env::render(
+            "tagged_enum_marker_doc.rb.jinja",
+            minijinja::context! {
+                class_name => class_name,
+            },
+        ));
     }
     // `interface!` already declares the module abstract; calling `abstract!` again
     // raises `T::Private::Abstract::Declare: already declared as abstract`.
@@ -868,8 +873,12 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
             enum_def.serde_rename_all.as_deref().or(Some("snake_case")),
         );
         let variant_const = format!("{}{}", class_name, &variant.name);
-        dispatch_arms.push_str(&format!(
-            "      when \"{wire_name}\" then {variant_const}.from_hash(hash)\n"
+        dispatch_arms.push_str(&crate::backends::magnus::template_env::render(
+            "tagged_enum_dispatch_arm.rb.jinja",
+            minijinja::context! {
+                wire_name => wire_name,
+                variant_const => variant_const,
+            },
         ));
     }
     out.push_str(&crate::backends::magnus::template_env::render(
@@ -892,7 +901,13 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
         if !variant.doc.is_empty() {
             emit_yard_doc(&mut doc_comment, &variant.doc, "  ");
         } else {
-            doc_comment.push_str(&format!("  # Variant {variant_class} of the {class_name} sum type.\n"));
+            doc_comment.push_str(&crate::backends::magnus::template_env::render(
+                "tagged_enum_variant_doc.rb.jinja",
+                minijinja::context! {
+                    variant_class => &variant_class,
+                    class_name => class_name,
+                },
+            ));
         }
 
         // Data.define(...) declaration — Ruby requires symbol arguments
@@ -919,17 +934,20 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
                 field.name.as_str()
             };
             let sorbet_t = sorbet_type_for_field(&field.ty, field.optional);
+            let mut doc_comment = String::new();
             if !field.doc.is_empty() {
-                emit_yard_doc(&mut field_accessors, &field.doc, "    ");
-            } else {
-                field_accessors.push_str(&format!("    # @return [{sorbet_t}]\n"));
+                emit_yard_doc(&mut doc_comment, &field.doc, "    ");
             }
-            field_accessors.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
             // Wrap the Data-auto-generated accessor so the sig has a method to attach to.
             // `# rubocop:disable Lint/UselessMethodDefinition` keeps `rubocop -a` from
             // stripping the def (which would leave the sig orphaned and break Sorbet).
-            field_accessors.push_str(&format!(
-                "    def {attr_name} = super # rubocop:disable Lint/UselessMethodDefinition\n\n"
+            field_accessors.push_str(&crate::backends::magnus::template_env::render(
+                "tagged_enum_field_accessor.rb.jinja",
+                minijinja::context! {
+                    doc_comment => doc_comment,
+                    sorbet_t => sorbet_t,
+                    attr_name => attr_name,
+                },
             ));
         }
 
@@ -938,8 +956,13 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
         for variant_name in &variant_names {
             let v_snake = crate::codegen::naming::pascal_to_snake(variant_name);
             let returns_true = *variant_name == variant.name;
-            predicate_methods.push_str("    sig { returns(T::Boolean) }\n");
-            predicate_methods.push_str(&format!("    def {v_snake}? = {}\n\n", returns_true));
+            predicate_methods.push_str(&crate::backends::magnus::template_env::render(
+                "tagged_enum_predicate_method.rb.jinja",
+                minijinja::context! {
+                    predicate_name => v_snake,
+                    returns_true => returns_true,
+                },
+            ));
         }
 
         // Class-level `from_hash` factory — per-variant

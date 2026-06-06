@@ -114,12 +114,13 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
 
 fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, native_module_name: &str) {
     let class_name = &service.name;
-
-    // Class comment
-    if !service.doc.is_empty() {
-        out.push_str(&format_ruby_comment(&service.doc, 2));
-    }
-    out.push_str(&format!("  class {class_name}\n"));
+    out.push_str(&render(
+        "service_rb_class_header.rb.jinja",
+        minijinja::context! {
+            doc_comment => format_ruby_comment(&service.doc, 2),
+            class_name => class_name,
+        },
+    ));
 
     // initialize
     {
@@ -560,12 +561,14 @@ fn gen_variant_match_arm(
     let variant_name = &variant.name;
     let base_method = &base_reg.method;
 
-    out.push_str(&format!("            \"{variant_name}\" => {{\n"));
-    out.push_str(&format!(
-        "                let bridge = {bridge_name}::new(proc_value.into());\n"
-    ));
-    out.push_str(&format!(
-        "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+    out.push_str(&render(
+        "service_rs_variant_match_arm_header.rs.jinja",
+        minijinja::context! {
+            variant_name => variant_name,
+            bridge_name => bridge_name,
+            core_import => core_import,
+            contract_name => contract_name,
+        },
     ));
 
     // Extract metadata and build wrapper constructor call if needed
@@ -585,68 +588,7 @@ fn gen_variant_match_arm(
             ));
 
             for (i, param) in free_params.iter().enumerate() {
-                let rust_ty = typeref_to_rust_type(&param.ty, core_import);
-                match &param.ty {
-                    TypeRef::String | TypeRef::Char => {
-                        out.push_str(&format!(
-                            "                let {}: {} = meta_array.entry::<String>({})\n",
-                            param.name, rust_ty, i as isize
-                        ));
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                    }
-                    TypeRef::Primitive(p) => {
-                        use crate::core::ir::PrimitiveType;
-                        let extract_ty = match p {
-                            PrimitiveType::Bool => "bool",
-                            PrimitiveType::F32 | PrimitiveType::F64 => "f64",
-                            _ => "i64",
-                        };
-                        out.push_str(&format!(
-                            "                let {}: {} = meta_array.entry::<{}>({})\n",
-                            param.name, rust_ty, extract_ty, i as isize
-                        ));
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                    }
-                    TypeRef::Named(n) => {
-                        // For named types, check if it's a variant wrapper.
-                        // If so, TryConvert to the local wrapper type name, then extract .inner.as_ref().clone().
-                        // Otherwise, TryConvert directly using the source-crate-qualified type.
-                        if is_variant_wrapper_type(api, n) {
-                            // Variant wrapper: use local type name for TryConvert
-                            out.push_str(&format!(
-                                "                let {}: &crate::{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                                param.name, n, i as isize
-                            ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                            out.push_str(&format!(
-                                "                let {} = {}.inner.as_ref().clone();\n",
-                                param.name, param.name
-                            ));
-                        } else {
-                            // Non-variant named type: TryConvert using source-crate-qualified path
-                            out.push_str(&format!(
-                                "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                                param.name, rust_ty, i as isize
-                            ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                            out.push_str(&format!(
-                                "                let {} = (*{}).clone();\n",
-                                param.name, param.name
-                            ));
-                        }
-                    }
-                    _ => {
-                        // Fallback for other types
-                        out.push_str(&format!(
-                            "                let {}: {} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                            param.name, rust_ty, i as isize
-                        ));
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                    }
-                }
+                render_metadata_param_extract(out, param, i, core_import, api);
             }
         }
 
@@ -671,29 +613,108 @@ fn gen_variant_match_arm(
             wc.constructor_method,
             call_args.join(", ")
         );
-        out.push_str(&format!(
-            "                let {}: {} = {};\n",
-            wc.metadata_param, wc.wrapper_type_path, call_expr
-        ));
-        out.push_str(&format!(
-            "                owner.{base_method}({}, handler)",
-            wc.metadata_param
+        out.push_str(&render(
+            "service_rs_wrapper_owner_call.rs.jinja",
+            minijinja::context! {
+                metadata_param => &wc.metadata_param,
+                wrapper_type_path => &wc.wrapper_type_path,
+                call_expr => &call_expr,
+                base_method => base_method,
+            },
         ));
     } else {
         // No wrapper call; use override values directly
         // For now, just call the base method with handler only
-        out.push_str(&format!("                owner.{base_method}(handler)"));
+        out.push_str(&render(
+            "service_rs_owner_call.rs.jinja",
+            minijinja::context! {
+                method_name => base_method,
+                args => "",
+                fallible => base_reg.error_type.is_some(),
+            },
+        ));
     }
 
     // Handle error if the registration is fallible
-    if base_reg.error_type.is_some() {
+    if variant.wrapper_call.is_some() && base_reg.error_type.is_some() {
         out.push_str(
             "\n                    .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
         );
-    } else {
+    } else if variant.wrapper_call.is_some() {
         out.push_str(";\n");
     }
     out.push_str("            }\n");
+}
+
+fn render_metadata_param_extract(
+    out: &mut String,
+    param: &crate::core::ir::ParamDef,
+    index: usize,
+    core_import: &str,
+    api: &ApiSurface,
+) {
+    let rust_ty = typeref_to_rust_type(&param.ty, core_import);
+    match &param.ty {
+        TypeRef::String | TypeRef::Char => out.push_str(&render(
+            "service_rs_metadata_extract_entry.rs.jinja",
+            minijinja::context! {
+                param_name => &param.name,
+                rust_ty => &rust_ty,
+                extract_ty => "String",
+                index => index as isize,
+            },
+        )),
+        TypeRef::Primitive(p) => {
+            use crate::core::ir::PrimitiveType;
+            let extract_ty = match p {
+                PrimitiveType::Bool => "bool",
+                PrimitiveType::F32 | PrimitiveType::F64 => "f64",
+                _ => "i64",
+            };
+            out.push_str(&render(
+                "service_rs_metadata_extract_entry.rs.jinja",
+                minijinja::context! {
+                    param_name => &param.name,
+                    rust_ty => &rust_ty,
+                    extract_ty => extract_ty,
+                    index => index as isize,
+                },
+            ));
+        }
+        TypeRef::Named(n) if is_variant_wrapper_type(api, n) => {
+            let clone_expr = format!("{}.inner.as_ref().clone()", param.name);
+            out.push_str(&render(
+                "service_rs_metadata_extract_try_convert.rs.jinja",
+                minijinja::context! {
+                    param_name => &param.name,
+                    binding_ty => format!("&crate::{n}"),
+                    index => index as isize,
+                    clone_expr => clone_expr,
+                },
+            ));
+        }
+        TypeRef::Named(_) => {
+            let clone_expr = format!("(*{}).clone()", param.name);
+            out.push_str(&render(
+                "service_rs_metadata_extract_try_convert.rs.jinja",
+                minijinja::context! {
+                    param_name => &param.name,
+                    binding_ty => format!("&{rust_ty}"),
+                    index => index as isize,
+                    clone_expr => clone_expr,
+                },
+            ));
+        }
+        _ => out.push_str(&render(
+            "service_rs_metadata_extract_try_convert.rs.jinja",
+            minijinja::context! {
+                param_name => &param.name,
+                binding_ty => &rust_ty,
+                index => index as isize,
+                clone_expr => "",
+            },
+        )),
+    }
 }
 
 /// Check if a named type is a variant wrapper by looking up in the API surface.
@@ -766,86 +787,27 @@ fn gen_run_function(
                 ));
 
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
-                    let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
-                    match &meta_param.ty {
-                        TypeRef::String | TypeRef::Char => {
-                            out.push_str(&format!(
-                                "                let {}: {} = meta_array.entry::<String>({})\n",
-                                meta_param.name, rust_ty, i as isize
-                            ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                        }
-                        TypeRef::Primitive(p) => {
-                            use crate::core::ir::PrimitiveType;
-                            let extract_ty = match p {
-                                PrimitiveType::Bool => "bool",
-                                PrimitiveType::F32 | PrimitiveType::F64 => "f64",
-                                _ => "i64",
-                            };
-                            out.push_str(&format!(
-                                "                let {}: {} = meta_array.entry::<{}>({})\n",
-                                meta_param.name, rust_ty, extract_ty, i as isize
-                            ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                        }
-                        TypeRef::Named(n) => {
-                            // For named types, check if it's a variant wrapper.
-                            // If so, TryConvert to the local wrapper type name, then extract .inner.as_ref().clone().
-                            // Otherwise, TryConvert directly using the source-crate-qualified type.
-                            if is_variant_wrapper_type(api, n) {
-                                // Variant wrapper: use local type name for TryConvert
-                                out.push_str(&format!(
-                                    "                let {}: &crate::{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                                    meta_param.name, n, i as isize
-                                ));
-                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                                out.push_str(&format!(
-                                    "                let {} = {}.inner.as_ref().clone();\n",
-                                    meta_param.name, meta_param.name
-                                ));
-                            } else {
-                                // Non-variant named type: TryConvert using source-crate-qualified path
-                                out.push_str(&format!(
-                                    "                let {}: &{} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                                    meta_param.name, rust_ty, i as isize
-                                ));
-                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                                out.push_str(&format!(
-                                    "                let {} = (*{}).clone();\n",
-                                    meta_param.name, meta_param.name
-                                ));
-                            }
-                        }
-                        _ => {
-                            // Fallback for other types
-                            out.push_str(&format!(
-                                "                let {}: {} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({})\n",
-                                meta_param.name, rust_ty, i as isize
-                            ));
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-                        }
-                    }
+                    render_metadata_param_extract(out, meta_param, i, core_import, api);
                 }
 
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
-                out.push_str(&format!(
-                    "                owner.{reg_method}({}, handler)\n",
-                    meta_args.join(", ")
+                out.push_str(&render(
+                    "service_rs_owner_call.rs.jinja",
+                    minijinja::context! {
+                        method_name => reg_method,
+                        args => meta_args.join(", "),
+                        fallible => reg.error_type.is_some(),
+                    },
                 ));
             } else {
-                out.push_str(&format!("                owner.{reg_method}(handler)\n"));
-            }
-
-            // Handle error if the registration is fallible
-            if reg.error_type.is_some() {
-                out.push_str(
-                    "                    .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
-                );
-            } else {
-                out.push_str("                    ;\n");
+                out.push_str(&render(
+                    "service_rs_owner_call.rs.jinja",
+                    minijinja::context! {
+                        method_name => reg_method,
+                        args => "",
+                        fallible => reg.error_type.is_some(),
+                    },
+                ));
             }
             out.push_str("            }\n");
 

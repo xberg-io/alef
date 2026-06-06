@@ -118,28 +118,42 @@ fn build_method_preamble(
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && p.is_ref => {
                 let core_path = format!("{}::{}", core_import, n);
                 if p.optional {
-                    out.push_str(&format!(
-                        "let {}_core: Option<{core_path}> = {}.map(Into::into);\n        ",
-                        p.name, p.name
+                    out.push_str(&crate::backends::magnus::template_env::render(
+                        "method_optional_named_ref_preamble.rs.jinja",
+                        minijinja::context! {
+                            param_name => &p.name,
+                            core_path => &core_path,
+                        },
                     ));
+                    out.push_str("        ");
                 } else {
-                    out.push_str(&format!(
-                        "let {}_core: {core_path} = {}.into();\n        ",
-                        p.name, p.name
+                    out.push_str(&crate::backends::magnus::template_env::render(
+                        "method_named_ref_preamble.rs.jinja",
+                        minijinja::context! {
+                            param_name => &p.name,
+                            core_path => &core_path,
+                        },
                     ));
+                    out.push_str("        ");
                 }
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 if p.optional {
-                    out.push_str(&format!(
-                        "let {}_refs: Vec<&str> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n        ",
-                        p.name, p.name
+                    out.push_str(&crate::backends::magnus::template_env::render(
+                        "method_optional_string_vec_ref_preamble.rs.jinja",
+                        minijinja::context! {
+                            param_name => &p.name,
+                        },
                     ));
+                    out.push_str("        ");
                 } else {
-                    out.push_str(&format!(
-                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n        ",
-                        p.name, p.name
+                    out.push_str(&crate::backends::magnus::template_env::render(
+                        "method_string_vec_ref_preamble.rs.jinja",
+                        minijinja::context! {
+                            param_name => &p.name,
+                        },
                     ));
+                    out.push_str("        ");
                 }
             }
             _ => {}

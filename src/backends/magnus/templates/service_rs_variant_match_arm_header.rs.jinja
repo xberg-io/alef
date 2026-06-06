@@ -1,0 +1,3 @@
+            "{{ variant_name }}" => {
+                let bridge = {{ bridge_name }}::new(proc_value.into());
+                let handler: Arc<dyn {{ core_import }}::{{ contract_name }}> = Arc::new(bridge);

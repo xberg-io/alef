@@ -150,6 +150,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_rb_header.rb.jinja"),
     ),
     (
+        "service_rb_class_header.rb.jinja",
+        include_str!("templates/service_rb_class_header.rb.jinja"),
+    ),
+    (
         "service_rb_initialize.rb.jinja",
         include_str!("templates/service_rb_initialize.rb.jinja"),
     ),
@@ -190,12 +194,32 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_rs_meta_array_extract.rs.jinja"),
     ),
     (
+        "service_rs_metadata_extract_entry.rs.jinja",
+        include_str!("templates/service_rs_metadata_extract_entry.rs.jinja"),
+    ),
+    (
+        "service_rs_metadata_extract_try_convert.rs.jinja",
+        include_str!("templates/service_rs_metadata_extract_try_convert.rs.jinja"),
+    ),
+    (
         "service_rs_run_function_header.rs.jinja",
         include_str!("templates/service_rs_run_function_header.rs.jinja"),
     ),
     (
         "service_rs_registration_match_arm_header.rs.jinja",
         include_str!("templates/service_rs_registration_match_arm_header.rs.jinja"),
+    ),
+    (
+        "service_rs_variant_match_arm_header.rs.jinja",
+        include_str!("templates/service_rs_variant_match_arm_header.rs.jinja"),
+    ),
+    (
+        "service_rs_owner_call.rs.jinja",
+        include_str!("templates/service_rs_owner_call.rs.jinja"),
+    ),
+    (
+        "service_rs_wrapper_owner_call.rs.jinja",
+        include_str!("templates/service_rs_wrapper_owner_call.rs.jinja"),
     ),
     (
         "service_rs_run_function_footer.rs.jinja",
@@ -210,8 +234,44 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/tagged_enum_marker_module.rb.jinja"),
     ),
     (
+        "tagged_enum_marker_doc.rb.jinja",
+        include_str!("templates/tagged_enum_marker_doc.rb.jinja"),
+    ),
+    (
+        "tagged_enum_dispatch_arm.rb.jinja",
+        include_str!("templates/tagged_enum_dispatch_arm.rb.jinja"),
+    ),
+    (
         "tagged_enum_variant_class.rb.jinja",
         include_str!("templates/tagged_enum_variant_class.rb.jinja"),
+    ),
+    (
+        "tagged_enum_variant_doc.rb.jinja",
+        include_str!("templates/tagged_enum_variant_doc.rb.jinja"),
+    ),
+    (
+        "tagged_enum_field_accessor.rb.jinja",
+        include_str!("templates/tagged_enum_field_accessor.rb.jinja"),
+    ),
+    (
+        "tagged_enum_predicate_method.rb.jinja",
+        include_str!("templates/tagged_enum_predicate_method.rb.jinja"),
+    ),
+    (
+        "method_named_ref_preamble.rs.jinja",
+        include_str!("templates/method_named_ref_preamble.rs.jinja"),
+    ),
+    (
+        "method_optional_named_ref_preamble.rs.jinja",
+        include_str!("templates/method_optional_named_ref_preamble.rs.jinja"),
+    ),
+    (
+        "method_string_vec_ref_preamble.rs.jinja",
+        include_str!("templates/method_string_vec_ref_preamble.rs.jinja"),
+    ),
+    (
+        "method_optional_string_vec_ref_preamble.rs.jinja",
+        include_str!("templates/method_optional_string_vec_ref_preamble.rs.jinja"),
     ),
 ];
 

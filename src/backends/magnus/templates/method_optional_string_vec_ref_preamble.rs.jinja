@@ -1,0 +1,1 @@
+let {{ param_name }}_refs: Vec<&str> = {{ param_name }}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();

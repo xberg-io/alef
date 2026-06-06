@@ -1,0 +1,2 @@
+                let {{ param_name }}: {{ rust_ty }} = meta_array.entry::<{{ extract_ty }}>({{ index }})
+                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;

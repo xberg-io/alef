@@ -1,0 +1,4 @@
+                owner.{{ method_name }}({% if args %}{{ args }}, {% endif %}handler)
+{% if fallible %}                    .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;
+{% else %}                    ;
+{% endif %}

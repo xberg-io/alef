@@ -1,0 +1,5 @@
+                let {{ param_name }}: {{ binding_ty }} = magnus::TryConvert::try_convert(meta_array.entry::<Value>({{ index }})
+                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)
+                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+{% if clone_expr %}                let {{ param_name }} = {{ clone_expr }};
+{% endif %}
