@@ -1134,21 +1134,21 @@ pub fn gen_bridge_field_function(
     // The visitor field is sanitized in the IR (its type collapsed to String), so we
     // cannot use the serde round-trip path for it — we inject it directly.
     //
+    // Use direct .into() conversion instead of serde round-trip to properly handle
+    // PyO3 enums (which don't serialize via serde) like TierStrategy, PreprocessingPreset.
+    //
     // If the options param is `Option<OptionsType>`:
-    //   - When both options and visitor are provided: serde-convert options, then
+    //   - When both options and visitor are provided: convert options, then
     //     override the field.
     //   - When only visitor is provided: construct a default OptionsType and set the field.
     //   - When neither is provided: pass None.
     //
-    // If the options param is `OptionsType` (non-optional): serde-convert and inject.
+    // If the options param is `OptionsType` (non-optional): convert and inject.
     let core_options_type = format!("{core_import}::{options_type}");
     let options_core_binding = if param_is_optional {
         format!(
-            // 3a. Serde-convert the Python options to core (visitor field excluded via serde skip).
-            "let {options_param}_core: Option<{core_options_type}> = {options_param}.map(|v| {{\n        \
-             let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
-             serde_json::from_str::<{core_options_type}>(&json){serde_err_conv}\n    \
-             }}).transpose()?;\n    \
+            // 3a. Convert the Python options to core via From impl (visitor field excluded via serde skip).
+            "let {options_param}_core: Option<{core_options_type}> = {options_param}.map(|v| v.into());\n    \
              // Inject the visitor handle: upgrade existing options or construct defaults.\n    \
              let {options_param}_core: Option<{core_options_type}> = if let Some(handle) = {visitor_kwarg}_handle {{\n        \
              let mut opts = {options_param}_core.unwrap_or_default();\n        \
@@ -1161,10 +1161,7 @@ pub fn gen_bridge_field_function(
     } else {
         format!(
             "let mut {options_param}_core: {core_options_type} = match &{options_param} {{\n        \
-             Some(opts) => {{\n            \
-             let json = serde_json::to_string(opts){serde_err_conv}?;\n            \
-             serde_json::from_str(&json){serde_err_conv}?\n        \
-             }}\n        \
+             Some(opts) => opts.clone().into(),\n        \
              None => {core_options_type}::default(),\n    \
              }};\n    \
              if let Some(handle) = {visitor_kwarg}_handle {{\n        \
