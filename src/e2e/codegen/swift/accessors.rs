@@ -1,7 +1,7 @@
 use crate::codegen::keywords::swift_ident;
 use crate::e2e::field_access::FieldResolver;
 use heck::ToLowerCamelCase;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Build a Swift accessor path for the given fixture field, inserting `()` on
 /// every segment and `?` after every optional non-leaf segment.

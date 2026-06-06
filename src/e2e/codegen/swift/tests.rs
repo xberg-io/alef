@@ -1,6 +1,6 @@
 //! Swift e2e codegen unit tests.
 
-use super::*;
+use super::accessors::{swift_build_accessor, swift_stringy_aggregator_contains_assert};
 use crate::e2e::field_access::FieldResolver;
 use std::collections::{HashMap, HashSet};
 
@@ -22,7 +22,7 @@ fn make_resolver_tool_calls() -> FieldResolver {
 /// value".
 ///
 /// With no `SwiftFirstClassMap` configured (default in this test), every
-/// accessor is emitted as a swift-bridge method call — so accessors are
+/// accessor is emitted as a swift-bridge method call, so accessors are
 /// `result.choices()[0].message().toolCalls()?[0].function().name()`.
 #[test]
 fn optional_vec_subscript_does_not_emit_trailing_question_mark_before_next_segment() {
@@ -53,7 +53,7 @@ fn optional_vec_subscript_does_not_emit_trailing_question_mark_before_next_segme
 /// `contains` against an array of opaque DTOs must aggregate every
 /// text-bearing accessor of the element type and substring-match the
 /// expected value, mirroring python's `_alef_e2e_item_texts`. This
-/// avoids the brittle "primary accessor" guess (e.g. ImportInfo →
+/// avoids the brittle "primary accessor" guess (e.g. ImportInfo ->
 /// source) that misses values surfaced through sibling fields like
 /// `items` or `alias`.
 #[test]
@@ -124,7 +124,7 @@ fn contains_against_vec_dto_aggregates_stringy_accessors() {
         line.contains("if let v = item.alias()"),
         "expected optional alias() unwrap: {line}"
     );
-    // Substring match — NOT exact equality.
+    // Substring match, NOT exact equality.
     assert!(
         line.contains("$0.contains(\"os\")"),
         "expected substring contains over expected value: {line}"
@@ -134,7 +134,7 @@ fn contains_against_vec_dto_aggregates_stringy_accessors() {
 
 /// When the element type has fewer than 2 stringy accessors, the
 /// aggregator should bow out and let the simpler single-accessor path
-/// emit code — keeping diff churn minimal on fixtures that already pass.
+/// emit code, keeping diff churn minimal on fixtures that already pass.
 #[test]
 fn contains_aggregator_skips_when_only_one_stringy_field() {
     use crate::e2e::field_access::{StringyField, StringyFieldKind, SwiftFirstClassMap};

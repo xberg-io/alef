@@ -1,5 +1,7 @@
 //! Swift e2e test-backend stub emission.
 
+use crate::e2e::codegen::TestBackendEmission;
+
 /// Emit a Swift test backend stub class for a trait bridge.
 ///
 /// Generates a class conforming to `Swift{TraitName}Bridge`. Required methods
@@ -10,7 +12,7 @@ pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
-) -> super::TestBackendEmission {
+) -> TestBackendEmission {
     use crate::backends::swift::type_map::SwiftMapper;
     use crate::codegen::defaults::language_defaults;
     use crate::codegen::type_mapper::TypeMapper as _;
@@ -46,7 +48,7 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "    func shutdown() throws {{}}");
     }
 
-    // Required methods — trait bridge protocols marshal excluded types as JSON strings.
+    // Required methods: trait bridge protocols marshal excluded types as JSON strings.
     // Use concrete Swift types, converting Named types to String (JSON marshalling).
     for method in methods {
         if method.has_default_impl {
@@ -105,7 +107,7 @@ pub fn emit_test_backend(
     // Emit without module qualification: caller will add it when needed.
     let teardown = format!("try? {unregister_fn}(\"{adapter_name}\")");
 
-    super::TestBackendEmission {
+    TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("{class_name}()"),
         type_imports: Vec::new(),

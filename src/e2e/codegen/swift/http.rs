@@ -4,8 +4,7 @@ use crate::e2e::fixture::{Fixture, ValidationErrorExpectation};
 use heck::ToUpperCamelCase;
 use std::fmt::Write as _;
 
-use super::escape_swift;
-use super::values::json_to_swift;
+use super::values::{escape_swift, json_to_swift};
 
 // ---------------------------------------------------------------------------
 // HTTP test rendering — TestClientRenderer impl + thin driver wrapper
