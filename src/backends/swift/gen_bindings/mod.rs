@@ -1420,7 +1420,6 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 has_custom_wire_name => swift_name != rust_name,
             },
         ));
-        coding_key_cases.push('\n');
     }
 
     let mut decode_cases = String::new();
