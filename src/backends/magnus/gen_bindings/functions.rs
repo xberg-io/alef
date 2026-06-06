@@ -442,7 +442,7 @@ pub(super) fn gen_function(
         format!("{}\n    ", deser_lines.join("\n    "))
     };
 
-    let body = if can_delegate || serde_recoverable {
+    let body = if can_delegate || serde_recoverable || needs_vec_named_let_binding {
         let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
             generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
         } else {
@@ -888,7 +888,7 @@ pub(super) fn gen_async_function(
         format!("{}\n    ", deser_lines.join("\n    "))
     };
 
-    let body = if can_delegate || serde_recoverable {
+    let body = if can_delegate || serde_recoverable || needs_vec_named_let_binding {
         let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
             generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
         } else {

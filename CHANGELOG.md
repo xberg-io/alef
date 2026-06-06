@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **magnus/Ruby**: delegatable free functions with `Vec<Named>` parameters now use the generated core
+  let-bindings in the call path, matching non-delegated serde recovery and avoiding calls with Ruby wrapper
+  values where core DTO values are required. (`src/backends/magnus/gen_bindings/functions.rs`)
+
 - **magnus tests**: updated the async `Vec<Named>` regression fixture to the current enum IR shape so the Magnus backend test target compiles. (`tests/backends_magnus_gen_bindings_test.rs`)
 
 - **extendr/R**: bare enum and non-opaque struct parameters now route through JSON bridging for generated R wrappers, including optional forms, avoiding `Robj` conversion paths that extendr cannot derive for those named types. (`src/backends/extendr/gen_bindings/mod.rs`)
