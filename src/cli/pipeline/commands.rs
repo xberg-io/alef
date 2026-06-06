@@ -1365,11 +1365,12 @@ pub fn run_post_build(
 }
 
 /// Hard upper bound on how long a post-build `RunCommand` may run before alef
-/// considers it hung and kills it. Long-running subprocess generators like
-/// `flutter_rust_bridge_codegen` typically finish in under a minute on a warm
-/// cache; 10 minutes is a generous ceiling that catches genuine hangs without
-/// false-positiving slow first-runs on cold CI caches.
-const RUN_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+/// considers it hung and kills it. Cold-cache `cargo build --release` for the
+/// swift binding crate against a polyglot project's full feature set
+/// legitimately takes 10-20 minutes; FRB codegen on a warm cache finishes in
+/// under a minute. 30 minutes accommodates both without false-positiving
+/// slow first-runs on cold CI caches.
+const RUN_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1800);
 
 /// Interval between `try_wait()` polls. Short enough to react promptly to a
 /// finished child, long enough not to burn CPU in a tight loop.
